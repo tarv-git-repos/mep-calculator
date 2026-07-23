@@ -1,0 +1,746 @@
+﻿import { Link, useRouterState, useNavigate, useRouter } from "@tanstack/react-router";
+import React, { useState, useEffect, useCallback, type ReactNode } from "react";
+import {
+  Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
+  LayoutDashboard, FolderKanban, Wind, Droplets, Flame,
+  Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Wrench, FileText,
+  Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert
+} from "lucide-react";
+import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
+import { useConfirm } from "@/hooks/use-confirm";
+
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+
+type NavLeaf = { label: string; to?: string; badge?: string; isHeader?: boolean };
+type NavItem =
+  | { kind: "item"; label: string; to?: string; icon: any }
+  | { kind: "group"; label: string; icon: any; children: NavLeaf[]; defaultOpen?: boolean };
+
+const NAV: NavItem[] = [
+  { kind: "item", label: "Dashboard", to: "/", icon: LayoutDashboard },
+  { kind: "item", label: "Projects", to: "/projects", icon: FolderKanban },
+  {
+    kind: "group", label: "HVAC", icon: Wind, defaultOpen: true,
+    children: [
+      { label: "CONCEPT DESIGN", isHeader: true },
+      { label: "Preliminary Cooling Load", to: "/preliminary-cooling-load" },
+      { label: "HYDRONIC SYSTEM", isHeader: true },
+      { label: "CHW Pipe Sizer", to: "/chw-pipe-sizer" },
+      { label: "CHW Pump Head", to: "/chw-pump-head" },
+      { label: "LOAD & VENTILATION", isHeader: true },
+      { label: "VENTILATION", to: "/ventilation" },
+      { label: "Fresh Air Cooling Load", to: "/fresh-air-cooling-load" },
+      { label: "Condensate Drain Calc", to: "/condensate-drain-calc" },
+      { label: "Heating Load", to: "/heating-load" },
+      { label: "SMOKE", isHeader: true },
+      { label: "Lobby Pressurisation", to: "/lobby-pressurisation" },
+      { label: "Staircase Pressurization", to: "/staircase-pressurization" },
+      { label: "Smoke Extract Fan", to: "/smoke-extract-fan" },
+      { label: "Basement Smoke Calc", to: "/basement-smoke-calc" },
+      { label: "AIR DISTRIBUTION", isHeader: true },
+      { label: "Duct Sizer", to: "/duct-sizer" },
+      { label: "Diffuser Selector", to: "/diffuser-selector" },
+      { label: "REFRIGERATION & MISC", isHeader: true },
+      { label: "Refrigerant Pipe Sizing", to: "/refrigerant-pipe-sizing" },
+      { label: "Condensate Drain", to: "/condensate-drain" },
+      { label: "DESIGN ASSISTANT", isHeader: true },
+      { label: "Sanity Check Tool", to: "/sanity-check-tool" },
+      { label: "PSYCHROMETRIC", isHeader: true },
+      { label: "Psychrometric", to: "/psychrometric" },
+    ],
+  },
+  {
+    kind: "group", label: "Electrical", icon: Zap,
+    children: [
+      { label: "Generator Sizing", to: "/generator-sizing" },
+      { label: "Transformer Sizing", to: "/transformer-sizing" },
+      { label: "Circuit Breaker Sizing", to: "/circuit-breaker-sizing" },
+      { label: "Busbar Calculation", to: "/busbar-calculation" },
+      { label: "Cable Tray Sizing", to: "/cable-tray-sizing" },
+      { label: "Capacitor Bank Sizing", to: "/capacitor-bank-sizing" },
+      { label: "UPS Sizing Calculation", to: "/ups-sizing-calculation" },
+      { label: "Central Battery Sizing", to: "/central-battery-sizing" },
+      { label: "LPD Calculation", to: "/lpd-calculation" },
+      { label: "Lighting LUX Calculation", to: "/lighting-lux-calculation" },
+      { label: "Load Summary", to: "/load-summary" },
+      { label: "Project Load Schedule (DB Builder)", to: "/project-load-schedule" },
+      { label: "Short Circuit Calculations", to: "/short-circuit-calculations" },
+      { label: "Cable Voltage Drop", to: "/cable-voltage-drop" },
+      { label: "Conductor (Cable) Sizing", to: "/conductor-sizing" },
+      { label: "Busbar Voltage Drop", to: "/busbar-voltage-drop" }
+    ],
+  },
+  {
+    kind: "group", label: "Fire Fighting", icon: Droplets,
+    children: [
+      { label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor" },
+      { label: "Sprinkler Density & Flow", to: "/plumbing-sprinkler-density" },
+      { label: "Hazen-Williams", to: "/plumbing-hazen-williams" },
+      { label: "FM-200 Calculation", to: "/plumbing-fm200" },
+      { label: "Fire Water Demand", to: "/plumbing-fire-water-demand" },
+      { label: "Fire Pump Duty", to: "/plumbing-fire-pump-duty" },
+      { label: "Fire Tank Capacity", to: "/plumbing-fire-tank-capacity" },
+      { label: "Tank Duration", to: "/plumbing-fire-tank-duration" }
+    ],
+  },
+  {
+    kind: "group", label: "Plumbing", icon: Wrench,
+    children: [
+      { label: "Water Demand", to: "/plumbing-water-demand" },
+      { label: "Fixture Unit Calculator", to: "/plumbing-fixture-unit" },
+      { label: "Loading Unit Calculator", to: "/plumbing-loading-unit" },
+      { label: "Supply Pipe Sizer", to: "/plumbing-supply-pipe-sizer" },
+      { label: "Pump Sizing (Transfer/Booster)", to: "/plumbing-pump-sizing" },
+      { label: "Pressure Vessel Sizing", to: "/plumbing-pressure-vessel" },
+      { label: "Sump Pump Sizing", to: "/plumbing-sump-pump" },
+      { label: "Drainage Sizing", to: "/plumbing-drainage" },
+      { label: "Discharge Unit Sizing", to: "/plumbing-discharge-unit" },
+      { label: "Sewage Pump Sizing", to: "/plumbing-sewage-pump" },
+      { label: "Storm Water Sizing", to: "/plumbing-storm-water" },
+      { label: "Tank Sizing", to: "/plumbing-tank-sizing" },
+      { label: "Gas Storage Capacity", to: "/plumbing-gas-tank" }
+    ],
+  },
+  { kind: "item", label: "Reports", to: "/reports", icon: FileBarChart },
+  { kind: "item", label: "Settings", to: "/settings", icon: Cog },
+];
+
+function getSections(children: NavLeaf[]) {
+  const sections: { header: string; items: NavLeaf[] }[] = [];
+  let currentSection: { header: string; items: NavLeaf[] } = { header: "", items: [] };
+
+  children.forEach((c) => {
+    if (c.isHeader) {
+      if (currentSection.items.length > 0 || currentSection.header) {
+        sections.push(currentSection);
+      }
+      currentSection = { header: c.label, items: [] };
+    } else {
+      currentSection.items.push(c);
+    }
+  });
+  if (currentSection.items.length > 0 || currentSection.header) {
+    sections.push(currentSection);
+  }
+  return sections;
+}
+
+const detectInputUnit = (el: HTMLElement) => {
+  const container = el.closest(".flex, .grid, div, label");
+  const textContext = container ? container.textContent || "" : "";
+  const lowercaseText = textContext.toLowerCase();
+  if (/\bgpm\b/i.test(lowercaseText)) return "gpm";
+  if (/\bl\/s\b|\blps\b/i.test(lowercaseText)) return "ls";
+  if (/\bl\/min\b|\blpm\b/i.test(lowercaseText)) return "lmin";
+  if (/\bpsi\b/i.test(lowercaseText)) return "psi";
+  if (/\bbar\b/i.test(lowercaseText)) return "bar";
+  if (/\bft\b|\bfeet\b/i.test(lowercaseText)) return "ft";
+  if (/\bm\b|\bmeters\b|\bmeter\b/i.test(lowercaseText)) return "m";
+  if (/\bgal\b|\bgallons\b/i.test(lowercaseText)) return "gal";
+  if (/\bliters\b|\bliter\b|\bl\b/i.test(lowercaseText)) return "l";
+  if (/\bsq\s*ft\b|\bft2\b/i.test(lowercaseText)) return "ft2";
+  if (/\bsq\s*m\b|\bm2\b/i.test(lowercaseText)) return "m2";
+  if (/\b°f\b|\bdeg\s*f\b/i.test(lowercaseText)) return "f";
+  if (/\b°c\b|\bdeg\s*c\b/i.test(lowercaseText)) return "c";
+  return null;
+};
+export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader }: {
+  children: ReactNode;
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  onIntelClick?: () => void;
+  intelOpen?: boolean;
+  intelLabel?: string;
+  hideSubHeader?: boolean;
+}) {
+  const confirm = useConfirm();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const searchObj = useRouterState({ select: (s) => s.location.search }) as Record<string, any>;
+  const activeName = searchObj?.name;
+  const navigate = useNavigate();
+  const { project, projects, selectProject } = useWorkspace();
+
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("mep-sidebar-open");
+      return saved !== "false";
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("mep-sidebar-open", String(sidebarOpen));
+  }, [sidebarOpen]);
+
+  const isLinkActive = (to?: string) => {
+    if (!to) return false;
+    if (to.includes("?")) {
+      const parts = to.split("?");
+      const path = parts[0];
+      const nameVal = new URLSearchParams(parts[1]).get("name");
+      return pathname === path && activeName === nameVal;
+    }
+    return pathname === to;
+  };
+
+  // Flyout mega-menu hover state
+  const [hoveredGroup, setHoveredGroup] = useState<{
+    item: Extract<NavItem, { kind: "group" }>;
+    top: number;
+  } | null>(null);
+  const [closeTimeoutId, setCloseTimeoutId] = useState<any>(null);
+
+  const handleMouseEnterGroup = (e: React.MouseEvent, item: Extract<NavItem, { kind: "group" }>) => {
+    if (closeTimeoutId) {
+      clearTimeout(closeTimeoutId);
+      setCloseTimeoutId(null);
+    }
+    setHoveredGroup({
+      item,
+      top: e.currentTarget.getBoundingClientRect().top,
+    });
+  };
+
+  const handleMouseLeaveGroup = () => {
+    const timeoutId = setTimeout(() => {
+      setHoveredGroup(null);
+    }, 150);
+    setCloseTimeoutId(timeoutId);
+  };
+
+  const handleFlyoutMouseEnter = () => {
+    if (closeTimeoutId) {
+      clearTimeout(closeTimeoutId);
+      setCloseTimeoutId(null);
+    }
+  };
+
+  // Unit System Transition modal states & capture listener
+  const [unitModalOpen, setUnitModalOpen] = useState(false);
+  const [pendingUnitToggle, setPendingUnitToggle] = useState<{
+    button: HTMLButtonElement;
+    targetSystem: "si" | "ip";
+  } | null>(null);
+
+  useEffect(() => {
+    const handleCaptureClick = (e: MouseEvent) => {
+      if ((window as any).__mep_bypass_unit_prompt) return;
+      const btn = (e.target as HTMLElement)?.closest("button");
+      if (!btn) return;
+
+      const text = (btn.textContent || "").trim();
+      const isSiToggle = /\bmetric\b|\bsi\b/i.test(text);
+      const isIpToggle = /\bimperial\b|\bip\b/i.test(text);
+      if (!isSiToggle && !isIpToggle) return;
+
+      const targetSystem = isSiToggle ? "si" : "ip";
+
+      // Ignore if button is already active/selected
+      if (
+        btn.classList.contains("bg-white") ||
+        btn.classList.contains("bg-orange-500") ||
+        btn.classList.contains("bg-red-600") ||
+        btn.classList.contains("bg-primary") ||
+        btn.getAttribute("aria-pressed") === "true" ||
+        btn.getAttribute("data-state") === "on"
+      ) {
+        return;
+      }
+
+      e.stopPropagation();
+      e.preventDefault();
+      setPendingUnitToggle({
+        button: btn as HTMLButtonElement,
+        targetSystem,
+      });
+      setUnitModalOpen(true);
+    };
+
+    document.addEventListener("click", handleCaptureClick, true);
+    return () => {
+      document.removeEventListener("click", handleCaptureClick, true);
+    };
+  }, []);
+
+  const handleKeepValuesAsIs = () => {
+    if (!pendingUnitToggle) return;
+    (window as any).__mep_keep_values = true;
+    (window as any).__mep_bypass_unit_prompt = true;
+    pendingUnitToggle.button.click();
+    (window as any).__mep_bypass_unit_prompt = false;
+    (window as any).__mep_keep_values = false;
+    setUnitModalOpen(false);
+    setPendingUnitToggle(null);
+  };
+
+  const handleConvertUnits = () => {
+    if (!pendingUnitToggle) return;
+    (window as any).__mep_bypass_unit_prompt = true;
+    (window as any).__mep_keep_values = false;
+    pendingUnitToggle.button.click();
+    (window as any).__mep_bypass_unit_prompt = false;
+    setUnitModalOpen(false);
+    setPendingUnitToggle(null);
+  };
+
+  const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";
+  const brandName = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K-Factor Calc" : "MEP Calc";
+  return (
+    <div className="grid h-screen grid-cols-[auto_1fr] grid-rows-[80px_1fr] bg-surface dark:bg-[#121212] text-foreground text-[14px] print:block print:h-auto">
+      {/* Top Header (Column 2, Row 1) */}
+      <header className={`appshell-header col-start-2 row-start-1 flex items-start pt-3.5 h-full bg-surface dark:bg-[#121212] no-print print:hidden transition-all duration-300 ${
+        sidebarOpen ? "pl-0 pr-3.5" : "px-3.5"
+      }`}>
+        <div className="flex-1 bg-card dark:bg-[#1a1a1a] border border-border dark:border-[#262626] rounded-full h-[60px] px-5 flex items-center shadow-[0_1px_3px_rgba(0,0,0,0.05)] relative">
+          <div className="flex items-center justify-between w-full">
+            {/* Left side: Project Selector */}
+            <div className="flex items-center gap-2">
+              {!sidebarOpen && (
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors mr-1 shrink-0"
+                  title="Expand Sidebar"
+                >
+                  <PanelLeftOpen className="size-5" />
+                </button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-2.5 h-10 px-4 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150">
+                    <Building2 className="size-4 text-muted-foreground" />
+                    <span className="font-semibold text-foreground dark:text-white">{project.name}</span>
+                    <span className="text-muted-foreground font-mono text-[11px]">{project.code}</span>
+                    <ChevronDown className="size-3.5 text-muted-foreground ml-0.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64 p-1 bg-popover border border-border rounded-lg shadow-lg font-sans">
+                  <DropdownMenuLabel className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider py-1.5 px-2">
+                    Switch Project
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <div className="max-h-60 overflow-y-auto">
+                    {projects.map((p) => {
+                      const active = p.id === project.id;
+                      return (
+                        <DropdownMenuItem
+                          key={p.id}
+                          onClick={async () => {
+                            if (dirtyStore.isDirty) {
+                              const ok = await confirm("You have unsaved changes in this calculator. Do you want to switch projects without saving?", { title: "Unsaved Changes", confirmText: "Don't Save" });
+                              if (!ok) return;
+                              dirtyStore.set(false);
+                            }
+                            selectProject(p.id);
+                          }}
+                          className={`flex flex-col items-start gap-0.5 px-2 py-1.5 rounded cursor-pointer text-[13px] ${
+                            active ? "bg-primary/10 text-primary font-medium" : "hover:bg-surface-2 text-foreground"
+                          }`}
+                        >
+                          <span className="font-medium">{p.name}</span>
+                          <span className="text-[11px] text-muted-foreground font-mono">{p.code}</span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={async (e) => {
+                      if (dirtyStore.isDirty) {
+                        e.preventDefault();
+                        const ok = await confirm("You have unsaved changes. Do you want to leave without saving?", { title: "Unsaved Changes", confirmText: "Don't Save" });
+                        if (!ok) return;
+                        dirtyStore.set(false);
+                      }
+                      navigate({ to: "/projects" });
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-[13.5px] text-primary hover:bg-primary/5 font-semibold"
+                  >
+                    <Plus className="size-4" />
+                    Create New Project
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Centered Search Bar */}
+            <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <input
+                  placeholder="Search calculators, projects…"
+                  className="h-10 w-[400px] pl-11 pr-12 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] focus:border-border-strong rounded-full text-[13.5px] outline-none transition-all duration-150"
+                />
+                <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[9.5px] font-sans font-medium text-muted-foreground bg-background dark:bg-white/5 border border-border dark:border-[#262626] rounded px-1.5 py-0.5 select-none leading-none">?K</kbd>
+              </div>
+            </div>
+
+            {/* Right side: Action Widgets */}
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => {
+                  document.documentElement.classList.toggle("dark");
+                }}
+                className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title="Toggle Dark Mode"
+              >
+                <Moon className="size-5" />
+              </button>
+              <button className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+                <Bell className="size-5" />
+              </button>
+              <div className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626]">
+                JM
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Sidebar (Column 1, Rows 1-2) */}
+      <aside className={`appshell-sidebar col-start-1 row-start-1 row-span-2 bg-surface dark:bg-[#121212] flex flex-col no-print print:hidden select-none transition-all duration-300 ease-in-out ${
+        sidebarOpen 
+          ? "w-[280px] p-3.5 opacity-100" 
+          : "w-0 p-0 opacity-0 overflow-hidden pointer-events-none"
+      }`}>
+        <div className="flex-1 bg-card dark:bg-[#1a1a1a] border border-border dark:border-[#262626] rounded-3xl flex flex-col overflow-hidden w-[252px] min-w-[252px]">
+          {/* Brand Header */}
+          <div className="p-4 flex items-center justify-between border-b border-border dark:border-[#262626]">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-foreground text-background dark:bg-white dark:text-black flex items-center justify-center font-bold text-[17px] shrink-0 font-sans shadow-sm">
+                {logoLetter}
+              </div>
+              <span className="font-bold text-foreground dark:text-white text-[15px] font-sans tracking-tight">
+                {brandName}
+              </span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="size-8 rounded-lg hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+              title="Collapse Sidebar"
+            >
+              <PanelLeftClose className="size-4" />
+            </button>
+          </div>
+
+          {/* Navigation Items */}
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
+            {(import.meta.env.VITE_APP_MODE === 'kfactor'
+              ? [
+                  { kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }
+                ]
+              : NAV
+            ).map((n) =>
+              n.kind === "item" ? (
+                <NavLink
+                  key={n.label}
+                  to={n.to}
+                  icon={n.icon}
+                  label={n.label}
+                  active={!!n.to && isLinkActive(n.to)}
+                />
+              ) : (
+                <NavGroup
+                  key={n.label}
+                  item={n}
+                  pathname={pathname}
+                  activeName={activeName}
+                  sidebarOpen={sidebarOpen}
+                  onMouseEnter={(e) => handleMouseEnterGroup(e, n)}
+                  onMouseLeave={handleMouseLeaveGroup}
+                />
+              )
+            )}
+          </nav>
+
+          {/* Bottom Sync Card */}
+          <div className="p-3 border-t border-border dark:border-[#262626] bg-card dark:bg-[#1a1a1a] flex justify-center w-full">
+            <div className="p-3 bg-surface-2 dark:bg-[#121212] border border-border dark:border-[#262626] rounded-2xl flex flex-col w-full">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground dark:text-[#9b9b9b] font-sans">Sync</span>
+                <span className="size-1.5 rounded-full bg-primary dark:bg-white shrink-0" />
+              </div>
+              <span className="text-[12.5px] text-foreground dark:text-white font-medium mt-1 font-sans">All calculations saved</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content (Column 2, Row 2) */}
+      <main className={`col-start-2 row-start-2 min-w-0 flex flex-col overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300 ${
+        sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "px-3.5 pb-3.5"
+      }`}>
+        {!hideSubHeader && (
+          <div className="flex items-center justify-between border-b border-border px-4 h-12 shrink-0 bg-surface-1 no-print print:hidden">
+            <div className="flex items-center gap-3">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[17px] font-semibold tracking-tight">{title}</h1>
+                {subtitle && <span className="text-[13px] text-muted-foreground">{subtitle}</span>}
+              </div>
+              {onIntelClick && (
+                <button 
+                  onClick={onIntelClick}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12px] font-medium border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  {intelLabel || "Intelligence"}
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {actions}
+            </div>
+          </div>
+        )}
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>
+      </main>
+      {/* FLOATING FLYOUT MEGA-MENU */}
+      {hoveredGroup && (
+        <div
+          onMouseEnter={handleFlyoutMouseEnter}
+          onMouseLeave={handleMouseLeaveGroup}
+          onClick={() => setHoveredGroup(null)}
+          className="fixed z-[9999] bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar"
+          style={{
+            left: `${sidebarOpen ? 272 : 72}px`,
+            top: `${Math.max(88, hoveredGroup.top - 60)}px`,
+          }}
+        >
+          <div className="flex items-center gap-2.5 border-b border-border/50 pb-3 mb-3.5 px-1">
+            {(() => {
+              const Icon = hoveredGroup.item.icon;
+              return <Icon className="size-4.5 text-primary" />;
+            })()}
+            <span className="font-bold text-[14px] text-foreground tracking-tight">
+              {hoveredGroup.item.label}
+            </span>
+          </div>
+
+          {(() => {
+            const sections = getSections(hoveredGroup.item.children);
+            const isHVAC = hoveredGroup.item.label === "HVAC";
+            const isMultiCol = isHVAC || (!sections[0]?.header && sections[0]?.items.length > 8);
+            return (
+              <div
+                className={`${
+                  isHVAC ? "w-[540px]" : isMultiCol ? "w-[480px]" : "w-[260px]"
+                } ${isHVAC ? "grid grid-cols-2 gap-4" : "flex flex-col gap-3.5"}`}
+              >
+                {sections.map((sec, idx) => (
+                  <div key={idx} className="flex flex-col gap-1.5">
+                    {sec.header && (
+                      <div className="text-[9.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest pt-1 px-2 select-none border-b border-border/30 pb-0.5 mb-1.5">
+                        {sec.header}
+                      </div>
+                    )}
+                    <div
+                      className={
+                        !sec.header && sec.items.length > 8
+                          ? "grid grid-cols-2 gap-x-4 gap-y-1"
+                          : "space-y-0.5"
+                      }
+                    >
+                      {sec.items.map((c) => (
+                        <NavLink
+                          key={c.label}
+                          to={c.to}
+                          label={c.label}
+                          active={!!c.to && isLinkActive(c.to)}
+                          showDot={true}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* UNIT SYSTEM TRANSITION MODAL */}
+      {unitModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 font-sans">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-full bg-red-100 dark:bg-red-950/40 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
+                <TriangleAlert className="size-5 text-red-500" />
+              </div>
+              <h3 className="text-[17px] font-bold text-foreground">Unit System Transition</h3>
+            </div>
+            <p className="text-[13.5px] text-muted-foreground leading-normal font-medium">
+              You are switching between Imperial (IP) and Metric (SI) units. How would you like to handle the entered input values?
+            </p>
+            <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => {
+                  setUnitModalOpen(false);
+                  setPendingUnitToggle(null);
+                }}
+                className="w-full sm:w-auto px-4 py-2 border border-slate-250 dark:border-zinc-800 text-[12.5px] font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-800 text-foreground cursor-pointer outline-none transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleKeepValuesAsIs}
+                className="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-200 text-[12.5px] font-bold rounded-xl cursor-pointer outline-none transition-colors"
+              >
+                Keep Values As-Is
+              </button>
+              <button
+                onClick={handleConvertUnits}
+                className="w-full sm:w-auto px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-[12.5px] font-bold rounded-xl cursor-pointer outline-none transition-colors shadow-sm"
+              >
+                Convert Values
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NavLink({
+  to,
+  icon: Icon,
+  label,
+  active,
+  indent,
+  showDot,
+}: {
+  to?: string;
+  icon?: any;
+  label: string;
+  active?: boolean;
+  indent?: boolean;
+  showDot?: boolean;
+}) {
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const router = useRouter();
+  const cls = `flex items-center gap-2 ${showDot ? "pl-2.5 pr-3" : "px-3"} py-1.5 rounded-xl text-[13px] transition-all duration-150 cursor-pointer ${indent ? "pl-8" : ""} ${
+    active
+      ? "bg-primary/10 text-primary font-semibold dark:bg-primary/20 dark:text-primary-foreground"
+      : "text-muted-foreground hover:bg-surface-2 hover:text-foreground dark:text-[#9b9b9b] dark:hover:bg-white/5 dark:hover:text-white"
+  }`;
+  const content = (
+    <>
+      {Icon && <Icon className={`size-4 ${active ? "text-primary" : "text-muted-foreground dark:text-[#9b9b9b]"}`} />}
+      {showDot && (
+        <span className={`size-1.5 rounded-full shrink-0 ${active ? "bg-primary" : "bg-slate-350 dark:bg-slate-600"}`} />
+      )}
+      <span className="flex-1 truncate text-left">{label}</span>
+      {active && !showDot && <span className="size-1.5 rounded-full bg-primary dark:bg-white shrink-0" />}
+    </>
+  );
+
+  const handleClick = useCallback(async (e: React.MouseEvent) => {
+    if (!to) return;
+    if (dirtyStore.isDirty) {
+      e.preventDefault();
+      e.stopPropagation();
+      const ok = await confirm(
+        "You have unsaved changes in this calculator. Do you want to leave without saving?",
+        { title: "Unsaved Changes", confirmText: "Don't Save" }
+      );
+      if (ok) {
+        dirtyStore.set(false);
+        if (to.startsWith("/")) {
+          let path = to;
+          let searchObj: any = undefined;
+          if (to.includes("?")) {
+            const parts = to.split("?");
+            path = parts[0];
+            const params = new URLSearchParams(parts[1]);
+            const nameVal = params.get("name");
+            if (nameVal) {
+              searchObj = { name: nameVal };
+            }
+          }
+          router.navigate({ to: path as any, search: searchObj });
+        }
+      }
+    }
+  }, [to, confirm, router]);
+
+  if (to && to.startsWith("/")) {
+    let path = to;
+    let searchObj: any = undefined;
+    if (to.includes("?")) {
+      const parts = to.split("?");
+      path = parts[0];
+      const params = new URLSearchParams(parts[1]);
+      const nameVal = params.get("name");
+      if (nameVal) {
+        searchObj = { name: nameVal };
+      }
+    }
+    return <Link to={path as any} search={searchObj} className={cls} onClick={handleClick}>{content}</Link>;
+  }
+  return <button className={cls} onClick={handleClick}>{content}</button>;
+}
+
+function NavGroup({ 
+  item, 
+  pathname, 
+  activeName,
+  sidebarOpen,
+  onMouseEnter,
+  onMouseLeave
+}: { 
+  item: Extract<NavItem, { kind: "group" }>; 
+  pathname: string; 
+  activeName?: string;
+  sidebarOpen: boolean;
+  onMouseEnter: (e: React.MouseEvent) => void;
+  onMouseLeave: () => void;
+}) {
+  const isLinkActive = (to?: string) => {
+    if (!to) return false;
+    if (to.includes("?")) {
+      const parts = to.split("?");
+      const path = parts[0];
+      const nameVal = new URLSearchParams(parts[1]).get("name");
+      return pathname === path && activeName === nameVal;
+    }
+    return pathname === to;
+  };
+
+  const hasActiveChild = item.children.some((c) => c.to && isLinkActive(c.to));
+  const Icon = item.icon;
+
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="relative"
+    >
+      <button
+        className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13.5px] transition-all duration-150 cursor-pointer ${
+          hasActiveChild
+            ? "bg-surface-2 text-foreground font-semibold dark:bg-white/10 dark:text-white"
+            : "text-muted-foreground hover:bg-surface-2 hover:text-foreground dark:text-[#9b9b9b] dark:hover:bg-white/5 dark:hover:text-white"
+        }`}
+      >
+        <Icon className="size-4 shrink-0" />
+        <span className="flex-1 text-left truncate">{item.label}</span>
+      </button>
+    </div>
+  );
+}
+
+
+

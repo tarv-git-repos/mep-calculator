@@ -1,0 +1,14 @@
+export const STANDARD_DG_SIZES_KVA = [
+  5, 7.5, 10, 15, 20, 25, 30, 40, 50, 62.5, 75, 82.5, 100, 125, 160, 200, 250, 320, 380, 400, 500, 600, 625, 750, 1000, 1250, 1500, 2000, 2500, 3000
+];
+
+export const DG_STARTING_MULTIPLIERS = {
+  DOL: 7,
+  STAR_DELTA: 3.5,
+  SOFT_STARTER: 3.5,
+  VFD: 1.5,
+  NONE: 1,
+};
+
+export const STANDARD_ALTERNATOR_REACTANCE = 0.15; // 15% typical
+export const TYPICAL_DG_EFFICIENCY = 0.95;

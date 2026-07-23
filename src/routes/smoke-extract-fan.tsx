@@ -1,0 +1,544 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useState, useMemo, useEffect } from "react";
+import { AppShell } from "@/components/workspace/AppShell";
+import { TBtn } from "@/components/workspace/Button";
+import {
+  AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
+  Save, FolderOpen, ChevronDown, ChevronUp, Trash2
+} from "lucide-react";
+import * as XLSX from "xlsx";
+
+export const Route = createFileRoute("/smoke-extract-fan")({
+  head: () => ({
+    meta: [
+      { title: "Smoke Extract Fan — MEP Calc" },
+      { name: "description", content: "Smoke Extract Fan calculator for corridor smoke extract sizing and static pressure." },
+    ],
+  }),
+  component: SmokeExtractFanPage,
+});
+
+interface SavedCalculation {
+  id: string;
+  type: string;
+  name: string;
+  savedAt: string;
+  values: Record<string, any>;
+}
+
+function SmokeExtractFanPage() {
+  const [area, setArea] = useState<number>(100);
+  const [height, setHeight] = useState<number>(3.0);
+  const [acph, setAcph] = useState<number>(10);
+  const [fanQty, setFanQty] = useState<number>(1);
+
+  const [ductLength, setDuctLength] = useState<number>(20);
+  const [frictionFactor, setFrictionFactor] = useState<number>(1.0); // Pa/m
+  const [louverLoss, setLouverLoss] = useState<number>(50); // Pa
+  const [fanLoss, setFanLoss] = useState<number>(20); // Pa
+
+  const [effMotor, setEffMotor] = useState<number>(90); // %
+  const [effFan, setEffFan] = useState<number>(75); // %
+  const [numFansMotor, setNumFansMotor] = useState<number>(1);
+
+  // Expandable sections
+  const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
+
+  // Custom Load/Save dialogs
+  const [saves, setSaves] = useState<SavedCalculation[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+  const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
+  const [saveName, setSaveName] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("mep_custom_calculator_saves");
+      if (stored) {
+        setSaves(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error("Failed to load custom saves", e);
+    }
+  }, []);
+
+  const saveToLocalStorage = (newSaves: SavedCalculation[]) => {
+    setSaves(newSaves);
+    localStorage.setItem("mep_custom_calculator_saves", JSON.stringify(newSaves));
+  };
+
+  const handleSaveCurrent = () => {
+    if (!saveName.trim()) return;
+    const newSave: SavedCalculation = {
+      id: "custom_calc_" + Date.now(),
+      type: "smoke-extract",
+      name: saveName.trim(),
+      savedAt: new Date().toISOString(),
+      values: {
+        "se-corridor-area": area,
+        "se-corridor-height": height,
+        "se-acph": acph,
+        "se-fan-qty": fanQty,
+        "se-smoke-duct-length": ductLength,
+        "se-smoke-duct-friction-factor": frictionFactor,
+        "se-smoke-losses-louvers": louverLoss,
+        "se-smoke-losses-fan": fanLoss,
+        "se-motor-eff-motor": effMotor,
+        "se-motor-eff-fan": effFan,
+        "se-motor-fan-qty": numFansMotor
+      }
+    };
+    const updated = [newSave, ...saves];
+    saveToLocalStorage(updated);
+    setSaveName("");
+    setShowSaveModal(false);
+  };
+
+  const handleLoadSave = (id: string) => {
+    const target = saves.find(s => s.id === id);
+    if (!target) return;
+    const v = target.values;
+    if (v["se-corridor-area"] !== undefined) setArea(Number(v["se-corridor-area"]));
+    if (v["se-corridor-height"] !== undefined) setHeight(Number(v["se-corridor-height"]));
+    if (v["se-acph"] !== undefined) setAcph(Number(v["se-acph"]));
+    if (v["se-fan-qty"] !== undefined) setFanQty(Number(v["se-fan-qty"]));
+    if (v["se-smoke-duct-length"] !== undefined) setDuctLength(Number(v["se-smoke-duct-length"]));
+    if (v["se-smoke-duct-friction-factor"] !== undefined) setFrictionFactor(Number(v["se-smoke-duct-friction-factor"]));
+    if (v["se-smoke-losses-louvers"] !== undefined) setLouverLoss(Number(v["se-smoke-losses-louvers"]));
+    if (v["se-smoke-losses-fan"] !== undefined) setFanLoss(Number(v["se-smoke-losses-fan"]));
+    if (v["se-motor-eff-motor"] !== undefined) setEffMotor(Number(v["se-motor-eff-motor"]));
+    if (v["se-motor-eff-fan"] !== undefined) setEffFan(Number(v["se-motor-eff-fan"]));
+    if (v["se-motor-fan-qty"] !== undefined) setNumFansMotor(Number(v["se-motor-fan-qty"]));
+    setShowLoadModal(false);
+  };
+
+  const handleDeleteSave = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = saves.filter(s => s.id !== id);
+    saveToLocalStorage(updated);
+  };
+
+  const calculatedData = useMemo(() => {
+    const volume = area * height;
+    const smokeExtractRate = (volume * acph) / 3600; // m³/s
+    const flowEachM3s = smokeExtractRate / (fanQty || 1);
+    const flowEachLsRound = Math.ceil((flowEachM3s * 1000) / 5) * 5;
+
+    const fittingsEqLen = ductLength * 0.6;
+    const totalEqLen = ductLength + fittingsEqLen;
+    const frictionLoss = frictionFactor * totalEqLen;
+    const baseLosses = frictionLoss + louverLoss + fanLoss;
+    const safetyHead = baseLosses * 0.1;
+    const totalHead = baseLosses + safetyHead;
+    const headRound = Math.round(totalHead / 10) * 10;
+
+    const effM = effMotor / 100;
+    const effF = effFan / 100;
+
+    const powerEach = (flowEachM3s * headRound) / ((effM * effF || 1) * 1000); // kW
+    const powerEachRound = Math.ceil(powerEach * 100) / 100; // nearest 0.01 kW
+    const totalMotorPower = powerEachRound * 1.1 * numFansMotor;
+
+    return {
+      volume,
+      smokeExtractRate,
+      flowEachM3s,
+      flowEachLsRound,
+      fittingsEqLen,
+      totalEqLen,
+      frictionLoss,
+      totalHead,
+      headRound,
+      powerEachRound,
+      totalMotorPower
+    };
+  }, [area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor]);
+
+  const handleExportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ["Smoke Extract Fan Calculation"],
+      [],
+      ["Corridor Parameters"],
+      ["Corridor Area", `${area} m²`],
+      ["Corridor Height", `${height} m`],
+      ["Corridor Volume", `${calculatedData.volume.toFixed(2)} m³`],
+      ["Air Change per Hour (ACPH)", acph],
+      ["Total Smoke Extract Rate", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`],
+      ["Quantity of Fans", fanQty],
+      ["Air Flow Rate per Fan", `${calculatedData.flowEachLsRound} L/s`],
+      [],
+      ["Static Head Sizing"],
+      ["Ducting Length", `${ductLength} m`],
+      ["Equivalent Fittings Length", `${calculatedData.fittingsEqLen.toFixed(2)} m`],
+      ["Total Equivalent Length", `${calculatedData.totalEqLen.toFixed(2)} m`],
+      ["Duct Friction Factor", `${frictionFactor} Pa/m`],
+      ["Duct Friction Loss", `${calculatedData.frictionLoss.toFixed(2)} Pa`],
+      ["Louver & Grille Drop", `${louverLoss} Pa`],
+      ["Internal Fan Drop", `${fanLoss} Pa`],
+      ["Fan Total Head", `${calculatedData.headRound} Pa`],
+      [],
+      ["Motor Selection"],
+      ["Motor Efficiency", `${effMotor} %`],
+      ["Fan Efficiency", `${effFan} %`],
+      ["Power Required per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`],
+      ["Number of Motor Fans", numFansMotor],
+      ["Total Motor Power (+10% Safety)", `${calculatedData.totalMotorPower.toFixed(2)} kW`],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, "Smoke Extract Fan");
+    XLSX.writeFile(wb, "Smoke_Extract_Fan.xlsx");
+  };
+
+  return (
+    <AppShell title="Smoke Extract Fan" hideSubHeader={true}>
+      <div className="flex h-full min-h-0 bg-transparent font-sans">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
+          <div className="flex flex-col gap-1 select-none">
+            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">SMOKE MANAGEMENT &gt; SMOKE EXTRACT</span>
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>
+              
+              {/* Calculation Persistence Bar */}
+              <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-border/80 text-xs">
+                <span className="font-semibold text-muted-foreground px-2">💾 Calculation Files:</span>
+                <button
+                  onClick={() => setShowSaveModal(true)}
+                  className="bg-primary text-primary-foreground font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition hover:bg-primary/90 cursor-pointer"
+                >
+                  <Save className="size-3.5" /> Save Current
+                </button>
+                <button
+                  onClick={() => setShowLoadModal(true)}
+                  className="bg-primary/10 hover:bg-primary/20 text-primary font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition cursor-pointer"
+                >
+                  <FolderOpen className="size-3.5" /> Load Saved
+                </button>
+              </div>
+            </div>
+            <p className="text-[13px] text-muted-foreground mt-0.5">
+              Calculate corridor air volume smoke extract rates and duct static pressure drops for extract fan systems.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Inputs Column */}
+            <div className="lg:col-span-5 flex flex-col gap-6">
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Corridor Parameters</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Area of Corridor (m²)</label>
+                    <input type="number" step="any" value={area} onChange={(e) => setArea(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Height of Corridor (m)</label>
+                    <input type="number" step="any" value={height} onChange={(e) => setHeight(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Air Changes per Hour (ACPH)</label>
+                    <input type="number" step="any" value={acph} onChange={(e) => setAcph(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Quantity of Fans</label>
+                    <input type="number" min="1" step="1" value={fanQty} onChange={(e) => { const v = Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Fan Head Sizing */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Duct Static Head Loss</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Ducting Length (m)</label>
+                    <input type="number" step="any" value={ductLength} onChange={(e) => setDuctLength(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Frictional Factor (Pa/m)</label>
+                    <input type="number" step="any" value={frictionFactor} onChange={(e) => setFrictionFactor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Louver &amp; Grille Pressure Drop (Pa)</label>
+                    <input type="number" step="any" value={louverLoss} onChange={(e) => setLouverLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Fan Internal Losses (Pa)</label>
+                    <input type="number" step="any" value={fanLoss} onChange={(e) => setFanLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Efficiencies */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">3. Fan Motor Sizing</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Motor Efficiency (%)</label>
+                    <input type="number" step="any" value={effMotor} onChange={(e) => setEffMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Fan Efficiency (%)</label>
+                    <input type="number" step="any" value={effFan} onChange={(e) => setEffFan(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-semibold text-foreground">Number of Fans (Motor calculation)</label>
+                    <input type="number" min="1" step="1" value={numFansMotor} onChange={(e) => setNumFansMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Results Column */}
+            <div className="lg:col-span-7 flex flex-col gap-5">
+              <div className="flex items-center gap-2.5 bg-background border border-border rounded-xl p-2 select-none">
+                <TBtn onClick={handleExportExcel} className="h-8.5 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
+              </div>
+
+              {/* Summary card */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Airflow & static head results</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Corridor Volume</span>
+                    <strong className="font-bold text-foreground font-mono">{calculatedData.volume.toFixed(1)} m³</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Total Smoke Extract</span>
+                    <strong className="font-bold text-foreground font-mono">{calculatedData.smokeExtractRate.toFixed(3)} m³/s</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Airflow per Fan</span>
+                    <strong className="font-bold text-[#f78f22] text-[13px] font-mono">{calculatedData.flowEachLsRound} L/s</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Total Equivalent Length</span>
+                    <strong className="font-bold text-foreground font-mono">{calculatedData.totalEqLen.toFixed(1)} m</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40 col-span-2">
+                    <span className="font-semibold text-muted-foreground">Total Fan Static Head Loss</span>
+                    <strong className="font-bold text-[#f78f22] text-[14px] font-mono">{calculatedData.headRound} Pa</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Motor sizing card */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Motor Sizing Results</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40 col-span-2">
+                    <span className="font-semibold text-muted-foreground">Power Required per Fan</span>
+                    <strong className="font-bold text-foreground font-mono">{calculatedData.powerEachRound.toFixed(2)} kW</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 col-span-2">
+                    <span className="font-semibold text-muted-foreground">Total Motor Power (+10% Safety margin)</span>
+                    <strong className="font-bold text-[#f78f22] text-[14px] font-mono">{calculatedData.totalMotorPower.toFixed(2)} kW</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detailed Calculations Steps */}
+              <div className="bg-card border border-border rounded-2xl shadow-xs overflow-hidden">
+                <button
+                  onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
+                  className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
+                  </span>
+                  {showDetailedCalcs ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                </button>
+                {showDetailedCalcs && (
+                  <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[350px] overflow-y-auto">
+                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
+                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">1</div>
+                      <div>
+                        <div className="font-bold text-foreground">Step 1: Corridor Volume</div>
+                        <div className="font-mono text-primary my-1">V = Area × Height</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">V = {area} m² × {height} m</div>
+                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.volume.toFixed(2)} m³</div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
+                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">2</div>
+                      <div>
+                        <div className="font-bold text-foreground">Step 2: Smoke Extract Rate</div>
+                        <div className="font-mono text-primary my-1">Q_smoke = (Volume × ACPH) / 3600</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Q_smoke = ({calculatedData.volume.toFixed(2)} m³ × {acph} ACPH) / 3600</div>
+                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.smokeExtractRate.toFixed(3)} m³/s</div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
+                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">3</div>
+                      <div>
+                        <div className="font-bold text-foreground">Step 3: Sized Flow Rate per Fan</div>
+                        <div className="font-mono text-primary my-1">Q_each = Ceiling( (Q_smoke / fanQty × 1000) / 5 ) * 5</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Q_each = Ceiling( ({calculatedData.smokeExtractRate.toFixed(3)} / {fanQty} × 1000) / 5 ) * 5</div>
+                        <div className="font-bold text-[11px] text-[#f78f22] mt-0.5">{calculatedData.flowEachLsRound} L/s</div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
+                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">4</div>
+                      <div>
+                        <div className="font-bold text-foreground">Step 4: Ducting Equivalent Length & Friction Loss</div>
+                        <div className="font-mono text-primary my-1">Eq. Length = DuctLength × 1.6 | frictionLoss = Eq. Length × frictionFactor</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Eq. Length = {calculatedData.totalEqLen.toFixed(1)} m | frictionLoss = {calculatedData.totalEqLen.toFixed(1)} m × {frictionFactor} Pa/m</div>
+                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.frictionLoss.toFixed(2)} Pa</div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
+                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">5</div>
+                      <div>
+                        <div className="font-bold text-foreground">Step 5: Fan Total Static Head</div>
+                        <div className="font-mono text-primary my-1">Total Head = Round( (frictionLoss + LouverDrop + FanDrop) × 1.1 ) to nearest 10</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Total Head = Round( ({calculatedData.frictionLoss.toFixed(2)} + {louverLoss} + {fanLoss}) × 1.1 ) to nearest 10</div>
+                        <div className="font-bold text-[11px] text-[#f78f22] mt-0.5">{calculatedData.headRound} Pa</div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
+                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">6</div>
+                      <div>
+                        <div className="font-bold text-foreground">Step 6: Sized Power per Fan</div>
+                        <div className="font-mono text-primary my-1">Power = (FlowEachM3s × HeadRound) / (Eff_Motor × Eff_Fan × 1000)</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Power = ({calculatedData.flowEachM3s.toFixed(4)} m³/s × {calculatedData.headRound} Pa) / ({effMotor / 100} × {effFan / 100} × 1000)</div>
+                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.powerEachRound.toFixed(2)} kW</div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 items-start">
+                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">7</div>
+                      <div>
+                        <div className="font-bold text-foreground">Step 7: Sized Total Motor Power</div>
+                        <div className="font-mono text-primary my-1">Total Power = PowerEach × 1.1 × qtyFans (Motor calculation)</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Total Power = {calculatedData.powerEachRound.toFixed(2)} kW × 1.1 × {numFansMotor}</div>
+                        <div className="font-bold text-[11px] text-[#f78f22] mt-0.5">{calculatedData.totalMotorPower.toFixed(2)} kW</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Assumptions reference block */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
+                <p className="font-semibold text-foreground mb-1">Standard Reference & Assumptions:</p>
+                <ul className="list-disc pl-4 space-y-1.5">
+                  <li>Calculates fresh air requirements in accordance with NFPA 92 and BS EN 12101-6.</li>
+                  <li>Friction loss calculation uses equivalent length sizers for typical fitting indices ($1.6 \times$ duct length).</li>
+                  <li>Fan motor sizing includes a $+10\%$ electrical security factor applied to nominal shaft horsepower outputs.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Save Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl">
+            <h3 className="font-bold text-base text-foreground">Save Current Smoke Extract</h3>
+            <div className="flex flex-col gap-1.5 text-xs">
+              <label className="font-semibold text-muted-foreground">Calculation Name</label>
+              <input
+                type="text"
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                placeholder="e.g. GF Entrance Corridor"
+                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22] text-xs"
+              />
+            </div>
+            <div className="flex justify-end gap-2.5 mt-2">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCurrent}
+                className="px-4 py-2 bg-primary text-primary-foreground font-bold rounded-lg text-xs transition hover:bg-primary/95 cursor-pointer"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Modal */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-6 flex flex-col gap-4 shadow-2xl">
+            <h3 className="font-bold text-base text-foreground">Load Saved Calculations</h3>
+            <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+              {saves.filter(s => s.type === "smoke-extract").length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground text-xs">
+                  📭 No saved calculations found.
+                </div>
+              ) : (
+                saves
+                  .filter(s => s.type === "smoke-extract")
+                  .map(s => (
+                    <div
+                      key={s.id}
+                      onClick={() => handleLoadSave(s.id)}
+                      className="border border-border/70 rounded-xl p-3.5 hover:border-primary/50 transition cursor-pointer bg-slate-50/20 dark:bg-slate-900/10 flex justify-between items-center gap-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="font-bold text-xs text-foreground block truncate">{s.name}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">
+                          Area: {s.values["se-corridor-area"]}m² · Ht: {s.values["se-corridor-height"]}m · ACPH: {s.values["se-acph"]}
+                        </span>
+                        <span className="text-[9.5px] text-muted-foreground/80 mt-1 block">
+                          Saved: {new Date(s.savedAt).toLocaleString()}
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteSave(s.id, e)}
+                        className="text-muted-foreground hover:text-red-500 transition p-2 cursor-pointer"
+                        title="Delete Save"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+                  ))
+              )}
+            </div>
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={() => setShowLoadModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </AppShell>
+  );
+}

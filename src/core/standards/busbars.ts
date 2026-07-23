@@ -1,0 +1,8 @@
+export const STANDARD_BUSBAR_RATINGS_A = [
+  100, 160, 250, 400, 630, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6300
+];
+
+export const BUSBAR_MATERIAL = {
+  COPPER: "Copper",
+  ALUMINIUM: "Aluminium"
+};
