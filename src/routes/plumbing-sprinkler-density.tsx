@@ -121,7 +121,7 @@ function SprinklerDensityPage() {
     // Pressure (psi): e.g. 15. Max 50.
     const items = [
       { label: "Density x100", val: calcResults.densIP * 100, color: "#d17914", unit: "" },
-      { label: "Cover/head", val: calcResults.coverFt2, color: "#cf6610", unit: " ft²" },
+      { label: "Cover/head", val: calcResults.coverFt2, color: "#06456F", unit: " ft²" },
       { label: "Design Area / 10", val: calcResults.designAreaFt2 / 10, color: "#7C3AED", unit: " ft²" },
       { label: "Min Pressure", val: calcResults.pressReq, color: "#D97706", unit: " psi" }
     ];
@@ -543,7 +543,7 @@ function SprinklerDensityPage() {
                   </div>
 
                   <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex items-center gap-4 hover:border-primary/20 transition-all">
-                    <div className="size-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                    <div className="size-10 rounded-xl bg-sky-500/10 text-amber-500 flex items-center justify-center shrink-0">
                       <Activity className="size-5" />
                     </div>
                     <div>

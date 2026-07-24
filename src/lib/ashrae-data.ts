@@ -1022,14 +1022,54 @@ export const ASHRAE_OCCUPANCY_DATA: OccupancyData[] = [
   }
 ];
 
+export function toTitleCase(str: string): string {
+  if (!str) return str;
+  return str.replace(/\b([a-z])([a-z]*)\b/gi, (match, p1, p2) => {
+    const upper = match.toUpperCase();
+    if (upper === "EX" || upper === "WC" || upper === "OA" || upper === "ACH" || upper === "HVAC" || upper === "L" || upper === "S") {
+      return upper;
+    }
+    return p1.toUpperCase() + p2.toLowerCase();
+  });
+}
+
+// Convert all categories in database to Title Case dynamically
+ASHRAE_OCCUPANCY_DATA.forEach(d => {
+  d.category = toTitleCase(d.category);
+});
+
 export function getOccupancyCategories(): string[] {
-  const cats = ASHRAE_OCCUPANCY_DATA.map(d => d.category).sort();
-  cats.push("OTHER");
-  return cats;
+  const cats = ASHRAE_OCCUPANCY_DATA.map(d => d.category);
+  cats.push("Rest Room / Changing Room");
+  
+  const excluded = [
+    "EX. Shower rooms (continuous)",
+    "EX. Shower rooms (discontinuous)",
+    "EX. Toilet - private (continuous)",
+    "EX. Toilet - private (discontinuous)",
+    "EX. Toilet - public (continuous)",
+    "EX. Toilet - public (discontinuous)"
+  ].map(s => s.toLowerCase());
+
+  const filtered = cats.filter(c => !excluded.includes(c.toLowerCase()));
+  return filtered.sort((a, b) => getCategoryDisplayName(a).localeCompare(getCategoryDisplayName(b)));
 }
 
 export function getOccupancyData(category: string): OccupancyData | null {
-  return ASHRAE_OCCUPANCY_DATA.find(d => d.category === category) || null;
+  const normalized = toTitleCase(category);
+  if (normalized === "Rest Room / Changing Room" || category === "Rest Room / Changing Room") {
+    return {
+      category: "Rest Room / Changing Room",
+      peopleOA: 0.0,
+      areaOA: 0.0,
+      defaultDensity: 0.0,
+      exhaustPerUnit: 0.0,
+      exhaustPerArea: 0.0,
+      ach: 0.0,
+      airClass: 2
+    };
+  }
+  return ASHRAE_OCCUPANCY_DATA.find(d => d.category === normalized || d.category === category) || null;
 }
 
 export function getOutdoorAirRates(category: string): { peopleOA: number; areaOA: number } {
@@ -1042,4 +1082,8 @@ export function getExhaustData(category: string): { exhaustPerUnit: number; exha
   const data = getOccupancyData(category);
   if (!data) return { exhaustPerUnit: 0, exhaustPerArea: 0, ach: 0 };
   return { exhaustPerUnit: data.exhaustPerUnit, exhaustPerArea: data.exhaustPerArea, ach: data.ach };
+}
+
+export function getCategoryDisplayName(c: string): string {
+  return c || "";
 }

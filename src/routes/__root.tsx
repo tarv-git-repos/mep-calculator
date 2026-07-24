@@ -1,4 +1,4 @@
-﻿import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
@@ -161,8 +161,12 @@ function DirtyWatcher() {
       };
     }
 
-    // Mark dirty on any input/change inside the main content area
-    const onInput = () => dirtyStore.set(true);
+    // Mark dirty on any input/change inside the main content area, bypassing projects page
+    const onInput = () => {
+      const path = window.location.pathname || "";
+      if (path === "/projects" || path.endsWith("/projects")) return;
+      dirtyStore.set(true);
+    };
     document.addEventListener("input", onInput, true);
     document.addEventListener("change", onInput, true);
 

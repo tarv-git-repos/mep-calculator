@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { X, Info, CheckCircle } from "lucide-react";
-import { getOccupancyCategories, getOccupancyData } from "@/lib/ashrae-data";
+import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
 import { calculateVentilation, type Space } from "@/lib/ventilation-calc";
 import { predictOccupancyCategory, predictSpacePressure } from "@/lib/ai-occupancy";
+import { CategorySelect } from "./CategorySelect";
 
 interface EditSpaceModalProps {
   space: Space;
@@ -12,6 +13,17 @@ interface EditSpaceModalProps {
   availableEquipment: string[];
   availableFloors: string[];
 }
+
+const RESTROOM_SUBCATS = [
+  { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
+  { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
+  { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
+  { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
+  { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
+  { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
+  { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: "50.0 L/s per closet" },
+  { key: "lockerRoom", label: "Locker Rooms", rate: "25.0 L/s per room" },
+];
 
 export function EditSpaceModal({
   space,
@@ -23,6 +35,7 @@ export function EditSpaceModal({
 }: EditSpaceModalProps) {
   const [tempSpace, setTempSpace] = useState<Space>({ ...space });
   const [showPreview, setShowPreview] = useState(false);
+  const [showRestroomModal, setShowRestroomModal] = useState(false);
   const categories = getOccupancyCategories();
 
   // Run a live local calculation simulation for preview
@@ -38,7 +51,7 @@ export function EditSpaceModal({
 
   // Fetch current category constants
   const ashraeData = useMemo(() => {
-    if (tempSpace.category && !tempSpace.category.endsWith(" (Custom)") && tempSpace.category !== "OTHER") {
+    if (tempSpace.category && !tempSpace.category.endsWith(" (Custom)") && tempSpace.category !== "Other") {
       return getOccupancyData(tempSpace.category);
     }
     return null;
@@ -172,7 +185,7 @@ export function EditSpaceModal({
         const area = field === "area" ? parseFloat(value) || 0 : prev.area;
         const cat = field === "category" ? value : prev.category;
         
-        if (cat && !cat.endsWith(" (Custom)") && cat !== "OTHER") {
+        if (cat && !cat.endsWith(" (Custom)") && cat !== "Other") {
           const data = getOccupancyData(cat);
           if (data) {
             const density = data.defaultDensity || 0;
@@ -194,7 +207,7 @@ export function EditSpaceModal({
   const handleCategoryChange = (cat: string) => {
     setTempSpace((prev) => {
       const next = { ...prev, category: cat, aiDetected: false };
-      if (cat === "OTHER") {
+      if (cat === "Other") {
         next.category = "Custom (Custom)";
         next.customWorkflow = "calculate";
         next.customPeopleOA = 0;
@@ -202,6 +215,42 @@ export function EditSpaceModal({
         next.customExhaustPerUnit = 0;
         next.customExhaustPerArea = 0;
         next.customAch = 0;
+      } else if (cat === "Rest Room / Changing Room") {
+        delete next.customWorkflow;
+        delete next.customPeopleOA;
+        delete next.customAreaOA;
+        delete next.customExhaustPerUnit;
+        delete next.customExhaustPerArea;
+        delete next.customAch;
+        delete next.customFreshGiven;
+        delete next.customExtTaken;
+
+        if (!next.restroomSubCategories) {
+          next.restroomSubCategories = {
+            toiletPrivateContinuous: 0,
+            toiletPublicContinuous: 0,
+            toiletPrivateDiscontinuous: 0,
+            toiletPublicDiscontinuous: 0,
+            showerContinuous: 0,
+            showerDiscontinuous: 0,
+            janitorCloset: 0,
+            lockerRoom: 0,
+          };
+        }
+        // Open the Rest Room popup automatically
+        setTimeout(() => setShowRestroomModal(true), 50);
+      } else if (cat === "") {
+        delete next.customWorkflow;
+        delete next.customPeopleOA;
+        delete next.customAreaOA;
+        delete next.customExhaustPerUnit;
+        delete next.customExhaustPerArea;
+        delete next.customAch;
+        delete next.customFreshGiven;
+        delete next.customExtTaken;
+        next.category = "";
+        next.occupancy = 0;
+        next.fixtures = "";
       } else {
         delete next.customWorkflow;
         delete next.customPeopleOA;
@@ -297,19 +346,20 @@ export function EditSpaceModal({
                   <label className={labelClass}>
                     {tempSpace.aiDetected && <span title="Automatically identified" className="inline-block size-1.5 rounded-full bg-primary mr-1.5 cursor-help" />}Category Classification
                   </label>
-                  <select
-                    value={tempSpace.category && tempSpace.category.endsWith(" (Custom)") ? "OTHER" : tempSpace.category}
-                    onChange={(e) => handleCategoryChange(e.target.value)}
-                    className={selectClass}
-                  >
-                    <option value="" className="bg-white dark:bg-[#1e1e22] text-neutral-800 dark:text-neutral-200">-- Select Category --</option>
-                    {categories.filter(c => c !== "OTHER").map((cat) => (
-                      <option key={cat} value={cat} className="bg-white dark:bg-[#1e1e22] text-neutral-800 dark:text-neutral-200">
-                        {cat}
-                      </option>
-                    ))}
-                    <option value="OTHER" className="bg-white dark:bg-[#1e1e22] text-neutral-800 dark:text-neutral-200">Custom (Define Below)</option>
-                  </select>
+                  <CategorySelect
+                    value={tempSpace.category || ""}
+                    onChange={handleCategoryChange}
+                    triggerClassName="w-full bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer transition-all text-foreground h-9"
+                  />
+                  {tempSpace.category === "Rest Room / Changing Room" && (
+                    <button
+                      type="button"
+                      onClick={() => setShowRestroomModal(true)}
+                      className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2 text-[12px] font-bold bg-primary/10 text-primary hover:bg-primary/20 rounded-xl transition cursor-pointer"
+                    >
+                      ⚙️ Configure Rest Room / Changing Room Fixtures
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -645,7 +695,28 @@ export function EditSpaceModal({
               </h3>
 
               {/* Classification Card */}
-              {ashraeData && (
+              {tempSpace.category === "Rest Room / Changing Room" ? (
+                <div className="p-4 bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-2xl space-y-3 shrink-0 shadow-sm">
+                  <div className="text-[10px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider">
+                    Rest Room Configuration Summary
+                  </div>
+                  <div className="space-y-1.5 text-[11.5px] font-mono">
+                    {Object.entries(tempSpace.restroomSubCategories || {}).map(([key, val]) => {
+                      if (!val) return null;
+                      const subcat = RESTROOM_SUBCATS.find(s => s.key === key);
+                      return (
+                        <div key={key} className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1 select-none">
+                          <span className="text-neutral-500 dark:text-neutral-400 truncate max-w-[200px]">{subcat?.label}:</span>
+                          <span className="font-semibold text-neutral-800 dark:text-neutral-200 shrink-0">{val} unit(s)</span>
+                        </div>
+                      );
+                    })}
+                    {!Object.values(tempSpace.restroomSubCategories || {}).some(Boolean) && (
+                      <span className="text-[11.5px] italic text-neutral-500 dark:text-neutral-400 block py-0.5">No fixtures configured yet.</span>
+                    )}
+                  </div>
+                </div>
+              ) : ashraeData && (
                 <div className="p-4 bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-2xl space-y-3 shrink-0 shadow-sm">
                   <div className="text-[10px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider">
                     ASHRAE 62.1 Standard Rates
@@ -688,6 +759,8 @@ export function EditSpaceModal({
                     <div className="text-[10px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-2 rounded-xl border border-black/5 dark:border-white/5 break-all leading-relaxed">
                       {tempSpace.isManualAirflow ? (
                         `Manual override: ${tempSpace.manualFreshGiven || 0} L/s × ${tempSpace.multiplier || 1}`
+                      ) : tempSpace.category === "Rest Room / Changing Room" ? (
+                        `Restrooms require 0 L/s fresh air supply (exhaust only)`
                       ) : tempSpace.category && tempSpace.category.endsWith(" (Custom)") && tempSpace.customWorkflow === "direct" ? (
                         `Custom Direct: ${tempSpace.customFreshGiven || 0} L/s × ${tempSpace.multiplier || 1}`
                       ) : (
@@ -706,6 +779,8 @@ export function EditSpaceModal({
                     <div className="text-[10px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-2 rounded-xl border border-black/5 dark:border-white/5 break-all leading-relaxed">
                       {tempSpace.isManualAirflow ? (
                         `Manual override: ${tempSpace.manualExtTaken || 0} L/s × ${tempSpace.multiplier || 1}`
+                      ) : tempSpace.category === "Rest Room / Changing Room" ? (
+                        `Sum of fixtures exhaust × ${tempSpace.multiplier || 1}`
                       ) : tempSpace.category && tempSpace.category.endsWith(" (Custom)") && tempSpace.customWorkflow === "direct" ? (
                         `Custom Direct: ${tempSpace.customExtTaken || 0} L/s × ${tempSpace.multiplier || 1}`
                       ) : (
@@ -755,6 +830,102 @@ export function EditSpaceModal({
           </button>
         </footer>
       </div>
+
+      {showRestroomModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <header className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-zinc-900/30">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
+                  Rest Room / Changing Room Configuration
+                </h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Enter the quantity of each sub-category to compute total exhaust.
+                </p>
+              </div>
+            </header>
+            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+              {[
+                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
+                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
+                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
+                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
+                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
+                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
+                { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (tempSpace.area || 0)).toFixed(1)} L/s for ${(tempSpace.area || 0)} m² restroom)` },
+                { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (tempSpace.area || 0)).toFixed(1)} L/s for ${(tempSpace.area || 0)} m² restroom)` },
+              ].map((subcat) => {
+                const sub = tempSpace.restroomSubCategories || {};
+                const qty = sub[subcat.key] || 0;
+                return (
+                  <div key={subcat.key} className="flex items-center justify-between gap-4 py-1.5 border-b border-slate-100/60 dark:border-zinc-900/60">
+                    <div className="flex flex-col">
+                      <span className="text-[12.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                        {subcat.label}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground mt-0.5">
+                        {subcat.rate}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        value={qty}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseInt(e.target.value) || 0);
+                          setTempSpace((prev) => {
+                            const sub = prev.restroomSubCategories || {};
+                            return {
+                              ...prev,
+                              restroomSubCategories: {
+                                ...sub,
+                                [subcat.key]: val
+                              }
+                            };
+                          });
+                        }}
+                        className="w-20 h-9 px-2 text-center bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl text-[13px] font-bold outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-neutral-800 dark:text-neutral-200"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-6 py-4 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Total Exhaust
+                </span>
+                <span className="text-[15px] font-black text-primary">
+                  {(() => {
+                    const sub = tempSpace.restroomSubCategories || {};
+                    const areaVal = tempSpace.area || 0;
+                    let total = 0;
+                    total += (sub.toiletPrivateContinuous || 0) * 12.5;
+                    total += (sub.toiletPublicContinuous || 0) * 25.0;
+                    total += (sub.toiletPrivateDiscontinuous || 0) * 25.0;
+                    total += (sub.toiletPublicDiscontinuous || 0) * 35.0;
+                    total += (sub.showerContinuous || 0) * 10.0;
+                    total += (sub.showerDiscontinuous || 0) * 25.0;
+                    total += (sub.janitorCloset || 0) * areaVal * 5.0;
+                    total += (sub.lockerRoom || 0) * areaVal * 1.25;
+                    return total;
+                  })()}{" "}
+                  L/s
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRestroomModal(false)}
+                className="px-5 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-md hover:bg-primary/95 transition cursor-pointer"
+              >
+                Apply &amp; Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

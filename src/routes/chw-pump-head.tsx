@@ -549,7 +549,7 @@ function ChwPumpHeadPage() {
                         {/* FLOW DEMAND PARAMETERS */}
                         <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
                           <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2 border-b border-border/40 pb-2">
-                            <span className="w-1.5 h-3.5 bg-orange-500 rounded-sm"></span>
+                            <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
                             Flow Demand Parameters
                           </h3>
                           <div className="grid grid-cols-2 gap-4 items-center font-sans">
@@ -577,18 +577,18 @@ function ChwPumpHeadPage() {
                         <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
                           <div className="flex justify-between items-center border-b border-border/40 pb-2">
                             <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                              <span className="w-1.5 h-3.5 bg-orange-500 rounded-sm"></span>
+                              <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
                               Major & Minor Head Loss (Piping Run)
                             </h3>
                             <div className="text-xs text-muted-foreground flex items-center gap-1.5 select-none">
                               <span>Friction Factor:</span>
-                              <div className="bg-orange-500/10 dark:bg-orange-500/20 text-orange-600 px-2 py-0.5 rounded flex items-center gap-0.5 font-bold">
+                              <div className="bg-[#0A7BC7]/10 dark:bg-[#0A7BC7]/20 text-[#06456F] px-2 py-0.5 rounded flex items-center gap-0.5 font-bold">
                                 <input
                                   type="number"
                                   step="0.05"
                                   value={sizingParams.frictionFactor}
                                   onChange={(e) => saveParams({ ...sizingParams, frictionFactor: Number(e.target.value) }, unitSystem, projectInfo)}
-                                  className="w-9 bg-transparent text-orange-600 text-center outline-none border-none p-0 focus:ring-0 font-bold font-mono"
+                                  className="w-9 bg-transparent text-[#06456F] text-center outline-none border-none p-0 focus:ring-0 font-bold font-mono"
                                 />
                               </div>
                               <span className="text-[10px] font-semibold">{unitSystem === "ip" ? "psi/100ft" : "bar/100m length"}</span>
@@ -635,7 +635,7 @@ function ChwPumpHeadPage() {
                             </div>
                             <div>
                               <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Equiv Length</div>
-                              <div className="text-sm font-bold mt-1 text-orange-500 dark:text-orange-400">
+                              <div className="text-sm font-bold mt-1 text-[#0A7BC7] dark:text-sky-400">
                                 {calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}
                               </div>
                             </div>
@@ -645,7 +645,7 @@ function ChwPumpHeadPage() {
                         {/* PUMP HEAD REQUIREMENT */}
                         <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
                           <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2 border-b border-border/40 pb-2">
-                            <span className="w-1.5 h-3.5 bg-orange-500 rounded-sm"></span>
+                            <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
                             Pump Head Requirement
                           </h3>
                           
@@ -691,7 +691,7 @@ function ChwPumpHeadPage() {
                                 value={sizingParams.suctionPressure}
                                 step="0.1"
                                 onChange={(e) => saveParams({ ...sizingParams, suctionPressure: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-orange-50/50 dark:bg-orange-950/20 text-orange-600 border border-orange-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                className="w-full bg-blue-50/40/50 dark:bg-orange-950/20 text-[#06456F] border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
                               />
                             </div>
                           </div>
@@ -724,7 +724,7 @@ function ChwPumpHeadPage() {
 
                           <div className="mt-2 pt-3 border-t border-border/40 select-none">
                             <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Total Calculated Pump Head</div>
-                            <div className="text-base font-extrabold mt-1 text-[#f78f22]">
+                            <div className="text-base font-extrabold mt-1 text-[#0A7BC7]">
                               {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}
                             </div>
                           </div>
@@ -734,7 +734,7 @@ function ChwPumpHeadPage() {
                         {/* MOTOR & PUMP EFFICIENCY */}
                         <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
                           <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2 border-b border-border/40 pb-2">
-                            <span className="w-1.5 h-3.5 bg-orange-500 rounded-sm"></span>
+                            <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
                             Motor & Pump Efficiencies
                           </h3>
                           <div className="grid grid-cols-2 gap-3.5 text-xs font-sans">
@@ -838,13 +838,13 @@ function ChwPumpHeadPage() {
                                 {calculatedData.outletHeadDisplay.toFixed(2)} {calculatedData.headUnit}
                               </strong>
                             </div>
-                            <div className="flex justify-between items-center py-2.5 text-orange-600 dark:text-orange-400">
+                            <div className="flex justify-between items-center py-2.5 text-[#06456F] dark:text-sky-400">
                               <span className="font-sans">Suction Pressure (Deducted)</span>
                               <strong className="font-mono">
                                 -{calculatedData.suctionHeadDisplay.toFixed(2)} {calculatedData.headUnit}
                               </strong>
                             </div>
-                            <div className="flex justify-between items-center py-2.5 text-orange-600 dark:text-orange-400 font-bold border-t border-border/80">
+                            <div className="flex justify-between items-center py-2.5 text-[#06456F] dark:text-sky-400 font-bold border-t border-border/80">
                               <span className="font-sans">Total Calculated Pump Head</span>
                               <strong className="font-mono text-[13px]">
                                 {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}
@@ -884,7 +884,7 @@ function ChwPumpHeadPage() {
                                 {calculatedData.shaftPowerKw.toFixed(2)} kW
                               </strong>
                             </div>
-                            <div className="flex justify-between items-center py-3 px-3.5 bg-orange-500/5 border border-orange-500/10 rounded-xl mt-2 font-bold text-orange-600 dark:text-orange-400">
+                            <div className="flex justify-between items-center py-3 px-3.5 bg-[#0A7BC7]/5 border border-[#0A7BC7]/10 rounded-xl mt-2 font-bold text-[#06456F] dark:text-sky-400">
                               <span className="font-sans">Estimated Motor Power</span>
                               <strong className="font-mono text-[13.5px]">
                                 {calculatedData.motorPowerKw.toFixed(2)} kW / {calculatedData.motorPowerHp.toFixed(2)} HP
@@ -1003,11 +1003,11 @@ function ChwPumpHeadPage() {
                               <td className="p-2 border-r border-slate-200 font-sans">Residual Outlet Pressure required</td>
                               <td className="p-2 text-right">{calculatedData.outletHeadDisplay.toFixed(2)} {calculatedData.headUnit}</td>
                             </tr>
-                            <tr className="text-orange-600 font-bold">
+                            <tr className="text-[#06456F] font-bold">
                               <td className="p-2 border-r border-slate-200 font-sans">Suction pressure (Deducted)</td>
                               <td className="p-2 text-right">-{calculatedData.suctionHeadDisplay.toFixed(2)} {calculatedData.headUnit}</td>
                             </tr>
-                            <tr className="bg-orange-50 font-extrabold text-orange-950">
+                            <tr className="bg-blue-50/40 font-extrabold text-orange-950">
                               <td className="p-2 border-r border-slate-200 font-sans">TOTAL RECOMMENDED PUMP HEAD</td>
                               <td className="p-2 text-right">{calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}</td>
                             </tr>

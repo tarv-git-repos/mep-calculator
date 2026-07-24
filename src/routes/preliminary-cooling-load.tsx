@@ -1612,7 +1612,7 @@ function PreliminaryCoolingLoadPage() {
                               log.type === "danger"
                                 ? "bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-400"
                                 : log.type === "warning"
-                                  ? "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400"
+                                  ? "bg-sky-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400"
                                   : log.type === "success"
                                     ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400"
                                     : "bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-400"

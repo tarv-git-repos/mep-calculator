@@ -420,9 +420,9 @@ function ChwPipeSizerPage() {
     const flowU = ip ? "GPM" : "L/s";
 
     const bars = [
-      { label: 'Velocity', value: vel, color: vel > vMax ? '#f78f22' : '#d17914', unit: ' ' + u },
+      { label: 'Velocity', value: vel, color: vel > vMax ? '#0A7BC7' : '#d17914', unit: ' ' + u },
       { label: 'Max Allow', value: vMax, color: '#64748B', unit: ' ' + u },
-      { label: 'Flow Rate', value: flow, color: '#cf6610', unit: ' ' + flowU }
+      { label: 'Flow Rate', value: flow, color: '#06456F', unit: ' ' + flowU }
     ];
 
     const W = 540;
@@ -660,7 +660,7 @@ function ChwPipeSizerPage() {
                         {/* Inputs Card */}
                         <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative">
                           <div className="flex items-center gap-2 pb-2.5 border-b border-border/60">
-                            <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                            <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Inputs</h3>
                           </div>
 
@@ -689,7 +689,7 @@ function ChwPipeSizerPage() {
                                   saveParams({ ...sizingParams, flowRate: val }, unitSystem, projectInfo);
                                 }}
                                 placeholder="e.g. 80"
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]"
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
                               />
                             </div>
 
@@ -701,7 +701,7 @@ function ChwPipeSizerPage() {
                               <select
                                 value={sizingParams.fluidType}
                                 onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]"
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
                               >
                                 <option value="chw">Chilled Water</option>
                                 <option value="cw">Condenser Water</option>
@@ -727,7 +727,7 @@ function ChwPipeSizerPage() {
                                   saveParams({ ...sizingParams, temperature: val }, unitSystem, projectInfo);
                                 }}
                                 placeholder={unitSystem === "ip" ? "e.g. 44" : "e.g. 7"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]"
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
                               />
                             </div>
 
@@ -737,7 +737,7 @@ function ChwPipeSizerPage() {
                               <select
                                 value={sizingParams.materialRoughness}
                                 onChange={(e) => saveParams({ ...sizingParams, materialRoughness: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]"
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
                               >
                                 <option value="0.000046">Carbon Steel</option>
                                 <option value="0.0000015">Copper</option>
@@ -765,7 +765,7 @@ function ChwPipeSizerPage() {
                                   saveParams({ ...sizingParams, targetDp: val }, unitSystem, projectInfo);
                                 }}
                                 placeholder="e.g. 4.0"
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]"
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
                               />
                             </div>
                           </div>
@@ -775,7 +775,7 @@ function ChwPipeSizerPage() {
                         <button
                           type="button"
                           onClick={handleSizePipe}
-                          className="w-full bg-[#f78f22] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#cf6610] hover:shadow-sm active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer text-xs"
+                          className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer text-xs"
                         >
                           ⚡ Size Pipe
                         </button>
@@ -799,7 +799,7 @@ function ChwPipeSizerPage() {
                             {(calculatedData.velocityFps < 2 || calculatedData.velocityFps > 8) && (
                               <div className="flex flex-col gap-3">
                                 {calculatedData.velocityFps < 2 && (
-                                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] items-start">
+                                  <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] items-start">
                                     <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
                                     <div>
                                       <strong className="font-bold">Velocity Alert</strong>
@@ -810,7 +810,7 @@ function ChwPipeSizerPage() {
                                   </div>
                                 )}
                                 {calculatedData.velocityFps > 8 && (
-                                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] items-start">
+                                  <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] items-start">
                                     <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
                                     <div>
                                       <strong className="font-bold">Velocity Alert</strong>
@@ -826,14 +826,14 @@ function ChwPipeSizerPage() {
                             {/* Pipe Selection Card */}
                             <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative">
                               <div className="flex items-center gap-2 pb-2.5 border-b border-border/60">
-                                <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                                <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pipe Selection</h3>
                               </div>
 
                               <div className="flex flex-col gap-3 font-sans text-xs">
                                 <div className="flex justify-between items-center py-1.5 border-b border-border/40">
                                   <span className="font-semibold text-muted-foreground">Selected Pipe Size</span>
-                                  <strong className="font-bold text-[#f78f22] text-[13px] font-mono">
+                                  <strong className="font-bold text-[#0A7BC7] text-[13px] font-mono">
                                     NPS {calculatedData.nps}" / DN {calculatedData.DN} mm
                                   </strong>
                                 </div>
@@ -847,7 +847,7 @@ function ChwPipeSizerPage() {
                                 </div>
                                 <div className="flex justify-between items-center py-1.5 border-b border-border/40">
                                   <span className="font-semibold text-muted-foreground">Velocity</span>
-                                  <strong className="font-bold text-[#f78f22] font-mono">
+                                  <strong className="font-bold text-[#0A7BC7] font-mono">
                                     {unitSystem === "ip" 
                                       ? `${calculatedData.velocityFps.toFixed(2)} fps` 
                                       : `${calculatedData.velocity.toFixed(3)} m/s`}
@@ -904,11 +904,11 @@ function ChwPipeSizerPage() {
                   {/* Results Dashboard Grid */}
                   <div className="no-print max-w-4xl mx-auto w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     
-                    <div className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10 border border-orange-200/60 dark:border-orange-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-orange-500/10 text-orange-600 rounded-full p-2">
+                    <div className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10 border border-blue-100/60 dark:border-orange-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
+                      <div className="absolute right-4 top-4 bg-[#0A7BC7]/10 text-[#06456F] rounded-full p-2">
                         <Sparkles className="size-4" />
                       </div>
-                      <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-widest block mb-1">Recommended size</span>
+                      <span className="text-[10px] font-bold text-[#06456F] dark:text-sky-400 uppercase tracking-widest block mb-1">Recommended size</span>
                       <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">NPS {calculatedData.nps}"</strong>
                       <span className="text-[11px] text-muted-foreground mt-2 block">Inner Diameter: {calculatedData.innerDiameterMm.toFixed(1)} mm (DN {calculatedData.DN})</span>
                     </div>
@@ -966,7 +966,7 @@ function ChwPipeSizerPage() {
                         <p className="text-[12px] text-muted-foreground font-mono mt-1">Chilled Water Pipe Sizing compliant with ASHRAE / Colebrook equation</p>
                       </div>
                       <div className="text-right">
-                        <span className="text-[13px] font-bold text-[#f78f22] font-mono block">MEP CALCULATION SUITE</span>
+                        <span className="text-[13px] font-bold text-[#0A7BC7] font-mono block">MEP CALCULATION SUITE</span>
                         <span className="text-[11px] text-muted-foreground block mt-0.5">Date: {projectInfo.date}</span>
                       </div>
                     </div>
@@ -1039,7 +1039,7 @@ function ChwPipeSizerPage() {
                         <div className="grid grid-cols-2 gap-4 pb-2 border-b border-slate-200">
                           <div>
                             <span className="text-muted-foreground">Recommended Diameter:</span>
-                            <strong className="block text-[13px] font-mono mt-0.5 text-[#f78f22]">NPS {calculatedData.nps}" / DN {calculatedData.DN} mm</strong>
+                            <strong className="block text-[13px] font-mono mt-0.5 text-[#0A7BC7]">NPS {calculatedData.nps}" / DN {calculatedData.DN} mm</strong>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Actual Inner Diameter:</span>
@@ -1062,7 +1062,7 @@ function ChwPipeSizerPage() {
                           </div>
                           <div>
                             <span className="text-muted-foreground">Actual Friction Loss:</span>
-                            <strong className="block text-[13px] text-orange-600 font-mono mt-0.5">
+                            <strong className="block text-[13px] text-[#06456F] font-mono mt-0.5">
                               {unitSystem === "ip" 
                                 ? `${calculatedData.pressureDropFt100ft.toFixed(2)} ft/100ft` 
                                 : `${calculatedData.pressureDropPaM.toFixed(1)} Pa/m`}

@@ -29,6 +29,7 @@ export function DataGrid<T extends { id: string }>({
   onToggleGroup,
   onRowDoubleClick,
   activeRowId,
+  rowClassName,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -43,6 +44,7 @@ export function DataGrid<T extends { id: string }>({
   onToggleGroup?: (ids: string[], select: boolean) => void;
   onRowDoubleClick?: (row: T) => void;
   activeRowId?: string;
+  rowClassName?: (row: T, index: number) => string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -343,6 +345,7 @@ export function DataGrid<T extends { id: string }>({
               }
 
               const row = item.data!;
+              const rowIndex = rows.indexOf(row);
               const sel = selected.has(row.id);
               const isActiveRow = activeRowId === row.id;
               const isBlurred = activeRowId !== undefined && !isActiveRow;
@@ -418,6 +421,8 @@ export function DataGrid<T extends { id: string }>({
                           }
                         }}
                         className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-all duration-300 ${
+                          rowClassName && !sel ? rowClassName(row, rowIndex) : ""
+                        } ${
                           sel ? "bg-row-selected" : ""
                         } ${
                           isActiveRow
@@ -460,6 +465,8 @@ export function DataGrid<T extends { id: string }>({
                     onRowDoubleClick?.(row);
                   }}
                   className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-all duration-300 ${
+                    rowClassName && !sel ? rowClassName(row, rowIndex) : ""
+                  } ${
                     sel ? "bg-row-selected" : ""
                   } ${
                     isActiveRow

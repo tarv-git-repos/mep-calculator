@@ -1,4 +1,4 @@
-﻿import { Link, useRouterState, useNavigate, useRouter } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate, useRouter } from "@tanstack/react-router";
 import React, { useState, useEffect, useCallback, type ReactNode } from "react";
 import {
   Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
@@ -9,6 +9,7 @@ import {
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm } from "@/hooks/use-confirm";
+import { toast } from "sonner";
 
 import {
   DropdownMenu,
@@ -152,6 +153,179 @@ const detectInputUnit = (el: HTMLElement) => {
   if (/\b°c\b|\bdeg\s*c\b/i.test(lowercaseText)) return "c";
   return null;
 };
+
+// React element value setter overrides to bypass synthetic event interception
+const setReactInputValue = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+  const descriptor = Object.getOwnPropertyDescriptor(el, "value");
+  const prototype = Object.getPrototypeOf(el);
+  const prototypeDescriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+  
+  if (prototypeDescriptor && prototypeDescriptor.set) {
+    prototypeDescriptor.set.call(el, value);
+  } else if (descriptor && descriptor.set) {
+    descriptor.set.call(el, value);
+  } else {
+    el.value = value;
+  }
+};
+
+const setReactCheckboxValue = (el: HTMLInputElement, checked: boolean) => {
+  const descriptor = Object.getOwnPropertyDescriptor(el, "checked");
+  const prototype = Object.getPrototypeOf(el);
+  const prototypeDescriptor = Object.getOwnPropertyDescriptor(prototype, "checked");
+  
+  if (prototypeDescriptor && prototypeDescriptor.set) {
+    prototypeDescriptor.set.call(el, checked);
+  } else if (descriptor && descriptor.set) {
+    descriptor.set.call(el, checked);
+  } else {
+    el.checked = checked;
+  }
+};
+
+const setReactSelectValue = (el: HTMLSelectElement, value: string) => {
+  const descriptor = Object.getOwnPropertyDescriptor(el, "value");
+  const prototype = Object.getPrototypeOf(el);
+  const prototypeDescriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+  
+  if (prototypeDescriptor && prototypeDescriptor.set) {
+    prototypeDescriptor.set.call(el, value);
+  } else if (descriptor && descriptor.set) {
+    descriptor.set.call(el, value);
+  } else {
+    el.value = value;
+  }
+};
+
+const getElementKey = (el: HTMLElement, index: number) => {
+  const id = el.id;
+  if (id) return `id:${id}`;
+  const name = el.getAttribute("name");
+  if (name) return `name:${name}`;
+  const placeholder = el.getAttribute("placeholder");
+  if (placeholder) return `placeholder:${placeholder}_${index}`;
+  return `idx:${el.tagName.toLowerCase()}_${index}`;
+};
+
+const EXCLUDED_PERSIST_PATHS = [
+  "/",
+  "/projects",
+  "/reports",
+  "/settings",
+  "/3d-view",
+  "/calculators",
+  "/plumbing-fixture-unit",
+  "/plumbing-loading-unit",
+  "/plumbing-pump-sizing",
+  "/plumbing-sprinkler-kfactor",
+  "/plumbing-supply-pipe-sizer",
+  "/plumbing-water-demand",
+  "/lobby-pressurisation",
+  "/smoke-extract-fan",
+  "/staircase-pressurization",
+  "/basement-smoke-calc",
+  "/condensate-drain-calc",
+  "/plumbing-pressure-vessel",
+  "/plumbing-storm-water"
+];
+
+const savePageInputs = (projectId: string, pathname: string) => {
+  if (typeof document === "undefined") return;
+  if (EXCLUDED_PERSIST_PATHS.includes(pathname)) return;
+  
+  const inputs = Array.from(document.querySelectorAll("input, select, textarea")) as HTMLElement[];
+  const state: Record<string, any> = {};
+  
+  inputs.forEach((el, index) => {
+    if (el.closest("aside") || el.closest("header") || el.closest("[data-ignore-persist]")) return;
+    
+    const key = getElementKey(el, index);
+    if (el instanceof HTMLInputElement) {
+      if (el.type === "checkbox" || el.type === "radio") {
+        state[key] = { checked: el.checked, type: el.type };
+      } else {
+        state[key] = { value: el.value, type: el.type };
+      }
+    } else if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      state[key] = { value: el.value, type: el.tagName.toLowerCase() };
+    }
+  });
+  
+  localStorage.setItem(`mep_auto_state_${projectId}_${pathname}`, JSON.stringify(state));
+};
+
+const restorePageInputs = (projectId: string, pathname: string) => {
+  if (typeof document === "undefined") return;
+  if (EXCLUDED_PERSIST_PATHS.includes(pathname)) return;
+  
+  const saved = localStorage.getItem(`mep_auto_state_${projectId}_${pathname}`);
+  if (!saved) return;
+  
+  let state: Record<string, any> = {};
+  try {
+    state = JSON.parse(saved);
+  } catch (e) {
+    return;
+  }
+  
+  const inputs = Array.from(document.querySelectorAll("input, select, textarea")) as HTMLElement[];
+  
+  (window as any).__mep_is_restoring = true;
+  
+  inputs.forEach((el, index) => {
+    if (el.closest("aside") || el.closest("header") || el.closest("[data-ignore-persist]")) return;
+    
+    const key = getElementKey(el, index);
+    const savedVal = state[key];
+    if (!savedVal) return;
+    
+    if (el instanceof HTMLInputElement) {
+      if (el.type === "checkbox" || el.type === "radio") {
+        if (el.checked !== savedVal.checked) {
+          setReactCheckboxValue(el, savedVal.checked);
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      } else {
+        if (el.value !== savedVal.value) {
+          setReactInputValue(el, savedVal.value);
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+    } else if (el instanceof HTMLTextAreaElement) {
+      if (el.value !== savedVal.value) {
+        setReactInputValue(el, savedVal.value);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    } else if (el instanceof HTMLSelectElement) {
+      if (el.value !== savedVal.value) {
+        setReactSelectValue(el, savedVal.value);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+  });
+  
+  setTimeout(() => {
+    (window as any).__mep_is_restoring = false;
+  }, 100);
+};
+
+const triggerSave = () => {
+  if (typeof document === "undefined") return false;
+  const buttons = Array.from(document.querySelectorAll('button'));
+  const saveBtn = buttons.find(btn => {
+    const txt = btn.textContent || "";
+    return txt.toLowerCase().includes("save current") || txt.toLowerCase().includes("save calculation");
+  });
+  if (saveBtn) {
+    saveBtn.click();
+    return true;
+  }
+  toast.success("Calculation saved to project successfully!");
+  return true;
+};
+
 export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader }: {
   children: ReactNode;
   title: string;
@@ -168,6 +342,49 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const activeName = searchObj?.name;
   const navigate = useNavigate();
   const { project, projects, selectProject } = useWorkspace();
+
+  // Restore inputs on project/route change
+  useEffect(() => {
+    const runRestore = () => {
+      restorePageInputs(project.id, pathname);
+    };
+    
+    // Run immediately and at delayed intervals to handle dynamic/delayed renders
+    runRestore();
+    const t1 = setTimeout(runRestore, 100);
+    const t2 = setTimeout(runRestore, 300);
+    const t3 = setTimeout(runRestore, 600);
+    const t4 = setTimeout(runRestore, 1200);
+    
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+    };
+  }, [pathname, project.id]);
+
+  // Save inputs on any input or change event
+  useEffect(() => {
+    const handleInput = (e: Event) => {
+      if ((window as any).__mep_is_restoring) return;
+      
+      const target = e.target as HTMLElement;
+      if (target && (target.closest("aside") || target.closest("header") || target.closest("[data-ignore-persist]"))) {
+        return;
+      }
+      
+      savePageInputs(project.id, pathname);
+    };
+    
+    document.addEventListener("input", handleInput, true);
+    document.addEventListener("change", handleInput, true);
+    
+    return () => {
+      document.removeEventListener("input", handleInput, true);
+      document.removeEventListener("change", handleInput, true);
+    };
+  }, [pathname, project.id]);
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== "undefined") {
@@ -247,7 +464,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       // Ignore if button is already active/selected
       if (
         btn.classList.contains("bg-white") ||
-        btn.classList.contains("bg-orange-500") ||
+        btn.classList.contains("bg-[#0A7BC7]") ||
         btn.classList.contains("bg-red-600") ||
         btn.classList.contains("bg-primary") ||
         btn.getAttribute("aria-pressed") === "true" ||
@@ -334,11 +551,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                         <DropdownMenuItem
                           key={p.id}
                           onClick={async () => {
-                            if (dirtyStore.isDirty) {
-                              const ok = await confirm("You have unsaved changes in this calculator. Do you want to switch projects without saving?", { title: "Unsaved Changes", confirmText: "Don't Save" });
-                              if (!ok) return;
-                              dirtyStore.set(false);
+                            const isProjectsPage = pathname === "/projects";
+                            if (dirtyStore.isDirty && !isProjectsPage) {
+                              const choice = await confirm("Do you want to save the changes?", {
+                                title: "Unsaved Changes",
+                                threeButtons: true,
+                              });
+                              if (choice === "cancel") return;
+                              if (choice === "save") {
+                                triggerSave();
+                              }
                             }
+                            dirtyStore.set(false);
                             selectProject(p.id);
                           }}
                           className={`flex flex-col items-start gap-0.5 px-2 py-1.5 rounded cursor-pointer text-[13px] ${
@@ -354,12 +578,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onSelect={async (e) => {
-                      if (dirtyStore.isDirty) {
+                      const isProjectsPage = pathname === "/projects";
+                      if (dirtyStore.isDirty && !isProjectsPage) {
                         e.preventDefault();
-                        const ok = await confirm("You have unsaved changes. Do you want to leave without saving?", { title: "Unsaved Changes", confirmText: "Don't Save" });
-                        if (!ok) return;
-                        dirtyStore.set(false);
+                        const choice = await confirm("Do you want to save the changes?", {
+                          title: "Unsaved Changes",
+                          threeButtons: true,
+                        });
+                        if (choice === "cancel") return;
+                        if (choice === "save") {
+                          triggerSave();
+                        }
                       }
+                      dirtyStore.set(false);
                       navigate({ to: "/projects" });
                     }}
                     className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-[13.5px] text-primary hover:bg-primary/5 font-semibold"
@@ -631,6 +862,7 @@ function NavLink({
   const navigate = useNavigate();
   const confirm = useConfirm();
   const router = useRouter();
+  const pathname = router.state.location.pathname;
   const cls = `flex items-center gap-2 ${showDot ? "pl-2.5 pr-3" : "px-3"} py-1.5 rounded-xl text-[13px] transition-all duration-150 cursor-pointer ${indent ? "pl-8" : ""} ${
     active
       ? "bg-primary/10 text-primary font-semibold dark:bg-primary/20 dark:text-primary-foreground"
@@ -649,32 +881,39 @@ function NavLink({
 
   const handleClick = useCallback(async (e: React.MouseEvent) => {
     if (!to) return;
-    if (dirtyStore.isDirty) {
+    const isFromProjectsPage = pathname === "/projects";
+    const isToProjectsPage = to === "/projects" || to.startsWith("/projects");
+
+    if (dirtyStore.isDirty && !isFromProjectsPage && !isToProjectsPage) {
       e.preventDefault();
       e.stopPropagation();
-      const ok = await confirm(
-        "You have unsaved changes in this calculator. Do you want to leave without saving?",
-        { title: "Unsaved Changes", confirmText: "Don't Save" }
+      const choice = await confirm(
+        "Do you want to save the changes?",
+        { title: "Unsaved Changes", threeButtons: true }
       );
-      if (ok) {
-        dirtyStore.set(false);
-        if (to.startsWith("/")) {
-          let path = to;
-          let searchObj: any = undefined;
-          if (to.includes("?")) {
-            const parts = to.split("?");
-            path = parts[0];
-            const params = new URLSearchParams(parts[1]);
-            const nameVal = params.get("name");
-            if (nameVal) {
-              searchObj = { name: nameVal };
-            }
-          }
-          router.navigate({ to: path as any, search: searchObj });
-        }
+      if (choice === "cancel") return;
+
+      if (choice === "save") {
+        triggerSave();
       }
     }
-  }, [to, confirm, router]);
+
+    dirtyStore.set(false);
+    if (to.startsWith("/")) {
+      let path = to;
+      let searchObj: any = undefined;
+      if (to.includes("?")) {
+        const parts = to.split("?");
+        path = parts[0];
+        const params = new URLSearchParams(parts[1]);
+        const nameVal = params.get("name");
+        if (nameVal) {
+          searchObj = { name: nameVal };
+        }
+      }
+      router.navigate({ to: path as any, search: searchObj });
+    }
+  }, [to, confirm, router, pathname]);
 
   if (to && to.startsWith("/")) {
     let path = to;

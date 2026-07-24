@@ -286,26 +286,26 @@ function LobbyPressurisationPage() {
             <div className="lg:col-span-5 flex flex-col gap-6">
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Space Parameters</h3>
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Area of Lobby (m²)</label>
-                    <input type="number" step="any" value={area} onChange={(e) => setArea(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={area} onChange={(e) => setArea(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Height of Lobby (m)</label>
-                    <input type="number" step="any" value={height} onChange={(e) => setHeight(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={height} onChange={(e) => setHeight(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Air Changes per Hour (ACPH)</label>
-                    <input type="number" step="any" value={acph} onChange={(e) => setAcph(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={acph} onChange={(e) => setAcph(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Quantity of Fans</label>
-                    <input type="number" min="1" step="1" value={fanQty} onChange={(e) => { const v = Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" min="1" step="1" value={fanQty} onChange={(e) => { const v = Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                 </div>
               </div>
@@ -313,26 +313,26 @@ function LobbyPressurisationPage() {
               {/* Fan Head Sizing */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Duct Static Head Loss</h3>
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Ducting Length (m)</label>
-                    <input type="number" step="any" value={ductLength} onChange={(e) => setDuctLength(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={ductLength} onChange={(e) => setDuctLength(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Frictional Factor (Pa/m)</label>
-                    <input type="number" step="any" value={frictionFactor} onChange={(e) => setFrictionFactor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={frictionFactor} onChange={(e) => setFrictionFactor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Louver &amp; Grille Pressure Drop (Pa)</label>
-                    <input type="number" step="any" value={louverLoss} onChange={(e) => setLouverLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={louverLoss} onChange={(e) => setLouverLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Fan Internal Losses (Pa)</label>
-                    <input type="number" step="any" value={fanLoss} onChange={(e) => setFanLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={fanLoss} onChange={(e) => setFanLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                 </div>
               </div>
@@ -340,22 +340,22 @@ function LobbyPressurisationPage() {
               {/* Efficiencies */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">3. Fan Motor Sizing</h3>
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Motor Efficiency (%)</label>
-                    <input type="number" step="any" value={effMotor} onChange={(e) => setEffMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={effMotor} onChange={(e) => setEffMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Fan Efficiency (%)</label>
-                    <input type="number" step="any" value={effFan} onChange={(e) => setEffFan(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={effFan} onChange={(e) => setEffFan(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Number of Fans (Motor calculation)</label>
-                    <input type="number" min="1" step="1" value={numFansMotor} onChange={(e) => setNumFansMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" min="1" step="1" value={numFansMotor} onChange={(e) => setNumFansMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                 </div>
               </div>
@@ -370,7 +370,7 @@ function LobbyPressurisationPage() {
               {/* Summary card */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Airflow & static head results</h3>
                 </div>
 
@@ -385,7 +385,7 @@ function LobbyPressurisationPage() {
                   </div>
                   <div className="flex justify-between items-center py-1.5 border-b border-border/40">
                     <span className="font-semibold text-muted-foreground">Flow of each fan</span>
-                    <strong className="font-bold text-[#f78f22] text-[13px] font-mono">{calculatedData.flowEachLsRound} L/s</strong>
+                    <strong className="font-bold text-[#0A7BC7] text-[13px] font-mono">{calculatedData.flowEachLsRound} L/s</strong>
                   </div>
                   <div className="flex justify-between items-center py-1.5 border-b border-border/40">
                     <span className="font-semibold text-muted-foreground">Total Equivalent Length</span>
@@ -401,7 +401,7 @@ function LobbyPressurisationPage() {
                   </div>
                   <div className="flex justify-between items-center py-1.5 border-b border-border/40 col-span-2">
                     <span className="font-semibold text-muted-foreground text-primary">Total Static of the Fan</span>
-                    <strong className="font-bold text-[#f78f22] text-[14px] font-mono">{calculatedData.headRound} Pa</strong>
+                    <strong className="font-bold text-[#0A7BC7] text-[14px] font-mono">{calculatedData.headRound} Pa</strong>
                   </div>
                 </div>
 
@@ -410,7 +410,7 @@ function LobbyPressurisationPage() {
               {/* Motor sizing card */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Motor Sizing Results</h3>
                 </div>
 
@@ -421,7 +421,7 @@ function LobbyPressurisationPage() {
                   </div>
                   <div className="flex justify-between items-center py-1.5 col-span-2">
                     <span className="font-semibold text-muted-foreground">Total Motor Power (+10% Safety margin)</span>
-                    <strong className="font-bold text-[#f78f22] text-[14px] font-mono">{calculatedData.totalMotorPower.toFixed(2)} kW</strong>
+                    <strong className="font-bold text-[#0A7BC7] text-[14px] font-mono">{calculatedData.totalMotorPower.toFixed(2)} kW</strong>
                   </div>
                 </div>
               </div>
@@ -465,7 +465,7 @@ function LobbyPressurisationPage() {
                         <div className="font-bold text-foreground">Step 3: Sized Flow Rate per Fan</div>
                         <div className="font-mono text-primary my-1">Q_each = Ceiling( (q / qtyFans * 1000) / 5 ) * 5</div>
                         <div className="font-mono text-[10.5px] text-muted-foreground">Q_each = Ceiling( ({calculatedData.freshAirRate.toFixed(3)} / {fanQty} × 1000) / 5 ) * 5</div>
-                        <div className="font-bold text-[11px] text-[#f78f22] mt-0.5">{calculatedData.flowEachLsRound} L/s</div>
+                        <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.flowEachLsRound} L/s</div>
                       </div>
                     </div>
 
@@ -485,7 +485,7 @@ function LobbyPressurisationPage() {
                         <div className="font-bold text-foreground">Step 5: Fan Total Static Head</div>
                         <div className="font-mono text-primary my-1">Total Head = Round( (frictionLoss + LouverDrop + FanDrop) × 1.1 ) to nearest 10</div>
                         <div className="font-mono text-[10.5px] text-muted-foreground">Total Head = Round( ({calculatedData.frictionLoss.toFixed(2)} + {louverLoss} + {fanLoss}) × 1.1 ) to nearest 10</div>
-                        <div className="font-bold text-[11px] text-[#f78f22] mt-0.5">{calculatedData.headRound} Pa</div>
+                        <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.headRound} Pa</div>
                       </div>
                     </div>
 
@@ -505,7 +505,7 @@ function LobbyPressurisationPage() {
                         <div className="font-bold text-foreground">Step 7: Sized Total Motor Power</div>
                         <div className="font-mono text-primary my-1">Total Power = PowerEach × 1.1 × qtyFans (Motor calculation)</div>
                         <div className="font-mono text-[10.5px] text-muted-foreground">Total Power = {calculatedData.powerEachRound.toFixed(2)} kW × 1.1 × {numFansMotor}</div>
-                        <div className="font-bold text-[11px] text-[#f78f22] mt-0.5">{calculatedData.totalMotorPower.toFixed(2)} kW</div>
+                        <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.totalMotorPower.toFixed(2)} kW</div>
                       </div>
                     </div>
                   </div>
@@ -538,7 +538,7 @@ function LobbyPressurisationPage() {
                 value={saveName}
                 onChange={e => setSaveName(e.target.value)}
                 placeholder="e.g. Zone A Ground Floor"
-                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22] text-xs"
+                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
               />
             </div>
             <div className="flex justify-end gap-2.5 mt-2">

@@ -73,7 +73,7 @@ function HazenWilliamsPage() {
     const pU = ip ? "psi/100ft" : "m/100m";
 
     const bars = [
-      { label: "Velocity", val: results.chartVel, color: results.chartVel > (ip ? 8.0 : 2.44) ? "#f78f22" : "#d17914", unit: ` ${u}` },
+      { label: "Velocity", val: results.chartVel, color: results.chartVel > (ip ? 8.0 : 2.44) ? "#0A7BC7" : "#d17914", unit: ` ${u}` },
       { label: `Max Rec (${ip ? "8" : "2.4"})`, val: ip ? 8.0 : 2.44, color: "#94A3B8", unit: ` ${u}` },
       { label: "Head Loss", val: results.chartHlPer100, color: "#7C3AED", unit: ` ${pU}` }
     ];
@@ -506,7 +506,7 @@ function HazenWilliamsPage() {
                   </div>
 
                   <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex items-center gap-4 hover:border-primary/20 transition-all">
-                    <div className="size-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                    <div className="size-10 rounded-xl bg-sky-500/10 text-amber-500 flex items-center justify-center shrink-0">
                       <Activity className="size-5" />
                     </div>
                     <div>

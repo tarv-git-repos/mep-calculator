@@ -8,7 +8,8 @@ import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { Plus, Download, Trash, Copy, X, Database } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
-import { saveAs } from "file-saver";
+import saveAsPkg from "file-saver";
+const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 export const Route = createFileRoute("/load-summary")({
   head: () => ({

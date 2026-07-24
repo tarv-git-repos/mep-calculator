@@ -33,6 +33,9 @@ export interface Space {
   customFreshGiven?: number | "";
   customExtTaken?: number | "";
 
+  // Restroom subcategories quantities
+  restroomSubCategories?: Record<string, number>;
+
   // Manual overrides
   isManualAirflow?: boolean;
   manualFreshGiven?: number;
@@ -91,23 +94,33 @@ export interface Equipment {
   totalEA?: number;
 }
 
+let activeRoundOffPreset = 5;
+
+export function setGlobalRoundOffPreset(value: number) {
+  activeRoundOffPreset = value;
+}
+
+export function getGlobalRoundOffPreset(): number {
+  return activeRoundOffPreset;
+}
+
 export function RoundToCEC(val: number): number {
   if (val <= 0) return 0;
-  return Math.ceil(val / 5) * 5;
+  return Math.ceil(val / activeRoundOffPreset) * activeRoundOffPreset;
 }
 
 export function distributeFlow(
   spaces: Space[],
-  totalTarget: number, // Must be a multiple of 5
+  totalTarget: number, // Must be a multiple of activeRoundOffPreset
   getMinFlow: (s: Space) => number,
   getWeight: (s: Space) => number
 ): number[] {
   if (spaces.length === 0) return [];
 
-  // 1. Initialize each space with Math.floor(minFlow / 5) * 5
+  // 1. Initialize each space with Math.floor(minFlow / activeRoundOffPreset) * activeRoundOffPreset
   const flows = spaces.map((s) => {
     const minFlow = getMinFlow(s);
-    return Math.floor(minFlow / 5) * 5;
+    return Math.floor(minFlow / activeRoundOffPreset) * activeRoundOffPreset;
   });
 
   let currentSum = flows.reduce((sum, f) => sum + f, 0);
@@ -122,8 +135,8 @@ export function distributeFlow(
   if (totalWeight === 0) {
     let idx = 0;
     while (remaining > 0) {
-      flows[idx % spaces.length] += 5;
-      remaining -= 5;
+      flows[idx % spaces.length] += activeRoundOffPreset;
+      remaining -= activeRoundOffPreset;
       idx++;
     }
     return flows;
@@ -144,8 +157,8 @@ export function distributeFlow(
       }
     }
 
-    flows[targetIdx] += 5;
-    remaining -= 5;
+    flows[targetIdx] += activeRoundOffPreset;
+    remaining -= activeRoundOffPreset;
   }
 
   return flows;
@@ -208,8 +221,23 @@ export function calculateVentilation(
           exhaustPerUnit * effectiveOcc +
           exhaustPerArea * areaVal +
           (achVal * areaVal * heightVal) / 3.6;
-        z.minExt = Math.ceil(minExt_base) * mult;
       }
+    } else if (z.category === "Rest Room / Changing Room") {
+      let totalExhaust = 0;
+      const sub = z.restroomSubCategories || {};
+      const areaVal = parseFloat(String(z.area || 0)) || 0;
+      
+      totalExhaust += (sub.toiletPrivateContinuous || 0) * 12.5;
+      totalExhaust += (sub.toiletPublicContinuous || 0) * 25.0;
+      totalExhaust += (sub.toiletPrivateDiscontinuous || 0) * 25.0;
+      totalExhaust += (sub.toiletPublicDiscontinuous || 0) * 35.0;
+      totalExhaust += (sub.showerContinuous || 0) * 10.0;
+      totalExhaust += (sub.showerDiscontinuous || 0) * 25.0;
+      totalExhaust += (sub.janitorCloset || 0) * areaVal * 5.0;
+      totalExhaust += (sub.lockerRoom || 0) * areaVal * 1.25;
+
+      z.minOA = 0;
+      z.minExt = Math.ceil(totalExhaust) * mult;
     } else {
       const data = getOccupancyData(z.category);
 
@@ -404,7 +432,7 @@ export function calculateVentilation(
 
       // Candidate 1: Fresh air is the bottleneck
       const FA_candidate = RoundToCEC(FA_min_zone);
-      const EA_candidate = Math.floor((FA_candidate / 1.1) / 5) * 5;
+      const EA_candidate = Math.floor((FA_candidate / 1.1) / activeRoundOffPreset) * activeRoundOffPreset;
 
       if (EA_candidate >= EA_min_zone) {
         Total_FA_target = FA_candidate;
@@ -412,7 +440,7 @@ export function calculateVentilation(
       } else {
         // Candidate 2: Extract air is the bottleneck
         Total_EA_target = RoundToCEC(EA_min_zone);
-        Total_FA_target = Math.ceil((Total_EA_target * 1.1) / 5) * 5;
+        Total_FA_target = Math.ceil((Total_EA_target * 1.1) / activeRoundOffPreset) * activeRoundOffPreset;
       }
 
       // Calculate target flows specifically for positive spaces to balance

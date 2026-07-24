@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { calculateVentilation, type Space, type Zone, type Equipment, type ZoneInstanceAssignment } from "./ventilation-calc";
+import { calculateVentilation, setGlobalRoundOffPreset, type Space, type Zone, type Equipment, type ZoneInstanceAssignment } from "./ventilation-calc";
 export type { ZoneInstanceAssignment };
 import { predictOccupancyCategory, predictSpacePressure } from "./ai-occupancy";
 import { getOccupancyData } from "./ashrae-data";
@@ -68,6 +68,7 @@ let currentWorkspaceState = {
   spaces: [] as Space[],
   zones: [] as Zone[],
   equipment: [] as Equipment[],
+  roundOffPreset: 5,
 };
 
 if (!IS_SERVER) {
@@ -75,6 +76,10 @@ if (!IS_SERVER) {
     const savedState = localStorage.getItem(`mep_project_workspace_${activeProjectId}`);
     if (savedState) {
       currentWorkspaceState = JSON.parse(savedState);
+      if (currentWorkspaceState.roundOffPreset === undefined) {
+        currentWorkspaceState.roundOffPreset = 5;
+      }
+      setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
     }
   } catch (e) {
     console.error("Failed to parse workspace state:", e);
@@ -131,6 +136,7 @@ export const workspaceStore = {
       spaces: currentWorkspaceState.spaces,
       zones: currentWorkspaceState.zones,
       equipment: currentWorkspaceState.equipment,
+      roundOffPreset: currentWorkspaceState.roundOffPreset ?? 5,
     };
   },
 
@@ -166,17 +172,24 @@ export const workspaceStore = {
       spaces: [] as Space[],
       zones: [] as Zone[],
       equipment: [] as Equipment[],
+      roundOffPreset: 5,
     };
 
     if (!IS_SERVER) {
       try {
         const saved = localStorage.getItem(`mep_project_workspace_${id}`);
-        if (saved) nextState = JSON.parse(saved);
+        if (saved) {
+          nextState = JSON.parse(saved);
+          if (nextState.roundOffPreset === undefined) {
+            nextState.roundOffPreset = 5;
+          }
+        }
       } catch (e) {
         console.error("Failed to load project state:", e);
       }
     }
 
+    setGlobalRoundOffPreset(nextState.roundOffPreset);
     currentWorkspaceState = nextState;
     saveState();
     notify();
@@ -263,13 +276,19 @@ export const workspaceStore = {
         activeProjectId = projects[0].id;
         currentProject = projects[0];
         // Load its workspace state
-        let nextState = { spaces: [], zones: [], equipment: [] };
+        let nextState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5 };
         if (!IS_SERVER) {
           try {
             const saved = localStorage.getItem(`mep_project_workspace_${activeProjectId}`);
-            if (saved) nextState = JSON.parse(saved);
+            if (saved) {
+              nextState = JSON.parse(saved);
+              if (nextState.roundOffPreset === undefined) {
+                nextState.roundOffPreset = 5;
+              }
+            }
           } catch (e) {}
         }
+        setGlobalRoundOffPreset(nextState.roundOffPreset);
         currentWorkspaceState = nextState;
       } else {
         // Fallback default
@@ -285,7 +304,8 @@ export const workspaceStore = {
         projects = [defaultProj];
         activeProjectId = "proj_default";
         currentProject = defaultProj;
-        currentWorkspaceState = { spaces: [], zones: [], equipment: [] };
+        setGlobalRoundOffPreset(5);
+        currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5 };
       }
     }
 
@@ -984,6 +1004,29 @@ export const workspaceStore = {
     return pasted;
   },
 
+  getRoundOffPreset() {
+    return currentWorkspaceState.roundOffPreset ?? 5;
+  },
+
+  setRoundOffPreset(value: number) {
+    pushHistory();
+    setGlobalRoundOffPreset(value);
+    currentWorkspaceState.roundOffPreset = value;
+    
+    // Recalculate based on new rounding preset
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      currentWorkspaceState.zones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = {
+      ...balanced,
+      roundOffPreset: value,
+    };
+    saveState();
+    notify();
+  },
+
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => {
@@ -1039,6 +1082,8 @@ export function useWorkspace() {
     cutSpaces: (ids: string[]) => workspaceStore.cutSpaces(ids),
     pasteSpaces: () => workspaceStore.pasteSpaces(),
     hasClipboard: copiedSpaces.length > 0,
+    roundOffPreset: state.roundOffPreset,
+    setRoundOffPreset: (val: number) => workspaceStore.setRoundOffPreset(val),
   };
 }
 

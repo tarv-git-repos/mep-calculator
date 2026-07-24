@@ -3,7 +3,7 @@ import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X } from "lucide-react";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
 import jsPDF from "jspdf";
@@ -68,6 +68,8 @@ function CableTraySizingPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkForm, setBulkForm] = useState({ type: "", cores: "", size: "", qty: "", spacingFactor: "" });
 
   const [undoStack, setUndoStack] = useState<any[][]>([]);
   const [redoStack, setRedoStack] = useState<any[][]>([]);
@@ -1033,6 +1035,172 @@ function CableTraySizingPage() {
       </div>
       </div>
       </div>
+
+      {/* Floating Selection Toolbar */}
+      {selectedRows.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 z-50 animate-in slide-in-from-bottom-5">
+          <div className="font-semibold">{selectedRows.size} Selected</div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => copyRows(Array.from(selectedRows))} 
+              className="text-xs hover:bg-slate-800 px-3 py-1.5 rounded transition-colors"
+            >
+              Copy
+            </button>
+            <button 
+              onClick={() => cutRows(Array.from(selectedRows))} 
+              className="text-xs hover:bg-slate-800 px-3 py-1.5 rounded transition-colors"
+            >
+              Cut
+            </button>
+            <button 
+              onClick={() => setBulkEditOpen(true)} 
+              className="text-xs bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 rounded transition-colors"
+            >
+              Bulk Edit
+            </button>
+            <button 
+              onClick={() => {
+                 pushToUndo(trays);
+                 setTrays(prev => prev.map(t => ({
+                   ...t,
+                   cables: t.cables.filter(c => !selectedRows.has(c.id))
+                 })));
+                 setSelectedRows(new Set());
+              }} 
+              className="text-xs hover:bg-red-900/50 text-red-400 px-3 py-1.5 rounded transition-colors ml-2"
+            >
+              <Trash2 className="size-4 inline mr-1"/> Delete
+            </button>
+            <div className="w-px h-4 bg-slate-700 mx-2"></div>
+            <button 
+              onClick={() => setSelectedRows(new Set())} 
+              className="text-xs text-slate-400 hover:text-white px-2 py-1.5 rounded transition-colors flex items-center"
+            >
+              <X className="size-3.5 mr-1"/> Esc
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Edit Modal */}
+      {bulkEditOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-surface border border-border shadow-xl rounded-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+            <div className="flex items-center justify-between p-4 border-b border-border bg-surface-1">
+              <h3 className="font-semibold">Bulk Edit ({selectedRows.size} Items)</h3>
+              <button onClick={() => setBulkEditOpen(false)} className="p-1 hover:bg-surface-2 rounded-md transition-colors"><X className="size-4" /></button>
+            </div>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              pushToUndo(trays);
+              setTrays(prev => prev.map(t => ({
+                ...t,
+                cables: t.cables.map(c => {
+                  if (selectedRows.has(c.id)) {
+                    return {
+                      ...c,
+                      type: bulkForm.type || c.type,
+                      cores: bulkForm.cores || c.cores,
+                      size: bulkForm.size || c.size,
+                      qty: bulkForm.qty ? Number(bulkForm.qty) : c.qty,
+                      spacingFactor: bulkForm.spacingFactor ? Number(bulkForm.spacingFactor) : c.spacingFactor
+                    };
+                  }
+                  return c;
+                })
+              })));
+              setBulkEditOpen(false);
+              setSelectedRows(new Set());
+              setBulkForm({ type: "", cores: "", size: "", qty: "", spacingFactor: "" });
+            }} className="p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 space-y-1">
+                  <label className="text-xs text-muted-foreground">Cable Type</label>
+                  <select 
+                    className="w-full text-sm border border-border rounded p-1.5 bg-background text-foreground"
+                    value={bulkForm.type}
+                    onChange={e => setBulkForm(p => ({...p, type: e.target.value}))}
+                  >
+                    <option value="">-- No Change --</option>
+                    <option value="XLPE/SWA/PVC">XLPE/SWA/PVC</option>
+                    <option value="PVC/PVC">PVC/PVC</option>
+                    <option value="XLPE/PVC">XLPE/PVC</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Cores</label>
+                  <select 
+                    className="w-full text-sm border border-border rounded p-1.5 bg-background text-foreground"
+                    value={bulkForm.cores}
+                    onChange={e => setBulkForm(p => ({...p, cores: e.target.value}))}
+                  >
+                    <option value="">-- No Change --</option>
+                    <option value="1C">1C</option>
+                    <option value="2C">2C</option>
+                    <option value="3C">3C</option>
+                    <option value="4C">4C</option>
+                  </select>
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <label className="text-xs text-muted-foreground">Size (mm²)</label>
+                  <select 
+                    className="w-full text-sm border border-border rounded p-1.5 bg-background text-foreground"
+                    value={bulkForm.size}
+                    onChange={e => setBulkForm(p => ({...p, size: e.target.value}))}
+                  >
+                    <option value="">-- No Change --</option>
+                    <option value="1.5">1.5</option>
+                    <option value="2.5">2.5</option>
+                    <option value="4">4</option>
+                    <option value="6">6</option>
+                    <option value="10">10</option>
+                    <option value="16">16</option>
+                    <option value="25">25</option>
+                    <option value="35">35</option>
+                    <option value="50">50</option>
+                    <option value="70">70</option>
+                    <option value="95">95</option>
+                    <option value="120">120</option>
+                    <option value="150">150</option>
+                    <option value="185">185</option>
+                    <option value="240">240</option>
+                    <option value="300">300</option>
+                    <option value="400">400</option>
+                    <option value="500">500</option>
+                    <option value="630">630</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Quantity</label>
+                  <input 
+                    type="number"
+                    className="w-full text-sm border border-border rounded p-1.5 bg-background text-foreground"
+                    placeholder="-- No Change --"
+                    value={bulkForm.qty}
+                    onChange={e => setBulkForm(p => ({...p, qty: e.target.value}))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Spacing Factor</label>
+                  <input 
+                    type="number"
+                    className="w-full text-sm border border-border rounded p-1.5 bg-background text-foreground"
+                    placeholder="-- No Change --"
+                    step="0.1"
+                    value={bulkForm.spacingFactor}
+                    onChange={e => setBulkForm(p => ({...p, spacingFactor: e.target.value}))}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-4">
+                <button type="button" onClick={() => setBulkEditOpen(false)} className="px-4 py-2 text-sm rounded bg-surface-2 hover:bg-surface-3">Cancel</button>
+                <button type="submit" className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 font-medium">Apply to {selectedRows.size} Items</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

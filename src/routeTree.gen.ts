@@ -24,11 +24,26 @@ import { Route as PsychrometricRouteImport } from './routes/psychrometric'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ProjectLoadScheduleRouteImport } from './routes/project-load-schedule'
 import { Route as PreliminaryCoolingLoadRouteImport } from './routes/preliminary-cooling-load'
+import { Route as PlumbingWaterDemandRouteImport } from './routes/plumbing-water-demand'
+import { Route as PlumbingTankSizingRouteImport } from './routes/plumbing-tank-sizing'
+import { Route as PlumbingSupplyPipeSizerRouteImport } from './routes/plumbing-supply-pipe-sizer'
+import { Route as PlumbingSumpPumpRouteImport } from './routes/plumbing-sump-pump'
+import { Route as PlumbingStormWaterRouteImport } from './routes/plumbing-storm-water'
 import { Route as PlumbingSprinklerKfactorRouteImport } from './routes/plumbing-sprinkler-kfactor'
 import { Route as PlumbingSprinklerDensityRouteImport } from './routes/plumbing-sprinkler-density'
+import { Route as PlumbingSewagePumpRouteImport } from './routes/plumbing-sewage-pump'
 import { Route as PlumbingPumpSizingRouteImport } from './routes/plumbing-pump-sizing'
+import { Route as PlumbingPressureVesselRouteImport } from './routes/plumbing-pressure-vessel'
+import { Route as PlumbingLoadingUnitRouteImport } from './routes/plumbing-loading-unit'
 import { Route as PlumbingHazenWilliamsRouteImport } from './routes/plumbing-hazen-williams'
+import { Route as PlumbingGasTankRouteImport } from './routes/plumbing-gas-tank'
 import { Route as PlumbingFm200RouteImport } from './routes/plumbing-fm200'
+import { Route as PlumbingFixtureUnitRouteImport } from './routes/plumbing-fixture-unit'
+import { Route as PlumbingFireWaterDemandRouteImport } from './routes/plumbing-fire-water-demand'
+import { Route as PlumbingFireTankDurationRouteImport } from './routes/plumbing-fire-tank-duration'
+import { Route as PlumbingFireTankCapacityRouteImport } from './routes/plumbing-fire-tank-capacity'
+import { Route as PlumbingFirePumpDutyRouteImport } from './routes/plumbing-fire-pump-duty'
+import { Route as PlumbingDrainageRouteImport } from './routes/plumbing-drainage'
 import { Route as LpdCalculationRouteImport } from './routes/lpd-calculation'
 import { Route as LobbyPressurisationRouteImport } from './routes/lobby-pressurisation'
 import { Route as LoadSummaryRouteImport } from './routes/load-summary'
@@ -132,6 +147,31 @@ const PreliminaryCoolingLoadRoute = PreliminaryCoolingLoadRouteImport.update({
   path: '/preliminary-cooling-load',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlumbingWaterDemandRoute = PlumbingWaterDemandRouteImport.update({
+  id: '/plumbing-water-demand',
+  path: '/plumbing-water-demand',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingTankSizingRoute = PlumbingTankSizingRouteImport.update({
+  id: '/plumbing-tank-sizing',
+  path: '/plumbing-tank-sizing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingSupplyPipeSizerRoute = PlumbingSupplyPipeSizerRouteImport.update({
+  id: '/plumbing-supply-pipe-sizer',
+  path: '/plumbing-supply-pipe-sizer',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingSumpPumpRoute = PlumbingSumpPumpRouteImport.update({
+  id: '/plumbing-sump-pump',
+  path: '/plumbing-sump-pump',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingStormWaterRoute = PlumbingStormWaterRouteImport.update({
+  id: '/plumbing-storm-water',
+  path: '/plumbing-storm-water',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PlumbingSprinklerKfactorRoute =
   PlumbingSprinklerKfactorRouteImport.update({
     id: '/plumbing-sprinkler-kfactor',
@@ -144,9 +184,24 @@ const PlumbingSprinklerDensityRoute =
     path: '/plumbing-sprinkler-density',
     getParentRoute: () => rootRouteImport,
   } as any)
+const PlumbingSewagePumpRoute = PlumbingSewagePumpRouteImport.update({
+  id: '/plumbing-sewage-pump',
+  path: '/plumbing-sewage-pump',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PlumbingPumpSizingRoute = PlumbingPumpSizingRouteImport.update({
   id: '/plumbing-pump-sizing',
   path: '/plumbing-pump-sizing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingPressureVesselRoute = PlumbingPressureVesselRouteImport.update({
+  id: '/plumbing-pressure-vessel',
+  path: '/plumbing-pressure-vessel',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingLoadingUnitRoute = PlumbingLoadingUnitRouteImport.update({
+  id: '/plumbing-loading-unit',
+  path: '/plumbing-loading-unit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PlumbingHazenWilliamsRoute = PlumbingHazenWilliamsRouteImport.update({
@@ -154,9 +209,46 @@ const PlumbingHazenWilliamsRoute = PlumbingHazenWilliamsRouteImport.update({
   path: '/plumbing-hazen-williams',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlumbingGasTankRoute = PlumbingGasTankRouteImport.update({
+  id: '/plumbing-gas-tank',
+  path: '/plumbing-gas-tank',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PlumbingFm200Route = PlumbingFm200RouteImport.update({
   id: '/plumbing-fm200',
   path: '/plumbing-fm200',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingFixtureUnitRoute = PlumbingFixtureUnitRouteImport.update({
+  id: '/plumbing-fixture-unit',
+  path: '/plumbing-fixture-unit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingFireWaterDemandRoute = PlumbingFireWaterDemandRouteImport.update({
+  id: '/plumbing-fire-water-demand',
+  path: '/plumbing-fire-water-demand',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingFireTankDurationRoute =
+  PlumbingFireTankDurationRouteImport.update({
+    id: '/plumbing-fire-tank-duration',
+    path: '/plumbing-fire-tank-duration',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const PlumbingFireTankCapacityRoute =
+  PlumbingFireTankCapacityRouteImport.update({
+    id: '/plumbing-fire-tank-capacity',
+    path: '/plumbing-fire-tank-capacity',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const PlumbingFirePumpDutyRoute = PlumbingFirePumpDutyRouteImport.update({
+  id: '/plumbing-fire-pump-duty',
+  path: '/plumbing-fire-pump-duty',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlumbingDrainageRoute = PlumbingDrainageRouteImport.update({
+  id: '/plumbing-drainage',
+  path: '/plumbing-drainage',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LpdCalculationRoute = LpdCalculationRouteImport.update({
@@ -317,11 +409,26 @@ export interface FileRoutesByFullPath {
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
   '/lpd-calculation': typeof LpdCalculationRoute
+  '/plumbing-drainage': typeof PlumbingDrainageRoute
+  '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
+  '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
+  '/plumbing-fire-tank-duration': typeof PlumbingFireTankDurationRoute
+  '/plumbing-fire-water-demand': typeof PlumbingFireWaterDemandRoute
+  '/plumbing-fixture-unit': typeof PlumbingFixtureUnitRoute
   '/plumbing-fm200': typeof PlumbingFm200Route
+  '/plumbing-gas-tank': typeof PlumbingGasTankRoute
   '/plumbing-hazen-williams': typeof PlumbingHazenWilliamsRoute
+  '/plumbing-loading-unit': typeof PlumbingLoadingUnitRoute
+  '/plumbing-pressure-vessel': typeof PlumbingPressureVesselRoute
   '/plumbing-pump-sizing': typeof PlumbingPumpSizingRoute
+  '/plumbing-sewage-pump': typeof PlumbingSewagePumpRoute
   '/plumbing-sprinkler-density': typeof PlumbingSprinklerDensityRoute
   '/plumbing-sprinkler-kfactor': typeof PlumbingSprinklerKfactorRoute
+  '/plumbing-storm-water': typeof PlumbingStormWaterRoute
+  '/plumbing-sump-pump': typeof PlumbingSumpPumpRoute
+  '/plumbing-supply-pipe-sizer': typeof PlumbingSupplyPipeSizerRoute
+  '/plumbing-tank-sizing': typeof PlumbingTankSizingRoute
+  '/plumbing-water-demand': typeof PlumbingWaterDemandRoute
   '/preliminary-cooling-load': typeof PreliminaryCoolingLoadRoute
   '/project-load-schedule': typeof ProjectLoadScheduleRoute
   '/projects': typeof ProjectsRoute
@@ -365,11 +472,26 @@ export interface FileRoutesByTo {
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
   '/lpd-calculation': typeof LpdCalculationRoute
+  '/plumbing-drainage': typeof PlumbingDrainageRoute
+  '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
+  '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
+  '/plumbing-fire-tank-duration': typeof PlumbingFireTankDurationRoute
+  '/plumbing-fire-water-demand': typeof PlumbingFireWaterDemandRoute
+  '/plumbing-fixture-unit': typeof PlumbingFixtureUnitRoute
   '/plumbing-fm200': typeof PlumbingFm200Route
+  '/plumbing-gas-tank': typeof PlumbingGasTankRoute
   '/plumbing-hazen-williams': typeof PlumbingHazenWilliamsRoute
+  '/plumbing-loading-unit': typeof PlumbingLoadingUnitRoute
+  '/plumbing-pressure-vessel': typeof PlumbingPressureVesselRoute
   '/plumbing-pump-sizing': typeof PlumbingPumpSizingRoute
+  '/plumbing-sewage-pump': typeof PlumbingSewagePumpRoute
   '/plumbing-sprinkler-density': typeof PlumbingSprinklerDensityRoute
   '/plumbing-sprinkler-kfactor': typeof PlumbingSprinklerKfactorRoute
+  '/plumbing-storm-water': typeof PlumbingStormWaterRoute
+  '/plumbing-sump-pump': typeof PlumbingSumpPumpRoute
+  '/plumbing-supply-pipe-sizer': typeof PlumbingSupplyPipeSizerRoute
+  '/plumbing-tank-sizing': typeof PlumbingTankSizingRoute
+  '/plumbing-water-demand': typeof PlumbingWaterDemandRoute
   '/preliminary-cooling-load': typeof PreliminaryCoolingLoadRoute
   '/project-load-schedule': typeof ProjectLoadScheduleRoute
   '/projects': typeof ProjectsRoute
@@ -414,11 +536,26 @@ export interface FileRoutesById {
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
   '/lpd-calculation': typeof LpdCalculationRoute
+  '/plumbing-drainage': typeof PlumbingDrainageRoute
+  '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
+  '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
+  '/plumbing-fire-tank-duration': typeof PlumbingFireTankDurationRoute
+  '/plumbing-fire-water-demand': typeof PlumbingFireWaterDemandRoute
+  '/plumbing-fixture-unit': typeof PlumbingFixtureUnitRoute
   '/plumbing-fm200': typeof PlumbingFm200Route
+  '/plumbing-gas-tank': typeof PlumbingGasTankRoute
   '/plumbing-hazen-williams': typeof PlumbingHazenWilliamsRoute
+  '/plumbing-loading-unit': typeof PlumbingLoadingUnitRoute
+  '/plumbing-pressure-vessel': typeof PlumbingPressureVesselRoute
   '/plumbing-pump-sizing': typeof PlumbingPumpSizingRoute
+  '/plumbing-sewage-pump': typeof PlumbingSewagePumpRoute
   '/plumbing-sprinkler-density': typeof PlumbingSprinklerDensityRoute
   '/plumbing-sprinkler-kfactor': typeof PlumbingSprinklerKfactorRoute
+  '/plumbing-storm-water': typeof PlumbingStormWaterRoute
+  '/plumbing-sump-pump': typeof PlumbingSumpPumpRoute
+  '/plumbing-supply-pipe-sizer': typeof PlumbingSupplyPipeSizerRoute
+  '/plumbing-tank-sizing': typeof PlumbingTankSizingRoute
+  '/plumbing-water-demand': typeof PlumbingWaterDemandRoute
   '/preliminary-cooling-load': typeof PreliminaryCoolingLoadRoute
   '/project-load-schedule': typeof ProjectLoadScheduleRoute
   '/projects': typeof ProjectsRoute
@@ -464,11 +601,26 @@ export interface FileRouteTypes {
     | '/load-summary'
     | '/lobby-pressurisation'
     | '/lpd-calculation'
+    | '/plumbing-drainage'
+    | '/plumbing-fire-pump-duty'
+    | '/plumbing-fire-tank-capacity'
+    | '/plumbing-fire-tank-duration'
+    | '/plumbing-fire-water-demand'
+    | '/plumbing-fixture-unit'
     | '/plumbing-fm200'
+    | '/plumbing-gas-tank'
     | '/plumbing-hazen-williams'
+    | '/plumbing-loading-unit'
+    | '/plumbing-pressure-vessel'
     | '/plumbing-pump-sizing'
+    | '/plumbing-sewage-pump'
     | '/plumbing-sprinkler-density'
     | '/plumbing-sprinkler-kfactor'
+    | '/plumbing-storm-water'
+    | '/plumbing-sump-pump'
+    | '/plumbing-supply-pipe-sizer'
+    | '/plumbing-tank-sizing'
+    | '/plumbing-water-demand'
     | '/preliminary-cooling-load'
     | '/project-load-schedule'
     | '/projects'
@@ -512,11 +664,26 @@ export interface FileRouteTypes {
     | '/load-summary'
     | '/lobby-pressurisation'
     | '/lpd-calculation'
+    | '/plumbing-drainage'
+    | '/plumbing-fire-pump-duty'
+    | '/plumbing-fire-tank-capacity'
+    | '/plumbing-fire-tank-duration'
+    | '/plumbing-fire-water-demand'
+    | '/plumbing-fixture-unit'
     | '/plumbing-fm200'
+    | '/plumbing-gas-tank'
     | '/plumbing-hazen-williams'
+    | '/plumbing-loading-unit'
+    | '/plumbing-pressure-vessel'
     | '/plumbing-pump-sizing'
+    | '/plumbing-sewage-pump'
     | '/plumbing-sprinkler-density'
     | '/plumbing-sprinkler-kfactor'
+    | '/plumbing-storm-water'
+    | '/plumbing-sump-pump'
+    | '/plumbing-supply-pipe-sizer'
+    | '/plumbing-tank-sizing'
+    | '/plumbing-water-demand'
     | '/preliminary-cooling-load'
     | '/project-load-schedule'
     | '/projects'
@@ -560,11 +727,26 @@ export interface FileRouteTypes {
     | '/load-summary'
     | '/lobby-pressurisation'
     | '/lpd-calculation'
+    | '/plumbing-drainage'
+    | '/plumbing-fire-pump-duty'
+    | '/plumbing-fire-tank-capacity'
+    | '/plumbing-fire-tank-duration'
+    | '/plumbing-fire-water-demand'
+    | '/plumbing-fixture-unit'
     | '/plumbing-fm200'
+    | '/plumbing-gas-tank'
     | '/plumbing-hazen-williams'
+    | '/plumbing-loading-unit'
+    | '/plumbing-pressure-vessel'
     | '/plumbing-pump-sizing'
+    | '/plumbing-sewage-pump'
     | '/plumbing-sprinkler-density'
     | '/plumbing-sprinkler-kfactor'
+    | '/plumbing-storm-water'
+    | '/plumbing-sump-pump'
+    | '/plumbing-supply-pipe-sizer'
+    | '/plumbing-tank-sizing'
+    | '/plumbing-water-demand'
     | '/preliminary-cooling-load'
     | '/project-load-schedule'
     | '/projects'
@@ -609,11 +791,26 @@ export interface RootRouteChildren {
   LoadSummaryRoute: typeof LoadSummaryRoute
   LobbyPressurisationRoute: typeof LobbyPressurisationRoute
   LpdCalculationRoute: typeof LpdCalculationRoute
+  PlumbingDrainageRoute: typeof PlumbingDrainageRoute
+  PlumbingFirePumpDutyRoute: typeof PlumbingFirePumpDutyRoute
+  PlumbingFireTankCapacityRoute: typeof PlumbingFireTankCapacityRoute
+  PlumbingFireTankDurationRoute: typeof PlumbingFireTankDurationRoute
+  PlumbingFireWaterDemandRoute: typeof PlumbingFireWaterDemandRoute
+  PlumbingFixtureUnitRoute: typeof PlumbingFixtureUnitRoute
   PlumbingFm200Route: typeof PlumbingFm200Route
+  PlumbingGasTankRoute: typeof PlumbingGasTankRoute
   PlumbingHazenWilliamsRoute: typeof PlumbingHazenWilliamsRoute
+  PlumbingLoadingUnitRoute: typeof PlumbingLoadingUnitRoute
+  PlumbingPressureVesselRoute: typeof PlumbingPressureVesselRoute
   PlumbingPumpSizingRoute: typeof PlumbingPumpSizingRoute
+  PlumbingSewagePumpRoute: typeof PlumbingSewagePumpRoute
   PlumbingSprinklerDensityRoute: typeof PlumbingSprinklerDensityRoute
   PlumbingSprinklerKfactorRoute: typeof PlumbingSprinklerKfactorRoute
+  PlumbingStormWaterRoute: typeof PlumbingStormWaterRoute
+  PlumbingSumpPumpRoute: typeof PlumbingSumpPumpRoute
+  PlumbingSupplyPipeSizerRoute: typeof PlumbingSupplyPipeSizerRoute
+  PlumbingTankSizingRoute: typeof PlumbingTankSizingRoute
+  PlumbingWaterDemandRoute: typeof PlumbingWaterDemandRoute
   PreliminaryCoolingLoadRoute: typeof PreliminaryCoolingLoadRoute
   ProjectLoadScheduleRoute: typeof ProjectLoadScheduleRoute
   ProjectsRoute: typeof ProjectsRoute
@@ -738,6 +935,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreliminaryCoolingLoadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/plumbing-water-demand': {
+      id: '/plumbing-water-demand'
+      path: '/plumbing-water-demand'
+      fullPath: '/plumbing-water-demand'
+      preLoaderRoute: typeof PlumbingWaterDemandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-tank-sizing': {
+      id: '/plumbing-tank-sizing'
+      path: '/plumbing-tank-sizing'
+      fullPath: '/plumbing-tank-sizing'
+      preLoaderRoute: typeof PlumbingTankSizingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-supply-pipe-sizer': {
+      id: '/plumbing-supply-pipe-sizer'
+      path: '/plumbing-supply-pipe-sizer'
+      fullPath: '/plumbing-supply-pipe-sizer'
+      preLoaderRoute: typeof PlumbingSupplyPipeSizerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-sump-pump': {
+      id: '/plumbing-sump-pump'
+      path: '/plumbing-sump-pump'
+      fullPath: '/plumbing-sump-pump'
+      preLoaderRoute: typeof PlumbingSumpPumpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-storm-water': {
+      id: '/plumbing-storm-water'
+      path: '/plumbing-storm-water'
+      fullPath: '/plumbing-storm-water'
+      preLoaderRoute: typeof PlumbingStormWaterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/plumbing-sprinkler-kfactor': {
       id: '/plumbing-sprinkler-kfactor'
       path: '/plumbing-sprinkler-kfactor'
@@ -752,11 +984,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlumbingSprinklerDensityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/plumbing-sewage-pump': {
+      id: '/plumbing-sewage-pump'
+      path: '/plumbing-sewage-pump'
+      fullPath: '/plumbing-sewage-pump'
+      preLoaderRoute: typeof PlumbingSewagePumpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/plumbing-pump-sizing': {
       id: '/plumbing-pump-sizing'
       path: '/plumbing-pump-sizing'
       fullPath: '/plumbing-pump-sizing'
       preLoaderRoute: typeof PlumbingPumpSizingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-pressure-vessel': {
+      id: '/plumbing-pressure-vessel'
+      path: '/plumbing-pressure-vessel'
+      fullPath: '/plumbing-pressure-vessel'
+      preLoaderRoute: typeof PlumbingPressureVesselRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-loading-unit': {
+      id: '/plumbing-loading-unit'
+      path: '/plumbing-loading-unit'
+      fullPath: '/plumbing-loading-unit'
+      preLoaderRoute: typeof PlumbingLoadingUnitRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/plumbing-hazen-williams': {
@@ -766,11 +1019,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlumbingHazenWilliamsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/plumbing-gas-tank': {
+      id: '/plumbing-gas-tank'
+      path: '/plumbing-gas-tank'
+      fullPath: '/plumbing-gas-tank'
+      preLoaderRoute: typeof PlumbingGasTankRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/plumbing-fm200': {
       id: '/plumbing-fm200'
       path: '/plumbing-fm200'
       fullPath: '/plumbing-fm200'
       preLoaderRoute: typeof PlumbingFm200RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-fixture-unit': {
+      id: '/plumbing-fixture-unit'
+      path: '/plumbing-fixture-unit'
+      fullPath: '/plumbing-fixture-unit'
+      preLoaderRoute: typeof PlumbingFixtureUnitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-fire-water-demand': {
+      id: '/plumbing-fire-water-demand'
+      path: '/plumbing-fire-water-demand'
+      fullPath: '/plumbing-fire-water-demand'
+      preLoaderRoute: typeof PlumbingFireWaterDemandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-fire-tank-duration': {
+      id: '/plumbing-fire-tank-duration'
+      path: '/plumbing-fire-tank-duration'
+      fullPath: '/plumbing-fire-tank-duration'
+      preLoaderRoute: typeof PlumbingFireTankDurationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-fire-tank-capacity': {
+      id: '/plumbing-fire-tank-capacity'
+      path: '/plumbing-fire-tank-capacity'
+      fullPath: '/plumbing-fire-tank-capacity'
+      preLoaderRoute: typeof PlumbingFireTankCapacityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-fire-pump-duty': {
+      id: '/plumbing-fire-pump-duty'
+      path: '/plumbing-fire-pump-duty'
+      fullPath: '/plumbing-fire-pump-duty'
+      preLoaderRoute: typeof PlumbingFirePumpDutyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/plumbing-drainage': {
+      id: '/plumbing-drainage'
+      path: '/plumbing-drainage'
+      fullPath: '/plumbing-drainage'
+      preLoaderRoute: typeof PlumbingDrainageRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lpd-calculation': {
@@ -985,11 +1287,26 @@ const rootRouteChildren: RootRouteChildren = {
   LoadSummaryRoute: LoadSummaryRoute,
   LobbyPressurisationRoute: LobbyPressurisationRoute,
   LpdCalculationRoute: LpdCalculationRoute,
+  PlumbingDrainageRoute: PlumbingDrainageRoute,
+  PlumbingFirePumpDutyRoute: PlumbingFirePumpDutyRoute,
+  PlumbingFireTankCapacityRoute: PlumbingFireTankCapacityRoute,
+  PlumbingFireTankDurationRoute: PlumbingFireTankDurationRoute,
+  PlumbingFireWaterDemandRoute: PlumbingFireWaterDemandRoute,
+  PlumbingFixtureUnitRoute: PlumbingFixtureUnitRoute,
   PlumbingFm200Route: PlumbingFm200Route,
+  PlumbingGasTankRoute: PlumbingGasTankRoute,
   PlumbingHazenWilliamsRoute: PlumbingHazenWilliamsRoute,
+  PlumbingLoadingUnitRoute: PlumbingLoadingUnitRoute,
+  PlumbingPressureVesselRoute: PlumbingPressureVesselRoute,
   PlumbingPumpSizingRoute: PlumbingPumpSizingRoute,
+  PlumbingSewagePumpRoute: PlumbingSewagePumpRoute,
   PlumbingSprinklerDensityRoute: PlumbingSprinklerDensityRoute,
   PlumbingSprinklerKfactorRoute: PlumbingSprinklerKfactorRoute,
+  PlumbingStormWaterRoute: PlumbingStormWaterRoute,
+  PlumbingSumpPumpRoute: PlumbingSumpPumpRoute,
+  PlumbingSupplyPipeSizerRoute: PlumbingSupplyPipeSizerRoute,
+  PlumbingTankSizingRoute: PlumbingTankSizingRoute,
+  PlumbingWaterDemandRoute: PlumbingWaterDemandRoute,
   PreliminaryCoolingLoadRoute: PreliminaryCoolingLoadRoute,
   ProjectLoadScheduleRoute: ProjectLoadScheduleRoute,
   ProjectsRoute: ProjectsRoute,

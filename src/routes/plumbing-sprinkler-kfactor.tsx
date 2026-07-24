@@ -126,7 +126,7 @@ interface BulbRating {
 }
 
 const BULB_RATINGS: BulbRating[] = [
-  { color: "orange", tempF: "135°F", tempC: "57°C", classification: "Ordinary", hex: "#f97316", bgHex: "bg-orange-500/10", textHex: "text-orange-500" },
+  { color: "orange", tempF: "135°F", tempC: "57°C", classification: "Ordinary", hex: "#f97316", bgHex: "bg-[#0A7BC7]/10", textHex: "text-[#0A7BC7]" },
   { color: "red", tempF: "155°F", tempC: "68°C", classification: "Ordinary", hex: "#ef4444", bgHex: "bg-red-500/10", textHex: "text-red-500" },
   { color: "yellow", tempF: "175°F", tempC: "79°C", classification: "Intermediate", hex: "#eab308", bgHex: "bg-yellow-500/10", textHex: "text-yellow-500" },
   { color: "green", tempF: "200°F", tempC: "93°C", classification: "Intermediate", hex: "#22c55e", bgHex: "bg-green-500/10", textHex: "text-green-500" },
@@ -1921,7 +1921,7 @@ function SprinklerKFactorPage() {
                   </div>
 
                   <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex items-center gap-4 hover:border-primary/20 transition-all">
-                    <div className="size-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                    <div className="size-10 rounded-xl bg-sky-500/10 text-amber-500 flex items-center justify-center shrink-0">
                       <Droplet className="size-5" />
                     </div>
                     <div>

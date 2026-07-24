@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useElectricalNetworkStore } from "@/store/electrical-network";
+
 import { AppShell } from "@/components/workspace/AppShell";
 import { NetworkSLD } from "@/components/workspace/NetworkSLD";
-import { Plus, Trash2, Network, Table as TableIcon, Copy, Zap, Download } from "lucide-react";
+import { Plus, Trash2, Network, Table as TableIcon, Copy, Zap, Download, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "@/hooks/use-confirm";
 
@@ -57,18 +59,24 @@ function createDefaultBoard(id: string, name: string) {
 }
 
 function generateDefaultDBCircuit(id: string, index: number) {
+  const phases = ["R", "Y", "B"];
+  const phaseStr = phases[index % 3];
+  const seq = Math.floor(index / 3) + 1;
+  const cirNo = `${phaseStr}${seq}`;
+  const fullPhase = `${phaseStr} Phase`;
+
   return {
     id,
     elcbGroup: "G1",
     slNo: index + 1,
-    cirNo: `L${index + 1}`,
+    cirNo: cirNo,
     mcb: "10",
     wireEcc: "2.5",
     roomArea: "New Area",
     points: {}, // pointId -> qty
-    wPerUnit: 100,
-    customW: 0,
-    phase: "R Phase",
+    wPerUnit: "",
+    customW: "",
+    phase: fullPhase,
     remarks: ""
   };
 }
@@ -99,18 +107,13 @@ function generateDefaultMDBCircuit(id: string, index: number) {
 function ProjectLoadSchedulePage() {
   const confirm = useConfirm();
   const [view, setView] = useState<"schedule" | "sld">("schedule");
-  const [boards, setBoards] = useState<any[]>(() => {
-    try {
-      const saved = localStorage.getItem("mep-load-schedule-boards-v2");
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return [createDefaultBoard("board-1", "New Board 1")];
-  });
-  const [activeBoardId, setActiveBoardId] = useState<string>("board-1");
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const boards = useElectricalNetworkStore(state => state.boards);
+  const setBoards = useElectricalNetworkStore(state => state.setBoards);
+  const recalculateNetwork = useElectricalNetworkStore(state => state.recalculateNetwork);
 
-  useEffect(() => {
-    localStorage.setItem("mep-load-schedule-boards-v2", JSON.stringify(boards));
-  }, [boards]);
+  const [activeBoardId, setActiveBoardId] = useState<string>("board-1");
+  const [isCompactView, setIsCompactView] = useState(false);
 
   const activeBoard = boards.find(b => b.id === activeBoardId);
   const isDB = activeBoard?.type === "DB" || activeBoard?.type === "EDB";
@@ -141,6 +144,64 @@ function ProjectLoadSchedulePage() {
       ? generateDefaultDBCircuit(`c-${Date.now()}`, activeBoard.circuits.length)
       : generateDefaultMDBCircuit(`c-${Date.now()}`, activeBoard.circuits.length);
     updateBoard({ circuits: [...activeBoard.circuits, newCirc] });
+    
+  const duplicateCircuit = (circuitToClone: any) => {
+    const isDB = activeBoard.type === "DB";
+    const newIdx = activeBoard.circuits.length;
+    
+    // Generate fresh structural properties (id, index, cirNo, phase)
+    const freshCirc = isDB 
+      ? generateDefaultDBCircuit(`c-${Date.now()}`, newIdx)
+      : generateDefaultMDBCircuit(`c-${Date.now()}`, newIdx);
+      
+    // Overwrite the cloned data onto the fresh circuit
+    const clonedCirc = {
+      ...freshCirc,
+      // copy user fields
+      mcb: circuitToClone.mcb,
+      wireEcc: circuitToClone.wireEcc,
+      roomArea: circuitToClone.roomArea,
+      points: { ...circuitToClone.points },
+      wPerUnit: circuitToClone.wPerUnit,
+      customW: circuitToClone.customW,
+      remarks: circuitToClone.remarks,
+      
+      // SMDB specific fields
+      desc: circuitToClone.desc,
+      kw: circuitToClone.kw,
+      df: circuitToClone.df,
+      loadW: circuitToClone.loadW,
+      way: circuitToClone.way,
+      spTp: circuitToClone.spTp,
+      type: circuitToClone.type,
+      ecc: circuitToClone.ecc,
+      len: circuitToClone.len,
+      ph1Mtr: circuitToClone.ph1Mtr,
+      ph3Mtr: circuitToClone.ph3Mtr,
+      ctMtr: circuitToClone.ctMtr,
+    };
+    
+    updateBoard({ circuits: [...activeBoard.circuits, clonedCirc] });
+    
+    setTimeout(() => {
+      if (tableContainerRef.current) {
+        tableContainerRef.current.scrollTo({
+          top: tableContainerRef.current.scrollHeight,
+          behavior: "smooth"
+        });
+      }
+    }, 50);
+  };
+
+  // Auto-scroll to bottom after rendering
+    setTimeout(() => {
+      if (tableContainerRef.current) {
+        tableContainerRef.current.scrollTo({
+          top: tableContainerRef.current.scrollHeight,
+          behavior: "smooth"
+        });
+      }
+    }, 50);
   };
 
   const copyDown = async (field: string, value: any) => {
@@ -298,13 +359,14 @@ function ProjectLoadSchedulePage() {
     // 2nd: Power ELCB's (30mA)
     processCluster(powerCircuits, 30, false);
     
-    // 3rd: Mechanical / Others (100mA)
-    processCluster(mechCircuits, 100, false);
-    
-    // Any remaining spares get padded into 30mA chunks
+    // Any remaining spares get padded into 30mA chunks (Power ELCBs) BEFORE mechanical
     if (spareCircuits.length > 0) {
       processCluster([...spareCircuits], 30, true);
+      spareCircuits.length = 0; // Clear them so they aren't reused!
     }
+
+    // 3rd: Mechanical / Others (100mA) AT THE VERY END
+    processCluster(mechCircuits, 100, false);
     
     // 4. Sequence slNo, cirNo, phase correctly
     const phases = ["R", "Y", "B"];
@@ -446,34 +508,15 @@ function ProjectLoadSchedulePage() {
       }
     }
     
-    try {
-      // Safely load ExcelJS & FileSaver from CDN to avoid Vite SSR module resolution crashes
-      const getExcelJS = async (): Promise<any> => {
-        if ((window as any).ExcelJS) return (window as any).ExcelJS;
-        return new Promise((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js";
-          script.onload = () => resolve((window as any).ExcelJS);
-          script.onerror = reject;
-          document.body.appendChild(script);
-        });
-      };
-      
-      const getFileSaver = async (): Promise<any> => {
-        if ((window as any).saveAs) return (window as any).saveAs;
-        return new Promise((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js";
-          script.onload = () => resolve((window as any).saveAs);
-          script.onerror = reject;
-          document.body.appendChild(script);
-        });
-      };
-      
-      const ExcelJS = await getExcelJS();
-      const saveAs = await getFileSaver();
+    try {      // Use dynamic imports to load the locally installed packages (avoids SSR/build issues and network blockers)
+      const exceljsModule = await import('exceljs/dist/exceljs.min.js');
+      const ExcelJS = exceljsModule.default || (window as any).ExcelJS;
+      const fileSaverModule = await import('file-saver');
+      const saveAs = fileSaverModule.saveAs || fileSaverModule.default?.saveAs || fileSaverModule.default || ((window as any).saveAs);
       
       const wb = new ExcelJS.Workbook();
+        const sheetMap: any = {};
+        const crossSheetLinks: any[] = [];
       wb.creator = "MEP Calculator";
       wb.created = new Date();
       
@@ -657,17 +700,34 @@ function ProjectLoadSchedulePage() {
           // Subtotal Row
           const subRow = ws.addRow(new Array(totalCols).fill(""));
           subRow.eachCell(c => applyGreyHeader(c, true));
-          subRow.getCell(rCol).value = totalR;
-          subRow.getCell(yCol).value = totalY;
-          subRow.getCell(bCol).value = totalB;
+          const firstCirc = 7;
+          const lastCirc = currentRow - 1;
+          if (lastCirc >= firstCirc) {
+            subRow.getCell(rCol).value = { formula: `SUM(${ws.getCell(firstCirc, rCol).address}:${ws.getCell(lastCirc, rCol).address})`, result: totalR };
+            subRow.getCell(yCol).value = { formula: `SUM(${ws.getCell(firstCirc, yCol).address}:${ws.getCell(lastCirc, yCol).address})`, result: totalY };
+            subRow.getCell(bCol).value = { formula: `SUM(${ws.getCell(firstCirc, bCol).address}:${ws.getCell(lastCirc, bCol).address})`, result: totalB };
+          } else {
+            subRow.getCell(rCol).value = totalR;
+            subRow.getCell(yCol).value = totalY;
+            subRow.getCell(bCol).value = totalB;
+          }
           currentRow++;
             
           // Total Row
           const totalRow = ws.addRow(new Array(totalCols).fill(""));
           totalRow.eachCell(c => applyGreyHeader(c, true));
           totalRow.getCell(rCol - 1).value = "TOTAL"; 
-          totalRow.getCell(rCol).value = (totalR + totalY + totalB) / 1000;
+          totalRow.getCell(rCol).value = { formula: `SUM(${subRow.getCell(rCol).address}:${subRow.getCell(bCol).address})/1000`, result: (totalR + totalY + totalB) / 1000 };
           totalRow.getCell(rCol + 1).value = "kw";
+          
+          sheetMap[board.name] = {
+            sheetName: board.name.substring(0, 31),
+            rCell: subRow.getCell(rCol).address,
+            yCell: subRow.getCell(yCol).address,
+            bCell: subRow.getCell(bCol).address,
+            kwCell: totalRow.getCell(rCol).address
+          };
+          
           currentRow++;
             
           // Cable Size Footer
@@ -840,10 +900,14 @@ function ProjectLoadSchedulePage() {
                
              const lKW = (Number(c.qty) || 1) * (Number(c.loadW) || 0) / 1000;
              let rKw = 0; let yKw = 0; let bKw = 0;
-             if (c.phase?.includes("R")) rKw = lKW;
-             else if (c.phase?.includes("Y")) yKw = lKW;
-             else if (c.phase?.includes("B")) bKw = lKW;
-             else { rKw = lKW/3; yKw = lKW/3; bKw = lKW/3; }
+               if (c.rKw !== undefined && c.yKw !== undefined && c.bKw !== undefined) {
+                   rKw = c.rKw / 1000;
+                   yKw = c.yKw / 1000;
+                   bKw = c.bKw / 1000;
+               } else if (c.phase?.includes("R")) rKw = lKW;
+               else if (c.phase?.includes("Y")) yKw = lKW;
+               else if (c.phase?.includes("B")) bKw = lKW;
+               else { rKw = lKW/3; yKw = lKW/3; bKw = lKW/3; }
                
              const df = Number(c.df) || 1;
              const mdl = lKW * df;
@@ -880,10 +944,32 @@ function ProjectLoadSchedulePage() {
           ws.mergeCells(totRow.number, 5, totRow.number, 9);
           totRow.getCell(5).value = "TOTAL CONNECTED LOAD PER\nPHASE:";
             
-          totRow.getCell(10).value = totalR.toFixed(2);
-          totRow.getCell(11).value = totalY.toFixed(2);
-          totRow.getCell(12).value = totalB.toFixed(2);
-          totRow.getCell(13).value = totalBoardKW.toFixed(2);
+          const firstCircRow = outRow.number + 1;
+            const lastCircRow = totRow.number - 1;
+            if (lastCircRow >= firstCircRow) {
+              totRow.getCell(10).value = { formula: `SUM(J${firstCircRow}:J${lastCircRow})`, result: totalR };
+              totRow.getCell(11).value = { formula: `SUM(K${firstCircRow}:K${lastCircRow})`, result: totalY };
+              totRow.getCell(12).value = { formula: `SUM(L${firstCircRow}:L${lastCircRow})`, result: totalB };
+              totRow.getCell(13).value = { formula: `SUM(M${firstCircRow}:M${lastCircRow})`, result: totalBoardKW };
+            } else {
+              totRow.getCell(10).value = totalR.toFixed(2);
+              totRow.getCell(11).value = totalY.toFixed(2);
+              totRow.getCell(12).value = totalB.toFixed(2);
+              totRow.getCell(13).value = totalBoardKW.toFixed(2);
+            }
+            // Update incomer row to reflect these totals
+            incRow.getCell(10).value = { formula: `J${totRow.number}`, result: totalR };
+            incRow.getCell(11).value = { formula: `K${totRow.number}`, result: totalY };
+            incRow.getCell(12).value = { formula: `L${totRow.number}`, result: totalB };
+            incRow.getCell(13).value = { formula: `M${totRow.number}`, result: totalBoardKW };
+            
+            sheetMap[board.name] = {
+              sheetName: board.name.substring(0, 31),
+              rCell: totRow.getCell(10).address,
+              yCell: totRow.getCell(11).address,
+              bCell: totRow.getCell(12).address,
+              kwCell: totRow.getCell(13).address
+            };
           totRow.getCell(14).value = "0.00";
           totRow.getCell(15).value = "0.00";
           totRow.getCell(16).value = "0";
@@ -926,13 +1012,24 @@ function ProjectLoadSchedulePage() {
           ws.getColumn(19).width = 25;
         }
       });
-const buffer = await wb.xlsx.writeBuffer();
+        // Apply cross sheet links
+        crossSheetLinks.forEach(link => {
+           const map = sheetMap[link.boardName];
+           if (map) {
+             link.targetR.value = { formula: `'${map.sheetName}'!${map.rCell}` };
+             link.targetY.value = { formula: `'${map.sheetName}'!${map.yCell}` };
+             link.targetB.value = { formula: `'${map.sheetName}'!${map.bCell}` };
+             link.targetKW.value = { formula: `'${map.sheetName}'!${map.kwCell}` };
+           }
+        });
+        
+        const buffer = await wb.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       saveAs(blob, "Project_Load_Schedule.xlsx");
       
-    } catch (err) {
+    } catch (err: any) {
       console.error("Export failed", err);
-      alert("Failed to export schedule. Make sure you are connected to the internet.");
+      alert("Export failed: " + (err.message || err));
     }
   };
 
@@ -949,7 +1046,7 @@ const buffer = await wb.xlsx.writeBuffer();
 
   return (
     <AppShell>
-      <div className="flex flex-col h-[calc(100vh-80px)] bg-slate-50 text-slate-800 font-sans">
+      <div className="flex flex-col h-full bg-slate-50 text-slate-800 font-sans">
         
         {/* Top Header */}
         <div className="flex items-center justify-between p-4 bg-white border-b border-slate-200 shadow-sm shrink-0">
@@ -959,7 +1056,7 @@ const buffer = await wb.xlsx.writeBuffer();
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={globalNetworkBalance} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 transition shadow-sm">
+            <button onClick={globalNetworkBalance} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#3178c6] text-white rounded hover:bg-[#2968ad] transition shadow-sm">
               <Zap className="size-3" /> Global Network Balance
             </button>
             <div className="flex bg-slate-100 p-1 rounded-md border border-slate-200">
@@ -1065,65 +1162,68 @@ const buffer = await wb.xlsx.writeBuffer();
                 </div>
 
                 <div className="flex flex-col gap-2 justify-center shrink-0">
-                  <button onClick={() => {
-                    const newBoard = createDefaultBoard(`board-${Date.now()}`, `New Board ${boards.length + 1}`);
-                    setBoards([...boards, newBoard]);
-                    setActiveBoardId(newBoard.id);
-                  }} className="h-8 px-3 text-xs bg-emerald-600 text-white rounded shadow-sm hover:bg-emerald-700 flex items-center gap-1"><Plus className="size-3"/> New Board</button>
                   <button onClick={autoSizeAndGroup} className="h-8 px-3 text-xs bg-white border border-slate-300 rounded shadow-sm hover:bg-slate-50 flex items-center gap-1"><Network className="size-3"/> Auto-Size & Group</button>
                   <button onClick={autoBalancePhases} className="h-8 px-3 text-xs bg-white border border-slate-300 rounded shadow-sm hover:bg-slate-50 flex items-center gap-1"><Zap className="size-3"/> Auto Balance Phases</button>
-                  <button onClick={exportSchedule} className="h-8 px-3 text-xs bg-blue-600 text-white rounded shadow-sm hover:bg-blue-700 flex items-center gap-1"><Download className="size-3"/> Export Schedule</button>
+                  <button onClick={() => setIsCompactView(!isCompactView)} className={`h-8 px-3 text-xs border border-slate-300 rounded shadow-sm flex items-center gap-1 transition-colors ${isCompactView ? "bg-slate-700 text-white border-white/20 hover:bg-slate-800" : "bg-white hover:bg-slate-50"}`}>
+                    {isCompactView ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+                    {isCompactView ? "Full View" : "Compact View"}
+                  </button>
+                  <button onClick={exportSchedule} className="h-8 px-3 text-xs bg-[#3178c6] text-white rounded shadow-sm hover:bg-[#2968ad] flex items-center gap-1"><Download className="size-3"/> Export Schedule</button>
                 </div>
               </div>
 
               {/* Table Container */}
-              <div className="flex-1 overflow-auto bg-white text-slate-800">
+              <div ref={tableContainerRef} className="flex-1 overflow-auto bg-white text-slate-800">
                 <table className="w-max min-w-full text-xs text-center border-collapse">
-                  <thead className="bg-[#1e293b] text-slate-200 sticky top-0 z-10 shadow-md">
+                  <thead className="bg-[#2968ad] text-slate-200 sticky top-0 z-20 shadow-md outline outline-1 outline-slate-700">
                     {isDB ? (
                       <>
                         <tr>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-16 bg-[#0f172a]">CIRNo</th>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-16 bg-[#0f172a]">MCB (A) <Copy onClick={()=>copyDown("mcb", activeBoard.circuits[0]?.mcb)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-20 bg-[#0f172a]">WIRE/ECC <Copy onClick={()=>copyDown("wireEcc", activeBoard.circuits[0]?.wireEcc)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-32 bg-[#0f172a]">ROOM/AREA <Copy onClick={()=>copyDown("roomArea", activeBoard.circuits[0]?.roomArea)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                          <th colSpan={POINT_TYPES.length + 1} className="border border-slate-700 p-1 bg-[#1e293b]">CONNECTED LOADS / POINTS</th>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-20 bg-slate-700/50">CUSTOM W</th>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-24 bg-[#0f172a]">PHASE</th>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-32 bg-[#0f172a]">REMARKS</th>
-                          <th rowSpan={2} className="border border-slate-700 p-2 w-10 bg-[#0f172a]"></th>
+                          <th rowSpan={2} className="border border-white/20 p-2 w-16 bg-[#3178c6]">CIRNo</th>
+                          <th rowSpan={2} className="border border-white/20 p-2 w-16 bg-[#3178c6]">MCB (A) <Copy onClick={()=>copyDown("mcb", activeBoard.circuits[0]?.mcb)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                          {!isCompactView && <th rowSpan={2} className="border border-white/20 p-2 w-20 bg-[#3178c6]">WIRE/ECC <Copy onClick={()=>copyDown("wireEcc", activeBoard.circuits[0]?.wireEcc)} className="size-3 inline cursor-pointer hover:text-white" /></th>}
+                          <th rowSpan={2} className="border border-white/20 p-2 w-32 bg-[#3178c6]">ROOM/AREA <Copy onClick={()=>copyDown("roomArea", activeBoard.circuits[0]?.roomArea)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                          <th colSpan={POINT_TYPES.length + 1} className="border border-white/20 p-1 bg-[#2968ad]">CONNECTED LOADS / POINTS</th>
+                          <th rowSpan={2} className="border border-white/20 p-2 w-20 bg-slate-700/50">CUSTOM W</th>
+                          <th rowSpan={2} className="border border-white/20 p-2 w-24 bg-[#3178c6]">PHASE</th>
+                          {!isCompactView && <th rowSpan={2} className="border border-white/20 p-2 w-32 bg-[#3178c6]">REMARKS</th>}
+                          <th rowSpan={2} className="border border-white/20 p-2 w-16 bg-[#3178c6] text-slate-400 text-center"><Trash2 className="size-3 inline" /></th>
                         </tr>
                         <tr>
                           {POINT_TYPES.map(p => (
-                            <th key={p.id} className="border border-slate-700 p-1 text-[9px] w-12 hover:bg-slate-700" title={`${p.defaultW}W`}>
+                            <th key={p.id} className="border border-white/20 p-1 text-[9px] w-12 hover:bg-slate-700" title={`${p.defaultW}W`}>
                               {p.name} <Copy className="size-2.5 inline cursor-pointer" />
                             </th>
                           ))}
-                          <th className="border border-slate-700 p-1 text-[9px] w-14 bg-slate-700/30">W/UNIT</th>
+                          <th className="border border-white/20 p-1 text-[9px] w-14 bg-slate-700/30">W/UNIT</th>
                         </tr>
                       </>
                     ) : (
                       <tr>
-                        <th className="border border-slate-700 p-2 w-16 bg-[#0f172a]">CIR NO</th>
-                        <th className="border border-slate-700 p-2 w-48 bg-[#0f172a]">LOAD DESCRIPTION <Copy onClick={()=>copyDown("desc", activeBoard.circuits[0]?.desc)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                        <th className="border border-slate-700 p-2 w-16 bg-[#0f172a]">QTY <Copy onClick={()=>copyDown("qty", activeBoard.circuits[0]?.qty)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                        <th className="border border-slate-700 p-2 w-20 bg-[#0f172a]">LOAD(W) <Copy onClick={()=>copyDown("loadW", activeBoard.circuits[0]?.loadW)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                        <th className="border border-slate-700 p-2 w-24 bg-[#0f172a]">PHASE</th>
-                        <th className="border border-slate-700 p-2 w-20 bg-red-950/40 text-red-400">R (W)</th>
-                        <th className="border border-slate-700 p-2 w-20 bg-yellow-950/40 text-yellow-400">Y (W)</th>
-                        <th className="border border-slate-700 p-2 w-20 bg-blue-950/40 text-blue-400">B (W)</th>
-                        <th className="border border-slate-700 p-2 w-16 bg-[#0f172a]">DF</th>
-                        <th className="border border-slate-700 p-2 w-16 bg-[#0f172a]">MCB <Copy onClick={()=>copyDown("mcb", activeBoard.circuits[0]?.mcb)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                        <th className="border border-slate-700 p-2 w-20 bg-[#0f172a]">FAULT KA</th>
-                        <th className="border border-slate-700 p-2 w-16 bg-[#0f172a]">WIRE <Copy onClick={()=>copyDown("wire", activeBoard.circuits[0]?.wire)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                        <th className="border border-slate-700 p-2 w-24 bg-[#0f172a]">TYPE <Copy onClick={()=>copyDown("type", activeBoard.circuits[0]?.type)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                        <th className="border border-slate-700 p-2 w-16 bg-[#0f172a]">ECC <Copy onClick={()=>copyDown("ecc", activeBoard.circuits[0]?.ecc)} className="size-3 inline cursor-pointer hover:text-white" /></th>
-                        <th className="border border-slate-700 p-2 w-20 bg-[#0f172a]">LEN(M)</th>
-                        <th className="border border-slate-700 p-2 w-20 bg-[#0f172a]">1-PH MTR</th>
-                        <th className="border border-slate-700 p-2 w-20 bg-[#0f172a]">3-PH MTR</th>
-                        <th className="border border-slate-700 p-2 w-20 bg-[#0f172a]">CT MTR</th>
-                        <th className="border border-slate-700 p-2 w-32 bg-[#0f172a]">REMARKS</th>
-                        <th className="border border-slate-700 p-2 w-10 bg-[#0f172a]"></th>
+                        <th className="border border-white/20 p-2 w-16 bg-[#3178c6]">CIR NO</th>
+                        <th className="border border-white/20 p-2 w-48 bg-[#3178c6]">LOAD DESCRIPTION <Copy onClick={()=>copyDown("desc", activeBoard.circuits[0]?.desc)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                        <th className="border border-white/20 p-2 w-16 bg-[#3178c6]">QTY <Copy onClick={()=>copyDown("qty", activeBoard.circuits[0]?.qty)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                        <th className="border border-white/20 p-2 w-20 bg-[#3178c6]">LOAD(W) <Copy onClick={()=>copyDown("loadW", activeBoard.circuits[0]?.loadW)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                        <th className="border border-white/20 p-2 w-24 bg-[#3178c6]">PHASE</th>
+                        <th className="border border-white/20 p-2 w-20 bg-red-950/40 text-red-400">R (W)</th>
+                        <th className="border border-white/20 p-2 w-20 bg-yellow-950/40 text-yellow-400">Y (W)</th>
+                        <th className="border border-white/20 p-2 w-20 bg-blue-950/40 text-blue-400">B (W)</th>
+                        <th className="border border-white/20 p-2 w-16 bg-[#3178c6]">DF</th>
+                        <th className="border border-white/20 p-2 w-16 bg-[#3178c6]">MCB <Copy onClick={()=>copyDown("mcb", activeBoard.circuits[0]?.mcb)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                        {!isCompactView && (
+                          <>
+                            <th className="border border-white/20 p-2 w-20 bg-[#3178c6]">FAULT KA</th>
+                            <th className="border border-white/20 p-2 w-16 bg-[#3178c6]">WIRE <Copy onClick={()=>copyDown("wire", activeBoard.circuits[0]?.wire)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                            <th className="border border-white/20 p-2 w-24 bg-[#3178c6]">TYPE <Copy onClick={()=>copyDown("type", activeBoard.circuits[0]?.type)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                            <th className="border border-white/20 p-2 w-16 bg-[#3178c6]">ECC <Copy onClick={()=>copyDown("ecc", activeBoard.circuits[0]?.ecc)} className="size-3 inline cursor-pointer hover:text-white" /></th>
+                            <th className="border border-white/20 p-2 w-20 bg-[#3178c6]">LEN(M)</th>
+                            <th className="border border-white/20 p-2 w-20 bg-[#3178c6]">1-PH MTR</th>
+                            <th className="border border-white/20 p-2 w-20 bg-[#3178c6]">3-PH MTR</th>
+                            <th className="border border-white/20 p-2 w-20 bg-[#3178c6]">CT MTR</th>
+                            <th className="border border-white/20 p-2 w-32 bg-[#3178c6]">REMARKS</th>
+                          </>
+                        )}
+                          <th className="border border-white/20 p-2 w-16 bg-[#3178c6] text-slate-400 text-center"><Trash2 className="size-3 inline" /></th>
                       </tr>
                     )}
                   </thead>
@@ -1144,7 +1244,7 @@ const buffer = await wb.xlsx.writeBuffer();
                             <>
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.cirNo} onChange={e => updateCircuit(c.id, "cirNo", e.target.value)} /></td>
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.mcb} onChange={e => updateCircuit(c.id, "mcb", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.wireEcc} onChange={e => updateCircuit(c.id, "wireEcc", e.target.value)} /></td>
+                              {!isCompactView && <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.wireEcc} onChange={e => updateCircuit(c.id, "wireEcc", e.target.value)} /></td>}
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.roomArea} onChange={e => updateCircuit(c.id, "roomArea", e.target.value)} /></td>
                               
                               {POINT_TYPES.map(p => (
@@ -1161,7 +1261,7 @@ const buffer = await wb.xlsx.writeBuffer();
                                   <option>R Phase</option><option>Y Phase</option><option>B Phase</option><option>3-Phase</option>
                                 </select>
                               </td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.remarks} onChange={e => updateCircuit(c.id, "remarks", e.target.value)} /></td>
+                              {!isCompactView && <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.remarks} onChange={e => updateCircuit(c.id, "remarks", e.target.value)} /></td>}
                             </>
                           ) : (
                             <>
@@ -1175,42 +1275,85 @@ const buffer = await wb.xlsx.writeBuffer();
                                 </select>
                               </td>
                               
-                              <td className="p-0 border-r border-slate-300 text-right pr-2 text-red-600 font-medium font-mono">{c.phase.includes("R") ? load : c.phase === "3-Phase" ? (load/3).toFixed(1) : ""}</td>
-                              <td className="p-0 border-r border-slate-300 text-right pr-2 text-yellow-600 font-medium font-mono">{c.phase.includes("Y") ? load : c.phase === "3-Phase" ? (load/3).toFixed(1) : ""}</td>
-                              <td className="p-0 border-r border-slate-300 text-right pr-2 text-blue-700 font-medium font-mono">{c.phase.includes("B") ? load : c.phase === "3-Phase" ? (load/3).toFixed(1) : ""}</td>
+                              <td className="p-0 border-r border-slate-300 text-right pr-2 text-red-600 font-medium font-mono">{c.rKw !== undefined ? c.rKw.toFixed(1) : (c.phase.includes("R") ? load : c.phase === "3-Phase" ? (load/3).toFixed(1) : "")}</td>
+                              <td className="p-0 border-r border-slate-300 text-right pr-2 text-yellow-600 font-medium font-mono">{c.yKw !== undefined ? c.yKw.toFixed(1) : (c.phase.includes("Y") ? load : c.phase === "3-Phase" ? (load/3).toFixed(1) : "")}</td>
+                              <td className="p-0 border-r border-slate-300 text-right pr-2 text-blue-700 font-medium font-mono">{c.bKw !== undefined ? c.bKw.toFixed(1) : (c.phase.includes("B") ? load : c.phase === "3-Phase" ? (load/3).toFixed(1) : "")}</td>
                               
                               <td className="p-0 border-r border-slate-300"><input type="number" step="0.1" className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.df} onChange={e => updateCircuit(c.id, "df", Number(e.target.value))} /></td>
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.mcb} onChange={e => updateCircuit(c.id, "mcb", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.faultKa} onChange={e => updateCircuit(c.id, "faultKa", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.wire} onChange={e => updateCircuit(c.id, "wire", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300">
-                                <select className="w-full h-8 px-1 bg-transparent outline-none focus:bg-slate-100 text-[10px]" value={c.type} onChange={e => updateCircuit(c.id, "type", e.target.value)}>
-                                  <option>XLPE/SWA/PVC</option><option>PVC/PVC</option><option>FP200</option>
-                                </select>
-                              </td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ecc} onChange={e => updateCircuit(c.id, "ecc", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.len} onChange={e => updateCircuit(c.id, "len", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ph1Mtr} onChange={e => updateCircuit(c.id, "ph1Mtr", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ph3Mtr} onChange={e => updateCircuit(c.id, "ph3Mtr", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ctMtr} onChange={e => updateCircuit(c.id, "ctMtr", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.remarks} onChange={e => updateCircuit(c.id, "remarks", e.target.value)} /></td>
+                              {!isCompactView && (
+                                <>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.faultKa} onChange={e => updateCircuit(c.id, "faultKa", e.target.value)} /></td>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.wire} onChange={e => updateCircuit(c.id, "wire", e.target.value)} /></td>
+                                  <td className="p-0 border-r border-slate-300">
+                                    <select className="w-full h-8 px-1 bg-transparent outline-none focus:bg-slate-100 text-[10px]" value={c.type} onChange={e => updateCircuit(c.id, "type", e.target.value)}>
+                                      <option>XLPE/SWA/PVC</option><option>PVC/PVC</option><option>FP200</option>
+                                    </select>
+                                  </td>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ecc} onChange={e => updateCircuit(c.id, "ecc", e.target.value)} /></td>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.len} onChange={e => updateCircuit(c.id, "len", e.target.value)} /></td>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ph1Mtr} onChange={e => updateCircuit(c.id, "ph1Mtr", e.target.value)} /></td>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ph3Mtr} onChange={e => updateCircuit(c.id, "ph3Mtr", e.target.value)} /></td>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.ctMtr} onChange={e => updateCircuit(c.id, "ctMtr", e.target.value)} /></td>
+                                  <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.remarks} onChange={e => updateCircuit(c.id, "remarks", e.target.value)} /></td>
+                                </>
+                              )}
                             </>
                           )}
                           <td className="p-0 text-center">
-                            <button onClick={() => updateBoard({ circuits: activeBoard.circuits.filter((cc: any) => cc.id !== c.id) })} className="p-1 text-slate-500 hover:text-red-400 rounded">
-                              <Trash2 className="size-4" />
-                            </button>
+                            <div className="flex justify-center items-center gap-1">
+                              <button onClick={() => duplicateCircuit(c)} className="p-1 text-slate-500 hover:text-[#3178c6] rounded" title="Duplicate Circuit">
+                                <Copy className="size-3.5" />
+                              </button>
+                              <button onClick={() => {
+                                const isBoardFeeder = c.desc && (c.desc.startsWith("New Board") || c.desc.startsWith("DB-") || c.desc.startsWith("SMDB-") || c.desc.startsWith("MDB-") || boards.some((ab: any) => ab.name === c.desc));
+                                if (isBoardFeeder) {
+                                  alert(`Cannot delete this circuit directly because it is a Feeder for a connected board (${c.desc}).\n\nTo remove this feeder, you must go to the child board and change its 'Fed From' setting to 'None'. The Global Network will then automatically remove this circuit from this board.`);
+                                  return;
+                                }
+                                updateBoard({ circuits: activeBoard.circuits.filter((cc: any) => cc.id !== c.id) });
+                              }} className="p-1 text-slate-500 hover:text-red-400 rounded">
+                                <Trash2 className="size-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
                     })}
+                    <tr>
+                      <td colSpan={100} className="p-4 bg-slate-50 border-t border-slate-300">
+                        <div className="flex justify-center">
+                          <button onClick={addCircuit} className="px-6 py-2 bg-[#3178c6] hover:bg-[#2968ad] text-white font-medium rounded-full shadow-md flex items-center gap-2 transition-transform hover:scale-105 active:scale-95">
+                            <Plus className="size-4" /> Add Circuit
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   </tbody>
+                  <tfoot className="sticky bottom-0 z-20 bg-[#2968ad] text-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)] outline outline-1 outline-slate-700">
+                    {isDB ? (
+                      <tr>
+                        <td colSpan={isCompactView ? 3 : 4} className="border border-white/20 p-2 text-right font-bold text-[10px]">TOTALS:</td>
+                        <td colSpan={POINT_TYPES.length + 5} className="border border-white/20 p-2 font-bold text-[11px] text-center bg-[#3178c6]">
+                           <span className="text-red-400 mr-4">R: {totalR.toLocaleString(undefined, {maximumFractionDigits:0})} W</span>
+                           <span className="text-yellow-400 mr-4">Y: {totalY.toLocaleString(undefined, {maximumFractionDigits:0})} W</span>
+                           <span className="text-blue-400 mr-4">B: {totalB.toLocaleString(undefined, {maximumFractionDigits:0})} W</span>
+                           <span className="text-white">TOTAL: {(totalR+totalY+totalB).toLocaleString(undefined, {maximumFractionDigits:0})} W</span>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="border border-white/20 p-2 text-right font-bold text-slate-300">TOTAL:</td>
+                        <td className="border border-white/20 p-2 font-bold text-red-400 bg-[#3178c6]">{totalR.toLocaleString(undefined, {maximumFractionDigits:0})}</td>
+                        <td className="border border-white/20 p-2 font-bold text-yellow-400 bg-[#3178c6]">{totalY.toLocaleString(undefined, {maximumFractionDigits:0})}</td>
+                        <td className="border border-white/20 p-2 font-bold text-blue-400 bg-[#3178c6]">{totalB.toLocaleString(undefined, {maximumFractionDigits:0})}</td>
+                        <td colSpan={isCompactView ? 3 : 12} className="border border-white/20 p-2 text-left font-bold pl-4 text-slate-300 bg-[#3178c6]">
+                           TOTAL MDL: {activeBoard.circuits.reduce((sum: number, c: any) => sum + ((c.loadW || 0) * (c.df || 1)), 0).toLocaleString(undefined, {maximumFractionDigits:0})} W
+                        </td>
+                      </tr>
+                    )}
+                  </tfoot>
                 </table>
-                <div className="p-4 flex justify-center">
-                  <button onClick={addCircuit} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-full shadow-md flex items-center gap-2">
-                    <Plus className="size-4" /> Add Circuit
-                  </button>
-                </div>
               </div>
             </div>
           ) : null}
@@ -1238,9 +1381,14 @@ const buffer = await wb.xlsx.writeBuffer();
             </div>
           </div>
 
-          <div className="flex items-center h-10 bg-slate-100 border-t border-slate-300 select-none overflow-hidden text-xs shrink-0">
-            <div className="flex h-full overflow-x-auto hide-scrollbar flex-1 items-end pl-1 pt-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-              <style dangerouslySetInnerHTML={{ __html: `.hide-scrollbar::-webkit-scrollbar { display: none; }` }} />
+          <div className="flex items-center h-12 bg-slate-100 border-t border-slate-300 select-none overflow-hidden text-xs shrink-0">
+            <div className="flex h-full overflow-x-auto custom-scrollbar flex-1 items-end pl-1 pt-1">
+              <style dangerouslySetInnerHTML={{ __html: `
+                .custom-scrollbar::-webkit-scrollbar { height: 6px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+              ` }} />
               <button 
                 onClick={() => setActiveBoardId("SUMMARY")}
                 className={`h-[32px] px-4 font-bold border-t border-r border-l rounded-t-md mx-[1px] whitespace-nowrap transition-colors flex items-center shadow-sm relative ${activeBoardId === "SUMMARY" ? "bg-emerald-500 text-white border-emerald-600 z-10 h-[34px] border-b-0 -mb-[1px]" : "bg-emerald-400 text-white border-emerald-500 hover:bg-emerald-500 z-0 opacity-80"}`}
@@ -1280,4 +1428,10 @@ const buffer = await wb.xlsx.writeBuffer();
     </AppShell>
   );
 }
+
+
+// trigger
+
+// trigger2
+
 

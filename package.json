@@ -78,7 +78,8 @@
     "vaul": "^1.1.2",
     "web-ifc": "latest",
     "xlsx": "^0.18.5",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zustand": "^4.5.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

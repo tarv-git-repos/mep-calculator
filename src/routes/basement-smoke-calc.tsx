@@ -363,21 +363,21 @@ function BasementSmokeCalcPage() {
                 <div className="bg-slate-50 dark:bg-slate-950/20 p-4 border border-border/80 rounded-xl flex gap-3 flex-wrap items-end text-xs">
                   <div className="flex-1 min-w-[120px] flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground">Floor Name</label>
-                    <input type="text" placeholder="e.g. B3" value={newFloor.name} onChange={e => setNewFloor({ ...newFloor, name: e.target.value })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="text" placeholder="e.g. B3" value={newFloor.name} onChange={e => setNewFloor({ ...newFloor, name: e.target.value })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-24 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground">Gross Area</label>
-                    <input type="number" value={newFloor.area} onChange={e => setNewFloor({ ...newFloor, area: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" value={newFloor.area} onChange={e => setNewFloor({ ...newFloor, area: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-24 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground">Eff. Area</label>
-                    <input type="number" value={newFloor.effArea} onChange={e => setNewFloor({ ...newFloor, effArea: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" value={newFloor.effArea} onChange={e => setNewFloor({ ...newFloor, effArea: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground">Height</label>
-                    <input type="number" step="0.1" value={newFloor.height} onChange={e => setNewFloor({ ...newFloor, height: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="0.1" value={newFloor.height} onChange={e => setNewFloor({ ...newFloor, height: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
-                  <button onClick={handleAddFloor} className="bg-[#f78f22] text-white px-4 py-2 font-bold rounded-lg hover:bg-[#cf6610] cursor-pointer flex items-center gap-1"><Plus className="size-3.5" /> Add</button>
+                  <button onClick={handleAddFloor} className="bg-[#0A7BC7] text-white px-4 py-2 font-bold rounded-lg hover:bg-[#06456F] cursor-pointer flex items-center gap-1"><Plus className="size-3.5" /> Add</button>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -422,14 +422,14 @@ function BasementSmokeCalcPage() {
               {/* Fan selection parameters */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Global Fan Sizing</h3>
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Total Fan Qty Sized</label>
-                    <input type="number" min="1" step="1" value={totalFans} onChange={e => setTotalFans(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 text-xs font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" min="1" step="1" value={totalFans} onChange={e => setTotalFans(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 text-xs font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 font-sans mt-2 pt-2 border-t border-border/60">
@@ -459,7 +459,7 @@ function BasementSmokeCalcPage() {
               <div className="bg-card border border-border rounded-2xl shadow-xs p-5 flex flex-col gap-4">
                 <div className="flex justify-between items-center pb-2 border-b border-border/60">
                   <div className="flex items-center gap-2">
-                    <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                     <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Fan Systems Head Loss Calculations</h3>
                   </div>
                   <TBtn onClick={handleOpenCreateFS} className="h-8.5 text-xs">
@@ -624,7 +624,7 @@ function BasementSmokeCalcPage() {
                                   <span className="font-semibold text-muted-foreground">Safety Overhead (10%)</span>
                                   <strong className="font-bold text-foreground font-mono">{fs.safety.toFixed(2)} Pa</strong>
                                 </div>
-                                <div className="flex justify-between items-center pt-1 text-[#f78f22]">
+                                <div className="flex justify-between items-center pt-1 text-[#0A7BC7]">
                                   <span className="font-bold">Total Static Sized</span>
                                   <strong className="font-bold text-sm font-mono">{fs.totalStatic} Pa</strong>
                                 </div>
@@ -665,7 +665,7 @@ function BasementSmokeCalcPage() {
                   value={modalFSName}
                   onChange={e => setModalFSName(e.target.value)}
                   placeholder="e.g. SF-1 Extract"
-                  className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22] text-xs"
+                  className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
                 />
               </div>
 
@@ -674,7 +674,7 @@ function BasementSmokeCalcPage() {
                 <select
                   value={modalFSType}
                   onChange={e => setModalFSType(e.target.value as any)}
-                  className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22]"
+                  className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]"
                 >
                   <option value="Extract">Smoke Extract Fan</option>
                   <option value="Makeup">Makeup Air Fan</option>
@@ -727,7 +727,7 @@ function BasementSmokeCalcPage() {
               </button>
               <button
                 onClick={handleSaveFanSystem}
-                className="px-4 py-2 bg-[#f78f22] text-white font-bold rounded-lg text-xs transition hover:bg-[#cf6610] cursor-pointer"
+                className="px-4 py-2 bg-[#0A7BC7] text-white font-bold rounded-lg text-xs transition hover:bg-[#06456F] cursor-pointer"
               >
                 {modalFSId ? "Save Changes" : "Create System"}
               </button>

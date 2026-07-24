@@ -189,6 +189,41 @@ function DashboardPage() {
                   <span>FM-200 Calculation</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
+                <Link
+                  to="/plumbing-water-demand"
+                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                >
+                  <span>Water Demand Sizer</span>
+                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                </Link>
+                <Link
+                  to="/plumbing-fixture-unit"
+                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                >
+                  <span>Fixture Unit Sizer</span>
+                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                </Link>
+                <Link
+                  to="/plumbing-loading-unit"
+                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                >
+                  <span>Loading Unit Sizer</span>
+                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                </Link>
+                <Link
+                  to="/plumbing-supply-pipe-sizer"
+                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                >
+                  <span>Supply Pipe Sizer</span>
+                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                </Link>
+                <Link
+                  to="/plumbing-pump-sizing"
+                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                >
+                  <span>Pump Sizing (Transfer/Booster)</span>
+                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                </Link>
               </div>
             </div>
           </div>

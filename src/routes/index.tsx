@@ -11,11 +11,12 @@ import {
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { TBtn } from "@/components/workspace/Button";
-import { useWorkspace, type Space, type SpaceStatus, type Zone, type Equipment, type ZoneInstanceAssignment } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore, type Space, type SpaceStatus, type Zone, type Equipment, type ZoneInstanceAssignment } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
-import { getOccupancyCategories, getOccupancyData } from "@/lib/ashrae-data";
+import { CategorySelect } from "@/components/workspace/CategorySelect";
+import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
 import { useConfirm } from "@/hooks/use-confirm";
 import {
   ContextMenu,
@@ -85,7 +86,7 @@ function VentilationModule() {
 
   const [tab, setTab] = useState<Tab>("spaces");
   const [intelOpen, setIntelOpen] = useState(false);
-  const { spaces, zones, equipment } = useWorkspace();
+  const { spaces, zones, equipment, roundOffPreset, setRoundOffPreset } = useWorkspace();
 
   const totalArea = Math.round(spaces.reduce((sum, s) => sum + ((s.area || 0) * (s.multiplier || 1)), 0));
   const totalMinFresh = Math.round(spaces.reduce((sum, s) => sum + (s.minOA || 0), 0));
@@ -135,7 +136,7 @@ function VentilationModule() {
           {/* White card container for Tabs & Data Grid */}
           <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 {TABS.map((t) => {
                   const active = t.id === tab;
@@ -153,6 +154,31 @@ function VentilationModule() {
                     </button>
                   );
                 })}
+              </div>
+
+              {/* Round-off preset toggle option */}
+              <div className="flex items-center gap-2.5 select-none shrink-0 bg-slate-50/40 dark:bg-zinc-900/10 border border-slate-200/40 dark:border-zinc-800/40 px-3.5 py-1 rounded-full">
+                <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                  ROUND-OFF:
+                </span>
+                <div className="flex bg-[#f1f5f9] dark:bg-zinc-800/60 p-0.5 rounded-full border border-slate-200/40 dark:border-zinc-700/40 shadow-xs">
+                  {[0.5, 1, 5].map((preset) => {
+                    const active = (roundOffPreset ?? 5) === preset;
+                    return (
+                      <button
+                        key={preset}
+                        onClick={() => setRoundOffPreset(preset)}
+                        className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer ${
+                          active
+                            ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
+                            : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
+                        }`}
+                      >
+                        {preset} L/s
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -265,6 +291,8 @@ function SpacesView() {
     cutSpaces,
     pasteSpaces,
     setWorkspaceState,
+    undo,
+    redo,
   } = useWorkspace();
 
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
@@ -415,6 +443,7 @@ function SpacesView() {
     floor: "",
     category: "",
     pressure: "",
+    area: "",
     height: "",
     fixtures: "",
     multiplier: "",
@@ -426,6 +455,7 @@ function SpacesView() {
     floor: false,
     category: false,
     pressure: false,
+    area: false,
     height: false,
     fixtures: false,
     multiplier: false,
@@ -433,6 +463,7 @@ function SpacesView() {
     equipment: false,
   });
   const [customParamModalSpace, setCustomParamModalSpace] = useState<Space | null>(null);
+  const [restroomModalSpace, setRestroomModalSpace] = useState<Space | null>(null);
 
   const [assignZoneOpen, setAssignZoneOpen] = useState(false);
   const [targetZone, setTargetZone] = useState("");
@@ -1062,24 +1093,39 @@ function SpacesView() {
         if (bulkEditFields.floor) {
           nextSpace.floor = bulkEditValues.floor.trim();
         }
+        if (bulkEditFields.area) {
+          nextSpace.area = parseFloat(bulkEditValues.area) || 10.0;
+        }
         if (bulkEditFields.category) {
           const categoryVal = bulkEditValues.category;
           nextSpace.category = categoryVal;
           nextSpace.aiDetected = false;
           
-          if (categoryVal === "OTHER" || categoryVal.endsWith(" (Custom)")) {
-            nextSpace.category = categoryVal === "OTHER" ? "Custom (Custom)" : categoryVal;
+          if (categoryVal === "Other" || categoryVal === "OTHER" || categoryVal.endsWith(" (Custom)")) {
+            nextSpace.category = (categoryVal === "Other" || categoryVal === "OTHER") ? "Custom (Custom)" : categoryVal;
           } else if (categoryVal) {
             const data = getOccupancyData(categoryVal);
-            if (data) {
+            if (data && !nextSpace.isOccupancyCustomized) {
               const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
                 ? 1
-                : Math.ceil((s.area * data.defaultDensity) / 100);
+                : Math.ceil((nextSpace.area * data.defaultDensity) / 100);
               nextSpace.occupancy = defaultOcc;
               nextSpace.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
             }
           } else {
             nextSpace.category = "";
+          }
+        } else if (bulkEditFields.area) {
+          // If only area changed (and category remains active), recalculate default occupancy
+          if (nextSpace.category && !nextSpace.isOccupancyCustomized) {
+            const data = getOccupancyData(nextSpace.category);
+            if (data) {
+              const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+                ? 1
+                : Math.ceil((nextSpace.area * data.defaultDensity) / 100);
+              nextSpace.occupancy = defaultOcc;
+              nextSpace.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+            }
           }
         }
         if (bulkEditFields.pressure) {
@@ -1264,6 +1310,7 @@ function SpacesView() {
                 floor: "",
                 category: "",
                 pressure: "",
+                area: "",
                 height: "",
                 fixtures: "",
                 multiplier: "",
@@ -1275,6 +1322,7 @@ function SpacesView() {
                 floor: false,
                 category: false,
                 pressure: false,
+                area: false,
                 height: false,
                 fixtures: false,
                 multiplier: false,
@@ -1637,7 +1685,23 @@ function SpacesView() {
           if (s.category !== selectedCategory) return false;
         }
       }
-      if (q && !`${s.code} ${s.name} ${s.zone} ${s.category}`.toLowerCase().includes(q)) return false;
+      if (q) {
+        const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+        const codeLower = (s.code || "").toLowerCase();
+        const nameLower = (s.name || "").toLowerCase();
+        const zoneLower = (s.zone || "").toLowerCase();
+        const categoryLower = (s.category || "").toLowerCase();
+        const textToSearch = `${codeLower} ${nameLower} ${zoneLower} ${categoryLower}`;
+
+        const allMatched = terms.every(term => {
+          if (term === "locker" || term === "room") {
+            return categoryLower.includes("locker") || categoryLower.includes("room") || 
+                   codeLower.includes(term) || nameLower.includes(term) || zoneLower.includes(term);
+          }
+          return textToSearch.includes(term);
+        });
+        if (!allMatched) return false;
+      }
       return true;
     });
 
@@ -1681,6 +1745,35 @@ function SpacesView() {
     });
     return flat;
   }, [rows, sortedFloorsForGrid]);
+
+  const spaceRowClasses = useMemo(() => {
+    const classes: Record<string, string> = {};
+    
+    let currentFloor = "";
+    let currentZoneName = "";
+    let globalZoneIndex = -1; // Start at -1 so first row triggers increment to 0
+    
+    orderedRows.forEach(s => {
+      const f = s.floor || "Unknown";
+      const z = (s.zone || "").trim();
+      const isDef = !z || z.toLowerCase() === "default" || z.toLowerCase() === "unzoned";
+      const zoneName = isDef ? "Default" : z;
+      
+      if (f !== currentFloor || zoneName !== currentZoneName) {
+        globalZoneIndex++;
+        currentFloor = f;
+        currentZoneName = zoneName;
+      }
+      
+      if (globalZoneIndex % 2 === 0) {
+        classes[s.id] = "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80";
+      } else {
+        classes[s.id] = "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40";
+      }
+    });
+    
+    return classes;
+  }, [orderedRows]);
 
   const columns: Column<Space>[] = [
     { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => (
@@ -1740,48 +1833,110 @@ function SpacesView() {
             title={r.aiDetected ? "Automatically identified" : undefined}
             className={`size-1.5 rounded-full shrink-0 ${r.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
           />
-          <select
-            value={r.category || ""}
-            onChange={(e) => {
-              const newVal = e.target.value;
-              if (newVal === "OTHER") {
-                setCustomParamModalSpace({
-                  ...r,
-                  category: r.category && r.category.endsWith(" (Custom)") ? r.category : "Custom (Custom)",
-                  customWorkflow: r.customWorkflow || "calculate",
-                  customPeopleOA: r.customPeopleOA || 0,
-                  customAreaOA: r.customAreaOA || 0,
-                  customExhaustPerUnit: r.customExhaustPerUnit || 0,
-                  customExhaustPerArea: r.customExhaustPerArea || 0,
-                  customAch: r.customAch || 0,
-                  customFreshGiven: r.customFreshGiven || 0,
-                  customExtTaken: r.customExtTaken || 0,
-                });
-                return;
-              }
-              const data = getOccupancyData(newVal);
-              const updates: Partial<Space> = {
-                category: newVal,
-                aiDetected: false
-              };
-              if (data) {
-                const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
-                  ? 1
-                  : Math.ceil((r.area * data.defaultDensity) / 100);
-                updates.occupancy = defaultOcc;
-                updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
-              }
-              bulkUpdateSpaces([r.id], updates);
-            }}
-            className="w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[13px] cursor-pointer truncate"
-          >
-            <option value="" disabled className="text-muted-foreground italic">Select Category...</option>
-            {categories.map((c) => (
-              <option key={c} value={c} className="bg-background text-foreground">
-                {c}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1 w-full min-w-0">
+            <CategorySelect
+              value={r.category || ""}
+              onChange={(newVal) => {
+                if (newVal === "Other" || newVal === "OTHER") {
+                  const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
+                  const categoryName = latestSpace.category && latestSpace.category.endsWith(" (Custom)") ? latestSpace.category : "Custom (Custom)";
+                  bulkUpdateSpaces([r.id], { category: categoryName, aiDetected: false });
+                  setTimeout(() => {
+                    const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || latestSpace;
+                    setCustomParamModalSpace({
+                      ...freshSpace,
+                      category: categoryName,
+                      customWorkflow: freshSpace.customWorkflow || "calculate",
+                      customPeopleOA: freshSpace.customPeopleOA || 0,
+                      customAreaOA: freshSpace.customAreaOA || 0,
+                      customExhaustPerUnit: freshSpace.customExhaustPerUnit || 0,
+                      customExhaustPerArea: freshSpace.customExhaustPerArea || 0,
+                      customAch: freshSpace.customAch || 0,
+                      customFreshGiven: freshSpace.customFreshGiven || 0,
+                      customExtTaken: freshSpace.customExtTaken || 0,
+                    });
+                  }, 50);
+                  return;
+                }
+                if (newVal === "Rest Room / Changing Room") {
+                  const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
+                  const spaceCopy = { ...latestSpace, category: newVal, aiDetected: false };
+                  if (!spaceCopy.restroomSubCategories) {
+                    spaceCopy.restroomSubCategories = {
+                      toiletPrivateContinuous: 0,
+                      toiletPublicContinuous: 0,
+                      toiletPrivateDiscontinuous: 0,
+                      toiletPublicDiscontinuous: 0,
+                      showerContinuous: 0,
+                      showerDiscontinuous: 0,
+                      janitorCloset: 0,
+                      lockerRoom: 0,
+                    };
+                  }
+                  const data = getOccupancyData(newVal);
+                  const updates: Partial<Space> = {
+                    category: newVal,
+                    aiDetected: false,
+                    restroomSubCategories: spaceCopy.restroomSubCategories
+                  };
+                  if (data && !latestSpace.isOccupancyCustomized) {
+                    const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+                      ? 1
+                      : Math.ceil((latestSpace.area * data.defaultDensity) / 100);
+                    updates.occupancy = defaultOcc;
+                    updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+                  }
+                  bulkUpdateSpaces([r.id], updates);
+                  setTimeout(() => {
+                    const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || spaceCopy;
+                    setRestroomModalSpace(freshSpace);
+                  }, 50);
+                  return;
+                }
+                const data = getOccupancyData(newVal);
+                const updates: Partial<Space> = {
+                  category: newVal,
+                  aiDetected: false
+                };
+                if (data && !r.isOccupancyCustomized) {
+                  const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+                    ? 1
+                    : Math.ceil((r.area * data.defaultDensity) / 100);
+                  updates.occupancy = defaultOcc;
+                  updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+                }
+                bulkUpdateSpaces([r.id], updates);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (r.category === "Rest Room / Changing Room") {
+                  setRestroomModalSpace(r);
+                } else {
+                  setCustomParamModalSpace({
+                    ...r,
+                    customWorkflow: r.customWorkflow || "calculate",
+                    customPeopleOA: r.customPeopleOA || 0,
+                    customAreaOA: r.customAreaOA || 0,
+                    customExhaustPerUnit: r.customExhaustPerUnit || 0,
+                    customExhaustPerArea: r.customExhaustPerArea || 0,
+                    customAch: r.customAch || 0,
+                    customFreshGiven: r.customFreshGiven || 0,
+                    customExtTaken: r.customExtTaken || 0,
+                  });
+                }
+              }}
+              className={`flex items-center justify-center p-1 rounded-md hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors shrink-0 cursor-pointer ${
+                (r.category === "Rest Room / Changing Room" || (r.category && r.category.endsWith(" (Custom)")))
+                  ? "opacity-100"
+                  : "opacity-0 pointer-events-none"
+              }`}
+              title={r.category === "Rest Room / Changing Room" ? "Configure Rest Room subcategories" : "Configure Custom Parameters"}
+            >
+              <Wrench className="size-3.5" />
+            </button>
+          </div>
         </span>
       );
     } },
@@ -2020,6 +2175,18 @@ function SpacesView() {
         }
         return;
       }
+
+      // 6. Undo/Redo: Ctrl+Z / Ctrl+Y
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        redo();
+        return;
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -2034,6 +2201,8 @@ function SpacesView() {
     copySpaces,
     cutSpaces,
     pasteSpaces,
+    undo,
+    redo,
   ]);
 
   const handleNewSpace = () => {
@@ -2162,7 +2331,7 @@ addSpace(newSpace);
                 >
                   <option value="">All Categories</option>
                   {uniqueCategories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c}>{getCategoryDisplayName(c)}</option>
                   ))}
                 </select>
               </div>
@@ -2243,6 +2412,7 @@ addSpace(newSpace);
                   floor: "",
                   category: "",
                   pressure: "",
+                  area: "",
                   height: "",
                   fixtures: "",
                   multiplier: "",
@@ -2254,6 +2424,7 @@ addSpace(newSpace);
                   floor: false,
                   category: false,
                   pressure: false,
+                  area: false,
                   height: false,
                   fixtures: false,
                   multiplier: false,
@@ -2331,6 +2502,7 @@ addSpace(newSpace);
               onToggleGroup={handleToggleGroup}
               onRowDoubleClick={(r) => setEditingSpace(r)}
               activeRowId={editingSpace?.id}
+              rowClassName={(r) => spaceRowClasses[r.id] || ""}
             />
           )}
         </div>
@@ -2440,6 +2612,114 @@ addSpace(newSpace);
             availableEquipment={equipment.map(e => e.tag)}
             availableFloors={allUniqueFloors}
           />
+        )}
+
+        {/* Rest Room / Changing Room Configuration Modal */}
+        {restroomModalSpace && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+            <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <header className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-zinc-900/30">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
+                    Rest Room / Changing Room Configuration
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Enter the quantity of each sub-category to compute total exhaust.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setRestroomModalSpace(null)}
+                  className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                >
+                  <X className="size-4" />
+                </button>
+              </header>
+              <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+                {[
+                  { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
+                  { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
+                  { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
+                  { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
+                  { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
+                  { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
+                  { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+                  { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+                ].map((subcat) => {
+                  const sub = restroomModalSpace.restroomSubCategories || {};
+                  const qty = sub[subcat.key] || 0;
+                  return (
+                    <div key={subcat.key} className="flex items-center justify-between gap-4 py-1.5 border-b border-slate-100/60 dark:border-zinc-900/60">
+                      <div className="flex flex-col">
+                        <span className="text-[12.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                          {subcat.label}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground mt-0.5">
+                          {subcat.rate}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          value={qty}
+                          onChange={(e) => {
+                            const val = Math.max(0, parseInt(e.target.value) || 0);
+                            setRestroomModalSpace((prev) => {
+                              if (!prev) return null;
+                              const sub = prev.restroomSubCategories || {};
+                              return {
+                                ...prev,
+                                restroomSubCategories: {
+                                  ...sub,
+                                  [subcat.key]: val
+                                }
+                              };
+                            });
+                          }}
+                          className="w-20 h-9 px-2 text-center bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl text-[13px] font-bold outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-neutral-800 dark:text-neutral-200"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="px-6 py-4 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Total Exhaust
+                  </span>
+                  <span className="text-[15px] font-black text-primary">
+                    {(() => {
+                      const sub = restroomModalSpace.restroomSubCategories || {};
+                      const areaVal = restroomModalSpace.area || 0;
+                      let total = 0;
+                      total += (sub.toiletPrivateContinuous || 0) * 12.5;
+                      total += (sub.toiletPublicContinuous || 0) * 25.0;
+                      total += (sub.toiletPrivateDiscontinuous || 0) * 25.0;
+                      total += (sub.toiletPublicDiscontinuous || 0) * 35.0;
+                      total += (sub.showerContinuous || 0) * 10.0;
+                      total += (sub.showerDiscontinuous || 0) * 25.0;
+                      total += (sub.janitorCloset || 0) * areaVal * 5.0;
+                      total += (sub.lockerRoom || 0) * areaVal * 1.25;
+                      return total;
+                    })()}{" "}
+                    L/s
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updatedSpaces = spaces.map(s => s.id === restroomModalSpace.id ? restroomModalSpace : s);
+                    updateSpaces(updatedSpaces);
+                    setRestroomModalSpace(null);
+                  }}
+                  className="px-5 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-md hover:bg-primary/95 transition cursor-pointer"
+                >
+                  Apply &amp; Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Custom Category Modal for "OTHER" */}
@@ -2793,14 +3073,15 @@ addSpace(newSpace);
                                       className={`size-1.5 rounded-full shrink-0 ${rec.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
                                     />
                                     <select
-                                      value={rec.category || ""}
+                                      value={rec.category && rec.category.endsWith(" (Custom)") ? "Other" : rec.category || ""}
                                       onChange={(e) => {
                                         const newVal = e.target.value;
                                         setPendingRecords(prev => prev.map(p => p.id === rec.id ? { ...p, category: newVal, aiDetected: false } : p));
                                       }}
                                       className="w-full bg-transparent border-0 hover:bg-surface-2 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[11px] cursor-pointer truncate"
                                     >
-                                      <option value="" disabled className="text-muted-foreground italic">Select Category...</option>
+                                      <option value="" className="text-muted-foreground italic">Select Category...</option>
+                                      <option value="Other" className="bg-background text-foreground">Other</option>
                                       {getOccupancyCategories().map((c) => (
                                         <option key={c} value={c} className="bg-background text-foreground">
                                           {c}
@@ -3093,19 +3374,17 @@ addSpace(newSpace);
                     />
                     <label htmlFor="bulk-update-category" className="text-muted-foreground font-medium cursor-pointer">Category Classification</label>
                   </div>
-                  <select
-                    value={bulkEditValues.category}
-                    disabled={!bulkEditFields.category}
-                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, category: e.target.value })}
-                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer transition-all text-foreground"
-                  >
-                    <option value="">-- Select Category (or blank to clear) --</option>
-                    {getOccupancyCategories().map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                  {bulkEditFields.category ? (
+                    <CategorySelect
+                      value={bulkEditValues.category}
+                      onChange={(newVal) => setBulkEditValues({ ...bulkEditValues, category: newVal })}
+                      triggerClassName="w-full bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer transition-all text-foreground h-9"
+                    />
+                  ) : (
+                    <div className="bg-surface-2 opacity-50 border border-border rounded px-2.5 py-1.5 w-full text-muted-foreground text-[13px] h-9 flex items-center select-none cursor-not-allowed">
+                      -- Select Category (or blank to clear) --
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -3133,7 +3412,28 @@ addSpace(newSpace);
                   </select>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1 select-none">
+                      <input
+                        type="checkbox"
+                        id="bulk-update-area"
+                        checked={bulkEditFields.area}
+                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, area: e.target.checked })}
+                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                      />
+                      <label htmlFor="bulk-update-area" className="text-muted-foreground font-medium cursor-pointer">Area (m²)</label>
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="e.g. 15.0"
+                      value={bulkEditValues.area}
+                      disabled={!bulkEditFields.area}
+                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, area: e.target.value })}
+                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
+                    />
+                  </div>
                   <div>
                     <div className="flex items-center gap-1.5 mb-1 select-none">
                       <input
@@ -3152,7 +3452,7 @@ addSpace(newSpace);
                       value={bulkEditValues.height}
                       disabled={!bulkEditFields.height}
                       onChange={(e) => setBulkEditValues({ ...bulkEditValues, height: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
                     />
                   </div>
                   <div>
@@ -3172,7 +3472,7 @@ addSpace(newSpace);
                       value={bulkEditValues.fixtures}
                       disabled={!bulkEditFields.fixtures}
                       onChange={(e) => setBulkEditValues({ ...bulkEditValues, fixtures: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
                     />
                   </div>
                   <div>
@@ -3192,7 +3492,7 @@ addSpace(newSpace);
                       value={bulkEditValues.multiplier}
                       disabled={!bulkEditFields.multiplier}
                       onChange={(e) => setBulkEditValues({ ...bulkEditValues, multiplier: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
                     />
                   </div>
                 </div>
@@ -3573,10 +3873,11 @@ function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React
 function ZonesView() {
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
-  const { spaces, zones, deleteZone, addZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, updateZoneInstances, addEquipment, updateEquipment, updateSpaces, updateZones, bulkUpdateSpaces, setWorkspaceState } = useWorkspace();
+  const { spaces, zones, deleteZone, addZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, updateZoneInstances, addEquipment, updateEquipment, updateSpaces, updateZones, bulkUpdateSpaces, setWorkspaceState, undo, redo } = useWorkspace();
   const confirm = useConfirm();
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
   const [customParamModalSpace, setCustomParamModalSpace] = useState<Space | null>(null);
+  const [restroomModalSpace, setRestroomModalSpace] = useState<Space | null>(null);
 
   const [selectedZones, setSelectedZones] = useState<Set<string>>(new Set());
   const [lastClickedZoneIndex, setLastClickedZoneIndex] = useState<number | null>(null);
@@ -3654,8 +3955,15 @@ function ZonesView() {
   // keep old wiring so context-menu "Assign Equipment" still works
   const setAssignZoneEquipOpen = (open: boolean) => {
     if (open) {
-      const zid = Array.from(selectedZones)[0] ?? null;
-      if (zid) { setAllocZoneId(zid); setZoneAllocOpen(true); }
+      console.log("setAssignZoneEquipOpen: selectedZones=", Array.from(selectedZones));
+      if (selectedZones.size > 1) {
+        setAllocZoneId(null);
+        setZoneAllocOpen(true);
+      } else {
+        const zid = Array.from(selectedZones)[0] ?? null;
+        console.log("setAssignZoneEquipOpen single zid=", zid);
+        if (zid) { setAllocZoneId(zid); setZoneAllocOpen(true); }
+      }
     } else { setZoneAllocOpen(false); }
   };
 
@@ -3843,12 +4151,24 @@ function ZonesView() {
         }
         return;
       }
+
+      // Ctrl+Z / Ctrl+Y: Undo / Redo
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        redo();
+        return;
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [rows, selectedZones, deleteZone, setOpenId]);
+  }, [rows, selectedZones, deleteZone, setOpenId, undo, redo]);
 
 
   const columns: Column<Zone>[] = [
@@ -3857,7 +4177,7 @@ function ZonesView() {
       header: "Zone Name",
       width: 180,
       render: (z) => (
-        <div className="flex items-center gap-1.5 font-sans font-semibold">
+        <div className="flex items-center gap-1.5 font-sans font-medium">
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -4184,6 +4504,7 @@ function ZonesView() {
             setOpenId(openId === z.id ? null : z.id);
             setSelectedZones(new Set([z.id]));
           }}
+          rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
         />
       </div>
 
@@ -4503,48 +4824,110 @@ function ZonesView() {
                               title={s.aiDetected ? "Automatically identified" : undefined}
                               className={`size-1.5 rounded-full shrink-0 ${s.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
                             />
-                            <select
-                              value={s.category || ""}
-                              onChange={(e) => {
-                                const newVal = e.target.value;
-                                if (newVal === "OTHER") {
-                                  setCustomParamModalSpace({
-                                    ...s,
-                                    category: s.category && s.category.endsWith(" (Custom)") ? s.category : "Custom (Custom)",
-                                    customWorkflow: s.customWorkflow || "calculate",
-                                    customPeopleOA: s.customPeopleOA || 0,
-                                    customAreaOA: s.customAreaOA || 0,
-                                    customExhaustPerUnit: s.customExhaustPerUnit || 0,
-                                    customExhaustPerArea: s.customExhaustPerArea || 0,
-                                    customAch: s.customAch || 0,
-                                    customFreshGiven: s.customFreshGiven || 0,
-                                    customExtTaken: s.customExtTaken || 0,
-                                  });
-                                  return;
-                                }
-                                const data = getOccupancyData(newVal);
-                                const updates: Partial<Space> = {
-                                  category: newVal,
-                                  aiDetected: false
-                                };
-                                if (data) {
-                                  const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
-                                    ? 1
-                                    : Math.ceil((s.area * data.defaultDensity) / 100);
-                                  updates.occupancy = defaultOcc;
-                                  updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
-                                }
-                                bulkUpdateSpaces([s.id], updates);
-                              }}
-                              className="w-full bg-transparent border border-transparent hover:bg-white/40 dark:hover:bg-white/10 hover:border-black/5 dark:hover:border-white/5 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1.5 rounded-lg text-foreground text-[12px] cursor-pointer truncate transition-all"
-                            >
-                              <option value="" disabled className="text-muted-foreground italic">Select Category...</option>
-                              {getOccupancyCategories().map((c) => (
-                                <option key={c} value={c} className="bg-background text-foreground">
-                                  {c}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="flex items-center gap-1 w-full min-w-0">
+                              <CategorySelect
+                                value={s.category || ""}
+                                onChange={(newVal) => {
+                                  if (newVal === "Other" || newVal === "OTHER") {
+                                    const latestSpace = workspaceStore.getState().spaces.find(sp => sp.id === s.id) || s;
+                                    const categoryName = latestSpace.category && latestSpace.category.endsWith(" (Custom)") ? latestSpace.category : "Custom (Custom)";
+                                    bulkUpdateSpaces([s.id], { category: categoryName, aiDetected: false });
+                                    setTimeout(() => {
+                                      const freshSpace = workspaceStore.getState().spaces.find(sp => sp.id === s.id) || latestSpace;
+                                      setCustomParamModalSpace({
+                                        ...freshSpace,
+                                        category: categoryName,
+                                        customWorkflow: freshSpace.customWorkflow || "calculate",
+                                        customPeopleOA: freshSpace.customPeopleOA || 0,
+                                        customAreaOA: freshSpace.customAreaOA || 0,
+                                        customExhaustPerUnit: freshSpace.customExhaustPerUnit || 0,
+                                        customExhaustPerArea: freshSpace.customExhaustPerArea || 0,
+                                        customAch: freshSpace.customAch || 0,
+                                        customFreshGiven: freshSpace.customFreshGiven || 0,
+                                        customExtTaken: freshSpace.customExtTaken || 0,
+                                      });
+                                    }, 50);
+                                    return;
+                                  }
+                                  if (newVal === "Rest Room / Changing Room") {
+                                    const latestSpace = workspaceStore.getState().spaces.find(sp => sp.id === s.id) || s;
+                                    const spaceCopy = { ...latestSpace, category: newVal, aiDetected: false };
+                                    if (!spaceCopy.restroomSubCategories) {
+                                      spaceCopy.restroomSubCategories = {
+                                        toiletPrivateContinuous: 0,
+                                        toiletPublicContinuous: 0,
+                                        toiletPrivateDiscontinuous: 0,
+                                        toiletPublicDiscontinuous: 0,
+                                        showerContinuous: 0,
+                                        showerDiscontinuous: 0,
+                                        janitorCloset: 0,
+                                        lockerRoom: 0,
+                                      };
+                                    }
+                                    const data = getOccupancyData(newVal);
+                                    const updates: Partial<Space> = {
+                                      category: newVal,
+                                      aiDetected: false,
+                                      restroomSubCategories: spaceCopy.restroomSubCategories
+                                    };
+                                    if (data && !latestSpace.isOccupancyCustomized) {
+                                      const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+                                        ? 1
+                                        : Math.ceil((latestSpace.area * data.defaultDensity) / 100);
+                                      updates.occupancy = defaultOcc;
+                                      updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+                                    }
+                                    bulkUpdateSpaces([s.id], updates);
+                                    setTimeout(() => {
+                                      const freshSpace = workspaceStore.getState().spaces.find(sp => sp.id === s.id) || spaceCopy;
+                                      setRestroomModalSpace(freshSpace);
+                                    }, 50);
+                                    return;
+                                  }
+                                  const data = getOccupancyData(newVal);
+                                  const updates: Partial<Space> = {
+                                    category: newVal,
+                                    aiDetected: false
+                                  };
+                                  if (data && !s.isOccupancyCustomized) {
+                                    const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+                                      ? 1
+                                      : Math.ceil((s.area * data.defaultDensity) / 100);
+                                    updates.occupancy = defaultOcc;
+                                    updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+                                  }
+                                  bulkUpdateSpaces([s.id], updates);
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (s.category === "Rest Room / Changing Room") {
+                                    setRestroomModalSpace(s);
+                                  } else {
+                                    setCustomParamModalSpace({
+                                      ...s,
+                                      customWorkflow: s.customWorkflow || "calculate",
+                                      customPeopleOA: s.customPeopleOA || 0,
+                                      customAreaOA: s.customAreaOA || 0,
+                                      customExhaustPerUnit: s.customExhaustPerUnit || 0,
+                                      customExhaustPerArea: s.customExhaustPerArea || 0,
+                                      customAch: s.customAch || 0,
+                                      customFreshGiven: s.customFreshGiven || 0,
+                                      customExtTaken: s.customExtTaken || 0,
+                                    });
+                                  }
+                                }}
+                                className={`flex items-center justify-center p-1 rounded-md hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors shrink-0 cursor-pointer ${
+                                  (s.category === "Rest Room / Changing Room" || (s.category && s.category.endsWith(" (Custom)")))
+                                    ? "opacity-100"
+                                    : "opacity-0 pointer-events-none"
+                                }`}
+                                title={s.category === "Rest Room / Changing Room" ? "Configure Rest Room subcategories" : "Configure Custom Parameters"}
+                              >
+                                <Wrench className="size-3.5" />
+                              </button>
+                            </div>
                           </span>
                         </td>
                         <td className="px-6 py-2.5 text-right font-mono tabular">
@@ -4595,8 +4978,8 @@ function ZonesView() {
       <SharedAssignmentModal
         isOpen={zoneAllocOpen}
         initialEquipmentId={allocEquipId}
-        initialZoneId={allocZoneId}
-        initialZoneIds={allocZoneId ? [] : Array.from(selectedZones)}
+        initialZoneId={selectedZones.size > 1 ? null : allocZoneId}
+        initialZoneIds={selectedZones.size > 1 ? Array.from(selectedZones) : (allocZoneId ? [] : Array.from(selectedZones))}
         onClose={() => {
           setZoneAllocOpen(false);
           setAllocZoneId(null);
@@ -4828,6 +5211,114 @@ function ZonesView() {
         />
       )}
 
+      {/* Rest Room / Changing Room Configuration Modal */}
+      {restroomModalSpace && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <header className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-zinc-900/30">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
+                  Rest Room / Changing Room Configuration
+                </h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Enter the quantity of each sub-category to compute total exhaust.
+                </p>
+              </div>
+              <button
+                onClick={() => setRestroomModalSpace(null)}
+                className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-slate-100 dark:hover:bg-zinc-800"
+              >
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+              {[
+                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
+                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
+                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
+                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
+                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
+                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
+                { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+                { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+              ].map((subcat) => {
+                const sub = restroomModalSpace.restroomSubCategories || {};
+                const qty = sub[subcat.key] || 0;
+                return (
+                  <div key={subcat.key} className="flex items-center justify-between gap-4 py-1.5 border-b border-slate-100/60 dark:border-zinc-900/60">
+                    <div className="flex flex-col">
+                      <span className="text-[12.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                        {subcat.label}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground mt-0.5">
+                        {subcat.rate}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        value={qty}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseInt(e.target.value) || 0);
+                          setRestroomModalSpace((prev) => {
+                            if (!prev) return null;
+                            const sub = prev.restroomSubCategories || {};
+                            return {
+                              ...prev,
+                              restroomSubCategories: {
+                                ...sub,
+                                [subcat.key]: val
+                              }
+                            };
+                          });
+                        }}
+                        className="w-20 h-9 px-2 text-center bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl text-[13px] font-bold outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-neutral-800 dark:text-neutral-200"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-6 py-4 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Total Exhaust
+                </span>
+                <span className="text-[15px] font-black text-primary">
+                  {(() => {
+                    const sub = restroomModalSpace.restroomSubCategories || {};
+                    const areaVal = restroomModalSpace.area || 0;
+                    let total = 0;
+                    total += (sub.toiletPrivateContinuous || 0) * 12.5;
+                    total += (sub.toiletPublicContinuous || 0) * 25.0;
+                    total += (sub.toiletPrivateDiscontinuous || 0) * 25.0;
+                    total += (sub.toiletPublicDiscontinuous || 0) * 35.0;
+                    total += (sub.showerContinuous || 0) * 10.0;
+                    total += (sub.showerDiscontinuous || 0) * 25.0;
+                    total += (sub.janitorCloset || 0) * areaVal * 5.0;
+                    total += (sub.lockerRoom || 0) * areaVal * 1.25;
+                    return total;
+                  })()}{" "}
+                  L/s
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const updatedSpaces = spaces.map(s => s.id === restroomModalSpace.id ? restroomModalSpace : s);
+                  updateSpaces(updatedSpaces);
+                  setRestroomModalSpace(null);
+                }}
+                className="px-5 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-md hover:bg-primary/95 transition cursor-pointer"
+              >
+                Apply &amp; Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Custom Category Modal for "OTHER" */}
       {customParamModalSpace && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -5020,7 +5511,7 @@ function ZonesView() {
 /* ─────────── Equipment ─────────── */
 function EquipmentView() {
   const [query, setQuery] = useState("");
-  const { spaces, zones, equipment, updateEquipment, deleteEquipment, setWorkspaceState } = useWorkspace();
+  const { spaces, zones, equipment, updateEquipment, deleteEquipment, setWorkspaceState, undo, redo } = useWorkspace();
   const confirm = useConfirm();
 
   const [sizerOpen, setSizerOpen] = useState(false);
@@ -5029,6 +5520,55 @@ function EquipmentView() {
 
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedEquips, setSelectedEquips] = useState<Set<string>>(new Set());
+  const [lastClickedEquipIndex, setLastClickedEquipIndex] = useState<number | null>(null);
+
+  const toggleEquipment = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    setSelectedEquips((prev) => {
+      const clickedIndex = rows.findIndex((r) => r.id === id);
+      if (clickedIndex === -1) return prev;
+
+      const next = new Set(prev);
+
+      if (isShift && lastClickedEquipIndex !== null) {
+        const start = Math.min(lastClickedEquipIndex, clickedIndex);
+        const end = Math.max(lastClickedEquipIndex, clickedIndex);
+        
+        if (!isCtrl) {
+          next.clear();
+        }
+
+        const shouldSelect = prev.has(rows[lastClickedEquipIndex]?.id || "") || true;
+
+        for (let i = start; i <= end; i++) {
+          const rId = rows[i]?.id;
+          if (rId) {
+            if (shouldSelect) {
+              next.add(rId);
+            } else {
+              next.delete(rId);
+            }
+          }
+        }
+      } else if (isCtrl) {
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        setLastClickedEquipIndex(clickedIndex);
+      } else {
+        if (prev.has(id)) {
+          next.delete(id);
+          setLastClickedEquipIndex(null);
+        } else {
+          next.clear();
+          next.add(id);
+          setLastClickedEquipIndex(clickedIndex);
+        }
+      }
+      return next;
+    });
+  };
 
   // New Equipment Modal states
   const [newEquipOpen, setNewEquipOpen] = useState(false);
@@ -5244,6 +5784,66 @@ function EquipmentView() {
     onOpenSizer(e.id);
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isEditing = activeEl && (
+        activeEl.tagName === "INPUT" ||
+        activeEl.tagName === "SELECT" ||
+        activeEl.tagName === "TEXTAREA" ||
+        activeEl.getAttribute("contenteditable") === "true"
+      );
+      if (isEditing) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // Escape: Clear selection and close modals
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSelectedEquips(new Set());
+        setSizerOpen(false);
+        setSizerEquipId(null);
+        setNewEquipOpen(false);
+        return;
+      }
+
+      // Ctrl+A: Select all equipment
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        if (rows.length > 0) {
+          setSelectedEquips(new Set(rows.map((r) => r.id)));
+        }
+        return;
+      }
+
+      // Delete/Backspace: delete selected equipment
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedEquips.size > 0) {
+          e.preventDefault();
+          handleBulkDeleteEquipment();
+        }
+        return;
+      }
+
+      // Ctrl+Z / Ctrl+Y: Undo / Redo
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedEquips, rows, undo, redo]);
+
   const renderEquipmentContextMenu = (e: Equipment) => (
     <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
       <ContextMenuItem
@@ -5285,7 +5885,7 @@ function EquipmentView() {
 
   return (
     <div className="flex flex-col h-full select-none">
-      <div className="flex items-center gap-1 px-3 h-10 shrink-0">
+      <div className="relative flex items-center gap-1 px-3 h-10 shrink-0 bg-background no-print modal-blur-bg">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -5317,25 +5917,24 @@ function EquipmentView() {
             setNewEquipOpen(true);
           }}><Plus className="size-3.5" /> New Equipment</TBtn>
         </div>
-      </div>
 
-      {/* Bulk actions bar */}
-      {selectedEquips.size > 0 && (
-        <div className="flex items-center gap-2 px-3 py-1 bg-surface-2 border-b border-border text-[12.5px] select-none">
-          <span className="font-semibold text-muted-foreground">{selectedEquips.size} selected</span>
-          <button
-            onClick={handleBulkDeleteEquipment}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-destructive/10 hover:bg-destructive/15 text-destructive font-semibold cursor-pointer transition-colors text-[11.5px]"
-          >
-            <Trash2 className="size-3.5" /> Delete
-          </button>
-        </div>
-      )}
+        {/* Bulk actions bar overlay for equipment */}
+        {selectedEquips.size > 0 && (
+          <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+            <span className="font-semibold">{selectedEquips.size} selected</span>
+            <span className="text-primary/30">·</span>
+            <BulkBtn icon={Trash2} onClick={handleBulkDeleteEquipment}>Delete</BulkBtn>
+            <button onClick={() => setSelectedEquips(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded">
+              <X className="size-3" /> Clear
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-[12.5px]">
-          <thead className="bg-header-bg sticky top-0 border-t border-b border-border-strong z-10">
-            <tr className="text-[10.5px] uppercase tracking-wider text-muted-foreground">
+          <thead className="bg-background dark:bg-[#1a1a1a] sticky top-0 border-t border-b border-border-strong z-10">
+            <tr className="h-10 text-[11.5px] uppercase tracking-wider text-muted-foreground">
               <Th align="center">
                 <input
                   type="checkbox"
@@ -5357,40 +5956,30 @@ function EquipmentView() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((e) => {
+            {rows.map((e, index) => {
               return (
                 <ContextMenu key={e.id}>
                   <ContextMenuTrigger asChild>
                     <tr
                       onDoubleClick={() => handleEquipmentDoubleClicked(e)}
-                      onClick={() => {
-                        setSelectedEquips(prev => {
-                          const next = new Set(prev);
-                          if (next.has(e.id)) {
-                            next.delete(e.id);
-                          } else {
-                            next.add(e.id);
-                          }
-                          return next;
-                        });
+                      onClick={(evt) => {
+                        toggleEquipment(e.id, evt.shiftKey, evt.ctrlKey || evt.metaKey);
                       }}
-                      className="border-b border-border/60 hover:bg-row-hover cursor-pointer"
+                      className={`border-b border-border/60 hover:bg-row-hover cursor-pointer transition-colors ${
+                        index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80" : "bg-white dark:bg-zinc-950"
+                      }`}
                     >
-                      <td className="px-3 py-1.5 text-center w-10" onClick={(evt) => evt.stopPropagation()}>
+                      <td
+                        className="px-3 py-1.5 text-center w-10 cursor-pointer"
+                        onClick={(evt) => {
+                          evt.stopPropagation();
+                          toggleEquipment(e.id, evt.shiftKey, true);
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedEquips.has(e.id)}
-                          onChange={(evt) => {
-                            setSelectedEquips(prev => {
-                              const next = new Set(prev);
-                              if (evt.target.checked) {
-                                next.add(e.id);
-                              } else {
-                                next.delete(e.id);
-                              }
-                              return next;
-                            });
-                          }}
+                          onChange={() => {}}
                           className="size-4 rounded border-border text-primary focus:ring-primary focus:ring-1 cursor-pointer"
                         />
                       </td>

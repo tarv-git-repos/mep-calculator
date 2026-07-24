@@ -160,7 +160,7 @@ function FreshAirCoolingLoadPage() {
               {/* Entering Coil */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full" />
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full" />
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Entering Coil Air Properties</h3>
                 </div>
                 <div className="flex flex-col gap-3.5 text-xs">
@@ -171,7 +171,7 @@ function FreshAirCoolingLoadPage() {
                     </label>
                     <input type="number" step="any" value={dbIn}
                       onChange={e => { setDbIn(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22]" />
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground flex justify-between">
@@ -180,11 +180,11 @@ function FreshAirCoolingLoadPage() {
                     </label>
                     <input type="number" step="any" value={wbIn}
                       onChange={e => { setWbIn(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22]" />
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="text-[11.5px] text-muted-foreground font-semibold py-1">
                     Calculated Entering Hum. Ratio:{" "}
-                    <strong className="text-[#f78f22] font-mono">{calc.wIn.toFixed(ip ? 3 : 5)} {uW}</strong>
+                    <strong className="text-[#0A7BC7] font-mono">{calc.wIn.toFixed(ip ? 3 : 5)} {uW}</strong>
                   </div>
                 </div>
               </div>
@@ -192,7 +192,7 @@ function FreshAirCoolingLoadPage() {
               {/* Leaving Coil */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full" />
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full" />
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Leaving Coil Air Properties</h3>
                 </div>
                 <div className="flex flex-col gap-3.5 text-xs">
@@ -203,7 +203,7 @@ function FreshAirCoolingLoadPage() {
                     </label>
                     <input type="number" step="any" value={dbOut}
                       onChange={e => { setDbOut(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22]" />
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground flex justify-between">
@@ -212,11 +212,11 @@ function FreshAirCoolingLoadPage() {
                     </label>
                     <input type="number" step="any" value={wbOut}
                       onChange={e => { setWbOut(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22]" />
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="text-[11.5px] text-muted-foreground font-semibold py-1">
                     Calculated Leaving Hum. Ratio:{" "}
-                    <strong className="text-[#f78f22] font-mono">{calc.wOut.toFixed(ip ? 3 : 5)} {uW}</strong>
+                    <strong className="text-[#0A7BC7] font-mono">{calc.wOut.toFixed(ip ? 3 : 5)} {uW}</strong>
                   </div>
                 </div>
               </div>
@@ -224,7 +224,7 @@ function FreshAirCoolingLoadPage() {
               {/* Airflow */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full" />
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full" />
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Airflow Rate</h3>
                 </div>
                 <div className="flex flex-col gap-1.5 text-xs">
@@ -234,12 +234,12 @@ function FreshAirCoolingLoadPage() {
                   </label>
                   <input type="number" step="any" value={flowRate}
                     onChange={e => { setFlowRate(Number(e.target.value)); setHasCalculated(false); }}
-                    className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22]" />
+                    className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
                 </div>
               </div>
 
               <button type="button" onClick={() => setHasCalculated(true)}
-                className="w-full bg-[#f78f22] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#cf6610] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
+                className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
                 ⚡ Calculate Cooling Load
               </button>
             </div>
@@ -278,7 +278,7 @@ function FreshAirCoolingLoadPage() {
                   {/* Results */}
                   <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
                     <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                      <div className="w-1 h-3.5 bg-[#f78f22] rounded-full" />
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full" />
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Results</h3>
                     </div>
                     <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-xs">
@@ -304,7 +304,7 @@ function FreshAirCoolingLoadPage() {
                       </div>
                       <div className="flex justify-between items-center py-1.5 col-span-2">
                         <span className="font-bold text-muted-foreground">Total Fresh Air Heat Load</span>
-                        <strong className="font-bold text-[#f78f22] text-[14px] font-mono">{calc.totLoad.toFixed(0)} {uL}</strong>
+                        <strong className="font-bold text-[#0A7BC7] text-[14px] font-mono">{calc.totLoad.toFixed(0)} {uL}</strong>
                       </div>
                     </div>
                   </div>
@@ -312,7 +312,7 @@ function FreshAirCoolingLoadPage() {
                   {/* Bar chart */}
                   {(() => {
                     const bars = [
-                      { label: "Sensible Load", value: calc.sensLoad, color: "#f78f22", display: calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " " + uL },
+                      { label: "Sensible Load", value: calc.sensLoad, color: "#0A7BC7", display: calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 2 }) + " " + uL },
                       { label: "Latent Load",   value: calc.latLoad,  color: "#7C3AED", display: calc.latLoad.toLocaleString(undefined,  { maximumFractionDigits: 2 }) + " " + uL },
                     ];
                     const maxVal = Math.max(...bars.map(b => b.value)) * 1.2 || 1;

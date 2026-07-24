@@ -186,7 +186,7 @@ function HeatingLoadPage() {
 
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Envelope parameters</h3>
                 </div>
 
@@ -194,50 +194,50 @@ function HeatingLoadPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Floor Area ({ip ? "ft\u00b2" : "m\u00b2"})</label>
-                      <input type="number" step="any" value={area} onChange={(e) => { setArea(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={area} onChange={(e) => { setArea(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Ceiling Height ({ip ? "ft" : "m"})</label>
-                      <input type="number" step="any" value={height} onChange={(e) => { setHeight(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={height} onChange={(e) => { setHeight(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Wall U-Value ({ip ? "BTU/h·ft\u00b2·\u00b0F" : "W/m\u00b2K"})</label>
-                      <input type="number" step="any" value={uWall} onChange={(e) => { setUWall(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={uWall} onChange={(e) => { setUWall(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Glazing U-Value ({ip ? "BTU/h·ft\u00b2·\u00b0F" : "W/m\u00b2K"})</label>
-                      <input type="number" step="any" value={uGlaz} onChange={(e) => { setUGlaz(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={uGlaz} onChange={(e) => { setUGlaz(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Glazing Area ({ip ? "ft\u00b2" : "m\u00b2"})</label>
-                      <input type="number" step="any" value={glazArea} onChange={(e) => { setGlazArea(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={glazArea} onChange={(e) => { setGlazArea(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Infiltration Rate (ACH)</label>
-                      <input type="number" step="any" value={ach} onChange={(e) => { setAch(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={ach} onChange={(e) => { setAch(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Outdoor Temp ({ip ? "\u00b0F" : "\u00b0C"})</label>
-                      <input type="number" step="any" value={oat} onChange={(e) => { setOat(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={oat} onChange={(e) => { setOat(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Indoor Temp ({ip ? "\u00b0F" : "\u00b0C"})</label>
-                      <input type="number" step="any" value={iat} onChange={(e) => { setIat(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                      <input type="number" step="any" value={iat} onChange={(e) => { setIat(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                     </div>
                   </div>
                 </div>
               </div>
 
-              <button type="button" onClick={handleCalculate} className="w-full bg-[#f78f22] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#cf6610] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
+              <button type="button" onClick={handleCalculate} className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
                 ⚡ Calculate Heating Load
               </button>
             </div>
@@ -273,7 +273,7 @@ function HeatingLoadPage() {
 
                   <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
                     <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                      <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Results</h3>
                     </div>
 

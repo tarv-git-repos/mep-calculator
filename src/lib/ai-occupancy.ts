@@ -26,15 +26,15 @@ const SYNONYM_DICTIONARY: Record<string, string> = {
   "huddle": "Conference / meeting",
 
   // Toilet synonyms
-  "wc": "EX. Toilet - private (continuous)",
-  "toilet": "EX. Toilet - private (continuous)",
-  "restroom": "EX. Toilet - private (continuous)",
-  "washroom": "EX. Toilet - private (continuous)",
-  "water closet": "EX. Toilet - private (continuous)",
-  "lavatory": "EX. Toilet - private (continuous)",
-  "bathroom": "EX. Toilet - private (continuous)",
-  "powder room": "EX. Toilet - private (continuous)",
-  "powderroom": "EX. Toilet - private (continuous)",
+  "wc": "Rest Room / Changing Room",
+  "toilet": "Rest Room / Changing Room",
+  "restroom": "Rest Room / Changing Room",
+  "washroom": "Rest Room / Changing Room",
+  "water closet": "Rest Room / Changing Room",
+  "lavatory": "Rest Room / Changing Room",
+  "bathroom": "Rest Room / Changing Room",
+  "powder room": "Rest Room / Changing Room",
+  "powderroom": "Rest Room / Changing Room",
 
   // Server Room synonyms
   "server room": "Electrical equipment rooms",
@@ -65,7 +65,14 @@ const SYNONYM_DICTIONARY: Record<string, string> = {
   // Commercial Kitchen synonyms
   "commercial kitchen": "Kitchen - Commercial",
   "cooking kitchen": "Kitchen - Commercial",
-  "catering kitchen": "Kitchen - Commercial"
+  "catering kitchen": "Kitchen - Commercial",
+
+  // Locker room synonyms
+  "locker room": "EX. Locker rooms",
+  "locker rooms": "EX. Locker rooms",
+  "locker": "EX. Locker rooms",
+  "dressing room": "EX. Locker rooms",
+  "dressing rooms": "EX. Locker rooms"
 };
 
 interface KeywordRule {
@@ -98,9 +105,8 @@ const KEYWORD_RULES: KeywordRule[] = [
   { keywords: ['main entry', 'main lobby', 'main entrance'], category: 'Main entry lobbies', weight: 0.95 },
 
   // ── Toilets / Restrooms ──────────────────────────────────────────────
-  { keywords: ['toilet', 'washroom', 'restroom', 'wc', 'water closet', 'lavatory', 'bathroom', 'cloakroom', 'powder room'], category: 'EX. Toilet - private (continuous)', weight: 0.97 },
-  { keywords: ['shower'], category: 'EX. Shower rooms (discontinuous)', weight: 0.95 },
-  { keywords: ['locker', 'change room', 'changing room', 'dressing'], category: 'EX. Locker rooms', weight: 0.93 },
+  { keywords: ['toilet', 'washroom', 'restroom', 'wc', 'water closet', 'lavatory', 'bathroom', 'cloakroom', 'powder room', 'shower', 'changing room', 'change room'], category: 'Rest Room / Changing Room', weight: 0.97 },
+  { keywords: ['locker', 'dressing'], category: 'EX. Locker rooms', weight: 0.93 },
 
   // ── Electrical / Mechanical ──────────────────────────────────────────
   { keywords: ['electrical room', 'elec room', 'mv room', 'lv room', 'switchroom', 'switchgear', 'transformer'], category: 'Electrical equipment rooms', weight: 0.93 },

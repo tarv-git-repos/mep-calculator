@@ -8,7 +8,8 @@ import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
-import { saveAs } from "file-saver";
+import saveAsPkg from "file-saver";
+const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 export const Route = createFileRoute("/cable-voltage-drop")({
   head: () => ({
@@ -651,7 +652,7 @@ function CableVoltageDropPage() {
       key: "vdPercent",
       header: "VD (%)",
       width: 80,
-      render: (row) => !row.isGroup ? <div className="w-full text-center font-bold text-orange-600 dark:text-orange-400">{row.vdPercent}</div> : null,
+      render: (row) => !row.isGroup ? <div className="w-full text-center font-bold text-[#06456F] dark:text-sky-400">{row.vdPercent}</div> : null,
     },
     {
       key: "cumulativeVd",

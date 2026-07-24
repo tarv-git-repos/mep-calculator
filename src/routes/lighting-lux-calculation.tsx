@@ -8,7 +8,8 @@ import { Plus, Download, Trash, Copy, Trash2, X, Database } from "lucide-react";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
-import { saveAs } from "file-saver";
+import saveAsPkg from "file-saver";
+const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 export const Route = createFileRoute("/lighting-lux-calculation")({
   head: () => ({

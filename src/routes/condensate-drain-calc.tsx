@@ -1,10 +1,13 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import { FileSpreadsheet, Plus, Trash2 } from "lucide-react";
+import { FileSpreadsheet, Plus, Trash2, Save } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/condensate-drain-calc")({
   head: () => ({
@@ -50,11 +53,45 @@ interface CoilRow {
 }
 
 function CondensateDrainCalcPage() {
+  const { project } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
-  const [rows, setRows] = useState<CoilRow[]>([
-    { id: "coil-1", name: "AHU-01", dbIn: 24.0, wbIn: 18.0, dbOut: 13.0, wbOut: 12.0, flow: 1500 },
-    { id: "coil-2", name: "FCU-01", dbIn: 24.0, wbIn: 17.0, dbOut: 14.0, wbOut: 13.0, flow: 400 }
-  ]);
+  const [rows, setRows] = useState<CoilRow[]>([]);
+
+  // Load state on project change
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`mep_condensate_calc_${project.id}`);
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (data.unitSystem) setUnitSystem(data.unitSystem);
+        if (data.rows) setRows(data.rows);
+      } else {
+        // Defaults
+        setUnitSystem("si");
+        setRows([
+          { id: "coil-1", name: "AHU-01", dbIn: 24.0, wbIn: 18.0, dbOut: 13.0, wbOut: 12.0, flow: 1500 },
+          { id: "coil-2", name: "FCU-01", dbIn: 24.0, wbIn: 17.0, dbOut: 14.0, wbOut: 13.0, flow: 400 }
+        ]);
+      }
+      setTimeout(() => dirtyStore.set(false), 50);
+    } catch (e) {
+      console.error("Failed to load condensate calculation", e);
+    }
+  }, [project.id]);
+
+  const handleSaveCurrent = () => {
+    try {
+      const dataToSave = {
+        unitSystem,
+        rows
+      };
+      localStorage.setItem(`mep_condensate_calc_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(false);
+      toast.success("Condensate Calculation saved to project successfully!");
+    } catch (e) {
+      toast.error("Failed to save calculation.");
+    }
+  };
 
   const [newCoil, setNewCoil] = useState({
     name: "",
@@ -70,6 +107,7 @@ function CondensateDrainCalcPage() {
   const handleUnitSystemChange = (unit: "si" | "ip") => {
     if (unit === unitSystem) return;
     setUnitSystem(unit);
+    dirtyStore.set(true);
     if ((window as any).__mep_keep_values) return;
     const convT = (t: number) => unit === "ip" ? cToF(t) : fToC(t);
     const convF = (f: number) => unit === "ip" ? lpsToCfm(f) : cfmToLps(f);
@@ -133,6 +171,7 @@ function CondensateDrainCalcPage() {
     if (!newCoil.name) return;
     const id = "coil-" + Date.now();
     setRows([...rows, { ...newCoil, id }]);
+    dirtyStore.set(true);
     setNewCoil(prev => ({
       ...prev,
       name: "",
@@ -142,6 +181,7 @@ function CondensateDrainCalcPage() {
 
   const handleDeleteCoil = (id: string) => {
     setRows(rows.filter(r => r.id !== id));
+    dirtyStore.set(true);
   };
 
   const handleExportExcel = () => {
@@ -183,13 +223,21 @@ function CondensateDrainCalcPage() {
   return (
     <AppShell title="Condensate Drain Calc" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
-          <div className="flex flex-col gap-1 select-none">
-            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CONDENSATE CALCULATION</span>
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Coil Condensate Calculator</h1>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              Input entering and leaving air conditions for multiple cooling coils to formulate aggregate condensate drainage loads.
-            </p>
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6 animate-in fade-in-50 duration-200">
+          <div className="flex justify-between items-start select-none">
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CONDENSATE CALCULATION</span>
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Coil Condensate Calculator</h1>
+              <p className="text-[13px] text-muted-foreground mt-0.5">
+                Input entering and leaving air conditions for multiple cooling coils to formulate aggregate condensate drainage loads.
+              </p>
+            </div>
+            <button
+              onClick={handleSaveCurrent}
+              className="flex items-center gap-2 bg-[#0A7BC7] hover:bg-[#06456F] text-white rounded-xl px-4 py-2 text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-sm mt-3 animate-in fade-in zoom-in-95 duration-150"
+            >
+              <Save className="size-4" /> Save Calculation
+            </button>
           </div>
 
           <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 self-start select-none">
@@ -210,29 +258,29 @@ function CondensateDrainCalcPage() {
                 <div className="bg-slate-50 dark:bg-slate-950/20 p-4 border border-border/80 rounded-xl flex gap-3 flex-wrap items-end text-xs">
                   <div className="flex-1 min-w-[150px] flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">Unit Ref</label>
-                    <input type="text" placeholder="e.g. AHU-2" value={newCoil.name} onChange={e => setNewCoil({ ...newCoil, name: e.target.value })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="text" placeholder="e.g. AHU-2" value={newCoil.name} onChange={e => setNewCoil({ ...newCoil, name: e.target.value })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">On DB ({uTemp})</label>
-                    <input type="number" value={newCoil.dbIn} onChange={e => setNewCoil({ ...newCoil, dbIn: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" value={newCoil.dbIn} onChange={e => setNewCoil({ ...newCoil, dbIn: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">On WB ({uTemp})</label>
-                    <input type="number" value={newCoil.wbIn} onChange={e => setNewCoil({ ...newCoil, wbIn: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" value={newCoil.wbIn} onChange={e => setNewCoil({ ...newCoil, wbIn: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">Off DB ({uTemp})</label>
-                    <input type="number" value={newCoil.dbOut} onChange={e => setNewCoil({ ...newCoil, dbOut: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" value={newCoil.dbOut} onChange={e => setNewCoil({ ...newCoil, dbOut: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">Off WB ({uTemp})</label>
-                    <input type="number" value={newCoil.wbOut} onChange={e => setNewCoil({ ...newCoil, wbOut: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" value={newCoil.wbOut} onChange={e => setNewCoil({ ...newCoil, wbOut: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   <div className="w-24 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">Airflow</label>
-                    <input type="number" value={newCoil.flow} onChange={e => setNewCoil({ ...newCoil, flow: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" value={newCoil.flow} onChange={e => setNewCoil({ ...newCoil, flow: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
-                  <button onClick={handleAddCoil} className="bg-[#f78f22] text-white px-4 py-2 font-bold rounded-lg hover:bg-[#cf6610] cursor-pointer flex items-center gap-1"><Plus className="size-3.5" /> Add</button>
+                  <button onClick={handleAddCoil} className="bg-[#0A7BC7] text-white px-4 py-2 font-bold rounded-lg hover:bg-[#06456F] cursor-pointer flex items-center gap-1"><Plus className="size-3.5" /> Add</button>
                 </div>
 
                 {/* Coils Table - Placed BELOW the add form as in the EXE */}
@@ -277,7 +325,7 @@ function CondensateDrainCalcPage() {
             <div className="lg:col-span-4 flex flex-col gap-5">
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Totals Summary</h3>
                 </div>
 

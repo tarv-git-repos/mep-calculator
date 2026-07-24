@@ -173,26 +173,26 @@ function StaircasePressurizationPage() {
             <div className="lg:col-span-5 flex flex-col gap-5">
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Design Parameters</h3>
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Door Width (m)</label>
-                    <input type="number" step="any" value={doorWidth} onChange={(e) => setDoorWidth(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={doorWidth} onChange={(e) => setDoorWidth(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Door Height (m)</label>
-                    <input type="number" step="any" value={doorHeight} onChange={(e) => setDoorHeight(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={doorHeight} onChange={(e) => setDoorHeight(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Air Leakage rate at 12.5 Pa (m³/s)</label>
-                    <input type="number" step="any" value={leakageRate} onChange={(e) => setLeakageRate(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" step="any" value={leakageRate} onChange={(e) => setLeakageRate(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Number of Closed Doors</label>
-                    <input type="number" min="1" step="1" value={closedDoors} onChange={(e) => setClosedDoors(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#f78f22] outline-none" />
+                    <input type="number" min="1" step="1" value={closedDoors} onChange={(e) => setClosedDoors(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
                   </div>
                 </div>
               </div>
@@ -206,7 +206,7 @@ function StaircasePressurizationPage() {
 
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Calculation Results</h3>
                 </div>
 
@@ -229,7 +229,7 @@ function StaircasePressurizationPage() {
                   </div>
                   <div className="flex justify-between items-center py-1.5 col-span-2">
                     <span className="font-semibold text-muted-foreground">Total Air Volume Required</span>
-                    <strong className="font-bold text-[#f78f22] text-[15px] font-mono">{calculatedData.totalVol.toFixed(4)} m³/s</strong>
+                    <strong className="font-bold text-[#0A7BC7] text-[15px] font-mono">{calculatedData.totalVol.toFixed(4)} m³/s</strong>
                   </div>
                 </div>
               </div>
@@ -293,7 +293,7 @@ function StaircasePressurizationPage() {
                         <div className="font-bold text-foreground">Step 5: Total Air Volume</div>
                         <div className="font-mono text-primary my-1">Total Air Volume = Open Door Flow + Closed Door Flow + Safety Flow</div>
                         <div className="font-mono text-[10.5px] text-muted-foreground">Total = {calculatedData.openFlow.toFixed(4)} + {calculatedData.closedFlow.toFixed(4)} + {calculatedData.safetyFlow.toFixed(4)}</div>
-                        <div className="font-bold text-[11px] text-[#f78f22] mt-0.5">{calculatedData.totalVol.toFixed(4)} m³/s</div>
+                        <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.totalVol.toFixed(4)} m³/s</div>
                       </div>
                     </div>
                   </div>
@@ -326,7 +326,7 @@ function StaircasePressurizationPage() {
                 value={saveName}
                 onChange={e => setSaveName(e.target.value)}
                 placeholder="e.g. West Staircase Main"
-                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#f78f22] text-xs"
+                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
               />
             </div>
             <div className="flex justify-end gap-2.5 mt-2">

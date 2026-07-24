@@ -186,7 +186,7 @@ function DiffuserSelectorPage() {
 
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Inputs</h3>
                 </div>
 
@@ -194,19 +194,19 @@ function DiffuserSelectorPage() {
                   {/* Airflow */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Room Airflow ({ip ? "CFM" : "L/s"})</label>
-                    <input type="number" step="any" value={roomAirflow} onChange={(e) => { setRoomAirflow(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={roomAirflow} onChange={(e) => { setRoomAirflow(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
                   </div>
 
                   {/* Count */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Number of Diffusers</label>
-                    <input type="number" min="1" step="1" value={diffuserCount} onChange={(e) => { setDiffuserCount(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]" />
+                    <input type="number" min="1" step="1" value={diffuserCount} onChange={(e) => { setDiffuserCount(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
                   </div>
 
                   {/* Velocity */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Design Velocity</label>
-                    <select value={designVelocity} onChange={(e) => { setDesignVelocity(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]">
+                    <select value={designVelocity} onChange={(e) => { setDesignVelocity(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]">
                       <option value="2.0">2.0 m/s (350 FPM)</option>
                       <option value="2.5">2.5 m/s (500 FPM)</option>
                     </select>
@@ -215,7 +215,7 @@ function DiffuserSelectorPage() {
                   {/* Diffuser Type */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Diffuser Type</label>
-                    <select value={diffuserType} onChange={(e) => { setDiffuserType(e.target.value as any); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#f78f22]">
+                    <select value={diffuserType} onChange={(e) => { setDiffuserType(e.target.value as any); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]">
                       <option value="square">Square</option>
                       <option value="round">Round</option>
                       <option value="slot16">Linear Slot 16mm</option>
@@ -226,7 +226,7 @@ function DiffuserSelectorPage() {
                 </div>
               </div>
 
-              <button type="button" onClick={handleCalculate} className="w-full bg-[#f78f22] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#cf6610] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
+              <button type="button" onClick={handleCalculate} className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
                 ⚡ Select Diffuser
               </button>
             </div>
@@ -249,14 +249,14 @@ function DiffuserSelectorPage() {
                     <TBtn onClick={handleExportExcel} className="h-8.5 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                   </div>
 
-                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] select-none">
+                  <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] select-none">
                     <Info className="size-4 shrink-0 mt-0.5 text-amber-600" />
                     <span>Selection is based on typical lookup data. Always verify specific layouts with manufacturer selection software.</span>
                   </div>
 
                   <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
                     <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                      <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Solved Parameters</h3>
                     </div>
 
@@ -269,7 +269,7 @@ function DiffuserSelectorPage() {
                       </div>
                       <div className="flex justify-between items-center py-1.5 border-b border-border/40">
                         <span className="font-semibold text-muted-foreground">Neck Size Sized</span>
-                        <strong className="font-bold text-[#f78f22] text-[13px] font-mono">
+                        <strong className="font-bold text-[#0A7BC7] text-[13px] font-mono">
                           {calculatedData.neckSize}
                         </strong>
                       </div>
@@ -293,7 +293,7 @@ function DiffuserSelectorPage() {
                       </div>
                       <div className="flex justify-between items-center py-1.5 col-span-2">
                         <span className="font-semibold text-muted-foreground">ADPI Selection Suitability</span>
-                        <strong className="font-bold text-[#f78f22] font-mono">
+                        <strong className="font-bold text-[#0A7BC7] font-mono">
                           {calculatedData.adpi}
                         </strong>
                       </div>

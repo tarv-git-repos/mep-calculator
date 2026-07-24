@@ -543,7 +543,7 @@ function FM200SizerPage() {
                               width="178" 
                               height="88" 
                               rx="11" 
-                              fill="#f78f22" 
+                              fill="#0A7BC7" 
                               fillOpacity={calcResults.weight > 0 ? 0.15 : 0.02} 
                             />
                             

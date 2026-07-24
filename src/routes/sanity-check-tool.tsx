@@ -153,7 +153,7 @@ function SanityCheckToolPage() {
 
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Design Values</h3>
                 </div>
 
@@ -161,52 +161,52 @@ function SanityCheckToolPage() {
                   {/* Duct velocity */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Duct Velocity ({ip ? "FPM" : "m/s"})</label>
-                    <input type="number" step="any" value={ductVel} onChange={(e) => { setDuctVel(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={ductVel} onChange={(e) => { setDuctVel(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* Duct friction */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Duct Friction ({ip ? "in w.g./100ft" : "Pa/m"})</label>
-                    <input type="number" step="any" value={ductFr} onChange={(e) => { setDuctFr(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={ductFr} onChange={(e) => { setDuctFr(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* ESP */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">External Static Pressure ({ip ? "in w.g." : "Pa"})</label>
-                    <input type="number" step="any" value={esp} onChange={(e) => { setEsp(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={esp} onChange={(e) => { setEsp(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* Pipe velocity */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Pipe Velocity ({ip ? "fps" : "m/s"})</label>
-                    <input type="number" step="any" value={pipeVel} onChange={(e) => { setPipeVel(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={pipeVel} onChange={(e) => { setPipeVel(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* Pump head */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Pump Total Head ({ip ? "ft w.g." : "kPa"})</label>
-                    <input type="number" step="any" value={pumpHead} onChange={(e) => { setPumpHead(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={pumpHead} onChange={(e) => { setPumpHead(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* Airflow/TR */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Airflow per Ton ({ip ? "CFM/TR" : "L/s/kW"})</label>
-                    <input type="number" step="any" value={cfmTr} onChange={(e) => { setCfmTr(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={cfmTr} onChange={(e) => { setCfmTr(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* Supply air temp */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Supply Air Temp ({ip ? "°F" : "°C"})</label>
-                    <input type="number" step="any" value={supTemp} onChange={(e) => { setSupTemp(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={supTemp} onChange={(e) => { setSupTemp(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* CHW DT */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">CHW Delta T ({ip ? "°F" : "°C"})</label>
-                    <input type="number" step="any" value={chwDt} onChange={(e) => { setChwDt(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={chwDt} onChange={(e) => { setChwDt(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                   {/* Chiller efficiency */}
                   <div className="flex flex-col gap-1">
                     <label className="font-semibold text-foreground">Chiller Efficiency ({ip ? "kW/TR" : "COP"})</label>
-                    <input type="number" step="any" value={chillerEff} onChange={(e) => { setChillerEff(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#f78f22]" />
+                    <input type="number" step="any" value={chillerEff} onChange={(e) => { setChillerEff(Number(e.target.value)); setHasCalculated(false); }} className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
                   </div>
                 </div>
               </div>
 
-              <button type="button" onClick={handleCalculate} className="w-full bg-[#f78f22] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#cf6610] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
+              <button type="button" onClick={handleCalculate} className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
                 ⚡ Run Sanity Check
               </button>
             </div>
@@ -231,7 +231,7 @@ function SanityCheckToolPage() {
 
                   <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                     <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                      <div className="w-1 h-3.5 bg-[#f78f22] rounded-full"></div>
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Engineering Audit Summary</h3>
                     </div>
 

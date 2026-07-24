@@ -1,4 +1,4 @@
-// ponytail: module-level singleton — no framework needed for a single boolean flag
+// ponytail: module-level singleton - no framework needed for a single boolean flag
 let _dirty = false;
 const _listeners: Array<() => void> = [];
 

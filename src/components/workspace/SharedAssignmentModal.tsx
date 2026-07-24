@@ -48,6 +48,7 @@ export function SharedAssignmentModal({
   // Sync initial selection state
   useEffect(() => {
     if (isOpen) {
+      console.log("SharedAssignmentModal: isOpen=true, initialZoneId=", initialZoneId, "initialZoneIds=", initialZoneIds);
       if (initialEquipmentId) {
         setSelectedEquipId(initialEquipmentId);
         const eq = equipment.find((e) => e.id === initialEquipmentId);
@@ -74,6 +75,7 @@ export function SharedAssignmentModal({
       } else if (initialZoneId || initialZoneIds) {
         setSelectedEquipId(null);
         const targetIds = initialZoneIds && initialZoneIds.length > 0 ? Array.from(initialZoneIds) : initialZoneId ? [initialZoneId] : [];
+        console.log("SharedAssignmentModal: targetIds=", targetIds);
         const instances = new Set<string>();
         const expanded = new Set<string>();
         targetIds.forEach((id) => {
