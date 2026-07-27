@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -8,16 +8,12 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
-  head: () => ({
-    meta: [
-      { title: "Dashboard — Airflow" },
-      { name: "description", content: "System-wide calculations metrics, active warnings, and project compliance." },
-    ],
-  }),
-  component: DashboardPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/" });
+  },
 });
 
-function DashboardPage() {
+export function DashboardPage() {
   const { spaces, zones, equipment } = useWorkspace();
 
   const stats = useMemo(() => {

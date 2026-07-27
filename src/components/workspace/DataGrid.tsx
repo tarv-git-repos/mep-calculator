@@ -47,13 +47,14 @@ export function DataGrid<T extends { id: string }>({
   rowClassName?: (row: T, index: number) => string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
+   const headerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
 
   const [containerWidth, setContainerWidth] = useState(1000);
   const [colRatios, setColRatios] = useState<Record<string, number>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
 
   // Initialize and synchronize ratios when columns prop changes
   useEffect(() => {
@@ -64,6 +65,8 @@ export function DataGrid<T extends { id: string }>({
     });
     setColRatios(initialRatios);
   }, [columns]);
+
+
 
   // Calculate pixel widths dynamically based on containerWidth and ratios
   const colWidthsCalculated = useMemo(() => {
@@ -208,6 +211,33 @@ export function DataGrid<T extends { id: string }>({
   const visible = Math.ceil(height / ROW_H) + OVERSCAN * 2;
   const end = Math.min(total, start + visible);
   const slice = items.slice(start, end);
+
+  useEffect(() => {
+    let timeoutId: any;
+    const handleScrollToItem = (e: Event) => {
+      const customEvent = e as CustomEvent<{ id: string }>;
+      if (!customEvent || !customEvent.detail || !customEvent.detail.id) return;
+      const itemId = customEvent.detail.id;
+      
+      const itemIndex = items.findIndex((item) => item.id === itemId || (item.data && item.data.id === itemId));
+      if (itemIndex !== -1 && ref.current) {
+        const topOffset = itemIndex * ROW_H;
+        ref.current.scrollTop = Math.max(0, topOffset - (height / 2) + (ROW_H / 2));
+        
+        setHighlightedRowId(itemId);
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          setHighlightedRowId(null);
+        }, 1200);
+      }
+    };
+    
+    window.addEventListener("mep-scroll-to-item", handleScrollToItem);
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollToItem);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [items, height]);
 
   const gridTemplate = `36px ${columns.map((c) => `${colWidthsCalculated[String(c.key)] ?? c.width}px`).join(" ")}`;
   const allSelected = selected.size === rows.length && rows.length > 0;
@@ -393,6 +423,7 @@ export function DataGrid<T extends { id: string }>({
                   <ContextMenu key={row.id}>
                     <ContextMenuTrigger asChild>
                       <div
+                        id={`row-${row.id}`}
                         onClick={(e) => {
                           const target = e.target as HTMLElement;
                           const isTextInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
@@ -428,6 +459,10 @@ export function DataGrid<T extends { id: string }>({
                           isActiveRow
                             ? "relative z-40 bg-white dark:bg-[#222226] shadow-[0_4px_25px_rgba(0,0,0,0.12)] ring-1 ring-primary/25 scale-[1.015] border-y border-y-primary/40 font-semibold"
                             : ""
+                        } ${
+                          highlightedRowId === row.id
+                            ? "row-highlight-flash"
+                            : ""
                         } ${isBlurred ? "blur-[1px] opacity-25 scale-[0.99] pointer-events-none" : ""}`}
                         style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}
                       >
@@ -441,6 +476,7 @@ export function DataGrid<T extends { id: string }>({
 
               return (
                 <div
+                  id={`row-${row.id}`}
                   key={row.id}
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
@@ -471,6 +507,10 @@ export function DataGrid<T extends { id: string }>({
                   } ${
                     isActiveRow
                       ? "relative z-40 bg-white dark:bg-[#222226] shadow-[0_4px_25px_rgba(0,0,0,0.12)] ring-1 ring-primary/25 scale-[1.015] border-y border-y-primary/40 font-semibold"
+                      : ""
+                  } ${
+                    highlightedRowId === row.id
+                      ? "row-highlight-flash"
                       : ""
                   } ${isBlurred ? "blur-[1px] opacity-25 scale-[0.99] pointer-events-none" : ""}`}
                   style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}

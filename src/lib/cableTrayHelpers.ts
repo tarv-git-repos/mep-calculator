@@ -12,6 +12,8 @@ export interface Cable {
 export interface Tray {
   id: string;
   name: string;
+  from?: string;
+  to?: string;
   spareCapacity?: number | string;
   spacingFactor?: number | string;
   cables: Cable[];

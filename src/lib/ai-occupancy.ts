@@ -383,23 +383,24 @@ export function predictOccupancyCategory(spaceName: string): { category: string;
 }
 
 /**
- * Automatically predict pressure based on space name keywords
+ * Automatically predict pressure based on category keywords
  */
-export function predictSpacePressure(spaceName: string): { pressure: "Neutral" | "Positive" | "Negative" | "Critical"; autoDetected: boolean } {
-  if (!spaceName) return { pressure: "Positive", autoDetected: false };
-  const name = spaceName.toLowerCase().trim();
+export function predictSpacePressure(category: string): { pressure: "Neutral" | "Positive" | "Negative" | "Critical"; autoDetected: boolean } {
+  if (!category) return { pressure: "Positive", autoDetected: false };
+  const cat = category.toLowerCase().trim();
 
   // 1. Negative spaces (exhaust required / negative pressure to prevent odor/hazard spread)
   const negativeKeywords = [
     "garbage", "refuse", "trash",
-    "bathroom", "toilet", "restroom", "washroom", "ablution", "wc",
+    "bathroom", "toilet", "rest room", "changing room", "washroom", "ablution", "wc",
     "janitor", "jan",
-    "kitchen", "pantry",
+    "kitchen", "pantry", "exhaust", "ecology",
     "art class", "art room",
     "changing", "locker",
     "shower",
     "storage", "store",
-    "chemical", "waste"
+    "chemical", "waste",
+    "parking", "garage"
   ];
 
   // 2. Positive spaces (fresh air supply / positive pressure to keep clean)
@@ -418,13 +419,13 @@ export function predictSpacePressure(spaceName: string): { pressure: "Neutral" |
   ];
 
   for (const kw of negativeKeywords) {
-    if (name.includes(kw)) {
+    if (cat.includes(kw)) {
       return { pressure: "Negative", autoDetected: true };
     }
   }
 
   for (const kw of positiveKeywords) {
-    if (name.includes(kw)) {
+    if (cat.includes(kw)) {
       return { pressure: "Positive", autoDetected: true };
     }
   }

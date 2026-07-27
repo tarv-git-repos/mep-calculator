@@ -151,7 +151,6 @@ export function EditSpaceModal({
       if (field === "name") {
         const nameVal = value.trim();
         const pred = predictOccupancyCategory(nameVal);
-        const predPress = predictSpacePressure(nameVal);
 
         if (pred && pred.category) {
           next.category = pred.category;
@@ -170,6 +169,7 @@ export function EditSpaceModal({
           next.aiDetected = false;
         }
 
+        const predPress = predictSpacePressure(next.category);
         if (predPress && predPress.autoDetected) {
           next.pressure = predPress.pressure;
           next.pressureAutoDetected = true;
@@ -177,6 +177,15 @@ export function EditSpaceModal({
           // Reset to default (Positive) if the name is now unrecognized
           next.pressure = "Positive";
           next.pressureAutoDetected = false;
+        }
+      }
+
+      // If category is explicitly changed, run auto pressure detection
+      if (field === "category") {
+        const predPress = predictSpacePressure(value);
+        if (predPress && predPress.autoDetected) {
+          next.pressure = predPress.pressure;
+          next.pressureAutoDetected = true;
         }
       }
       

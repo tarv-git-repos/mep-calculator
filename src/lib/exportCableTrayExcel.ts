@@ -16,156 +16,161 @@ export async function exportCableTrayExcel(trays: Tray[], unitSystem: "si" | "ip
   const sheet = workbook.addWorksheet('Cable Tray Sizing');
 
   // Set column widths based on template
-  sheet.getColumn(1).width = 4; // Margin
-  sheet.getColumn(2).width = 8; // Sr No
-  sheet.getColumn(3).width = 19; // Cable Type
-  sheet.getColumn(4).width = 18; // From
-  sheet.getColumn(5).width = 18; // To
-  sheet.getColumn(6).width = 18; // Make up
-  sheet.getColumn(7).width = 13; // Size
-  sheet.getColumn(8).width = 13; // Qty
-  sheet.getColumn(9).width = 13; // OD
-  sheet.getColumn(10).width = 15; // Sum OD
+  sheet.getColumn(1).width = 8;  // Sr No.
+  sheet.getColumn(2).width = 18; // Cable Type
+  sheet.getColumn(3).width = 20; // From
+  sheet.getColumn(4).width = 25; // To
+  sheet.getColumn(5).width = 12; // No. of core
+  sheet.getColumn(6).width = 14; // Cable size mm2
+  sheet.getColumn(7).width = 14; // No. of Cables
+  sheet.getColumn(8).width = 14; // Cable O.D(mm)
+  sheet.getColumn(9).width = 16; // Sum of OD (mm)
 
-  // 1. Add standard notes
-  sheet.mergeCells('C8:I16');
-  const noteCell = sheet.getCell('C8');
-  noteCell.value = `Note :\n1. CPC cable are not considered separately in cable tray sizing, as it will be tied on top of the main power cables,\n2. Minimum 20% Spare space considered for sizing the cable trays.\n3. Dedicated Trays are considered for Normal feeders and Life safety feeders.`;
-  noteCell.font = { name: 'Arial', size: 11 };
+  // 1. Document Header Block (Rows 2-4)
+  const now = new Date();
+  const dateStr = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')}/${now.getFullYear()}`;
+  
+  // Row 2
+  sheet.getCell('A2').value = `Calculation No: ${docNumber}`;
+  sheet.getCell('A2').font = { name: 'Arial', size: 10, bold: true };
+  sheet.getCell('B2').value = 'Rev. No.:';
+  sheet.getCell('B2').font = { name: 'Arial', size: 10, bold: true };
+  sheet.getCell('E2').value = `Date       :${dateStr}`;
+  sheet.getCell('E2').font = { name: 'Arial', size: 10, bold: true };
+
+  // Row 3
+  sheet.getCell('A3').value = 'Project No      :';
+  sheet.getCell('A3').font = { name: 'Arial', size: 10, bold: true };
+  sheet.getCell('E3').value = 'Client     :';
+  sheet.getCell('E3').font = { name: 'Arial', size: 10, bold: true };
+
+  // Row 4
+  sheet.getCell('A4').value = `Project Name : ${projectName}`;
+  sheet.getCell('A4').font = { name: 'Arial', size: 10, bold: true };
+  sheet.getCell('E4').value = 'End User :';
+  sheet.getCell('E4').font = { name: 'Arial', size: 10, bold: true };
+
+  // 2. Standard Notes (Row 6)
+  sheet.mergeCells('A6:I7');
+  const noteCell = sheet.getCell('A6');
+  noteCell.value = `Note :\n1. CPC cable are not considered separately in cable tray sizing, as it will be tied on top of the main power cables,\n2. Minimum 20% Spare space considered for sizing the cable trays.`;
+  noteCell.font = { name: 'Arial', size: 10, italic: true };
   noteCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
 
-  // 2. Add Header Table
-  sheet.mergeCells('D17:G19');
-  const projectCell = sheet.getCell('D17');
-  projectCell.value = projectName;
-  projectCell.font = { name: 'Arial', size: 14, bold: true };
-  projectCell.alignment = { vertical: 'middle', horizontal: 'center' };
-  projectCell.border = allBorders;
-
-  sheet.mergeCells('C17:C19');
-  const projectLbl = sheet.getCell('C17');
-  projectLbl.value = 'Project';
-  projectLbl.font = { name: 'Arial', size: 11, bold: true };
-  projectLbl.alignment = { vertical: 'middle', horizontal: 'left' };
-  projectLbl.border = allBorders;
-
-  sheet.mergeCells('H17:I19');
-  const jobRef = sheet.getCell('H17');
-  jobRef.value = 'Job Reference';
-  jobRef.font = { name: 'Arial', size: 11 };
-  jobRef.alignment = { vertical: 'top', horizontal: 'left' };
-  jobRef.border = allBorders;
-
-  // Metadata headers
-  const metaHeaders = ["Part of Structure", "DR-10", "Calc by", "Date", "Checked by", "Date", "Revision"];
-  
-  sheet.mergeCells('C20:C21');
-  sheet.mergeCells('D20:D21');
-  sheet.mergeCells('E20:E21');
-  sheet.mergeCells('F20:F21');
-  sheet.mergeCells('G20:G21');
-  sheet.mergeCells('H20:H21');
-  sheet.mergeCells('I20:I21');
-
-  metaHeaders.forEach((val, idx) => {
-    const cell = sheet.getCell(20, idx + 3);
-    cell.value = val;
-    cell.font = { name: 'Arial', size: 11 };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    cell.border = allBorders;
-    if (idx === 0) cell.alignment.horizontal = 'left';
-  });
-
-  const now = new Date().toISOString().split('T')[0];
-  const docHeaders = ["Document Number", docNumber, "KK", now, "MK", now, "0C"];
-  sheet.mergeCells('C22:C23');
-  sheet.mergeCells('D22:D23');
-  sheet.mergeCells('E22:E23');
-  sheet.mergeCells('F22:F23');
-  sheet.mergeCells('G22:G23');
-  sheet.mergeCells('H22:H23');
-  sheet.mergeCells('I22:I23');
-
-  docHeaders.forEach((val, idx) => {
-    const cell = sheet.getCell(22, idx + 3);
-    cell.value = val;
-    cell.font = { name: 'Arial', size: 11, bold: idx > 1 && typeof val === 'string' };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    cell.border = allBorders;
-    if (idx === 0) cell.alignment.horizontal = 'left';
-  });
-
-  let currentRow = 26; // Start appending tray data below header
+  let currentRow = 9; // Start appending tray data
 
   trays.forEach((tray, tIndex) => {
-    // Location & Tier
-    sheet.getCell(`B${currentRow}`).value = "Location: ";
+    // 3. Tray Metadata
+    sheet.getCell(`A${currentRow}`).value = "Location:";
+    sheet.getCell(`A${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
+    sheet.getCell(`B${currentRow}`).value = tray.name;
     sheet.getCell(`B${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
-    sheet.getCell(`C${currentRow}`).value = tray.name;
-    sheet.getCell(`C${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
     currentRow++;
 
-    sheet.getCell(`B${currentRow}`).value = "Tier No:";
+    sheet.getCell(`A${currentRow}`).value = "TYPE";
+    sheet.getCell(`A${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
+    sheet.getCell(`B${currentRow}`).value = "NORMAL";
     sheet.getCell(`B${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
-    sheet.getCell(`C${currentRow}`).value = tIndex + 1;
-    sheet.getCell(`C${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
-    sheet.getCell(`C${currentRow}`).alignment = { horizontal: 'left' };
     currentRow++;
 
-    // Table Headers
+    sheet.getCell(`A${currentRow}`).value = "Cable tray ref:";
+    sheet.getCell(`A${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
+    sheet.getCell(`B${currentRow}`).value = tIndex + 1;
+    sheet.getCell(`B${currentRow}`).font = { name: 'Arial', size: 10, bold: true };
+    sheet.getCell(`B${currentRow}`).alignment = { horizontal: 'left' };
+    currentRow++;
+
+    // 4. Table Headers
     const h1 = sheet.getRow(currentRow);
-    h1.getCell(2).value = "Sr No.";
-    h1.getCell(3).value = "Cable Type";
-    h1.getCell(4).value = "From";
-    h1.getCell(5).value = "To";
-    h1.getCell(6).value = "Cable Details";
-    sheet.mergeCells(currentRow, 6, currentRow, 9);
-    h1.getCell(10).value = "Sum of OD (mm)";
-    h1.eachCell((c) => { c.font = { bold: true, size: 10 }; c.alignment = { horizontal: 'center', vertical: 'middle' }; c.border = allBorders; });
+    h1.getCell(1).value = "Sr No.";
+    h1.getCell(2).value = "Cable Type";
+    h1.getCell(3).value = "From";
+    h1.getCell(4).value = "To";
+    h1.getCell(5).value = "Cable Details";
+    sheet.mergeCells(currentRow, 5, currentRow, 8); // Merge columns 5 to 8 (E to H)
+    h1.getCell(9).value = "Sum of \nOD (mm)";
+    
+    // Set borders and styles for top header row
+    for(let i = 1; i <= 9; i++) {
+        const c = h1.getCell(i);
+        c.font = { bold: true, size: 10 };
+        c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        c.border = allBorders;
+    }
+    
+    // Merge vertical cells for columns 1, 2, 3, 4, 9
+    sheet.mergeCells(currentRow, 1, currentRow + 1, 1);
+    sheet.mergeCells(currentRow, 2, currentRow + 1, 2);
+    sheet.mergeCells(currentRow, 3, currentRow + 1, 3);
+    sheet.mergeCells(currentRow, 4, currentRow + 1, 4);
+    sheet.mergeCells(currentRow, 9, currentRow + 1, 9);
+    
     currentRow++;
 
     const h2 = sheet.getRow(currentRow);
-    h2.getCell(2).value = "Sr No.";
-    h2.getCell(3).value = "Cable Type";
-    h2.getCell(4).value = "From";
-    h2.getCell(5).value = "To";
-    h2.getCell(6).value = "Cable Make up";
-    h2.getCell(7).value = "Cable size mm2";
-    h2.getCell(8).value = "No. of Cables";
-    h2.getCell(9).value = "Cable O.D(mm)";
-    h2.getCell(10).value = "Sum of OD (mm)";
-    h2.eachCell((c) => { c.font = { bold: true, size: 10 }; c.alignment = { horizontal: 'center', vertical: 'middle' }; c.border = allBorders; });
+    h2.getCell(5).value = "No. of core";
+    h2.getCell(6).value = "Cable \nsize mm2";
+    h2.getCell(7).value = "No. of Cables";
+    h2.getCell(8).value = "Cable \nO.D(mm)";
+    
+    // Set borders for bottom header row sub-columns
+    for(let i = 5; i <= 8; i++) {
+        const c = h2.getCell(i);
+        c.font = { bold: true, size: 10 };
+        c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        c.border = allBorders;
+    }
     currentRow++;
 
     let subTotal1 = 0;
+    const startCableRow = currentRow;
 
     // Cables
-    tray.cables.forEach((c: Cable, cIndex: number) => {
-      const od = c.cores && c.size ? cableDatabase[c.cores]?.[c.size] || NaN : NaN;
-      const qtyNum = typeof c.qty === "number" ? c.qty : 0;
-      const sumOd = !isNaN(od) && qtyNum > 0 ? od * qtyNum : NaN;
-      if (!isNaN(sumOd) && qtyNum > 0) subTotal1 += sumOd;
+    if (tray.cables.length === 0) {
+        // Blank row if no cables
+        const row = sheet.getRow(currentRow);
+        row.getCell(3).value = tray.from || "";
+        row.getCell(4).value = tray.to || "";
+        for(let i=1; i<=9; i++) { row.getCell(i).border = allBorders; }
+        currentRow++;
+    } else {
+        tray.cables.forEach((c: Cable, cIndex: number) => {
+          const od = c.cores && c.size ? cableDatabase[c.cores]?.[c.size] || NaN : NaN;
+          const qtyNum = typeof c.qty === "number" ? c.qty : 0;
+          const sumOd = !isNaN(od) && qtyNum > 0 ? od * qtyNum : NaN;
+          if (!isNaN(sumOd) && qtyNum > 0) subTotal1 += sumOd;
 
-      const row = sheet.getRow(currentRow);
-      row.getCell(2).value = cIndex + 1;
-      row.getCell(3).value = c.type;
-      row.getCell(4).value = c.from || "";
-      row.getCell(5).value = c.to || "";
-      row.getCell(6).value = `1 x ${c.cores}`; // Assuming make up
-      row.getCell(7).value = c.size;
-      row.getCell(8).value = c.qty;
-      row.getCell(9).value = isNaN(od) ? "-" : Number(od.toFixed(1));
-      row.getCell(10).value = isNaN(sumOd) ? "-" : Number(sumOd.toFixed(1));
+          const row = sheet.getRow(currentRow);
+          row.getCell(1).value = cIndex + 1;
+          row.getCell(2).value = c.type;
+          
+          if (cIndex === 0) {
+            row.getCell(3).value = tray.from || "";
+            row.getCell(4).value = tray.to || "";
+          }
 
-      row.eachCell((cell, colNumber) => {
-        if (colNumber >= 2 && colNumber <= 10) {
-          cell.font = { size: 10 };
-          cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          cell.border = allBorders;
+          row.getCell(5).value = c.cores || "";
+          row.getCell(6).value = c.size || "";
+          row.getCell(7).value = c.qty;
+          row.getCell(8).value = isNaN(od) ? "-" : Number(od.toFixed(1));
+          row.getCell(9).value = isNaN(sumOd) ? "-" : Number(sumOd.toFixed(1));
+
+          row.eachCell((cell, colNumber) => {
+            if (colNumber >= 1 && colNumber <= 9) {
+              cell.font = { size: 10 };
+              cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+              cell.border = allBorders;
+            }
+          });
+          currentRow++;
+        });
+
+        // Merge From and To columns across all cables
+        if (tray.cables.length > 1) {
+            sheet.mergeCells(startCableRow, 3, currentRow - 1, 3);
+            sheet.mergeCells(startCableRow, 4, currentRow - 1, 4);
         }
-      });
-      currentRow++;
-    });
+    }
 
     // Summary calculations
     const sparePercent = Number(tray.spareCapacity ?? 20);
@@ -180,26 +185,28 @@ export async function exportCableTrayExcel(trays: Tray[], unitSystem: "si" | "ip
       { label: "Sub Total 1", val: subTotal1 },
       { label: `${spacingFactor}D spacing`, val: spacing },
       { label: "Sub Total 2", val: subTotal2 },
-      { label: `${sparePercent}% Minimum spare Space`, val: spareSpace },
+      { label: `${sparePercent}% Spare`, val: spareSpace },
       { label: "Total", val: total },
       { label: "Cable Tray Size", val: finalSize }
     ];
 
     summaries.forEach((sum) => {
       const r = sheet.getRow(currentRow);
-      sheet.mergeCells(currentRow, 2, currentRow, 9);
-      const labelCell = r.getCell(2);
+      sheet.mergeCells(currentRow, 1, currentRow, 8); // Merge A to H
+      const labelCell = r.getCell(1);
       labelCell.value = sum.label;
       labelCell.font = { size: 10, bold: true };
       labelCell.alignment = { horizontal: 'right', vertical: 'middle' };
       
-      const valCell = r.getCell(10);
+      const valCell = r.getCell(9);
       valCell.value = typeof sum.val === 'number' ? Number(sum.val.toFixed(2)) : sum.val;
       valCell.font = { size: 10, bold: true };
-      valCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      valCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       
-      labelCell.border = allBorders;
+      // Set borders
+      for(let i=1; i<=8; i++) { r.getCell(i).border = allBorders; }
       valCell.border = allBorders;
+      
       currentRow++;
     });
 

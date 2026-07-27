@@ -10,9 +10,10 @@ interface CategorySelectProps {
   onChange: (val: string) => void;
   className?: string;
   triggerClassName?: string;
+  hideChevron?: boolean;
 }
 
-export function CategorySelect({ value, onChange, className, triggerClassName }: CategorySelectProps) {
+export function CategorySelect({ value, onChange, className, triggerClassName, hideChevron }: CategorySelectProps) {
   const [open, setOpen] = useState(false);
   const categories = getOccupancyCategories();
 
@@ -35,7 +36,7 @@ export function CategorySelect({ value, onChange, className, triggerClassName }:
             }}
           >
             <span className="truncate mr-1.5">{triggerText}</span>
-            <ChevronsUpDown className="size-3 text-muted-foreground shrink-0 opacity-55" />
+            {!hideChevron && <ChevronsUpDown className="size-3 text-muted-foreground shrink-0 opacity-55" />}
           </button>
         </PopoverTrigger>
         <PopoverContent 

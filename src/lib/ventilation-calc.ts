@@ -15,6 +15,7 @@ export interface Space {
   pressure: string; // "Neutral" | "Positive" | "Negative" | "Critical"
   equipment: string;
   status: "complete" | "in-progress" | "warning" | "draft";
+  flagged?: boolean;
 
   // Additional fields for calculation engine
   height?: number;
@@ -75,6 +76,7 @@ export interface Zone {
   eaAssignments?: Record<string, number>;
   // Source of truth: one entry per multiplier instance
   instances?: ZoneInstanceAssignment[];
+  flagged?: boolean;
 }
 
 
@@ -92,6 +94,7 @@ export interface Equipment {
   zoneIds?: string[];
   totalFA?: number;
   totalEA?: number;
+  flagged?: boolean;
 }
 
 let activeRoundOffPreset = 5;
@@ -561,6 +564,7 @@ export function calculateVentilation(
     g.pressure = Math.round(finalFA - finalEA);
     g.pressureType = g.pressure > 50 ? "positive" : g.pressure < -50 ? "negative" : "neutral";
     g.equipment = Array.from(finalEquipSet);
+    g.flagged = (finalFA === 0 && finalEA === 0);
   });
 
   // 4) Recalculate Equipment utilization based on assigned zones/spaces
@@ -630,14 +634,21 @@ export function calculateVentilation(
 
   // Calculate status for spaces (complete, warning, in-progress, draft)
   spaces.forEach((s) => {
-    // Determine status: if there's any warning, label it as warning.
-    // In our case, a warning can be defined if freshAir is below minOA or extractAir is below minExt (unless manual override or custom workflow allows it)
     const isWarning =
       !s.isManualAirflow &&
       !(s.category && s.category.endsWith(" (Custom)") && s.customWorkflow === "direct") &&
       ((s.freshAir || 0) < (s.minOA || 0) || (s.extractAir || 0) < (s.minExt || 0));
 
-    s.status = isWarning ? "warning" : s.status === "warning" ? "complete" : s.status;
+    const lacksCategory = !s.category || s.category.trim() === "" || s.category.toLowerCase().includes("select category");
+    const lacksArea = !s.area || parseFloat(String(s.area)) === 0;
+
+    if (isWarning) {
+      s.status = "warning";
+    } else if (lacksCategory || lacksArea) {
+      s.status = "draft";
+    } else {
+      s.status = "complete";
+    }
   });
 
   const filteredZones = zones.filter((g) => {

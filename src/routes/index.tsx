@@ -4,14 +4,14 @@ import * as XLSX from "xlsx";
 import { predictOccupancyCategory, predictSpacePressure } from "@/lib/ai-occupancy";
 import {
   Plus, Download, Upload, Filter, Columns3, GroupIcon, Pin,
-  ChevronDown, Trash2, Edit3, Copy, X, Bookmark, Wrench,
+  ChevronDown, ChevronUp, Trash2, Edit3, Copy, X, Bookmark, Wrench,
   Sparkles, AlertTriangle, CheckCircle2, Info, Gauge, FileText, Printer, FileSpreadsheet,
-  FolderKanban, ArrowUpDown, GripVertical, Check,
+  FolderKanban, ArrowUpDown, GripVertical, Check, Flag, ChevronsUpDown,
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { TBtn } from "@/components/workspace/Button";
-import { useWorkspace, workspaceStore, type Space, type SpaceStatus, type Zone, type Equipment, type ZoneInstanceAssignment } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore, checkIfSpaceMissingData, type Space, type SpaceStatus, type Zone, type Equipment, type ZoneInstanceAssignment } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
@@ -40,14 +40,16 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 
 
 
+import { DashboardPage } from "./dashboard";
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Ventilation â€” MEP Calc" },
-      { name: "description", content: "Ventilation module: spaces, zones, equipment, and reports with live intelligence." },
+      { title: "MEP Calculator" },
+      { name: "description", content: "System-wide calculations metrics, active warnings, and project compliance." },
     ],
   }),
-  component: VentilationModule,
+  component: DashboardPage,
 });
 
 const STATUS_STYLE: Record<SpaceStatus, string> = {
@@ -79,7 +81,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "report", label: "Report" },
 ];
 
-function VentilationModule() {
+export function VentilationModule() {
   if (import.meta.env.VITE_APP_MODE === 'kfactor') {
     return <Navigate to="/plumbing-sprinkler-kfactor" />;
   }
@@ -194,11 +196,11 @@ function VentilationModule() {
 
         {/* Intelligence drawer */}
         <div
-          className={`shrink-0 bg-background overflow-hidden transition-[width] duration-300 ease-out ${
-            intelOpen ? "w-[360px] border-l border-border" : "w-0"
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
           }`}
         >
-          {intelOpen && <IntelligenceDrawer onClose={() => setIntelOpen(false)} />}
+          {intelOpen && <IntelligenceDrawer onClose={() => setIntelOpen(false)} setTab={setTab} />}
         </div>
       </div>
     </AppShell>
@@ -587,7 +589,7 @@ function SpacesView() {
 
           // Predict category and pressure
           const predCat = predictOccupancyCategory(nameVal);
-          const predPress = predictSpacePressure(nameVal);
+          const predPress = predictSpacePressure(predCat.category || "");
 
           parsed.push({
             id: `pending-${r}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -804,20 +806,11 @@ function SpacesView() {
   };
 
   // Trigger auto zoning analysis on unzoned positive-pressure spaces
-  const triggerAutoZoning = async (spacesToConsider?: Space[] | React.MouseEvent<any>) => {
-    // Check if spacesToConsider is an array of Spaces
-    const fromSelection = Array.isArray(spacesToConsider);
-    const targetSpaces = fromSelection ? (spacesToConsider as Space[]) : spaces;
-
-    // Check if there exists any unzoned negative/neutral spaces in the target scope
-    const unzonedNegOrNeutral = targetSpaces.filter((s) => {
-      const isUnzoned = !s.zone || s.zone.trim() === "" || s.zone.toLowerCase() === "default" || s.zone.toLowerCase() === "unzoned" || !zones.some(z => z.id === s.zone || z.name === s.zone);
-      const isNotPositive = s.pressure !== "Positive";
-      return isUnzoned && isNotPositive;
-    });
-
-    if (unzonedNegOrNeutral.length > 0) {
-      await confirm("There exists neutral/negative space which needs to be zoned with a positive zone space.", {
+  const triggerAutoZoning = async (spacesToConsider?: any) => {
+    // Collect unique floors in the project
+    const floors = Array.from(new Set(spaces.map(s => s.floor || "L01"))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (floors.length === 0) {
+      await confirm("No floors found in the project.", {
         title: "Validation Error",
         confirmText: "OK",
         hideCancel: true,
@@ -825,52 +818,9 @@ function SpacesView() {
       return;
     }
 
-    // Filter to positive & unzoned spaces
-    const eligible = targetSpaces.filter((s) => {
-      const isPositive = s.pressure === "Positive";
-      const isUnzoned = !s.zone || s.zone.trim() === "" || s.zone.toLowerCase() === "default" || s.zone.toLowerCase() === "unzoned" || !zones.some(z => z.id === s.zone || z.name === s.zone);
-      return isPositive && isUnzoned;
-    });
-
-    if (fromSelection) {
-      // Flow B: User selected spaces first
-      if (eligible.length === 0) {
-        await confirm("None of the selected spaces are eligible for auto-balancing. Eligible spaces must have Positive pressure and not be assigned to a zone already.", {
-          title: "Validation Error",
-          confirmText: "OK",
-          hideCancel: true,
-        });
-        return;
-      }
-
-      // Check completeness for Flow B immediately
-      const valid = await validateSpacesForAutoZoning(eligible);
-      if (!valid) {
-        return;
-      }
-
-      const ignored = (spacesToConsider as Space[]).length - eligible.length;
-      setAutoZoneIgnoredCount(ignored);
-      setAutoZoneSpacesToProcess(eligible);
-      setAutoZoneConfirmOpen(true);
-    } else {
-      // Flow A: Scan all spaces
-      if (eligible.length === 0) {
-        await confirm("No unzoned positive-pressure spaces found to auto-zone.", {
-          title: "Validation Error",
-          confirmText: "OK",
-          hideCancel: true,
-        });
-        return;
-      }
-
-      // Collect unique floors containing these spaces
-      const floors = Array.from(new Set(eligible.map(s => s.floor || "L01"))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-      setAutoZoneAvailableFloors(floors);
-      setAutoZoneSelectedFloors(new Set(floors)); // All selected by default
-      setAutoZoneIgnoredCount(0);
-      setAutoZoneFloorSelectOpen(true);
-    }
+    setAutoZoneAvailableFloors(floors);
+    setAutoZoneSelectedFloors(new Set(floors)); // All selected by default
+    setAutoZoneFloorSelectOpen(true);
   };
 
   const handleFloorSelectProceed = async () => {
@@ -883,16 +833,41 @@ function SpacesView() {
       return;
     }
 
-    // Filter spaces that are positive, unzoned, and on selected floors
+    const selectedFloorsArr = Array.from(autoZoneSelectedFloors);
+
+    // 1. Check for neutral/negative unzoned spaces on the selected floors
+    const unzonedNegOrNeutral = spaces.filter((s) => {
+      const onSelectedFloor = autoZoneSelectedFloors.has(s.floor || "L01");
+      if (!onSelectedFloor) return false;
+      const isUnzoned = !s.zone || s.zone.trim() === "" || s.zone.toLowerCase() === "default" || s.zone.toLowerCase() === "unzoned" || !zones.some(z => z.id === s.zone || z.name === s.zone);
+      const isNotPositive = s.pressure !== "Positive";
+      return isUnzoned && isNotPositive;
+    });
+
+    if (unzonedNegOrNeutral.length > 0) {
+      const spaceDetails = unzonedNegOrNeutral.map(s => `- ${s.name} (${s.floor || "L01"}) [${s.pressure || "Neutral"} Pressure]`).join("\n");
+      await confirm(
+        `Auto-zoning stopped. The following unzoned neutral/negative spaces on the selected floor(s) must be manually zoned with a positive space:\n\n${spaceDetails}`,
+        {
+          title: "Validation Error",
+          confirmText: "OK",
+          hideCancel: true,
+        }
+      );
+      return;
+    }
+
+    // 2. Filter to positive & unzoned spaces on selected floors
     const eligible = spaces.filter((s) => {
+      const onSelectedFloor = autoZoneSelectedFloors.has(s.floor || "L01");
+      if (!onSelectedFloor) return false;
       const isPositive = s.pressure === "Positive";
       const isUnzoned = !s.zone || s.zone.trim() === "" || s.zone.toLowerCase() === "default" || s.zone.toLowerCase() === "unzoned" || !zones.some(z => z.id === s.zone || z.name === s.zone);
-      const onSelectedFloor = autoZoneSelectedFloors.has(s.floor || "L01");
-      return isPositive && isUnzoned && onSelectedFloor;
+      return isPositive && isUnzoned;
     });
 
     if (eligible.length === 0) {
-      await confirm("No eligible spaces found on the selected floors.", {
+      await confirm("No eligible positive-pressure, unzoned spaces found on the selected floor(s).", {
         title: "Validation Error",
         confirmText: "OK",
         hideCancel: true,
@@ -900,35 +875,20 @@ function SpacesView() {
       return;
     }
 
-    // Check completeness for Flow A before opening confirmation
+    // 3. Check parameter completeness for these eligible spaces
     const valid = await validateSpacesForAutoZoning(eligible);
     if (!valid) {
       return;
     }
 
-    setAutoZoneSpacesToProcess(eligible);
-    setAutoZoneFloorSelectOpen(false);
-    setAutoZoneConfirmOpen(true);
-  };
-
-  const applyIndividualZoning = async () => {
-    if (autoZoneSpacesToProcess.length === 0) {
-      await confirm("No spaces to zone!", {
-        title: "Error",
-        confirmText: "OK",
-        hideCancel: true,
-      });
-      return;
-    }
-
+    // 4. Do the zoning immediately
     const nextZones = [...zones];
     const nextSpaces = spaces.map((s) => ({ ...s }));
 
-    autoZoneSpacesToProcess.forEach((s) => {
+    eligible.forEach((s) => {
       const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
       const baseName = `${s.name} Zone`;
 
-      // Find a unique zone name
       let uniqueName = baseName;
       let counter = 1;
       while (
@@ -937,7 +897,6 @@ function SpacesView() {
         uniqueName = `${baseName} ${counter++}`;
       }
 
-      // Create new zone
       const newZone: Zone = {
         id: zoneId,
         name: uniqueName,
@@ -956,25 +915,29 @@ function SpacesView() {
 
       nextZones.push(newZone);
 
-      // Assign space to zone
       const targetSpace = nextSpaces.find((sp) => sp.id === s.id);
       if (targetSpace) {
         targetSpace.zone = zoneId;
       }
     });
 
-    // Update in batch
     setWorkspaceState({
       spaces: nextSpaces,
       zones: nextZones,
       equipment,
     });
 
-    // Close and cleanup
-    setAutoZoneConfirmOpen(false);
+    // Cleanup and close
+    setAutoZoneFloorSelectOpen(false);
     setAutoZoneSpacesToProcess([]);
     setAutoZoneIgnoredCount(0);
-    setSelected(new Set()); // Clear any grid selection
+    setSelected(new Set());
+
+    await confirm(`Successfully created ${eligible.length} zone(s) on floor(s): ${selectedFloorsArr.join(", ")}.`, {
+      title: "Auto-Zoning Complete",
+      confirmText: "OK",
+      hideCancel: true,
+    });
   };
 
   const handleBulkEditApply = async () => {
@@ -1048,7 +1011,7 @@ function SpacesView() {
         const floor = firstSpace?.floor || "L01";
 
         const newZone = {
-          id: `zone-${Date.now()}`,
+          id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
           name: trimmedZone,
           building,
           floor,
@@ -1179,7 +1142,29 @@ function SpacesView() {
     const changedSpaces = updatedSpacesList.filter((s) => spaceIds.includes(s.id));
     updateSpaces(changedSpaces);
     setBulkEditOpen(false);
-    setSelected(new Set());
+
+    if (bulkEditFields.category && bulkEditValues.category === "Rest Room / Changing Room") {
+      const firstUpdated = changedSpaces[0];
+      if (firstUpdated) {
+        setTimeout(() => {
+          setRestroomModalSpace({
+            ...firstUpdated,
+            restroomSubCategories: firstUpdated.restroomSubCategories || {
+              toiletPrivateContinuous: 0,
+              toiletPublicContinuous: 0,
+              toiletPrivateDiscontinuous: 0,
+              toiletPublicDiscontinuous: 0,
+              showerContinuous: 0,
+              showerDiscontinuous: 0,
+              janitorCloset: 0,
+              lockerRoom: 0,
+            }
+          });
+        }, 50);
+      }
+    } else {
+      setSelected(new Set());
+    }
   };
 
   const handleAssignZoneApply = async () => {
@@ -1254,7 +1239,7 @@ function SpacesView() {
       const floor = firstSpace?.floor || "L01";
 
       const newZone = {
-        id: `zone-${Date.now()}`,
+        id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
         name: trimmedZone,
         building,
         floor,
@@ -1775,11 +1760,15 @@ function SpacesView() {
     return classes;
   }, [orderedRows]);
 
+  const getSpaceEditIds = (rId: string): string[] => {
+    return selected.has(rId) ? Array.from(selected) : [rId];
+  };
+
   const columns: Column<Space>[] = [
     { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => (
       <InlineInput
         value={r.name}
-        onCommit={(val) => bulkUpdateSpaces([r.id], { name: val.trim() || r.name })}
+        onCommit={(val) => bulkUpdateSpaces(getSpaceEditIds(r.id), { name: val.trim() || r.name })}
         className="font-medium text-[13.5px]"
       />
     ) },
@@ -1792,16 +1781,16 @@ function SpacesView() {
           onCommit={(val) => {
             const trimmed = val.trim();
             if (trimmed === "") {
-              bulkUpdateSpaces([r.id], { zone: "" });
+              bulkUpdateSpaces(getSpaceEditIds(r.id), { zone: "" });
               return;
             }
             const existingZone = zones.find(
               (z) => z.id.toLowerCase() === trimmed.toLowerCase() || z.name.toLowerCase() === trimmed.toLowerCase()
             );
             if (existingZone) {
-              bulkUpdateSpaces([r.id], { zone: existingZone.id });
+              bulkUpdateSpaces(getSpaceEditIds(r.id), { zone: existingZone.id });
             } else {
-              const zoneId = `zone-${Date.now()}`;
+              const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
               const newZone = {
                 id: zoneId,
                 name: trimmed,
@@ -1818,7 +1807,7 @@ function SpacesView() {
                 eaAssignment: null,
               };
               addZone(newZone);
-              bulkUpdateSpaces([r.id], { zone: zoneId });
+              bulkUpdateSpaces(getSpaceEditIds(r.id), { zone: zoneId });
             }
           }}
           className="font-medium text-[13.5px]"
@@ -1826,116 +1815,112 @@ function SpacesView() {
       );
     } },
     { key: "category", header: "Category", width: 280, editable: true, render: (r) => {
-      const categories = getOccupancyCategories();
+      const isRestRoom = r.category === "Rest Room / Changing Room";
+      
+      const handleCategoryChange = (newVal: string) => {
+        const editIds = getSpaceEditIds(r.id);
+        if (newVal === "Other" || newVal === "OTHER") {
+          const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
+          const categoryName = latestSpace.category && latestSpace.category.endsWith(" (Custom)") ? latestSpace.category : "Custom (Custom)";
+          bulkUpdateSpaces(editIds, { category: categoryName, aiDetected: false });
+          setTimeout(() => {
+            const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || latestSpace;
+            setCustomParamModalSpace({
+              ...freshSpace,
+              category: categoryName,
+              customWorkflow: freshSpace.customWorkflow || "calculate",
+              customPeopleOA: freshSpace.customPeopleOA || 0,
+              customAreaOA: freshSpace.customAreaOA || 0,
+              customExhaustPerUnit: freshSpace.customExhaustPerUnit || 0,
+              customExhaustPerArea: freshSpace.customExhaustPerArea || 0,
+              customAch: freshSpace.customAch || 0,
+              customFreshGiven: freshSpace.customFreshGiven || 0,
+              customExtTaken: freshSpace.customExtTaken || 0,
+            });
+          }, 50);
+          return;
+        }
+        if (newVal === "Rest Room / Changing Room") {
+          const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
+          const spaceCopy = { ...latestSpace, category: newVal, aiDetected: false };
+          if (!spaceCopy.restroomSubCategories) {
+            spaceCopy.restroomSubCategories = {
+              toiletPrivateContinuous: 0,
+              toiletPublicContinuous: 0,
+              toiletPrivateDiscontinuous: 0,
+              toiletPublicDiscontinuous: 0,
+              showerContinuous: 0,
+              showerDiscontinuous: 0,
+              janitorCloset: 0,
+              lockerRoom: 0,
+            };
+          }
+          const data = getOccupancyData(newVal);
+          const updates: Partial<Space> = {
+            category: newVal,
+            aiDetected: false,
+            restroomSubCategories: spaceCopy.restroomSubCategories
+          };
+          if (data && !latestSpace.isOccupancyCustomized) {
+            const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+              ? 1
+              : Math.ceil((latestSpace.area * data.defaultDensity) / 100);
+            updates.occupancy = defaultOcc;
+            updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+          }
+          bulkUpdateSpaces(editIds, updates);
+          setTimeout(() => {
+            const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || spaceCopy;
+            setRestroomModalSpace(freshSpace);
+          }, 50);
+          return;
+        }
+        const data = getOccupancyData(newVal);
+        const updates: Partial<Space> = {
+          category: newVal,
+          aiDetected: false
+        };
+        if (data && !r.isOccupancyCustomized) {
+          const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+            ? 1
+            : Math.ceil((r.area * data.defaultDensity) / 100);
+          updates.occupancy = defaultOcc;
+          updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+        }
+        bulkUpdateSpaces(editIds, updates);
+      };
+
       return (
-        <span className="inline-flex items-center gap-1.5 w-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+        <span className="inline-flex items-center gap-1.5 w-full h-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
           <span
             title={r.aiDetected ? "Automatically identified" : undefined}
             className={`size-1.5 rounded-full shrink-0 ${r.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
           />
-          <div className="flex items-center gap-1 w-full min-w-0">
-            <CategorySelect
-              value={r.category || ""}
-              onChange={(newVal) => {
-                if (newVal === "Other" || newVal === "OTHER") {
-                  const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
-                  const categoryName = latestSpace.category && latestSpace.category.endsWith(" (Custom)") ? latestSpace.category : "Custom (Custom)";
-                  bulkUpdateSpaces([r.id], { category: categoryName, aiDetected: false });
-                  setTimeout(() => {
-                    const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || latestSpace;
-                    setCustomParamModalSpace({
-                      ...freshSpace,
-                      category: categoryName,
-                      customWorkflow: freshSpace.customWorkflow || "calculate",
-                      customPeopleOA: freshSpace.customPeopleOA || 0,
-                      customAreaOA: freshSpace.customAreaOA || 0,
-                      customExhaustPerUnit: freshSpace.customExhaustPerUnit || 0,
-                      customExhaustPerArea: freshSpace.customExhaustPerArea || 0,
-                      customAch: freshSpace.customAch || 0,
-                      customFreshGiven: freshSpace.customFreshGiven || 0,
-                      customExtTaken: freshSpace.customExtTaken || 0,
-                    });
-                  }, 50);
-                  return;
-                }
-                if (newVal === "Rest Room / Changing Room") {
-                  const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
-                  const spaceCopy = { ...latestSpace, category: newVal, aiDetected: false };
-                  if (!spaceCopy.restroomSubCategories) {
-                    spaceCopy.restroomSubCategories = {
-                      toiletPrivateContinuous: 0,
-                      toiletPublicContinuous: 0,
-                      toiletPrivateDiscontinuous: 0,
-                      toiletPublicDiscontinuous: 0,
-                      showerContinuous: 0,
-                      showerDiscontinuous: 0,
-                      janitorCloset: 0,
-                      lockerRoom: 0,
-                    };
-                  }
-                  const data = getOccupancyData(newVal);
-                  const updates: Partial<Space> = {
-                    category: newVal,
-                    aiDetected: false,
-                    restroomSubCategories: spaceCopy.restroomSubCategories
-                  };
-                  if (data && !latestSpace.isOccupancyCustomized) {
-                    const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
-                      ? 1
-                      : Math.ceil((latestSpace.area * data.defaultDensity) / 100);
-                    updates.occupancy = defaultOcc;
-                    updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
-                  }
-                  bulkUpdateSpaces([r.id], updates);
-                  setTimeout(() => {
-                    const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || spaceCopy;
-                    setRestroomModalSpace(freshSpace);
-                  }, 50);
-                  return;
-                }
-                const data = getOccupancyData(newVal);
-                const updates: Partial<Space> = {
-                  category: newVal,
-                  aiDetected: false
-                };
-                if (data && !r.isOccupancyCustomized) {
-                  const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
-                    ? 1
-                    : Math.ceil((r.area * data.defaultDensity) / 100);
-                  updates.occupancy = defaultOcc;
-                  updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
-                }
-                bulkUpdateSpaces([r.id], updates);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (r.category === "Rest Room / Changing Room") {
-                  setRestroomModalSpace(r);
-                } else {
-                  setCustomParamModalSpace({
-                    ...r,
-                    customWorkflow: r.customWorkflow || "calculate",
-                    customPeopleOA: r.customPeopleOA || 0,
-                    customAreaOA: r.customAreaOA || 0,
-                    customExhaustPerUnit: r.customExhaustPerUnit || 0,
-                    customExhaustPerArea: r.customExhaustPerArea || 0,
-                    customAch: r.customAch || 0,
-                    customFreshGiven: r.customFreshGiven || 0,
-                    customExtTaken: r.customExtTaken || 0,
-                  });
-                }
-              }}
-              className={`flex items-center justify-center p-1 rounded-md hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors shrink-0 cursor-pointer ${
-                (r.category === "Rest Room / Changing Room" || (r.category && r.category.endsWith(" (Custom)")))
-                  ? "opacity-100"
-                  : "opacity-0 pointer-events-none"
-              }`}
-              title={r.category === "Rest Room / Changing Room" ? "Configure Rest Room subcategories" : "Configure Custom Parameters"}
-            >
-              <Wrench className="size-3.5" />
-            </button>
+          <div className="w-full min-w-0">
+            {isRestRoom ? (
+              <div className="flex items-center justify-between w-full min-w-0 pr-1">
+                <CategorySelect
+                  value={r.category || ""}
+                  onChange={handleCategoryChange}
+                  triggerClassName="pl-1 pr-2 flex-1"
+                  hideChevron={true}
+                />
+                <button
+                  type="button"
+                  onClick={() => setRestroomModalSpace(r)}
+                  className="flex items-center justify-center p-1 rounded hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors cursor-pointer w-6 h-6 shrink-0 animate-fade-in"
+                  title="Configure Rest Room subcategories"
+                >
+                  <Wrench className="size-3.5" />
+                </button>
+              </div>
+            ) : (
+              <CategorySelect
+                value={r.category || ""}
+                onChange={handleCategoryChange}
+                triggerClassName="pl-1 pr-2"
+              />
+            )}
           </div>
         </span>
       );
@@ -1952,7 +1937,7 @@ function SpacesView() {
             value={displayVal}
             onChange={(e) => {
               const newVal = REVERSE_PRESSURE_MAP[e.target.value] || "Positive";
-              bulkUpdateSpaces([r.id], { 
+              bulkUpdateSpaces(getSpaceEditIds(r.id), { 
                 pressure: newVal, 
                 pressureAutoDetected: false 
               });
@@ -1977,12 +1962,12 @@ function SpacesView() {
       <InlineInput
         type="number"
         step="0.1"
-        min={0.1}
+        min={0}
         value={r.area}
         onCommit={(val) => {
           const num = parseFloat(val);
-          if (!isNaN(num) && num > 0) {
-            bulkUpdateSpaces([r.id], { area: num });
+          if (!isNaN(num) && num >= 0) {
+            bulkUpdateSpaces(getSpaceEditIds(r.id), { area: num });
           }
         }}
         className="font-mono tabular text-[13.5px] text-center"
@@ -2007,7 +1992,7 @@ function SpacesView() {
               if (isFixtureBased || (r.fixtures !== "" && r.fixtures !== undefined && r.fixtures !== null)) {
                 updates.fixtures = num.toString();
               }
-              bulkUpdateSpaces([r.id], updates);
+              bulkUpdateSpaces(getSpaceEditIds(r.id), updates);
             }
           }}
           className="font-mono tabular text-[13.5px] text-center min-w-0 flex-1"
@@ -2017,6 +2002,61 @@ function SpacesView() {
 
     { key: "minFresh", header: "Min Fresh\n(L/s)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minOA || 0).toLocaleString() },
     { key: "minExtract", header: "Min Extract\n(L/s)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minExt || 0).toLocaleString() },
+    {
+      key: "flagged",
+      header: "",
+      width: 36,
+      align: "center",
+      render: (r) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            bulkUpdateSpaces(getSpaceEditIds(r.id), { flagged: !r.flagged });
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+          title={
+            (() => {
+              const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
+              const isNoCategory = !r.category || r.category.trim() === "" || r.category.toLowerCase().includes("select category");
+              if (isNoArea && isNoCategory) {
+                return "Missing space area and category";
+              }
+              if (isNoArea) {
+                return "Missing space area";
+              }
+              if (isNoCategory) {
+                return "Missing space category";
+              }
+              if (r.category === "Rest Room / Changing Room") {
+                const sub = r.restroomSubCategories || {};
+                const sumSub = 
+                  (sub.toiletPrivateContinuous || 0) +
+                  (sub.toiletPublicContinuous || 0) +
+                  (sub.toiletPrivateDiscontinuous || 0) +
+                  (sub.toiletPublicDiscontinuous || 0) +
+                  (sub.showerContinuous || 0) +
+                  (sub.showerDiscontinuous || 0) +
+                  (sub.janitorCloset || 0) +
+                  (sub.lockerRoom || 0);
+                if (sumSub === 0) {
+                  return "Rest Room has no subcategories (WC, shower, janitor, locker, etc.) configured";
+                }
+              }
+              return r.flagged ? "Unflag space" : "Flag space";
+            })()
+          }
+        >
+          <Flag 
+            className={`size-3.5 transition-all duration-200 ${
+              r.flagged 
+                ? "fill-red-500 text-red-500 scale-110" 
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`} 
+          />
+        </button>
+      )
+    }
   ];
 
 
@@ -2239,7 +2279,7 @@ addSpace(newSpace);
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter spacesâ€¦"
+          placeholder="Filter spaces..."
           className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
         />
 
@@ -2530,7 +2570,7 @@ addSpace(newSpace);
                   (z) => z.id.toLowerCase() === updated.zone.toLowerCase() || z.name.toLowerCase() === updated.zone.toLowerCase()
                 );
                 if (!zoneExists) {
-                  const zoneId = `zone-${Date.now()}`;
+                  const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
                   const newZone = {
                     id: zoneId,
                     name: updated.zone,
@@ -2709,9 +2749,22 @@ addSpace(newSpace);
                 <button
                   type="button"
                   onClick={() => {
-                    const updatedSpaces = spaces.map(s => s.id === restroomModalSpace.id ? restroomModalSpace : s);
+                    const editIds = selected.has(restroomModalSpace.id) ? Array.from(selected) : [restroomModalSpace.id];
+                    const updatedSpaces = spaces.map(s => {
+                      if (editIds.includes(s.id)) {
+                        return {
+                          ...s,
+                          category: "Rest Room / Changing Room",
+                          restroomSubCategories: restroomModalSpace.restroomSubCategories
+                        };
+                      }
+                      return s;
+                    });
                     updateSpaces(updatedSpaces);
                     setRestroomModalSpace(null);
+                    if (selected.has(restroomModalSpace.id)) {
+                      setSelected(new Set());
+                    }
                   }}
                   className="px-5 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-md hover:bg-primary/95 transition cursor-pointer"
                 >
@@ -3162,7 +3215,7 @@ addSpace(newSpace);
               <header className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Sparkles className="size-4 text-primary" />
-                  <h3 className="font-semibold text-[14px]">Select Floors</h3>
+                  <h3 className="font-semibold text-[14px]">Select Floor</h3>
                 </div>
                 <button onClick={() => setAutoZoneFloorSelectOpen(false)} className="text-muted-foreground hover:text-foreground">
                   <X className="size-4" />
@@ -3170,7 +3223,7 @@ addSpace(newSpace);
               </header>
               <div className="p-4 flex flex-col gap-3 text-xs">
                 <p className="text-muted-foreground leading-normal">
-                  Select which floors you would like to include. Only unzoned spaces with positive pressure will be processed.
+                  Select which floor you would like to run auto-zoning for.
                 </p>
                 <div className="flex gap-2 justify-end">
                   <button
@@ -3221,78 +3274,7 @@ addSpace(newSpace);
                   disabled={autoZoneSelectedFloors.size === 0}
                   className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 disabled:opacity-50"
                 >
-                  Next
-                </button>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        {/* Auto zoning spaces confirmation */}
-        {autoZoneConfirmOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-xl max-h-[85vh] flex flex-col animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-primary" />
-                  <h3 className="font-semibold text-[14px]">Confirm Auto-Zoning Setup</h3>
-                </div>
-                <button onClick={() => setAutoZoneConfirmOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 overflow-y-auto flex-1 flex flex-col gap-3 text-xs">
-                <p className="text-muted-foreground leading-normal">
-                  The following {autoZoneSpacesToProcess.length} spaces will be auto-zoned. Each space will individually create its own zone which will auto-balance itself.
-                </p>
-
-                {autoZoneIgnoredCount > 0 && (
-                  <div className="bg-warning/10 border border-warning/20 text-warning-foreground dark:text-warning rounded p-2.5 flex items-start gap-2 leading-normal">
-                    <Info className="size-4 text-warning shrink-0 mt-0.5" />
-                    <div>
-                      {autoZoneIgnoredCount} of the selected spaces were excluded because they are either negative/neutral or already zoned.
-                    </div>
-                  </div>
-                )}
-
-                <div className="border border-border rounded overflow-y-auto max-h-[45vh]">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-header-bg border-b border-border text-[11px] font-semibold text-muted-foreground">
-                        <th className="p-2 w-16">Floor</th>
-                        <th className="p-2">Space Name</th>
-                        <th className="p-2">Category</th>
-                        <th className="p-2 w-20 text-center">Pressure</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {autoZoneSpacesToProcess.map((s) => (
-                        <tr key={s.id} className="hover:bg-row-hover">
-                          <td className="p-2 font-mono text-muted-foreground">{s.floor}</td>
-                          <td className="p-2 font-medium text-foreground">{s.name}</td>
-                          <td className="p-2 text-muted-foreground truncate max-w-[150px]" title={s.category}>
-                            {s.category}
-                          </td>
-                          <td className="p-2 text-center">
-                            <span className="bg-success/15 text-success font-bold text-[10px] leading-none py-0.5 px-1 rounded-sm">
-                              {s.pressure}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button onClick={() => setAutoZoneConfirmOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
-                  Cancel
-                </button>
-                <button
-                  onClick={applyIndividualZoning}
-                  className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95"
-                >
-                  Create {autoZoneSpacesToProcess.length} Zones
+                  Done
                 </button>
               </footer>
             </div>
@@ -4029,7 +4011,20 @@ function ZonesView() {
     updateSpaces([...spaces, newSpace]);
   };
 
-  const addSpaceToEditingZone = (spaceId: string) => {
+  const addSpaceToEditingZone = async (spaceId: string) => {
+    const targetSpace = spaces.find(s => s.id === spaceId);
+    if (targetSpace && targetSpace.zone && targetSpace.zone !== "Default" && targetSpace.zone !== "unzoned") {
+      const isSure = await confirm(
+        `This space is already assigned to "${targetSpace.zone}". Are you sure you want to move it to "${editZoneName}"?`,
+        {
+          title: "Reassign Space",
+          confirmText: "Yes, Move Space",
+          cancelText: "Cancel",
+        }
+      );
+      if (!isSure) return;
+    }
+
     const updated = spaces.map(s => {
       if (s.id === spaceId) {
         return { ...s, zone: editZoneName };
@@ -4367,6 +4362,40 @@ function ZonesView() {
       },
       mono: true,
     },
+    {
+      key: "flagged",
+      header: "",
+      width: 36,
+      align: "center",
+      render: (z) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            const updatedZones = zones.map((zoneItem) =>
+              zoneItem.id === z.id ? { ...zoneItem, flagged: !zoneItem.flagged } : zoneItem
+            );
+            updateZones(updatedZones);
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+          title={
+            z.freshAir === 0 && z.extractAir === 0
+              ? "The zone contains spaces which don't have min fresh and extract air"
+              : z.flagged
+              ? "Unflag zone"
+              : "Flag zone"
+          }
+        >
+          <Flag 
+            className={`size-3.5 transition-all duration-200 ${
+              z.flagged 
+                ? "fill-red-500 text-red-500 scale-110" 
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`} 
+          />
+        </button>
+      ),
+    },
   ];
 
   const toggleAllZones = () => {
@@ -4428,7 +4457,7 @@ function ZonesView() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter zonesâ€¦"
+          placeholder="Filter zones..."
           className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
         />
         <FilterDropdown
@@ -4450,11 +4479,10 @@ function ZonesView() {
           options={uniquePressures}
         />
         <div className="ml-auto flex items-center gap-1">
-          <TBtn><Download className="size-3.5" /> Export</TBtn>
           <TBtn primary onClick={() => {
             const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
             const newZone: Zone = {
-              id: `zone-${Date.now()}`,
+              id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
               name,
               building: "Tower A",
               floor: "L01",
@@ -4934,11 +4962,11 @@ function ZonesView() {
                           <InlineInput
                             type="number"
                             step="0.1"
-                            min={0.1}
+                            min={0}
                             value={s.area}
                             onCommit={(val) => {
                               const num = parseFloat(val);
-                              if (!isNaN(num) && num > 0) {
+                              if (!isNaN(num) && num >= 0) {
                                 bulkUpdateSpaces([s.id], { area: num });
                               }
                             }}
@@ -5127,7 +5155,7 @@ function ZonesView() {
                 (z) => z.id.toLowerCase() === updated.zone.toLowerCase() || z.name.toLowerCase() === updated.zone.toLowerCase()
               );
               if (!zoneExists) {
-                const zoneId = `zone-${Date.now()}`;
+                const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
                 const newZone = {
                   id: zoneId,
                   name: updated.zone,
@@ -5516,7 +5544,8 @@ function EquipmentView() {
 
   const [sizerOpen, setSizerOpen] = useState(false);
   const [sizerEquipId, setSizerEquipId] = useState<string | null>(null);
-  const onOpenSizer = (equipId: string) => { setSizerEquipId(equipId); setSizerOpen(true); };
+  const [sizerShowAdd, setSizerShowAdd] = useState(false);
+  const onOpenSizer = (equipId: string) => { setSizerEquipId(equipId); setSizerShowAdd(false); setSizerOpen(true); };
 
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedEquips, setSelectedEquips] = useState<Set<string>>(new Set());
@@ -5570,12 +5599,14 @@ function EquipmentView() {
     });
   };
 
-  // New Equipment Modal states
-  const [newEquipOpen, setNewEquipOpen] = useState(false);
-  const [newEquipName, setNewEquipName] = useState("");
-  const [newEquipType, setNewEquipType] = useState("Air Handling Unit");
-  const [newEquipStream, setNewEquipStream] = useState<"Both" | "FA" | "EA">("Both");
-  const [newEquipSelectedZones, setNewEquipSelectedZones] = useState<Set<string>>(new Set());
+  const getAirType = (type: string) => {
+    const t = type.toLowerCase();
+    if (t === "fahu") return "Fresh Air";
+    if (t === "ecology" || t === "ecology unit") return "Extract Air";
+    return "Fresh and Extract Air";
+  };
+
+
 
   const uniqueTypes = useMemo(() => {
     const vals = new Set<string>();
@@ -5593,145 +5624,9 @@ function EquipmentView() {
     });
   }, [equipment, query, selectedType]);
 
-  const toggleZoneSelection = (zoneId: string) => {
-    setNewEquipSelectedZones(prev => {
-      const next = new Set(prev);
-      if (next.has(zoneId)) {
-        next.delete(zoneId);
-      } else {
-        next.add(zoneId);
-      }
-      return next;
-    });
-  };
 
-  const handleSaveNewEquip = async () => {
-    const tagName = newEquipName.trim();
-    if (!tagName) {
-      alert("Please enter an equipment name.");
-      return;
-    }
 
-    const tagExists = equipment.some(e => e.tag.toLowerCase() === tagName.toLowerCase());
-    if (tagExists) {
-      alert(`Equipment name "${tagName}" already exists.`);
-      return;
-    }
 
-    const resolvedType = newEquipType === "EAHU" ? "Ecology" : newEquipType;
-    const newId = `equip-${Date.now()}`;
-    const newEquip: Equipment = {
-      id: newId,
-      tag: tagName,
-      type: resolvedType,
-      capacity: 5000,
-      utilization: 0,
-      status: "design",
-      totalFA: 0,
-      totalEA: 0,
-      totalAirflow: 0,
-      zones: 0,
-      spaces: 0,
-      zoneIds: [],
-      mode: resolvedType === "FAHU"
-        ? (newEquipStream === "Both" ? "Fresh Air + Extract Air" : newEquipStream === "FA" ? "Fresh Air Only" : "Extract Air Only")
-        : undefined,
-    };
-
-    const streamsToAssign: ("FA" | "EA")[] = [];
-    if (resolvedType === "MAHU" || resolvedType === "Air Handling Unit") {
-      streamsToAssign.push("FA");
-    } else if (resolvedType === "Ecology") {
-      streamsToAssign.push("EA");
-    } else if (resolvedType === "FAHU") {
-      if (newEquipStream === "Both") {
-        streamsToAssign.push("FA");
-        streamsToAssign.push("EA");
-      } else if (newEquipStream === "FA") {
-        streamsToAssign.push("FA");
-      } else if (newEquipStream === "EA") {
-        streamsToAssign.push("EA");
-      }
-    }
-
-    // Check for conflicts
-    let conflicts: string[] = [];
-    newEquipSelectedZones.forEach(zoneId => {
-      const zoneObj = zones.find(z => z.id === zoneId);
-      if (!zoneObj) return;
-
-      if (streamsToAssign.includes("FA") && zoneObj.faAssignment) {
-        const other = equipment.find(e => e.id === zoneObj.faAssignment);
-        if (other) {
-          conflicts.push(`Fresh Air for Zone "${zoneObj.name}" is already assigned to "${other.tag}"`);
-        }
-      }
-      if (streamsToAssign.includes("EA") && zoneObj.eaAssignment) {
-        const other = equipment.find(e => e.id === zoneObj.eaAssignment);
-        if (other) {
-          conflicts.push(`Extract Air for Zone "${zoneObj.name}" is already assigned to "${other.tag}"`);
-        }
-      }
-    });
-
-    const assignAction = () => {
-      const nextZones = zones.map((z) => {
-        if (newEquipSelectedZones.has(z.id)) {
-          return {
-            ...z,
-            faAssignment: streamsToAssign.includes("FA") ? newId : z.faAssignment,
-            eaAssignment: streamsToAssign.includes("EA") ? newId : z.eaAssignment,
-          };
-        }
-        return z;
-      });
-
-      const nextEquipment = [...equipment, newEquip];
-      const balanced = calculateVentilation(spaces, nextZones, nextEquipment);
-      setWorkspaceState({
-        spaces: balanced.spaces,
-        zones: balanced.zones,
-        equipment: balanced.equipment,
-      });
-
-      setNewEquipOpen(false);
-      setNewEquipName("");
-      setNewEquipSelectedZones(new Set());
-    };
-
-    if (conflicts.length > 0) {
-      const ok = await confirm(
-        `The following conflicts were detected:\n${conflicts.map(c => `- ${c}`).join("\n")}\n\nDo you want to reassign these streams to "${tagName}"?`,
-        {
-          title: "Reassign Streams",
-          confirmText: "Reassign",
-          cancelText: "Cancel",
-        }
-      );
-      if (ok) {
-        assignAction();
-      }
-    } else {
-      assignAction();
-    }
-  };
-
-  const handleEditCapacity = async (e: Equipment) => {
-    const raw = prompt(`Edit capacity (L/s) for ${e.tag}:`, String(e.capacity));
-    if (raw === null) return;
-    const val = parseInt(raw);
-    if (isNaN(val) || val <= 0) {
-      alert("Invalid capacity value.");
-      return;
-    }
-    const nextEquip = equipment.map(eq => eq.id === e.id ? { ...eq, capacity: val } : eq);
-    const balanced = calculateVentilation(spaces, zones, nextEquip);
-    setWorkspaceState({
-      spaces: balanced.spaces,
-      zones: balanced.zones,
-      equipment: balanced.equipment,
-    });
-  };
 
   const handleBulkDeleteEquipment = async () => {
     const ok = await confirm(
@@ -5804,7 +5699,6 @@ function EquipmentView() {
         setSelectedEquips(new Set());
         setSizerOpen(false);
         setSizerEquipId(null);
-        setNewEquipOpen(false);
         return;
       }
 
@@ -5853,13 +5747,6 @@ function EquipmentView() {
         <Wrench className="size-3.5" />
         <span>Manage Assignments</span>
       </ContextMenuItem>
-      <ContextMenuItem
-        onClick={() => handleEditCapacity(e)}
-        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-      >
-        <Edit3 className="size-3.5" />
-        <span>Edit Capacity</span>
-      </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem
         onClick={async () => {
@@ -5899,22 +5786,21 @@ function EquipmentView() {
           options={uniqueTypes}
         />
         <div className="ml-auto flex items-center gap-1">
-          <TBtn
-            disabled={selectedEquips.size === 0}
-            onClick={() => {
-              const firstId = Array.from(selectedEquips)[0];
-              if (firstId) onOpenSizer(firstId);
-            }}
-          >
-            <Wrench className="size-3.5" /> Assign
-          </TBtn>
-          <TBtn><Download className="size-3.5" /> Export</TBtn>
+          {selectedEquips.size === 1 && (
+            <TBtn
+              onClick={() => {
+                const firstId = Array.from(selectedEquips)[0];
+                if (firstId) onOpenSizer(firstId);
+              }}
+            >
+              <Wrench className="size-3.5" /> Assign
+            </TBtn>
+          )}
+
           <TBtn primary onClick={() => {
-            setNewEquipName(`AHU-${String(equipment.length + 1).padStart(2, "0")}`);
-            setNewEquipType("Air Handling Unit");
-            setNewEquipStream("Both");
-            setNewEquipSelectedZones(new Set());
-            setNewEquipOpen(true);
+            setSizerEquipId(null);
+            setSizerShowAdd(true);
+            setSizerOpen(true);
           }}><Plus className="size-3.5" /> New Equipment</TBtn>
         </div>
 
@@ -5923,6 +5809,12 @@ function EquipmentView() {
           <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
             <span className="font-semibold">{selectedEquips.size} selected</span>
             <span className="text-primary/30">·</span>
+            {selectedEquips.size === 1 && (
+              <BulkBtn icon={Wrench} onClick={() => {
+                const firstId = Array.from(selectedEquips)[0];
+                if (firstId) onOpenSizer(firstId);
+              }}>Assign</BulkBtn>
+            )}
             <BulkBtn icon={Trash2} onClick={handleBulkDeleteEquipment}>Delete</BulkBtn>
             <button onClick={() => setSelectedEquips(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded">
               <X className="size-3" /> Clear
@@ -5950,9 +5842,9 @@ function EquipmentView() {
                 />
               </Th>
               <Th>Equipment</Th><Th>Type</Th>
+              <Th>Air Type</Th>
               <Th align="center">Zones</Th><Th align="center">Spaces</Th>
-              <Th align="center">Fresh Load (L/s)</Th><Th align="center">Extract Load (L/s)</Th>
-              <Th>Capacity Utilization</Th>
+              <Th align="center" className="w-[110px]">Fresh Load (L/s)</Th><Th align="center" className="w-[110px]">Extract Load (L/s)</Th>
             </tr>
           </thead>
           <tbody>
@@ -5985,18 +5877,12 @@ function EquipmentView() {
                       </td>
                       <td className="px-3 py-1.5 font-mono font-medium">{e.tag}</td>
                       <td className="px-3 py-1.5 text-muted-foreground">{e.type}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{getAirType(e.type)}</td>
                       <td className="px-3 py-1.5 text-center font-mono tabular">{e.zones}</td>
                       <td className="px-3 py-1.5 text-center font-mono tabular">{e.spaces}</td>
-                      <td className="px-3 py-1.5 text-center font-mono tabular">{(e.totalFA || 0).toLocaleString()}</td>
-                      <td className="px-3 py-1.5 text-center font-mono tabular">{(e.totalEA || 0).toLocaleString()}</td>
-                      <td className="px-3 py-1.5 w-[220px]">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
-                            <div className={`h-full ${e.utilization > 92 ? "bg-warning" : e.utilization > 70 ? "bg-primary" : "bg-success"}`} style={{ width: `${e.utilization}%` }} />
-                          </div>
-                          <span className="font-mono tabular text-[11.5px] w-9 text-right">{e.utilization}%</span>
-                        </div>
-                      </td>
+                      <td className="px-3 py-1.5 text-center font-mono tabular w-[110px]">{(e.totalFA || 0).toLocaleString()}</td>
+                      <td className="px-3 py-1.5 text-center font-mono tabular w-[110px]">{(e.totalEA || 0).toLocaleString()}</td>
+
                     </tr>
                   </ContextMenuTrigger>
                   {renderEquipmentContextMenu(e)}
@@ -6011,15 +5897,20 @@ function EquipmentView() {
         initialEquipmentId={sizerEquipId}
         initialZoneId={null}
         initialZoneIds={[]}
-        onClose={() => { setSizerOpen(false); setSizerEquipId(null); }}
+        initialShowAddEquip={sizerShowAdd}
+        onClose={() => {
+          setSizerOpen(false);
+          setSizerEquipId(null);
+          setSizerShowAdd(false);
+        }}
       />
     </div>
   );
 }
 
-function Th({ children, align }: { children: React.ReactNode; align?: "right" | "center" }) {
+function Th({ children, align, className = "" }: { children: React.ReactNode; align?: "right" | "center"; className?: string }) {
   const alignmentClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  return <th className={`px-3 py-2 font-semibold ${alignmentClass}`}>{children}</th>;
+  return <th className={`px-3 py-2 font-semibold ${alignmentClass} ${className}`}>{children}</th>;
 }
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€ Report â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -6129,17 +6020,124 @@ function KVRow({ k, v, tone }: { k: string; v: React.ReactNode; tone?: "primary"
   );
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€ Intelligence Drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-function IntelligenceDrawer({ onClose }: { onClose: () => void }) {
+/* ──────────────────── Intelligence Drawer ───────────────────── */
+interface CollapsibleMissingSectionProps {
+  label: string;
+  count: number;
+  itemsList: { id: string; name: string; detail: string }[];
+  isOpen: boolean;
+  onToggle: () => void;
+}
+
+function CollapsibleMissingSection({ label, count, itemsList, isOpen, onToggle, onItemClick }: { label: string; count: number; itemsList: { id: string; name: string; detail: string }[]; isOpen: boolean; onToggle: () => void; onItemClick: (id: string) => void }) {
+  return (
+    <div className="border-b border-border/40 last:border-b-0 py-1.5">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-[12.5px] font-medium text-foreground/90 hover:text-foreground transition-colors cursor-pointer select-none py-0.5"
+      >
+        <span className="flex items-center gap-1.5">
+          <span>{label}</span>
+          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+        </span>
+        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
+      </button>
+      
+      {isOpen && count > 0 && (
+        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
+          {itemsList.map((item) => {
+            return (
+              <button
+                key={item.id}
+                onClick={() => onItemClick(item.id)}
+                className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
+              >
+                <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
+                  <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
+                    {item.name}
+                  </span>
+                  <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
+                    ({item.detail})
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IntelligenceDrawer({ onClose, setTab }: { onClose: () => void; setTab: (t: "spaces" | "zones" | "equipment" | "report") => void }) {
   const { spaces, zones, equipment } = useWorkspace();
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    unassigned: false,
+    unzoned: false,
+    noCategory: false,
+    missingArea: false
+  });
 
   const totalFresh = spaces.reduce((a, s) => a + (s.freshAir || 0), 0);
   const totalExtract = spaces.reduce((a, s) => a + (s.extractAir || 0), 0);
   const balance = totalFresh - totalExtract;
-  const warnings = spaces.filter((s) => s.status === "warning").length;
+  const warnings = spaces.filter((s) => s.flagged).length;
+  const nonCompliantCount = spaces.filter((s) => s.flagged || s.status === "warning").length;
   const draft = spaces.filter((s) => s.status === "draft").length;
-  const overEquip = equipment.filter((e) => e.utilization > 92).length;
   const negZones = zones.filter((z) => z.pressureType === "negative").length;
+
+  const unassignedZones = zones.filter(z => {
+    const hasEquipment = z.equipment && z.equipment.length > 0;
+    const hasFA = z.faAssignment || (z.faAssignments && Object.keys(z.faAssignments).length > 0);
+    const hasEA = z.eaAssignment || (z.eaAssignments && Object.keys(z.eaAssignments).length > 0);
+    return !hasEquipment && !hasFA && !hasEA;
+  });
+  const unassignedItems = unassignedZones.map(z => ({
+    id: z.id,
+    name: z.name,
+    detail: z.floor || "L01"
+  }));
+
+  const unzonedSpaces = spaces.filter(s => {
+    const z = (s.zone || "").trim().toLowerCase();
+    return !z || z === "" || z === "default" || z === "unzoned";
+  });
+  const unzonedItems = unzonedSpaces.map(s => {
+    const hasCategory = s.category && s.category.trim() !== "" && !s.category.toLowerCase().includes("select category");
+    return {
+      id: s.id,
+      name: hasCategory ? `${s.name} + ${s.category}` : s.name,
+      detail: s.floor || "L01"
+    };
+  });
+
+  const noCategorySpaces = spaces.filter(s => {
+    const c = (s.category || "").trim().toLowerCase();
+    return !c || c === "" || c === "select category" || c.includes("select category");
+  });
+  const noCategoryItems = noCategorySpaces.map(s => ({
+    id: s.id,
+    name: s.name,
+    detail: s.floor || "L01"
+  }));
+
+  const missingAreaSpaces = spaces.filter(s => {
+    const areaVal = parseFloat(String(s.area));
+    return !s.area || isNaN(areaVal) || areaVal === 0;
+  });
+  const missingAreaItems = missingAreaSpaces.map(s => ({
+    id: s.id,
+    name: s.name,
+    detail: s.floor || "L01"
+  }));
+
+  const handleItemClick = (id: string, isZone: boolean) => {
+    setTab(isZone ? "zones" : "spaces");
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("mep-scroll-to-item", { detail: { id } }));
+    }, 100);
+  };
 
   return (
     <div className="h-full w-[360px] flex flex-col animate-fade-in">
@@ -6157,9 +6155,9 @@ function IntelligenceDrawer({ onClose }: { onClose: () => void }) {
           <div className="text-[12px] text-muted-foreground">ASHRAE 62.1 validation across {spaces.length.toLocaleString()} spaces.</div>
           <div className="mt-2 flex items-center gap-2">
             <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
-              <div className="h-full bg-success" style={{ width: `${spaces.length > 0 ? Math.round(((spaces.length - warnings) / spaces.length) * 100) : 100}%` }} />
+              <div className="h-full bg-success" style={{ width: `${spaces.length > 0 ? Math.round(((spaces.length - nonCompliantCount) / spaces.length) * 100) : 100}%` }} />
             </div>
-            <span className="font-mono tabular text-[11.5px]">{spaces.length > 0 ? Math.round(((spaces.length - warnings) / spaces.length) * 100) : 100}%</span>
+            <span className="font-mono tabular text-[11.5px]">{spaces.length > 0 ? Math.round(((spaces.length - nonCompliantCount) / spaces.length) * 100) : 100}%</span>
           </div>
         </IntelSection>
 
@@ -6174,18 +6172,38 @@ function IntelligenceDrawer({ onClose }: { onClose: () => void }) {
         </IntelSection>
 
         <IntelSection icon={Info} tone="muted" title="Missing Data">
-          <KV k="Unassigned equipment" v={spaces.filter(s => !s.equipment).length} />
-          <KV k="Unzoned spaces" v={spaces.filter(s => !s.zone).length} />
-        </IntelSection>
-
-        <IntelSection icon={AlertTriangle} tone={overEquip > 0 ? "warning" : "muted"} title="Equipment Warnings">
-          <KV k="Above 92% utilization" v={overEquip} />
-          <KV k="Recommended action" v={overEquip > 0 ? "Rebalance loads" : "None"} />
-        </IntelSection>
-
-        <IntelSection icon={Gauge} tone="muted" title="Zone Imbalance Alerts">
-          <KV k="Positive" v={zones.filter((z) => z.pressureType === "positive").length} />
-          <KV k="Negative" v={negZones} />
+          <CollapsibleMissingSection
+            label="Unassigned equipment"
+            count={unassignedItems.length}
+            itemsList={unassignedItems}
+            isOpen={openSections.unassigned}
+            onToggle={() => setOpenSections(prev => ({ ...prev, unassigned: !prev.unassigned }))}
+            onItemClick={(id) => handleItemClick(id, true)}
+          />
+          <CollapsibleMissingSection
+            label="Unzoned spaces"
+            count={unzonedItems.length}
+            itemsList={unzonedItems}
+            isOpen={openSections.unzoned}
+            onToggle={() => setOpenSections(prev => ({ ...prev, unzoned: !prev.unzoned }))}
+            onItemClick={(id) => handleItemClick(id, false)}
+          />
+          <CollapsibleMissingSection
+            label="Spaces without Category"
+            count={noCategoryItems.length}
+            itemsList={noCategoryItems}
+            isOpen={openSections.noCategory}
+            onToggle={() => setOpenSections(prev => ({ ...prev, noCategory: !prev.noCategory }))}
+            onItemClick={(id) => handleItemClick(id, false)}
+          />
+          <CollapsibleMissingSection
+            label="Missing Area"
+            count={missingAreaItems.length}
+            itemsList={missingAreaItems}
+            isOpen={openSections.missingArea}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingArea: !prev.missingArea }))}
+            onItemClick={(id) => handleItemClick(id, false)}
+          />
         </IntelSection>
 
         <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">

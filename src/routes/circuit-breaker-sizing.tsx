@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
@@ -12,6 +12,63 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { STANDARD_BREAKER_RATINGS_A } from "@/core/standards/breakers";
+
+interface InlineInputProps {
+  value: string | number;
+  onCommit: (val: string) => void;
+  className?: string;
+  type?: "text" | "number";
+  step?: string;
+  min?: number;
+  placeholder?: string;
+  onFocus?: (e: any) => void;
+}
+
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, onFocus }: InlineInputProps) {
+  const [localVal, setLocalVal] = useState(String(value));
+
+  // Sync local state when external value changes
+  useMemo(() => {
+    const strVal = String(value);
+    if (localVal !== strVal) {
+      const parsedLocal = parseFloat(localVal);
+      const parsedValue = parseFloat(strVal);
+      // Don't overwrite if user is typing a decimal or a negative sign
+      if (localVal.endsWith('.') && parsedLocal === parsedValue) return;
+      if (localVal === '' && parsedValue === 0) return;
+      if (localVal === '-' && parsedValue === 0) return;
+      
+      setLocalVal(strVal);
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalVal(e.target.value);
+    onCommit(e.target.value);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input
+      type={type}
+      step={step}
+      min={min}
+      value={localVal}
+      onChange={handleChange}
+      onFocus={onFocus}
+      onKeyDown={handleKeyDown}
+      placeholder={placeholder}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`bg-transparent w-full border border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none transition-colors cursor-text ${className}`}
+    />
+  );
+}
 
 export const Route = createFileRoute("/circuit-breaker-sizing")({
   head: () => ({
@@ -126,7 +183,51 @@ function CircuitBreakerSizingPage() {
   };
 
   const handleUpdateRow = (id: string, field: keyof BreakerRow, val: any) => {
-    setRows(rows.map(r => r.id === id ? { ...r, [field]: val } : r));
+    setRows(prev => {
+      const isSelected = prev.find(r => r.id === id)?.selected;
+      return prev.map(r => {
+        if (isSelected && r.selected) {
+          return { ...r, [field]: val };
+        } else if (r.id === id) {
+          return { ...r, [field]: val };
+        }
+        return r;
+      });
+    });
+  };
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setRows(prev => prev.map(r => ({ ...r, selected: false })));
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        return;
+      }
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        setRows(prev => prev.map(r => ({ ...r, selected: true })));
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        setRows(prev => prev.filter(r => !r.selected));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleRowFocus = (id: string) => {
+    setRows(prev => {
+      const isSelected = prev.find(r => r.id === id)?.selected;
+      if (!isSelected) {
+        return prev.map(r => r.id === id ? { ...r, selected: true } : { ...r, selected: false });
+      }
+      return prev;
+    });
   };
 
   const handleDeleteSelected = async () => {
@@ -342,38 +443,45 @@ function CircuitBreakerSizingPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
                   {calculatedData.rowDetails.map((row, idx) => (
-                    <tr key={row.id} className={`${row.selected ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'}`}>
+                    <tr 
+                      key={row.id} 
+                      onClick={() => handleUpdateRow(row.id, "selected", !row.selected)}
+                      className={`cursor-pointer ${row.selected ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'}`}
+                    >
                       <td className="p-3 text-center border-r border-transparent">
-                        <input type="checkbox" checked={!!row.selected} onChange={(e) => handleUpdateRow(row.id, 'selected', e.target.checked)} className="cursor-pointer" />
+                        <input type="checkbox" checked={!!row.selected} onChange={(e) => handleUpdateRow(row.id, 'selected', e.target.checked)} onClick={(e) => e.stopPropagation()} className="cursor-pointer" />
                       </td>
                       <td className="p-3 font-mono text-slate-400 text-center">{idx + 1}</td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           value={row.description} 
-                          onChange={(e) => handleUpdateRow(row.id, "description", e.target.value)}
+                          onCommit={(val) => handleUpdateRow(row.id, "description", val)}
+                          onFocus={() => handleRowFocus(row.id)}
                           placeholder="e.g. New Feeder Load"
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                          className="font-medium text-slate-900 dark:text-slate-100"
                         />
                       </td>
                       <td className="p-2">
                         <div className="flex items-center gap-1">
                           <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <input 
+                          <InlineInput 
                             type="number" 
                             value={row.connectedLoad} 
-                            onChange={(e) => handleUpdateRow(row.id, "connectedLoad", e.target.value === "" ? "" : Number(e.target.value))}
-                            className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                            onCommit={(val) => handleUpdateRow(row.id, "connectedLoad", val === "" ? "" : Number(val))}
+                            onFocus={() => handleRowFocus(row.id)}
+                            className="text-slate-900 dark:text-slate-100"
                           />
                         </div>
                       </td>
                       <td className="p-2">
                         <div className="flex items-center gap-1">
                           <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <input 
+                          <InlineInput 
                             type="number" 
                             value={row.voltage} 
-                            onChange={(e) => handleUpdateRow(row.id, "voltage", e.target.value === "" ? "" : Number(e.target.value))}
-                            className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                            onCommit={(val) => handleUpdateRow(row.id, "voltage", val === "" ? "" : Number(val))}
+                            onFocus={() => handleRowFocus(row.id)}
+                            className="text-slate-900 dark:text-slate-100"
                           />
                         </div>
                       </td>
@@ -381,6 +489,8 @@ function CircuitBreakerSizingPage() {
                         <select 
                           value={row.phase} 
                           onChange={(e) => handleUpdateRow(row.id, "phase", e.target.value as any)}
+                          onFocus={() => handleRowFocus(row.id)}
+                          onClick={(e) => e.stopPropagation()}
                           className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1 py-1 outline-none text-slate-900 dark:text-slate-100 focus:border-blue-500"
                         >
                           <option value="Select...">Select...</option>
@@ -391,22 +501,24 @@ function CircuitBreakerSizingPage() {
                       <td className="p-2">
                         <div className="flex items-center gap-1">
                           <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <input 
+                          <InlineInput 
                             type="number" step="0.01"
                             value={row.powerFactor} 
-                            onChange={(e) => handleUpdateRow(row.id, "powerFactor", e.target.value === "" ? "" : Number(e.target.value))}
-                            className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                            onCommit={(val) => handleUpdateRow(row.id, "powerFactor", val === "" ? "" : Number(val))}
+                            onFocus={() => handleRowFocus(row.id)}
+                            className="text-slate-900 dark:text-slate-100"
                           />
                         </div>
                       </td>
                       <td className="p-2">
                         <div className="flex items-center gap-1">
                           <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <input 
+                          <InlineInput 
                             type="number" step="0.01"
                             value={row.demandFactor} 
-                            onChange={(e) => handleUpdateRow(row.id, "demandFactor", e.target.value === "" ? "" : Number(e.target.value))}
-                            className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                            onCommit={(val) => handleUpdateRow(row.id, "demandFactor", val === "" ? "" : Number(val))}
+                            onFocus={() => handleRowFocus(row.id)}
+                            className="text-slate-900 dark:text-slate-100"
                           />
                         </div>
                       </td>
@@ -417,11 +529,12 @@ function CircuitBreakerSizingPage() {
                         {row.recBreaker} A
                       </td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           value={row.remarks} 
-                          onChange={(e) => handleUpdateRow(row.id, "remarks", e.target.value)}
-                          placeholder=""
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-500 transition-colors"
+                          onCommit={(val) => handleUpdateRow(row.id, "remarks", val)}
+                          onFocus={() => handleRowFocus(row.id)}
+                          placeholder="Notes..."
+                          className="text-slate-500"
                         />
                       </td>
                     </tr>

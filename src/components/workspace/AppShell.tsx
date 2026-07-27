@@ -510,7 +510,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   };
 
   const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";
-  const brandName = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K-Factor Calc" : "MEP Calc";
+  const brandName = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K-Factor Calc" : "MEP Calculator";
   return (
     <div className="grid h-screen grid-cols-[auto_1fr] grid-rows-[80px_1fr] bg-surface dark:bg-[#121212] text-foreground text-[14px] print:block print:h-auto">
       {/* Top Header (Column 2, Row 1) */}

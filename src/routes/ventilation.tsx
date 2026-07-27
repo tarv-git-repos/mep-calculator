@@ -1,7 +1,12 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { VentilationModule } from "./index";
 
 export const Route = createFileRoute("/ventilation")({
-  beforeLoad: () => {
-    throw redirect({ to: "/" });
-  },
+  head: () => ({
+    meta: [
+      { title: "Ventilation — MEP Calculator" },
+      { name: "description", content: "Ventilation module: spaces, zones, equipment, and reports with live intelligence." },
+    ],
+  }),
+  component: VentilationModule,
 });

@@ -111,6 +111,7 @@ function ProjectLoadSchedulePage() {
   const boards = useElectricalNetworkStore(state => state.boards);
   const setBoards = useElectricalNetworkStore(state => state.setBoards);
   const recalculateNetwork = useElectricalNetworkStore(state => state.recalculateNetwork);
+  const updateBoardGlobal = useElectricalNetworkStore(state => state.updateBoard);
 
   const [activeBoardId, setActiveBoardId] = useState<string>("board-1");
   const [isCompactView, setIsCompactView] = useState(false);
@@ -1079,6 +1080,9 @@ function ProjectLoadSchedulePage() {
                   setActiveBoardId(id);
                   setView("table");
                 }} 
+                onConnectBoard={(source, target) => {
+                  updateBoardGlobal(target, { fedFrom: source });
+                }}
               />
             </div>
           ) : activeBoardId === "SUMMARY" ? (
@@ -1266,7 +1270,15 @@ function ProjectLoadSchedulePage() {
                           ) : (
                             <>
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.cirNo} onChange={e => updateCircuit(c.id, "cirNo", e.target.value)} /></td>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.desc} onChange={e => updateCircuit(c.id, "desc", e.target.value)} /></td>
+                              <td className="p-0 border-r border-slate-300">
+                                <input 
+                                  className={`w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left ${c.isFeeder ? 'text-blue-700 font-medium' : ''}`} 
+                                  value={c.desc} 
+                                  onChange={e => updateCircuit(c.id, "desc", e.target.value)} 
+                                  disabled={c.isFeeder}
+                                  title={c.isFeeder ? "Feeder name is locked to the connected board name. Rename the board instead." : ""}
+                                />
+                              </td>
                               <td className="p-0 border-r border-slate-300"><input type="number" className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.qty} onChange={e => updateCircuit(c.id, "qty", Number(e.target.value))} /></td>
                               <td className="p-0 border-r border-slate-300"><input type="number" className="w-full h-8 px-2 bg-transparent text-right outline-none focus:bg-slate-100 text-emerald-700" value={c.loadW} onChange={e => updateCircuit(c.id, "loadW", Number(e.target.value))} /></td>
                               <td className="p-0 border-r border-slate-300">
@@ -1306,7 +1318,7 @@ function ProjectLoadSchedulePage() {
                                 <Copy className="size-3.5" />
                               </button>
                               <button onClick={() => {
-                                const isBoardFeeder = c.desc && (c.desc.startsWith("New Board") || c.desc.startsWith("DB-") || c.desc.startsWith("SMDB-") || c.desc.startsWith("MDB-") || boards.some((ab: any) => ab.name === c.desc));
+                                const isBoardFeeder = c.isFeeder;
                                 if (isBoardFeeder) {
                                   alert(`Cannot delete this circuit directly because it is a Feeder for a connected board (${c.desc}).\n\nTo remove this feeder, you must go to the child board and change its 'Fed From' setting to 'None'. The Global Network will then automatically remove this circuit from this board.`);
                                   return;

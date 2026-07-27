@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { X, Search, ChevronDown, ChevronRight, Plus, Fan, Check } from "lucide-react";
+import { X, Search, ChevronDown, ChevronRight, Plus, Fan, Check, Edit3 } from "lucide-react";
 import { useWorkspace, type Equipment, type Zone } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
 
@@ -20,6 +20,7 @@ interface SharedAssignmentModalProps {
   initialEquipmentId?: string | null;
   initialZoneId?: string | null;
   initialZoneIds?: string[] | null;
+  initialShowAddEquip?: boolean;
   onClose: () => void;
 }
 
@@ -28,6 +29,7 @@ export function SharedAssignmentModal({
   initialEquipmentId,
   initialZoneId,
   initialZoneIds,
+  initialShowAddEquip,
   onClose,
 }: SharedAssignmentModalProps) {
   const { spaces, zones, equipment, setWorkspaceState } = useWorkspace();
@@ -49,6 +51,11 @@ export function SharedAssignmentModal({
   useEffect(() => {
     if (isOpen) {
       console.log("SharedAssignmentModal: isOpen=true, initialZoneId=", initialZoneId, "initialZoneIds=", initialZoneIds);
+      if (initialShowAddEquip) {
+        setShowAddEquip(true);
+      } else {
+        setShowAddEquip(false);
+      }
       if (initialEquipmentId) {
         setSelectedEquipId(initialEquipmentId);
         const eq = equipment.find((e) => e.id === initialEquipmentId);
@@ -95,7 +102,7 @@ export function SharedAssignmentModal({
         setSelectedInstances(new Set());
       }
     }
-  }, [isOpen, initialEquipmentId, initialZoneId, initialZoneIds, zones, equipment]);
+  }, [isOpen, initialEquipmentId, initialZoneId, initialZoneIds, initialShowAddEquip, zones, equipment]);
 
   // Handle equipment selection
   const handleEquipSelect = (eqId: string) => {
@@ -644,6 +651,27 @@ export function SharedAssignmentModal({
                           <div className="flex flex-col min-w-0">
                             <div className="font-semibold text-[13px] text-foreground flex items-center gap-2">
                               <span>{zone.name}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const newName = prompt(`Rename zone "${zone.name}":`, zone.name);
+                                  if (newName && newName.trim() !== "" && newName.trim() !== zone.name) {
+                                    const nextZones = zones.map(z => z.id === zone.id ? { ...z, name: newName.trim() } : z);
+                                    const nextSpaces = spaces.map(s => s.zone === zone.name ? { ...s, zone: newName.trim() } : s);
+                                    const balanced = calculateVentilation(nextSpaces, nextZones, equipment);
+                                    setWorkspaceState({
+                                      spaces: balanced.spaces,
+                                      zones: balanced.zones,
+                                      equipment: balanced.equipment,
+                                    });
+                                  }
+                                }}
+                                className="inline-flex p-0.5 rounded hover:bg-surface-3 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                                title="Rename Zone"
+                              >
+                                <Edit3 className="size-3 text-primary" />
+                              </button>
                               {isMulti && (
                                 <span className="text-[10px] bg-surface-3 px-1.5 py-0.2 rounded-full text-muted-foreground font-mono">
                                   {mult} instances

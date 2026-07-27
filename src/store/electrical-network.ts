@@ -268,9 +268,9 @@ export const useElectricalNetworkStore = create<ElectricalNetworkState>((set, ge
         
         // Remove old child references that are no longer children
         parent.circuits = parent.circuits.filter((c: any) => {
-            const isBoardFeeder = c.desc && (c.desc.startsWith("New Board") || c.desc.startsWith("DB-") || c.desc.startsWith("SMDB-") || c.desc.startsWith("MDB-") || boards.some((ab: any) => ab.name === c.desc));
+            const isBoardFeeder = c.isFeeder || (c.desc && (c.desc.startsWith("New Board") || c.desc.startsWith("DB-") || c.desc.startsWith("SMDB-") || c.desc.startsWith("MDB-") || boards.some((ab: any) => ab.name === c.desc)));
             if (!isBoardFeeder) return true; // keep non-child circuits
-            const stillExists = children.some((ch: any) => c.desc === ch.name || c.desc === `DB-${ch.id}`);
+            const stillExists = children.some((ch: any) => (c.fedBoardId && c.fedBoardId === ch.id) || c.desc === ch.name || c.desc === `DB-${ch.id}`);
             return stillExists;
         });
 
@@ -296,8 +296,11 @@ export const useElectricalNetworkStore = create<ElectricalNetworkState>((set, ge
             }
           });
           
-          let pCirc = parent.circuits.find((c: any) => c.desc === child.name || c.desc === `DB-${child.id}`);
+          let pCirc = parent.circuits.find((c: any) => (c.fedBoardId && c.fedBoardId === child.id) || c.desc === child.name || c.desc === `DB-${child.id}`);
           if (pCirc) {
+            pCirc.isFeeder = true;
+            pCirc.fedBoardId = child.id;
+            pCirc.desc = child.name; // Keep name in sync
             pCirc.loadW = childLoad;
             pCirc.phase = child.phaseType === "3-Phase" ? "3-Phase" : "R Phase"; 
             pCirc.rKw = rLoad;
@@ -306,6 +309,8 @@ export const useElectricalNetworkStore = create<ElectricalNetworkState>((set, ge
           } else {
             pCirc = generateDefaultMDBCircuit(`c-${Date.now()}-${child.id}`, parent.circuits.length);
             pCirc.desc = child.name;
+            pCirc.isFeeder = true;
+            pCirc.fedBoardId = child.id;
             pCirc.loadW = childLoad;
             pCirc.phase = child.phaseType === "3-Phase" ? "3-Phase" : "R Phase";
             pCirc.rKw = rLoad;

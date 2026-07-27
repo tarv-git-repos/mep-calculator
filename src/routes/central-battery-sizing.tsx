@@ -52,17 +52,8 @@ interface InlineInputProps {
 }
 
 function InlineInput({ value, onCommit, className = "", type = "text", step, min }: InlineInputProps) {
-  const [localVal, setLocalVal] = useState(String(value));
-
-  useEffect(() => {
-    setLocalVal(String(value));
-  }, [value]);
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.currentTarget.blur();
-    } else if (e.key === "Escape") {
-      setLocalVal(String(value));
+    if (e.key === "Enter" || e.key === "Escape") {
       e.currentTarget.blur();
     }
   };
@@ -72,13 +63,8 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
-      value={localVal}
-      onChange={(e) => setLocalVal(e.target.value)}
-      onBlur={() => {
-        if (localVal !== String(value)) {
-          onCommit(localVal);
-        }
-      }}
+      value={value}
+      onChange={(e) => onCommit(e.target.value)}
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
@@ -114,7 +100,8 @@ function CentralBatterySizingPage() {
   ], []);
 
   // Grid Engine Hooks
-  const { currentState: rows, pushState: setRows, undo, redo } = useHistory<CBSRow>(initialRows);
+  const { currentState, pushState: setRows, undo, redo } = useHistory<CBSRow>(initialRows);
+  const rows = currentState || initialRows || [];
   const { selectedIds: selected, toggleSelection, selectAll, clearSelection } = useSelection(rows);
   const { copy, cut, paste } = useClipboard<CBSRow>(rows, selected, setRows);
 
@@ -259,7 +246,10 @@ function CentralBatterySizingPage() {
   };
 
   const handleUpdateRow = (id: string, field: keyof CBSRow, val: any) => {
-    setRows(rows.map(r => r.id === id ? { ...r, [field]: val } : r));
+    const isBulkEdit = selected.has(id);
+    setRows(rows.map(r => 
+      (r.id === id || (isBulkEdit && selected.has(r.id))) ? { ...r, [field]: val } : r
+    ));
   };
 
   const handleReset = async () => {
@@ -563,7 +553,7 @@ function CentralBatterySizingPage() {
         />
       )
     }
-  ], [rows]);
+  ], [rows, selected]);
 
   // Context Menu for CBS Sizing Row
   const renderRowContextMenu = (row: CBSRow) => {

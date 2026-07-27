@@ -316,3 +316,15 @@ body.modal-open-blur .modal-blur-bg {
   scrollbar-color: var(--border-strong) transparent;
 }
 
+/* Row flash highlight style */
+.row-highlight-flash {
+  background-color: rgba(14, 165, 233, 0.22) !important;
+  font-weight: 600 !important;
+}
+.row-highlight-flash td,
+.row-highlight-flash span,
+.row-highlight-flash div {
+  font-weight: 600 !important;
+}
+
+

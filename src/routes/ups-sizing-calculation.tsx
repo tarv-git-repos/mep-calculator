@@ -52,17 +52,8 @@ interface InlineInputProps {
 }
 
 function InlineInput({ value, onCommit, className = "", type = "text", step, min }: InlineInputProps) {
-  const [localVal, setLocalVal] = useState(String(value));
-
-  useEffect(() => {
-    setLocalVal(String(value));
-  }, [value]);
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.currentTarget.blur();
-    } else if (e.key === "Escape") {
-      setLocalVal(String(value));
+    if (e.key === "Enter" || e.key === "Escape") {
       e.currentTarget.blur();
     }
   };
@@ -72,13 +63,8 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
-      value={localVal}
-      onChange={(e) => setLocalVal(e.target.value)}
-      onBlur={() => {
-        if (localVal !== String(value)) {
-          onCommit(localVal);
-        }
-      }}
+      value={value}
+      onChange={(e) => onCommit(e.target.value)}
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
@@ -110,7 +96,8 @@ function UpsSizingCalculationPage() {
   ], []);
 
   // Grid Engine Hooks
-  const { currentState: loadRows, pushState: setLoadRows, undo, redo } = useHistory<LoadRow>(initialRows);
+  const { currentState, pushState: setLoadRows, undo, redo } = useHistory<LoadRow>(initialRows);
+  const loadRows = currentState || initialRows || [];
   const { selectedIds: selected, toggleSelection, selectAll, clearSelection } = useSelection(loadRows);
   const { copy, cut, paste } = useClipboard<LoadRow>(loadRows, selected, setLoadRows);
 
@@ -182,7 +169,10 @@ function UpsSizingCalculationPage() {
   };
 
   const handleUpdateRow = (id: string, field: keyof LoadRow, val: any) => {
-    setLoadRows(loadRows.map(r => r.id === id ? { ...r, [field]: val } : r));
+    const isBulkEdit = selected.has(id);
+    setLoadRows(loadRows.map(r => 
+      (r.id === id || (isBulkEdit && selected.has(r.id))) ? { ...r, [field]: val } : r
+    ));
   };
 
   const handleReset = async () => {
@@ -488,7 +478,7 @@ function UpsSizingCalculationPage() {
         />
       )
     }
-  ], [loadRows]);
+  ], [loadRows, selected]);
 
   // Context Menu Renderer
   const renderRowContextMenu = (row: LoadRow) => {

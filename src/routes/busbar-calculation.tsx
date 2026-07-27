@@ -640,7 +640,7 @@ function BusbarCalculationPage() {
   }, [panels, ALL_BUSBAR_DATA, unitSystem]);
 
   const flatCalculatedSections = useMemo(() => {
-    return calculatedPanels.flatMap(p => p.calcSections);
+    return calculatedPanels.flatMap(p => p.calcSections.map(s => ({ ...s, panelName: p.name })));
   }, [calculatedPanels]);
 
   const exportExcel = async () => {
@@ -801,9 +801,9 @@ function BusbarCalculationPage() {
         const xVal = Number((unitSystem === "ip" ? r.x * 0.3048 : r.x).toFixed(4));
 
         row.getCell(1).value = idx + 1;
-        row.getCell(2).value = r.from;
+        row.getCell(2).value = section.panelName;
         row.getCell(3).value = r.desc;
-        row.getCell(4).value = r.ref;
+        row.getCell(4).value = section.name;
         row.getCell(5).value = Number((Number(r.length) || 0).toFixed(2));
         row.getCell(6).value = Number((Number(r.loadKw) || 0).toFixed(2));
         row.getCell(7).value = Number((Number(r.tcl) || 0).toFixed(2));
@@ -817,7 +817,7 @@ function BusbarCalculationPage() {
         row.getCell(15).value = xVal;
         row.getCell(16).value = Number((Number(r.vd) || 0).toFixed(2));
         row.getCell(17).value = Number(r.vdPercent).toFixed(3) + "%";
-        if (r.vdPercent > 4) {
+        if (r.vdPercent > 2.5) {
           row.getCell(17).font = { ...fontNormal, color: { argb: "FFFF0000" } };
         }
         
@@ -835,16 +835,9 @@ function BusbarCalculationPage() {
         rowIndex++;
       });
 
-      if (section.calcRows.length > 0) {
-        const allFromSame = section.calcRows.every(r => r.from === section.calcRows[0].from);
-        if (allFromSame && section.calcRows.length > 1) {
-          worksheet.mergeCells(13, 2, rowIndex - 1, 2);
-        }
-        
-        const allRefSame = section.calcRows.every(r => r.ref === section.calcRows[0].ref);
-        if (allRefSame && section.calcRows.length > 1) {
-          worksheet.mergeCells(13, 4, rowIndex - 1, 4);
-        }
+      if (section.calcRows.length > 1) {
+        worksheet.mergeCells(13, 2, rowIndex - 1, 2);
+        worksheet.mergeCells(13, 4, rowIndex - 1, 4);
       }
 
       if (section.calcRows.length > 0) {
@@ -1148,8 +1141,8 @@ function BusbarCalculationPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                                {section.totalCumulativeVd > 4 ? (
-                                  <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/20 px-3 py-1.5 rounded-md mr-1" title="Voltage drop exceeds the 4% standard limit!">
+                                {section.totalCumulativeVd > 2.5 ? (
+                                  <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/20 px-3 py-1.5 rounded-md mr-1" title="Voltage drop exceeds the 2.5% standard limit!">
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-destructive">Cum V.Drop</span>
                                     <span className="text-[15px] font-black font-mono text-destructive leading-none">{section.totalCumulativeVd.toFixed(3)}% ⚠</span>
                                   </div>
@@ -1202,9 +1195,7 @@ function BusbarCalculationPage() {
                                     />
                                   </th>
                                   <th className="px-2 py-2 border-r border-border text-center w-10">No.</th>
-                                  <th className="px-2 py-2 border-r border-border w-32">From</th>
                                   <th className="px-2 py-2 border-r border-border w-32">Description</th>
-                                  <th className="px-2 py-2 border-r border-border w-24">Ref</th>
                                   <th className="px-2 py-2 border-r border-border w-20 text-center">Len ({unitSystem === "ip" ? "ft" : "m"})</th>
                                   <th className="px-2 py-2 border-r border-border w-20 text-center">Load (kW)</th>
                                   <th className="px-2 py-2 border-r border-border w-20 text-center bg-surface-2 text-foreground">TCL (kW)</th>
@@ -1287,20 +1278,18 @@ function BusbarCalculationPage() {
                                           </div>
                                         </td>
                                         <td className="text-center text-muted-foreground font-medium border-r border-border">{idx + 1}</td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} onKeyDown={(e) => handleKeyDown(e, 0)} type="text" className="w-full h-8 px-2 bg-transparent outline-none focus:bg-white" value={r.from} onChange={e => updateRow(panel.id, section.id, r.id, "from", e.target.value)} /></td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} onKeyDown={(e) => handleKeyDown(e, 1)} type="text" className="w-full h-8 px-2 bg-transparent outline-none focus:bg-white" value={r.desc} onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} /></td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} onKeyDown={(e) => handleKeyDown(e, 2)} type="text" className="w-full h-8 px-2 bg-transparent outline-none focus:bg-white" value={r.ref} onChange={e => updateRow(panel.id, section.id, r.id, "ref", e.target.value)} /></td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} onKeyDown={(e) => handleKeyDown(e, 3)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.length} onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={4} onKeyDown={(e) => handleKeyDown(e, 4)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.loadKw} onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
+                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} onKeyDown={(e) => handleKeyDown(e, 0)} type="text" className="w-full h-8 px-2 bg-transparent outline-none focus:bg-white" value={r.desc} onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} /></td>
+                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} onKeyDown={(e) => handleKeyDown(e, 1)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.length} onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
+                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} onKeyDown={(e) => handleKeyDown(e, 2)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.loadKw} onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
                                       
                                       <td className="px-2 py-1 text-center font-bold bg-surface-2 border-r border-border text-foreground">{r.tcl.toFixed(2)}</td>
                                       
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={5} onKeyDown={(e) => handleKeyDown(e, 7)} type="number" step="0.01" max="1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.div} onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
+                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} onKeyDown={(e) => handleKeyDown(e, 3)} type="number" step="0.01" max="1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.div} onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
                                       
                                       <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground">{r.md.toFixed(2)}</td>
                                       <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground">{r.current.toFixed(2)}</td>
                                       <td className="px-2 py-1 text-center text-primary font-medium border-r border-border font-mono">{r.vd.toFixed(2)}</td>
-                                      <td className={`px-2 py-1 text-center border-r border-border font-mono font-medium ${r.vdPercent > 4 ? "text-destructive bg-destructive/5" : "text-primary"}`}>{r.vdPercent.toFixed(3)}%</td>
+                                      <td className={`px-2 py-1 text-center border-r border-border font-mono font-medium ${r.vdPercent > 2.5 ? "text-destructive bg-destructive/5" : "text-primary"}`}>{r.vdPercent.toFixed(3)}%</td>
                                       
                                       <td className="text-center p-0">
                                         <button onClick={() => removeRow(panel.id, section.id, r.id)} className="text-destructive/70 hover:text-destructive w-full h-8 flex items-center justify-center transition-colors">

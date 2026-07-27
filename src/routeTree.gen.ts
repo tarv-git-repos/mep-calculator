@@ -55,6 +55,7 @@ import { Route as EquipmentRouteImport } from './routes/equipment'
 import { Route as DuctSizerRouteImport } from './routes/duct-sizer'
 import { Route as DiffuserSelectorRouteImport } from './routes/diffuser-selector'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as ConductorSizingRouteImport } from './routes/conductor-sizing'
 import { Route as CondensateDrainCalcRouteImport } from './routes/condensate-drain-calc'
 import { Route as CondensateDrainRouteImport } from './routes/condensate-drain'
 import { Route as CircuitBreakerSizingRouteImport } from './routes/circuit-breaker-sizing'
@@ -306,6 +307,11 @@ const DashboardRoute = DashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConductorSizingRoute = ConductorSizingRouteImport.update({
+  id: '/conductor-sizing',
+  path: '/conductor-sizing',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CondensateDrainCalcRoute = CondensateDrainCalcRouteImport.update({
   id: '/condensate-drain-calc',
   path: '/condensate-drain-calc',
@@ -398,6 +404,7 @@ export interface FileRoutesByFullPath {
   '/circuit-breaker-sizing': typeof CircuitBreakerSizingRoute
   '/condensate-drain': typeof CondensateDrainRoute
   '/condensate-drain-calc': typeof CondensateDrainCalcRoute
+  '/conductor-sizing': typeof ConductorSizingRoute
   '/dashboard': typeof DashboardRoute
   '/diffuser-selector': typeof DiffuserSelectorRoute
   '/duct-sizer': typeof DuctSizerRoute
@@ -461,6 +468,7 @@ export interface FileRoutesByTo {
   '/circuit-breaker-sizing': typeof CircuitBreakerSizingRoute
   '/condensate-drain': typeof CondensateDrainRoute
   '/condensate-drain-calc': typeof CondensateDrainCalcRoute
+  '/conductor-sizing': typeof ConductorSizingRoute
   '/dashboard': typeof DashboardRoute
   '/diffuser-selector': typeof DiffuserSelectorRoute
   '/duct-sizer': typeof DuctSizerRoute
@@ -525,6 +533,7 @@ export interface FileRoutesById {
   '/circuit-breaker-sizing': typeof CircuitBreakerSizingRoute
   '/condensate-drain': typeof CondensateDrainRoute
   '/condensate-drain-calc': typeof CondensateDrainCalcRoute
+  '/conductor-sizing': typeof ConductorSizingRoute
   '/dashboard': typeof DashboardRoute
   '/diffuser-selector': typeof DiffuserSelectorRoute
   '/duct-sizer': typeof DuctSizerRoute
@@ -590,6 +599,7 @@ export interface FileRouteTypes {
     | '/circuit-breaker-sizing'
     | '/condensate-drain'
     | '/condensate-drain-calc'
+    | '/conductor-sizing'
     | '/dashboard'
     | '/diffuser-selector'
     | '/duct-sizer'
@@ -653,6 +663,7 @@ export interface FileRouteTypes {
     | '/circuit-breaker-sizing'
     | '/condensate-drain'
     | '/condensate-drain-calc'
+    | '/conductor-sizing'
     | '/dashboard'
     | '/diffuser-selector'
     | '/duct-sizer'
@@ -716,6 +727,7 @@ export interface FileRouteTypes {
     | '/circuit-breaker-sizing'
     | '/condensate-drain'
     | '/condensate-drain-calc'
+    | '/conductor-sizing'
     | '/dashboard'
     | '/diffuser-selector'
     | '/duct-sizer'
@@ -780,6 +792,7 @@ export interface RootRouteChildren {
   CircuitBreakerSizingRoute: typeof CircuitBreakerSizingRoute
   CondensateDrainRoute: typeof CondensateDrainRoute
   CondensateDrainCalcRoute: typeof CondensateDrainCalcRoute
+  ConductorSizingRoute: typeof ConductorSizingRoute
   DashboardRoute: typeof DashboardRoute
   DiffuserSelectorRoute: typeof DiffuserSelectorRoute
   DuctSizerRoute: typeof DuctSizerRoute
@@ -1152,6 +1165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/conductor-sizing': {
+      id: '/conductor-sizing'
+      path: '/conductor-sizing'
+      fullPath: '/conductor-sizing'
+      preLoaderRoute: typeof ConductorSizingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/condensate-drain-calc': {
       id: '/condensate-drain-calc'
       path: '/condensate-drain-calc'
@@ -1276,6 +1296,7 @@ const rootRouteChildren: RootRouteChildren = {
   CircuitBreakerSizingRoute: CircuitBreakerSizingRoute,
   CondensateDrainRoute: CondensateDrainRoute,
   CondensateDrainCalcRoute: CondensateDrainCalcRoute,
+  ConductorSizingRoute: ConductorSizingRoute,
   DashboardRoute: DashboardRoute,
   DiffuserSelectorRoute: DiffuserSelectorRoute,
   DuctSizerRoute: DuctSizerRoute,

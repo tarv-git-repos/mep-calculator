@@ -5,7 +5,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle } from "lucide-react";
+import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
@@ -38,6 +38,60 @@ interface CableVDRow {
   vd: number; // calculated
   vdPercent: number; // calculated
   cumulativeVd: number; // For groups this is input (parent VD), for nodes it is calculated
+}
+
+interface InlineInputProps {
+  value: string | number;
+  onCommit: (val: string) => void;
+  className?: string;
+  type?: "text" | "number";
+  step?: string;
+  min?: number;
+  onFocus?: (e: any) => void;
+}
+
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, onFocus }: InlineInputProps) {
+  const [localVal, setLocalVal] = useState(String(value));
+
+  useEffect(() => {
+    const strVal = String(value);
+    if (localVal !== strVal) {
+      const parsedLocal = parseFloat(localVal);
+      const parsedValue = parseFloat(strVal);
+      // Don't overwrite if user is typing a decimal or a negative sign
+      if (localVal.endsWith('.') && parsedLocal === parsedValue) return;
+      if (localVal === '' && parsedValue === 0) return;
+      if (localVal === '-' && parsedValue === 0) return;
+      
+      setLocalVal(strVal);
+    }
+  }, [value, localVal]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalVal(e.target.value);
+    onCommit(e.target.value);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input
+      type={type}
+      step={step}
+      min={min}
+      value={localVal}
+      onChange={handleChange}
+      onFocus={onFocus}
+      onKeyDown={handleKeyDown}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text ${className}`}
+    />
+  );
 }
 
 const computeAllRows = (rows: CableVDRow[]): CableVDRow[] => {
@@ -458,15 +512,12 @@ function CableVoltageDropPage() {
       width: 100,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
-            data-row-idx={idx}
-            data-col-idx={0}
+          <InlineInput
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1"
             value={row.from}
-            onChange={(e) => updateRow(row.id, { from: e.target.value })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            onCommit={(val) => updateRow(row.id, { from: val })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -476,15 +527,12 @@ function CableVoltageDropPage() {
       header: "Description",
       width: 250,
       render: (row) => {
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
-            data-row-idx={idx}
-            data-col-idx={1}
+          <InlineInput
             className={`w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 ${row.isGroup ? 'font-bold' : ''}`}
             value={row.description}
-            onChange={(e) => updateRow(row.id, { description: e.target.value })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            onCommit={(val) => updateRow(row.id, { description: val })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -495,16 +543,13 @@ function CableVoltageDropPage() {
       width: 90,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
+          <InlineInput
             type="number"
-            data-row-idx={idx}
-            data-col-idx={2}
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center"
-            value={row.load || ""}
-            onChange={(e) => updateRow(row.id, { load: parseFloat(e.target.value) || 0 })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            value={row.load}
+            onCommit={(val) => updateRow(row.id, { load: parseFloat(val) || 0 })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -515,16 +560,13 @@ function CableVoltageDropPage() {
       width: 80,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
+          <InlineInput
             type="number"
-            data-row-idx={idx}
-            data-col-idx={3}
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center"
-            value={row.voltage || ""}
-            onChange={(e) => updateRow(row.id, { voltage: parseFloat(e.target.value) || 0 })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            value={row.voltage}
+            onCommit={(val) => updateRow(row.id, { voltage: parseFloat(val) || 0 })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -535,17 +577,14 @@ function CableVoltageDropPage() {
       width: 60,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
+          <InlineInput
             type="number"
             step="0.01"
-            data-row-idx={idx}
-            data-col-idx={4}
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center"
-            value={row.pf || ""}
-            onChange={(e) => updateRow(row.id, { pf: parseFloat(e.target.value) || 0 })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            value={row.pf}
+            onCommit={(val) => updateRow(row.id, { pf: parseFloat(val) || 0 })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -562,16 +601,13 @@ function CableVoltageDropPage() {
       width: 60,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
+          <InlineInput
             type="number"
-            data-row-idx={idx}
-            data-col-idx={5}
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center"
-            value={row.runs || ""}
-            onChange={(e) => updateRow(row.id, { runs: parseFloat(e.target.value) || 1 })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            value={row.runs}
+            onCommit={(val) => updateRow(row.id, { runs: parseFloat(val) || 1 })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -582,15 +618,12 @@ function CableVoltageDropPage() {
       width: 100,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
-            data-row-idx={idx}
-            data-col-idx={6}
+          <InlineInput
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center"
             value={row.size}
-            onChange={(e) => updateRow(row.id, { size: e.target.value })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            onCommit={(val) => updateRow(row.id, { size: val })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -607,16 +640,13 @@ function CableVoltageDropPage() {
       width: 80,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
+          <InlineInput
             type="number"
-            data-row-idx={idx}
-            data-col-idx={7}
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center"
-            value={row.length || ""}
-            onChange={(e) => updateRow(row.id, { length: parseFloat(e.target.value) || 0 })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            value={row.length}
+            onCommit={(val) => updateRow(row.id, { length: parseFloat(val) || 0 })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -627,17 +657,14 @@ function CableVoltageDropPage() {
       width: 80,
       render: (row) => {
         if (row.isGroup) return null;
-        const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
+          <InlineInput
             type="number"
             step="0.01"
-            data-row-idx={idx}
-            data-col-idx={8}
             className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center"
-            value={row.mvAm || ""}
-            onChange={(e) => updateRow(row.id, { mvAm: parseFloat(e.target.value) || 0 })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            value={row.mvAm}
+            onCommit={(val) => updateRow(row.id, { mvAm: parseFloat(val) || 0 })}
+            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
           />
         );
       },
@@ -659,21 +686,17 @@ function CableVoltageDropPage() {
       header: "Cumul. %V",
       width: 90,
       render: (row) => {
-        const idx = rows.findIndex(r => r.id === row.id);
         if (row.isGroup) {
           return (
             <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded px-1">
               <span className="text-[10px] text-slate-500">Parent:</span>
-              <input
+              <InlineInput
                 type="number"
                 step="0.01"
-                data-row-idx={idx}
-                data-col-idx={9}
                 className="w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded text-center text-sm font-bold"
                 value={row.cumulativeVd}
-                onChange={(e) => updateRow(row.id, { cumulativeVd: parseFloat(e.target.value) || 0 })}
-                onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
-                title="Input the parent Voltage Drop % to cascade to these children"
+                onCommit={(val) => updateRow(row.id, { cumulativeVd: parseFloat(val) || 0 })}
+                onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
               />
             </div>
           );
@@ -681,7 +704,7 @@ function CableVoltageDropPage() {
         return <div className="w-full text-center font-bold text-blue-600 dark:text-blue-400">{row.cumulativeVd}</div>;
       },
     },
-  ], [rows]);
+  ], [rows, selected]);
 
   return (
     <AppShell 

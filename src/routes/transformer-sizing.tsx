@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
@@ -36,6 +36,63 @@ interface LoadRow {
 const STANDARD_TX_RATINGS = [
   25, 50, 75, 100, 160, 200, 250, 315, 400, 500, 630, 750, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000
 ];
+
+interface InlineInputProps {
+  value: string | number;
+  onCommit: (val: string) => void;
+  className?: string;
+  type?: "text" | "number";
+  step?: string;
+  min?: number;
+  placeholder?: string;
+  onFocus?: (e: any) => void;
+}
+
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, onFocus }: InlineInputProps) {
+  const [localVal, setLocalVal] = useState(String(value));
+
+  // Sync local state when external value changes
+  useMemo(() => {
+    const strVal = String(value);
+    if (localVal !== strVal) {
+      const parsedLocal = parseFloat(localVal);
+      const parsedValue = parseFloat(strVal);
+      // Don't overwrite if user is typing a decimal or a negative sign
+      if (localVal.endsWith('.') && parsedLocal === parsedValue) return;
+      if (localVal === '' && parsedValue === 0) return;
+      if (localVal === '-' && parsedValue === 0) return;
+      
+      setLocalVal(strVal);
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setLocalVal(e.target.value);
+    onCommit(e.target.value);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === "Escape") {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input
+      type={type}
+      step={step}
+      min={min}
+      value={localVal}
+      onChange={handleChange}
+      onFocus={onFocus}
+      onKeyDown={handleKeyDown}
+      placeholder={placeholder}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`bg-transparent w-full border border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none transition-colors cursor-text ${className}`}
+    />
+  );
+}
 
 function TransformerSizingPage() {
   const confirm = useConfirm();
@@ -143,7 +200,60 @@ function TransformerSizingPage() {
   };
 
   const handleUpdateRow = (id: string, field: keyof LoadRow, val: any) => {
-    setLoadRows(loadRows.map(r => r.id === id ? { ...r, [field]: val } : r));
+    setLoadRows(prev => {
+      const isSelected = prev.find(r => r.id === id)?.selected;
+      return prev.map(r => {
+        if (isSelected && r.selected) {
+          return { ...r, [field]: val };
+        } else if (r.id === id) {
+          return { ...r, [field]: val };
+        }
+        return r;
+      });
+    });
+  };
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Deselect All Rows
+      if (e.key === 'Escape') {
+        setLoadRows(prev => prev.map(r => ({ ...r, selected: false })));
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        return;
+      }
+
+      // Ignore if typing inside an input field
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      // Ctrl+A: Select All Rows
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        setLoadRows(prev => prev.map(r => ({ ...r, selected: true })));
+      }
+      
+      // Delete/Backspace: Delete Selected Rows
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        setLoadRows(prev => prev.filter(r => !r.selected));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleRowFocus = (id: string) => {
+    setLoadRows(prev => {
+      const isSelected = prev.find(r => r.id === id)?.selected;
+      // If clicking an unselected row, deselect all others and select this one
+      if (!isSelected) {
+        return prev.map(r => r.id === id ? { ...r, selected: true } : { ...r, selected: false });
+      }
+      // If clicking an already selected row, leave selection as-is for bulk editing
+      return prev;
+    });
   };
 
   const handleDeleteSelected = async () => {
@@ -450,67 +560,77 @@ function TransformerSizingPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
                   {calculatedData.rowDetails.map((row, idx) => (
-                    <tr key={row.id} className={`${row.selected ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'}`}>
+                    <tr 
+                      key={row.id} 
+                      onClick={() => handleUpdateRow(row.id, "selected", !row.selected)}
+                      className={`cursor-pointer ${row.selected ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'}`}
+                    >
                       <td className="p-3 text-center border-r border-transparent">
-                        <input type="checkbox" checked={!!row.selected} onChange={(e) => handleUpdateRow(row.id, 'selected', e.target.checked)} className="cursor-pointer" />
+                        <input type="checkbox" checked={!!row.selected} onChange={(e) => handleUpdateRow(row.id, 'selected', e.target.checked)} onClick={(e) => e.stopPropagation()} className="cursor-pointer" />
                       </td>
                       <td className="p-3 font-mono text-slate-400 text-center">{idx + 1}</td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           value={row.description} 
-                          onChange={(e) => handleUpdateRow(row.id, "description", e.target.value)}
+                          onCommit={(val) => handleUpdateRow(row.id, "description", val)}
+                          onFocus={() => handleRowFocus(row.id)}
                           placeholder="e.g. Area 1"
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none font-medium text-slate-900 dark:text-slate-100 transition-colors"
+                          className="font-medium text-slate-900 dark:text-slate-100"
                         />
                       </td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           type="number" 
                           value={row.lightingHeatingKw} 
-                          onChange={(e) => handleUpdateRow(row.id, "lightingHeatingKw", e.target.value === "" ? "" : Number(e.target.value))}
+                          onCommit={(val) => handleUpdateRow(row.id, "lightingHeatingKw", val === "" ? "" : Number(val))}
+                          onFocus={() => handleRowFocus(row.id)}
                           placeholder="eg: 20"
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                          className="text-slate-900 dark:text-slate-100"
                         />
                       </td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           type="number" 
                           value={row.inductiveMotorKw} 
-                          onChange={(e) => handleUpdateRow(row.id, "inductiveMotorKw", e.target.value === "" ? "" : Number(e.target.value))}
+                          onCommit={(val) => handleUpdateRow(row.id, "inductiveMotorKw", val === "" ? "" : Number(val))}
+                          onFocus={() => handleRowFocus(row.id)}
                           placeholder="eg: 10"
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                          className="text-slate-900 dark:text-slate-100"
                         />
                       </td>
                       <td className="p-3 font-bold text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-slate-800/30">
                         {row.connectedLoad.toFixed(2)}
                       </td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           type="number" step="0.01"
                           value={row.diversityFactor} 
-                          onChange={(e) => handleUpdateRow(row.id, "diversityFactor", e.target.value === "" ? "" : Number(e.target.value))}
+                          onCommit={(val) => handleUpdateRow(row.id, "diversityFactor", val === "" ? "" : Number(val))}
+                          onFocus={() => handleRowFocus(row.id)}
                           placeholder="eg: 1"
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                          className="text-slate-900 dark:text-slate-100"
                         />
                       </td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           type="number" step="0.01"
                           value={row.demandFactor} 
-                          onChange={(e) => handleUpdateRow(row.id, "demandFactor", e.target.value === "" ? "" : Number(e.target.value))}
+                          onCommit={(val) => handleUpdateRow(row.id, "demandFactor", val === "" ? "" : Number(val))}
+                          onFocus={() => handleRowFocus(row.id)}
                           placeholder="eg: 0.85"
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-900 dark:text-slate-100 transition-colors"
+                          className="text-slate-900 dark:text-slate-100"
                         />
                       </td>
                       <td className="p-3 font-bold text-blue-700 dark:text-blue-400 bg-slate-100/50 dark:bg-slate-800/30">
                         {row.maxDemand.toFixed(2)}
                       </td>
                       <td className="p-2">
-                        <input 
+                        <InlineInput 
                           value={row.remarks} 
-                          onChange={(e) => handleUpdateRow(row.id, "remarks", e.target.value)}
+                          onCommit={(val) => handleUpdateRow(row.id, "remarks", val)}
+                          onFocus={() => handleRowFocus(row.id)}
                           placeholder="Notes..."
-                          className="w-full bg-transparent border-b border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none text-slate-500 transition-colors"
+                          className="text-slate-500"
                         />
                       </td>
                     </tr>

@@ -182,6 +182,24 @@ function CableTraySizingPage() {
     return [];
   };
 
+  const duplicateRows = (ids: string[]) => {
+    pushToUndo(trays);
+    setTrays(prev => prev.map(t => {
+      const cablesToClone = t.cables.filter(c => ids.includes(c.id));
+      if (cablesToClone.length === 0) return t;
+      
+      const cloned = cablesToClone.map(c => ({
+        ...c,
+        id: `c_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+      }));
+      
+      return {
+        ...t,
+        cables: [...t.cables, ...cloned]
+      };
+    }));
+  };
+
   const [expandedTrayId, setExpandedTrayId] = useState<string | null>(null);
   const [trays, setTrays] = useState<Tray[]>([
     {
@@ -343,7 +361,7 @@ function CableTraySizingPage() {
 
       if (targetRowIndex !== rowIndex && allRows[targetRowIndex]) {
         const targetRow = allRows[targetRowIndex];
-        const inputs = targetRow.querySelectorAll('input:not([type="hidden"]), select');
+        const inputs = targetRow.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]), select');
         const targetInput = inputs[colIndex] as HTMLElement;
         if (targetInput) {
           targetInput.focus();
@@ -373,7 +391,7 @@ function CableTraySizingPage() {
       e.preventDefault();
       const currentRow = currentInput.closest('tr');
       if (currentRow) {
-        const inputs = Array.from(currentRow.querySelectorAll('input:not([type="hidden"]), select')) as HTMLElement[];
+        const inputs = Array.from(currentRow.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]), select')) as HTMLElement[];
         let targetColIndex = colIndex;
         if (e.key === 'ArrowLeft') targetColIndex = Math.max(0, colIndex - 1);
         if (e.key === 'ArrowRight') targetColIndex = Math.min(inputs.length - 1, colIndex + 1);
@@ -414,9 +432,9 @@ function CableTraySizingPage() {
     }
   };
 
-  const updateTrayName = (id: string, name: string) => {
+  const updateTrayField = (id: string, field: keyof Tray, val: any) => {
     pushToUndo(trays);
-    setTrays(prev => prev.map(t => t.id === id ? { ...t, name } : t));
+    setTrays(prev => prev.map(t => t.id === id ? { ...t, [field]: val } : t));
   };
 
   const updateTraySpareCapacity = (id: string, spareCapacity: number | string) => {
@@ -466,14 +484,23 @@ function CableTraySizingPage() {
 
   const updateCable = (trayId: string, cableId: string, field: keyof Cable, val: any) => {
     pushToUndo(trays);
+    const isBulkEdit = selectedRows.has(cableId);
+    
     setTrays(prev => prev.map(t => {
-      if (t.id === trayId) {
-        return {
-          ...t,
-          cables: t.cables.map(c => c.id === cableId ? { ...c, [field]: val } : c)
-        };
-      }
-      return t;
+      if (!isBulkEdit && t.id !== trayId) return t;
+      
+      return {
+        ...t,
+        cables: t.cables.map(c => {
+          if (isBulkEdit && selectedRows.has(c.id)) {
+            return { ...c, [field]: val };
+          }
+          if (!isBulkEdit && c.id === cableId) {
+            return { ...c, [field]: val };
+          }
+          return c;
+        })
+      };
     }));
   };
 
@@ -759,11 +786,28 @@ function CableTraySizingPage() {
                   <div className="w-1 h-4 bg-primary rounded-sm"></div>
                   <input 
                     type="text" 
-                    className="font-bold text-sm bg-transparent border-none outline-none focus:border-b-2 focus:border-primary px-1 py-0 text-foreground w-full max-w-sm"
+                    className="font-bold text-sm bg-transparent border-none outline-none focus:border-b-2 focus:border-primary px-1 py-0 text-foreground w-48"
                     value={tray.name}
-                    onChange={(e) => updateTrayName(tray.id, e.target.value)}
+                    onChange={(e) => updateTrayField(tray.id, "name", e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    placeholder="Tray Name..."
+                    placeholder="Location (Tray Name)..."
+                  />
+                  <input
+                    type="text"
+                    className="text-sm bg-transparent border border-border rounded px-2 py-0.5 text-foreground w-48 ml-2 focus:border-primary outline-none"
+                    value={tray.from || ""}
+                    onChange={(e) => updateTrayField(tray.id, "from", e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="From..."
+                  />
+                  <span className="text-muted-foreground text-sm flex-shrink-0">→</span>
+                  <input
+                    type="text"
+                    className="text-sm bg-transparent border border-border rounded px-2 py-0.5 text-foreground w-48 focus:border-primary outline-none"
+                    value={tray.to || ""}
+                    onChange={(e) => updateTrayField(tray.id, "to", e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="To..."
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -804,10 +848,9 @@ function CableTraySizingPage() {
                 <table className="w-full text-[13px] border-collapse whitespace-nowrap">
                   <thead className="bg-header-bg border-b border-border text-muted-foreground font-semibold">
                     <tr className="text-left">
+                      <th className="px-3 py-1.5 border-r border-border text-center w-8"></th>
                       <th className="px-3 py-1.5 border-r border-border text-center w-10">No.</th>
                       <th className="px-3 py-1.5 border-r border-border w-1/4">Cable Type</th>
-                      <th className="px-3 py-1.5 border-r border-border w-32">From</th>
-                      <th className="px-3 py-1.5 border-r border-border w-32">To</th>
                       <th className="px-3 py-1.5 border-r border-border w-32">No. of Cores</th>
                       <th className="px-3 py-1.5 border-r border-border w-32">Cable Size (mm²)</th>
                       <th className="px-3 py-1.5 border-r border-border w-20 text-center">Qty</th>
@@ -819,7 +862,7 @@ function CableTraySizingPage() {
                   <tbody className="divide-y divide-border">
                     {calcCables.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="text-center py-8 text-muted-foreground italic">
+                        <td colSpan={9} className="text-center py-8 text-muted-foreground italic">
                           No cables in this tray. Click "+ Add Cable" to start.
                         </td>
                       </tr>
@@ -829,7 +872,7 @@ function CableTraySizingPage() {
                         const sizesForCore = c.cores ? Object.keys(cableDatabase[c.cores] || {}).sort((a,b) => parseFloat(a) - parseFloat(b)) : [];
                         return (
                           <tr key={c.id} data-cable-row="true" className={cn(
-                            "hover:bg-surface-2/50 transition-colors",
+                            "hover:bg-surface-2/50 transition-colors cursor-pointer",
                             selectedRows.has(c.id) ? "bg-primary/10" : ""
                           )} onClick={(e) => {
                             const tagName = (e.target as HTMLElement).tagName;
@@ -837,6 +880,20 @@ function CableTraySizingPage() {
                               toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
                             }
                           }}>
+                            <td className="w-8 border-r border-border text-center p-0">
+                              <div className="flex justify-center items-center h-full w-full">
+                                <input
+                                  type="checkbox"
+                                  className="cursor-pointer"
+                                  checked={selectedRows.has(c.id)}
+                                  onChange={() => {}}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                  }}
+                                />
+                              </div>
+                            </td>
                             <td className="text-center text-muted-foreground border-r border-border">{idx + 1}</td>
                             <td className="p-0 border-r border-border">
                               <select 
@@ -850,24 +907,6 @@ function CableTraySizingPage() {
                                 <option value="XLPE/PVC">XLPE/PVC</option>
                                 <option value="Fire Resistant">Fire Resistant</option>
                               </select>
-                            </td>
-                            <td className="p-0 border-r border-border">
-                              <input 
-                                className="w-full h-8 px-2 bg-transparent outline-none focus:bg-background"
-                                value={c.from || ""}
-                                onChange={e => updateCable(tray.id, c.id, "from", e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 1)}
-                                placeholder="e.g. PANEL-01"
-                              />
-                            </td>
-                            <td className="p-0 border-r border-border">
-                              <input 
-                                className="w-full h-8 px-2 bg-transparent outline-none focus:bg-background"
-                                value={c.to || ""}
-                                onChange={e => updateCable(tray.id, c.id, "to", e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 2)}
-                                placeholder="e.g. SMDB-01"
-                              />
                             </td>
                             <td className="p-0 border-r border-border">
                               <select 
@@ -898,10 +937,16 @@ function CableTraySizingPage() {
                               </select>
                             </td>
                             <td className="p-0 border-r border-border">
-                              <input type="number" min="1" className="w-full h-8 px-3 text-center bg-transparent outline-none focus:bg-background text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" value={c.qty} onChange={e => {
-                                const val = e.target.value;
-                                updateCable(tray.id, c.id, "qty", val === "" ? "" : (parseInt(val) || 1));
-                              }} onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 5)} />
+                              <select 
+                                className="w-full h-8 px-3 text-center bg-transparent outline-none focus:bg-background text-foreground cursor-pointer"
+                                value={c.qty}
+                                onChange={e => updateCable(tray.id, c.id, "qty", parseInt(e.target.value) || 1)}
+                                onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 5)}
+                              >
+                                {Array.from({ length: 16 }, (_, i) => i + 1).map(num => (
+                                  <option key={num} value={num}>{num}</option>
+                                ))}
+                              </select>
                             </td>
                             <td className="p-0 border-r border-border bg-surface-2 text-foreground">
                               <input 
@@ -1052,6 +1097,12 @@ function CableTraySizingPage() {
               className="text-xs hover:bg-slate-800 px-3 py-1.5 rounded transition-colors"
             >
               Cut
+            </button>
+            <button 
+              onClick={() => duplicateRows(Array.from(selectedRows))} 
+              className="text-xs hover:bg-slate-800 px-3 py-1.5 rounded transition-colors"
+            >
+              Duplicate
             </button>
             <button 
               onClick={() => setBulkEditOpen(true)} 

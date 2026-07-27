@@ -5,6 +5,58 @@ import { predictOccupancyCategory, predictSpacePressure } from "./ai-occupancy";
 import { getOccupancyData } from "./ashrae-data";
 export type { Space, Zone, Equipment };
 export type { SpaceStatus } from "./mock-data";
+export function checkIfSpaceMissingData(s: Space): boolean {
+  const isNoArea = !s.area || parseFloat(String(s.area)) === 0 || isNaN(parseFloat(String(s.area)));
+  const isNoCategory = !s.category || s.category.trim() === "" || s.category.toLowerCase().includes("select category");
+  if (isNoArea || isNoCategory) return true;
+
+  if (s.category === "Rest Room / Changing Room") {
+    const sub = s.restroomSubCategories || {};
+    const sumSub = 
+      (sub.toiletPrivateContinuous || 0) +
+      (sub.toiletPublicContinuous || 0) +
+      (sub.toiletPrivateDiscontinuous || 0) +
+      (sub.toiletPublicDiscontinuous || 0) +
+      (sub.showerContinuous || 0) +
+      (sub.showerDiscontinuous || 0) +
+      (sub.janitorCloset || 0) +
+      (sub.lockerRoom || 0);
+    if (sumSub === 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function sanitizeWorkspaceState(state: any) {
+  if (!state || !Array.isArray(state.zones)) return state;
+
+  const seenIds = new Set<string>();
+  const idMap = new Map<string, string>(); // oldId -> newId
+
+  state.zones = state.zones.map((z: any) => {
+    if (!z.id || seenIds.has(z.id)) {
+      const newId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+      idMap.set(z.id || "empty", newId);
+      z.id = newId;
+    }
+    seenIds.add(z.id);
+    return z;
+  });
+
+  // If we had duplicate IDs, update spaces' zone reference
+  if (idMap.size > 0 && Array.isArray(state.spaces)) {
+    state.spaces = state.spaces.map((s: any) => {
+      if (s.zone && idMap.has(s.zone)) {
+        s.zone = idMap.get(s.zone);
+      }
+      return s;
+    });
+  }
+
+  return state;
+}
 
 export interface Project {
   id: string;
@@ -75,7 +127,7 @@ if (!IS_SERVER) {
   try {
     const savedState = localStorage.getItem(`mep_project_workspace_${activeProjectId}`);
     if (savedState) {
-      currentWorkspaceState = JSON.parse(savedState);
+      currentWorkspaceState = sanitizeWorkspaceState(JSON.parse(savedState));
       if (currentWorkspaceState.roundOffPreset === undefined) {
         currentWorkspaceState.roundOffPreset = 5;
       }
@@ -122,6 +174,7 @@ function notify() {
 
 function saveState() {
   if (IS_SERVER) return;
+  currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
   localStorage.setItem(`mep_project_workspace_${activeProjectId}`, JSON.stringify(currentWorkspaceState));
   localStorage.setItem("mep_projects", JSON.stringify(projects));
   localStorage.setItem("mep_active_project_id", activeProjectId);
@@ -147,8 +200,12 @@ export const workspaceStore = {
       currentProject = proj;
       projects = projects.map((p) => (p.id === proj.id ? proj : p));
     }
+    const processedSpaces = (newState.spaces || []).map(s => {
+      const isMissing = checkIfSpaceMissingData(s);
+      return isMissing ? { ...s, flagged: true } : s;
+    });
     currentWorkspaceState = {
-      spaces: newState.spaces,
+      spaces: processedSpaces,
       zones: newState.zones,
       equipment: newState.equipment,
     };
@@ -179,7 +236,7 @@ export const workspaceStore = {
       try {
         const saved = localStorage.getItem(`mep_project_workspace_${id}`);
         if (saved) {
-          nextState = JSON.parse(saved);
+          nextState = sanitizeWorkspaceState(JSON.parse(saved));
           if (nextState.roundOffPreset === undefined) {
             nextState.roundOffPreset = 5;
           }
@@ -281,7 +338,7 @@ export const workspaceStore = {
           try {
             const saved = localStorage.getItem(`mep_project_workspace_${activeProjectId}`);
             if (saved) {
-              nextState = JSON.parse(saved);
+              nextState = sanitizeWorkspaceState(JSON.parse(saved));
               if (nextState.roundOffPreset === undefined) {
                 nextState.roundOffPreset = 5;
               }
@@ -336,7 +393,21 @@ export const workspaceStore = {
   updateSpaces(updatedSpaces: Space[]) {
     pushHistory();
     const spaceMap = new Map(updatedSpaces.map((s) => [s.id, s]));
-    const nextSpaces = currentWorkspaceState.spaces.map((s) => spaceMap.get(s.id) || s);
+    const nextSpaces = currentWorkspaceState.spaces.map((s) => {
+      const updated = spaceMap.get(s.id);
+      if (updated) {
+        const wasMissing = checkIfSpaceMissingData(s);
+        const isMissing = checkIfSpaceMissingData(updated);
+        let flagged = updated.flagged;
+        if (isMissing) {
+          flagged = true;
+        } else if (wasMissing && !isMissing) {
+          flagged = false;
+        }
+        return { ...updated, flagged };
+      }
+      return s;
+    });
 
     const balanced = calculateVentilation(
       nextSpaces,
@@ -393,11 +464,12 @@ export const workspaceStore = {
     if (!nextSpace.category && nextSpace.name) {
       const nameVal = nextSpace.name.trim();
       const pred = predictOccupancyCategory(nameVal);
-      const predPress = predictSpacePressure(nameVal);
+      let predCategory = "";
 
       if (pred && pred.category) {
         nextSpace.category = pred.category;
         nextSpace.aiDetected = true;
+        predCategory = pred.category;
 
         const data = getOccupancyData(pred.category);
         if (data) {
@@ -413,10 +485,14 @@ export const workspaceStore = {
         }
       }
 
+      const predPress = predictSpacePressure(predCategory);
       if (predPress && predPress.autoDetected) {
         nextSpace.pressure = predPress.pressure;
         nextSpace.pressureAutoDetected = true;
       }
+    }
+    if (checkIfSpaceMissingData(nextSpace)) {
+      nextSpace.flagged = true;
     }
     const nextSpaces = [...currentWorkspaceState.spaces, nextSpace];
     const balanced = calculateVentilation(
@@ -467,8 +543,13 @@ export const workspaceStore = {
       }
     });
 
+    const processedSpaces = newSpaces.map(s => {
+      const isMissing = checkIfSpaceMissingData(s);
+      return isMissing ? { ...s, flagged: true } : s;
+    });
+
     const nextZones = [...currentWorkspaceState.zones, ...zonesToAdd];
-    const nextSpaces = [...currentWorkspaceState.spaces, ...newSpaces];
+    const nextSpaces = [...currentWorkspaceState.spaces, ...processedSpaces];
 
     const balanced = calculateVentilation(
       nextSpaces,
@@ -528,7 +609,6 @@ export const workspaceStore = {
         if (updates.name !== undefined) {
           const nameVal = updates.name.trim();
           const pred = predictOccupancyCategory(nameVal);
-          const predPress = predictSpacePressure(nameVal);
 
           if (pred && pred.category) {
             next.category = pred.category;
@@ -554,6 +634,7 @@ export const workspaceStore = {
             next.aiDetected = false;
           }
 
+          const predPress = predictSpacePressure(next.category);
           if (predPress && predPress.autoDetected) {
             next.pressure = predPress.pressure;
             next.pressureAutoDetected = true;
@@ -561,6 +642,15 @@ export const workspaceStore = {
             // Reset to default (Positive) if the name is now unrecognized
             next.pressure = "Positive";
             next.pressureAutoDetected = false;
+          }
+        }
+
+        // If category is explicitly being updated (and name is not), predict pressure based on category
+        if (updates.category !== undefined && updates.name === undefined) {
+          const predPress = predictSpacePressure(updates.category);
+          if (predPress && predPress.autoDetected) {
+            next.pressure = predPress.pressure;
+            next.pressureAutoDetected = true;
           }
         }
 
@@ -576,6 +666,13 @@ export const workspaceStore = {
               next.isOccupancyCustomized = false;
             }
           }
+        }
+
+        const isMissingVal = checkIfSpaceMissingData(next);
+        if (isMissingVal) {
+          next.flagged = true;
+        } else if (updates.area !== undefined || updates.category !== undefined) {
+          next.flagged = false;
         }
 
         return next;
