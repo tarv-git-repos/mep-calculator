@@ -13,6 +13,13 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
@@ -61,6 +68,7 @@ const STARTER_MULTIPLIERS: Record<StarterType, number> = {
 
 const STANDARD_SIZES = [
   125, 160, 200, 250, 320, 400, 500, 625, 750, 800, 1000, 1250, 1500, 1600, 2000, 2500,
+  2750, 3000, 3250, 3500, 3750, 4000, 4250, 4500, 4750, 5000
 ];
 
 function GeneratorSizingPage() {
@@ -1283,12 +1291,22 @@ function GeneratorSizingPage() {
                     </div>
                   </div>
 
-                  <div className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex flex-col justify-between overflow-hidden shrink-0">
-                    <div className="px-4 py-3 border-b border-white/40 dark:border-white/10 flex items-center gap-2 bg-primary/10">
-                      <div className="w-1 h-4 bg-primary rounded-full" />
-                      <h4 className="font-bold text-[12px] text-primary uppercase tracking-wide">
-                        Generator Result
-                      </h4>
+                  <div data-ignore-persist="true" className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex flex-col justify-between overflow-hidden shrink-0">
+                    <div className="px-4 py-3 border-b border-white/40 dark:border-white/10 flex items-center justify-between bg-primary/10">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-4 bg-primary rounded-full" />
+                        <h4 className="font-bold text-[12px] text-primary uppercase tracking-wide">
+                          Generator Result
+                        </h4>
+                      </div>
+                      {Object.keys(manualOverrides).length > 0 && (
+                        <button 
+                          onClick={clearOverrides}
+                          className="text-[10px] bg-white/50 hover:bg-white dark:bg-black/20 dark:hover:bg-black/40 text-primary px-2 py-0.5 rounded font-bold uppercase transition-colors shadow-sm"
+                        >
+                          Clear Overrides
+                        </button>
+                      )}
                     </div>
 
                     <div className="p-4 space-y-3">
@@ -1306,8 +1324,11 @@ function GeneratorSizingPage() {
                       </div>
 
                       <div className="grid grid-cols-[1fr_80px_80px] gap-4 items-center pb-2 border-b border-surface-2">
-                        <span className="text-[12.5px] font-medium text-muted-foreground">
-                          Total Actual Connected Load in {unitSystem === "ip" ? "HP" : "kW"} (ACL)
+                        <span 
+                          className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
+                          title="Total Actual Connected Load"
+                        >
+                          Total ACL ({unitSystem === "ip" ? "HP" : "kW"})
                         </span>
                         <div className="text-right">
                           <input
@@ -1319,6 +1340,13 @@ function GeneratorSizingPage() {
                                 : calc.totalAcl.toFixed(2)
                             }
                             onChange={(e) => setOverride("acl", e.target.value)}
+                            onBlur={(e) => {
+                              if (e.target.value === "") {
+                                const copy = { ...manualOverrides };
+                                delete copy["acl"];
+                                setManualOverrides(copy);
+                              }
+                            }}
                           />
                         </div>
                         <div className="text-right">
@@ -1331,13 +1359,23 @@ function GeneratorSizingPage() {
                                 : calc.totalEmergency.toFixed(2)
                             }
                             onChange={(e) => setOverride("em", e.target.value)}
+                            onBlur={(e) => {
+                              if (e.target.value === "") {
+                                const copy = { ...manualOverrides };
+                                delete copy["em"];
+                                setManualOverrides(copy);
+                              }
+                            }}
                           />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-[1fr_80px_80px] gap-4 items-center pb-2 border-b border-surface-2">
-                        <span className="text-[12.5px] font-medium text-muted-foreground">
-                          Demand load in kVA (DL = ACL / PF)
+                        <span 
+                          className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
+                          title="Demand Load = Actual Connected Load / Power Factor"
+                        >
+                          Demand Load (kVA)
                         </span>
                         <div className="text-right">
                           <input
@@ -1349,6 +1387,13 @@ function GeneratorSizingPage() {
                                 : calc.demandLoadAcl.toFixed(2)
                             }
                             onChange={(e) => setOverride("demandAcl", e.target.value)}
+                            onBlur={(e) => {
+                              if (e.target.value === "") {
+                                const copy = { ...manualOverrides };
+                                delete copy["demandAcl"];
+                                setManualOverrides(copy);
+                              }
+                            }}
                           />
                         </div>
                         <div className="text-right">
@@ -1361,13 +1406,23 @@ function GeneratorSizingPage() {
                                 : calc.demandLoadEm.toFixed(2)
                             }
                             onChange={(e) => setOverride("demandEm", e.target.value)}
+                            onBlur={(e) => {
+                              if (e.target.value === "") {
+                                const copy = { ...manualOverrides };
+                                delete copy["demandEm"];
+                                setManualOverrides(copy);
+                              }
+                            }}
                           />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-[1fr_80px_80px] gap-4 items-center pb-2 border-b border-surface-2">
-                        <span className="text-[12.5px] font-medium text-muted-foreground">
-                          Calculated size for DG set (DL / LF) kVA
+                        <span 
+                          className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
+                          title="Calculated size for DG set (Demand Load / Loading Factor)"
+                        >
+                          Calc. DG Size (kVA)
                         </span>
                         <div className="text-right">
                           <input
@@ -1379,6 +1434,13 @@ function GeneratorSizingPage() {
                                 : calc.calcSizeAcl.toFixed(2)
                             }
                             onChange={(e) => setOverride("calcAcl", e.target.value)}
+                            onBlur={(e) => {
+                              if (e.target.value === "") {
+                                const copy = { ...manualOverrides };
+                                delete copy["calcAcl"];
+                                setManualOverrides(copy);
+                              }
+                            }}
                           />
                         </div>
                         <div className="text-right">
@@ -1391,6 +1453,13 @@ function GeneratorSizingPage() {
                                 : calc.calcSizeEm.toFixed(2)
                             }
                             onChange={(e) => setOverride("calcEm", e.target.value)}
+                            onBlur={(e) => {
+                              if (e.target.value === "") {
+                                const copy = { ...manualOverrides };
+                                delete copy["calcEm"];
+                                setManualOverrides(copy);
+                              }
+                            }}
                           />
                         </div>
                       </div>
@@ -1401,17 +1470,21 @@ function GeneratorSizingPage() {
                             Selected DG Set Size
                           </span>
                           <div className="flex items-center gap-1.5 mt-1">
-                            <select
-                              className="text-[28px] font-bold tracking-tight text-primary bg-transparent outline-none border border-border rounded px-2 py-1 cursor-pointer hover:bg-surface-2 transition-colors focus:ring-2 focus:ring-primary/20"
-                              value={calc.selectedSize}
-                              onChange={(e) => setUserSelectedSize(Number(e.target.value))}
+                            <Select
+                              value={calc.selectedSize.toString()}
+                              onValueChange={(val) => setUserSelectedSize(Number(val))}
                             >
-                              {STANDARD_SIZES.map((size) => (
-                                <option key={size} value={size}>
-                                  {size} kVA
-                                </option>
-                              ))}
-                            </select>
+                              <SelectTrigger className="text-[28px] h-auto font-bold tracking-tight text-primary bg-transparent outline-none border border-border rounded px-3 py-1 cursor-pointer hover:bg-surface-2 transition-colors focus:ring-2 focus:ring-primary/20 shadow-sm w-[180px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[300px]">
+                                {STANDARD_SIZES.map((size) => (
+                                  <SelectItem key={size} value={size.toString()} className="text-[14px]">
+                                    {size} kVA
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                         <div className="text-right pb-1">
@@ -1428,6 +1501,13 @@ function GeneratorSizingPage() {
                                   : calc.maxStartCur.toFixed(2)
                               }
                               onChange={(e) => setOverride("maxStart", e.target.value)}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  const copy = { ...manualOverrides };
+                                  delete copy["maxStart"];
+                                  setManualOverrides(copy);
+                                }
+                              }}
                             />
                           </div>
                           <span className="text-[13px] font-bold text-foreground ml-1">A</span>

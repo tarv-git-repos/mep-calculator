@@ -5606,6 +5606,40 @@ function EquipmentView() {
     return "Fresh and Extract Air";
   };
 
+  const columns: Column<Equipment>[] = [
+    { key: "tag", header: "Equipment", width: 220, render: (r) => (
+      <span className="font-semibold text-foreground text-[13px]">{r.tag}</span>
+    ) },
+    { key: "type", header: "Type", width: 140, render: (r) => (
+      <span className="text-muted-foreground text-[12.5px]">{r.type}</span>
+    ) },
+    { key: "airType", header: "Air Type", width: 200, render: (r) => (
+      <span className="text-muted-foreground text-[12.5px]">{getAirType(r.type)}</span>
+    ) },
+    { key: "zones", header: "Zones", width: 100, align: "center", render: (r) => (
+      <span className="font-mono text-[12.5px]">{r.zones}</span>
+    ) },
+    { key: "spaces", header: "Spaces", width: 100, align: "center", render: (r) => (
+      <span className="font-mono text-[12.5px]">{r.spaces}</span>
+    ) },
+    { key: "totalFA", header: "Fresh Load (L/s)", width: 150, align: "center", render: (r) => (
+      <span className="font-mono text-[12.5px]">{(r.totalFA || 0).toLocaleString()}</span>
+    ) },
+    { key: "totalEA", header: "Extract Load (L/s)", width: 150, align: "center", render: (r) => (
+      <span className="font-mono text-[12.5px]">{(r.totalEA || 0).toLocaleString()}</span>
+    ) },
+  ];
+
+  const toggleAllEquipment = () => {
+    setSelectedEquips((prev) => {
+      if (prev.size === rows.length) {
+        return new Set();
+      } else {
+        return new Set(rows.map((r) => r.id));
+      }
+    });
+  };
+
 
 
   const uniqueTypes = useMemo(() => {
@@ -5776,8 +5810,8 @@ function EquipmentView() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter equipment…"
-          className="h-7 w-56 px-2 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded text-[12px] outline-none"
+          placeholder="Filter equipment..."
+          className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
         />
         <FilterDropdown
           label="Type"
@@ -5823,74 +5857,17 @@ function EquipmentView() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto">
-        <table className="w-full text-[12.5px]">
-          <thead className="bg-background dark:bg-[#1a1a1a] sticky top-0 border-t border-b border-border-strong z-10">
-            <tr className="h-10 text-[11.5px] uppercase tracking-wider text-muted-foreground">
-              <Th align="center">
-                <input
-                  type="checkbox"
-                  checked={selectedEquips.size === rows.length && rows.length > 0}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedEquips(new Set(rows.map(r => r.id)));
-                    } else {
-                      setSelectedEquips(new Set());
-                    }
-                  }}
-                  className="size-4 rounded border-border text-primary focus:ring-primary focus:ring-1 cursor-pointer"
-                />
-              </Th>
-              <Th>Equipment</Th><Th>Type</Th>
-              <Th>Air Type</Th>
-              <Th align="center">Zones</Th><Th align="center">Spaces</Th>
-              <Th align="center" className="w-[110px]">Fresh Load (L/s)</Th><Th align="center" className="w-[110px]">Extract Load (L/s)</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((e, index) => {
-              return (
-                <ContextMenu key={e.id}>
-                  <ContextMenuTrigger asChild>
-                    <tr
-                      onDoubleClick={() => handleEquipmentDoubleClicked(e)}
-                      onClick={(evt) => {
-                        toggleEquipment(e.id, evt.shiftKey, evt.ctrlKey || evt.metaKey);
-                      }}
-                      className={`border-b border-border/60 hover:bg-row-hover cursor-pointer transition-colors ${
-                        index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80" : "bg-white dark:bg-zinc-950"
-                      }`}
-                    >
-                      <td
-                        className="px-3 py-1.5 text-center w-10 cursor-pointer"
-                        onClick={(evt) => {
-                          evt.stopPropagation();
-                          toggleEquipment(e.id, evt.shiftKey, true);
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedEquips.has(e.id)}
-                          onChange={() => {}}
-                          className="size-4 rounded border-border text-primary focus:ring-primary focus:ring-1 cursor-pointer"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5 font-mono font-medium">{e.tag}</td>
-                      <td className="px-3 py-1.5 text-muted-foreground">{e.type}</td>
-                      <td className="px-3 py-1.5 text-muted-foreground">{getAirType(e.type)}</td>
-                      <td className="px-3 py-1.5 text-center font-mono tabular">{e.zones}</td>
-                      <td className="px-3 py-1.5 text-center font-mono tabular">{e.spaces}</td>
-                      <td className="px-3 py-1.5 text-center font-mono tabular w-[110px]">{(e.totalFA || 0).toLocaleString()}</td>
-                      <td className="px-3 py-1.5 text-center font-mono tabular w-[110px]">{(e.totalEA || 0).toLocaleString()}</td>
-
-                    </tr>
-                  </ContextMenuTrigger>
-                  {renderEquipmentContextMenu(e)}
-                </ContextMenu>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <DataGrid
+          rows={rows}
+          columns={columns}
+          selected={selectedEquips}
+          onToggle={toggleEquipment}
+          onToggleAll={toggleAllEquipment}
+          renderContextMenu={renderEquipmentContextMenu}
+          onRowDoubleClick={handleEquipmentDoubleClicked}
+          rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
+        />
       </div>
       <SharedAssignmentModal
         isOpen={sizerOpen}
@@ -5906,11 +5883,6 @@ function EquipmentView() {
       />
     </div>
   );
-}
-
-function Th({ children, align, className = "" }: { children: React.ReactNode; align?: "right" | "center"; className?: string }) {
-  const alignmentClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  return <th className={`px-3 py-2 font-semibold ${alignmentClass} ${className}`}>{children}</th>;
 }
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€ Report â”€â”€â”€â”€â”€â”€â”€â”€â”€ */

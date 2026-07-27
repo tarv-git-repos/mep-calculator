@@ -61,22 +61,26 @@ const NAV: NavItem[] = [
   {
     kind: "group", label: "Electrical", icon: Zap,
     children: [
+      { label: "ESSENTIAL CALCULATIONS", isHeader: true },
+      { label: "Central Battery Sizing", to: "/central-battery-sizing" },
+      { label: "UPS Sizing Calculation", to: "/ups-sizing-calculation" },
       { label: "Generator Sizing", to: "/generator-sizing" },
+      { label: "LIGHTING", isHeader: true },
+      { label: "Lighting LUX Calculation", to: "/lighting-lux-calculation" },
+      { label: "LPD Calculation", to: "/lpd-calculation" },
+      { label: "POWER DISTRIBUTION", isHeader: true },
       { label: "Transformer Sizing", to: "/transformer-sizing" },
       { label: "Circuit Breaker Sizing", to: "/circuit-breaker-sizing" },
       { label: "Busbar Calculation", to: "/busbar-calculation" },
       { label: "Cable Tray Sizing", to: "/cable-tray-sizing" },
       { label: "Capacitor Bank Sizing", to: "/capacitor-bank-sizing" },
-      { label: "UPS Sizing Calculation", to: "/ups-sizing-calculation" },
-      { label: "Central Battery Sizing", to: "/central-battery-sizing" },
-      { label: "LPD Calculation", to: "/lpd-calculation" },
-      { label: "Lighting LUX Calculation", to: "/lighting-lux-calculation" },
-      { label: "Load Summary", to: "/load-summary" },
-      { label: "Project Load Schedule (DB Builder)", to: "/project-load-schedule" },
-      { label: "Short Circuit Calculations", to: "/short-circuit-calculations" },
-      { label: "Cable Voltage Drop", to: "/cable-voltage-drop" },
       { label: "Conductor (Cable) Sizing", to: "/conductor-sizing" },
-      { label: "Busbar Voltage Drop", to: "/busbar-voltage-drop" }
+      { label: "Cable Voltage Drop", to: "/cable-voltage-drop" },
+      { label: "Busbar Voltage Drop", to: "/busbar-voltage-drop" },
+      { label: "Short Circuit Calculations", to: "/short-circuit-calculations" },
+      { label: "LOAD ANALYSIS", isHeader: true },
+      { label: "Load Summary", to: "/load-summary" },
+      { label: "Project Load Schedule (DB Builder)", to: "/project-load-schedule" }
     ],
   },
   {
@@ -761,13 +765,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
           {(() => {
             const sections = getSections(hoveredGroup.item.children);
-            const isHVAC = hoveredGroup.item.label === "HVAC";
-            const isMultiCol = isHVAC || (!sections[0]?.header && sections[0]?.items.length > 8);
+            const isTwoColGrid = hoveredGroup.item.label === "HVAC" || hoveredGroup.item.label === "Electrical";
+            const isMultiCol = isTwoColGrid || (!sections[0]?.header && sections[0]?.items.length > 8);
             return (
               <div
                 className={`${
-                  isHVAC ? "w-[540px]" : isMultiCol ? "w-[480px]" : "w-[260px]"
-                } ${isHVAC ? "grid grid-cols-2 gap-4" : "flex flex-col gap-3.5"}`}
+                  isTwoColGrid ? "w-[540px]" : isMultiCol ? "w-[480px]" : "w-[260px]"
+                } ${isTwoColGrid ? "grid grid-cols-2 gap-4" : "flex flex-col gap-3.5"}`}
               >
                 {sections.map((sec, idx) => (
                   <div key={idx} className="flex flex-col gap-1.5">
