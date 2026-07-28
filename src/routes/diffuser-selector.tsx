@@ -70,8 +70,8 @@ const DIFFUSER_DATA: Record<DiffuserType, DiffuserSize[]> = {
 
 function DiffuserSelectorPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [roomAirflow, setRoomAirflow] = useState<number>(400);
-  const [diffuserCount, setDiffuserCount] = useState<number>(2);
+  const [roomAirflow, setRoomAirflow] = useState<number | "">("");
+  const [diffuserCount, setDiffuserCount] = useState<number | "">("");
   const [designVelocity, setDesignVelocity] = useState<number>(2.0); // m/s
   const [diffuserType, setDiffuserType] = useState<DiffuserType>("square");
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
@@ -83,14 +83,16 @@ function DiffuserSelectorPage() {
     setUnitSystem(unit);
     if ((window as any).__mep_keep_values) return;
     if (unit === "ip") {
-      setRoomAirflow(Number((roomAirflow * 2.1189).toFixed(0)));
+      setRoomAirflow(roomAirflow !== "" ? Number((Number(roomAirflow) * 2.1189).toFixed(0)) : "");
     } else {
-      setRoomAirflow(Number((roomAirflow / 2.1189).toFixed(0)));
+      setRoomAirflow(roomAirflow !== "" ? Number((Number(roomAirflow) / 2.1189).toFixed(0)) : "");
     }
   };
 
   const calculatedData = useMemo(() => {
-    const flowPerDiff = roomAirflow / diffuserCount;
+    const flowVal = roomAirflow !== "" ? Number(roomAirflow) : (ip ? 400 : 188);
+    const countVal = diffuserCount !== "" ? Number(diffuserCount) : 2;
+    const flowPerDiff = flowVal / countVal;
     const flowKey = designVelocity === 2.5 ? "maxFlow_25" : "maxFlow_20";
     const options = DIFFUSER_DATA[diffuserType];
 
@@ -194,13 +196,13 @@ function DiffuserSelectorPage() {
                   {/* Airflow */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Room Airflow ({ip ? "CFM" : "L/s"})</label>
-                    <input type="number" step="any" value={roomAirflow} onChange={(e) => { setRoomAirflow(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" step="any" value={roomAirflow} onChange={(e) => { setRoomAirflow(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "400" : "188"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
 
                   {/* Count */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Number of Diffusers</label>
-                    <input type="number" min="1" step="1" value={diffuserCount} onChange={(e) => { setDiffuserCount(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" min="1" step="1" value={diffuserCount} onChange={(e) => { setDiffuserCount(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder="2" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
 
                   {/* Velocity */}

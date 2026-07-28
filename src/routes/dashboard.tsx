@@ -76,11 +76,11 @@ export function DashboardPage() {
 
   return (
     <AppShell title="Dashboard" subtitle="Active metrics summary">
-      <div className="p-6 overflow-y-auto h-full bg-surface/30">
+      <div className="p-6 overflow-y-auto h-full bg-slate-50/30 dark:bg-zinc-950/20">
         <div className="max-w-5xl mx-auto flex flex-col gap-6">
 
           {/* Quick stats grid */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5">
             <StatCard
               icon={<Layers className="size-5 text-primary" />}
               label="Total Spaces"
@@ -108,50 +108,50 @@ export function DashboardPage() {
             />
           </div>
 
-          <div className="grid grid-cols-[1.5fr_1fr] gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6">
             {/* Active alerts & issues checklist */}
-            <div className="border border-border rounded bg-background p-5 flex flex-col gap-4 shadow-sm">
-              <div className="flex items-center justify-between border-b border-border pb-3">
+            <div className="border border-border/80 rounded-3xl bg-card p-6 flex flex-col gap-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+              <div className="flex items-center justify-between border-b border-border/50 pb-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="size-4.5 text-warning" />
-                  <h3 className="text-[14px] font-bold uppercase tracking-wider text-foreground">Active Warnings & Compliance Issues</h3>
+                  <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Active Warnings & Compliance Issues</h3>
                 </div>
-                <span className="text-[11px] font-mono bg-warning/10 text-warning px-2 py-0.5 rounded-full font-semibold">
+                <span className="text-[10px] font-mono bg-warning/10 text-warning px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
                   {stats.warnings} Flagged
                 </span>
               </div>
 
               {activeAlerts.length > 0 ? (
-                <div className="flex flex-col gap-2.5">
+                <div className="flex flex-col gap-3">
                   {activeAlerts.map((a) => (
-                    <div key={a.id} className={`p-3 rounded border text-[12.5px] flex gap-3 ${
+                    <div key={a.id} className={`p-4 rounded-2xl border text-[12.5px] flex gap-3.5 transition-all hover:bg-surface-2 dark:hover:bg-zinc-800/30 ${
                       a.type === "critical" 
                         ? "border-destructive/20 bg-destructive/5 text-destructive-foreground" 
                         : "border-warning/20 bg-warning/5 text-foreground"
                     }`}>
-                      <AlertTriangle className={`size-4 shrink-0 mt-0.5 ${a.type === "critical" ? "text-destructive" : "text-warning"}`} />
+                      <AlertTriangle className={`size-4.5 shrink-0 mt-0.5 ${a.type === "critical" ? "text-destructive" : "text-warning"}`} />
                       <div>
-                        <div className="font-semibold">{a.title}</div>
-                        <div className="text-[11.5px] text-muted-foreground mt-0.5">{a.desc}</div>
+                        <div className="font-bold text-[13px]">{a.title}</div>
+                        <div className="text-[11.5px] text-muted-foreground mt-1 font-medium leading-relaxed">{a.desc}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
-                  <CheckCircle2 className="size-8 text-success" />
-                  <span className="text-[13px] font-medium">All spaces and zones comply with current design criteria!</span>
+                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-3.5 bg-surface-2 dark:bg-zinc-800/40 rounded-2xl border border-border/80">
+                  <CheckCircle2 className="size-10 text-success" />
+                  <span className="text-[13px] font-semibold text-center px-4">All spaces and zones comply with current design criteria!</span>
                 </div>
               )}
             </div>
 
             {/* Calculations Index / Shortcut menu */}
-            <div className="border border-border rounded bg-background p-5 flex flex-col gap-4 shadow-sm">
-              <div className="flex items-center gap-2 border-b border-border pb-3">
+            <div className="border border-border/80 rounded-3xl bg-card p-6 flex flex-col gap-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+              <div className="flex items-center gap-2 border-b border-border/50 pb-3">
                 <LayoutDashboard className="size-4.5 text-primary" />
-                <h3 className="text-[14px] font-bold uppercase tracking-wider text-foreground">Calculators Quick Access</h3>
+                <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Calculators Quick Access</h3>
               </div>
-              <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[300px]">
+              <div className="flex flex-col gap-2 overflow-y-auto max-h-[360px] pr-1.5 custom-scrollbar">
                 <CalcLink name="Cooling Load" label="Cooling Load Sizer" />
                 <CalcLink name="Fresh Air Cooling Load" label="Fresh Air Load" />
                 <CalcLink name="Heating Load" label="Heating Load" />
@@ -159,63 +159,63 @@ export function DashboardPage() {
                 <CalcLink name="Staircase Pressurization" label="Staircase Overpressure" />
                 <Link
                   to="/plumbing-sprinkler-kfactor"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Sprinkler K-Factor</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-sprinkler-density"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Sprinkler Density & Flow</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-hazen-williams"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Hazen-Williams</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-fm200"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>FM-200 Calculation</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-water-demand"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Water Demand Sizer</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-fixture-unit"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Fixture Unit Sizer</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-loading-unit"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Loading Unit Sizer</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-supply-pipe-sizer"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Supply Pipe Sizer</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
                 <Link
                   to="/plumbing-pump-sizing"
-                  className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                 >
                   <span>Pump Sizing (Transfer/Booster)</span>
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -232,16 +232,20 @@ export function DashboardPage() {
 
 function StatCard({ icon, label, value, desc, progress }: { icon: React.ReactNode; label: string; value: string | number; desc: string; progress?: number }) {
   return (
-    <div className="border border-border rounded bg-background p-4 flex flex-col gap-2 shadow-sm">
-      <div className="flex justify-between items-center">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
-        {icon}
+    <div className="border border-border/80 rounded-3xl bg-card p-5 flex flex-col justify-between shadow-[0_1px_3px_rgba(0,0,0,0.02)] min-h-[140px] transition-all hover:shadow-md hover:border-border/100">
+      <div className="flex justify-between items-start">
+        <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground">{label}</span>
+        <div className="p-2 rounded-xl bg-surface-3 dark:bg-zinc-800/50 flex items-center justify-center shrink-0">
+          {icon}
+        </div>
       </div>
-      <div className="text-[22px] font-bold tracking-tight font-mono text-foreground mt-1">{value}</div>
-      <span className="text-[11.5px] text-muted-foreground">{desc}</span>
+      <div className="mt-2">
+        <div className="text-[24px] font-bold tracking-tight font-mono text-foreground">{value}</div>
+        <span className="text-[11.5px] text-muted-foreground font-medium mt-0.5 block">{desc}</span>
+      </div>
       {progress !== undefined && (
-        <div className="w-full h-1 bg-muted rounded-full mt-1.5 overflow-hidden">
-          <div className="h-full bg-primary" style={{ width: `${progress}%` }} />
+        <div className="w-full h-2.5 bg-[#e2e8f0] dark:bg-zinc-700 rounded-full mt-2 overflow-hidden shadow-inner">
+          <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
         </div>
       )}
     </div>
@@ -253,7 +257,7 @@ function CalcLink({ name, label }: { name: string; label: string }) {
     <Link
       to="/calculators"
       search={{ name }}
-      className="flex items-center justify-between p-2 rounded hover:bg-surface-2 transition-all border border-transparent hover:border-border text-[12.5px] text-foreground font-medium group"
+      className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
     >
       <span>{label}</span>
       <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />

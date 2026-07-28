@@ -36,8 +36,8 @@ type DuctShape = "round" | "rect";
 
 function DuctSizerPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [airflow, setAirflow] = useState<number>(2500);
-  const [targetFr, setTargetFr] = useState<number>(0.08); // in w.g./100ft (IP) or Pa/m (SI)
+  const [airflow, setAirflow] = useState<number | "">("");
+  const [targetFr, setTargetFr] = useState<number | "">(""); // in w.g./100ft (IP) or Pa/m (SI)
   const [ductShape, setDuctShape] = useState<DuctShape>("round");
   const [aspectRatio, setAspectRatio] = useState<number>(1.5);
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
@@ -52,19 +52,22 @@ function DuctSizerPage() {
     // Convert inputs
     if (unit === "ip") {
       // SI -> IP
-      setAirflow(Number((airflow * 2.1189).toFixed(0))); // L/s to CFM
-      setTargetFr(Number((targetFr / 8.16828).toFixed(3))); // Pa/m to in w.g./100ft
+      setAirflow(airflow !== "" ? Number((Number(airflow) * 2.1189).toFixed(0)) : ""); // L/s to CFM
+      setTargetFr(targetFr !== "" ? Number((Number(targetFr) / 8.16828).toFixed(3)) : ""); // Pa/m to in w.g./100ft
     } else {
       // IP -> SI
-      setAirflow(Number((airflow / 2.1189).toFixed(0))); // CFM to L/s
-      setTargetFr(Number((targetFr * 8.16828).toFixed(2))); // in w.g./100ft to Pa/m
+      setAirflow(airflow !== "" ? Number((Number(airflow) / 2.1189).toFixed(0)) : ""); // CFM to L/s
+      setTargetFr(targetFr !== "" ? Number((Number(targetFr) * 8.16828).toFixed(2)) : ""); // in w.g./100ft to Pa/m
     }
   };
 
   const calculatedData = useMemo(() => {
     // Airflow Q in m³/s
-    const Q = ip ? airflow * 4.71947e-4 : airflow * 1e-3;
-    const frPaM = ip ? targetFr * 8.16828 : targetFr;
+    const airflowVal = airflow !== "" ? Number(airflow) : (ip ? 2500 : 1180);
+    const targetFrVal = targetFr !== "" ? Number(targetFr) : (ip ? 0.08 : 0.65);
+
+    const Q = ip ? airflowVal * 4.71947e-4 : airflowVal * 1e-3;
+    const frPaM = ip ? targetFrVal * 8.16828 : targetFrVal;
     const rho = 1.204, mu = 1.81e-5, eps = 0.00009;
 
     // 1. Solve circular equivalent diameter
@@ -254,13 +257,13 @@ function DuctSizerPage() {
                   {/* Airflow */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Airflow (Q) ({ip ? "CFM" : "L/s"})</label>
-                    <input type="number" step="any" value={airflow} onChange={(e) => { setAirflow(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" step="any" value={airflow} onChange={(e) => { setAirflow(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "2500" : "1180"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
 
                   {/* Target Friction Rate */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Target Friction Rate ({ip ? "in w.g./100ft" : "Pa/m"})</label>
-                    <input type="number" step="any" value={targetFr} onChange={(e) => { setTargetFr(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" step="any" value={targetFr} onChange={(e) => { setTargetFr(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "0.08" : "0.65"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
 
                   {/* Shape */}

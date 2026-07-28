@@ -7,7 +7,7 @@ import {
   Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, Wrench, RefreshCw, Bookmark, HelpCircle,
   Filter, ArrowUpDown, Edit3
 } from "lucide-react";
-import { useConfirm } from "@/hooks/use-confirm";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
@@ -39,7 +39,7 @@ export const Route = createFileRoute("/preliminary-cooling-load")({
 interface PclRow {
   id: string;
   name: string;
-  area: number;
+  area: number | "";
   type: string;
   density: number; // W/m²
   dissipation: number; // Watts
@@ -187,20 +187,21 @@ interface InlineInputProps {
   type?: "text" | "number";
   step?: string;
   min?: number;
+  placeholder?: string;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min }: InlineInputProps) {
-  const [localVal, setLocalVal] = useState(String(value));
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder }: InlineInputProps) {
+  const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
 
   useEffect(() => {
-    setLocalVal(String(value));
+    setLocalVal(value === "" ? "" : String(value));
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
-      setLocalVal(String(value));
+      setLocalVal(value === "" ? "" : String(value));
       e.currentTarget.blur();
     }
   };
@@ -211,22 +212,24 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       step={step}
       min={min}
       value={localVal}
+      placeholder={placeholder}
       onChange={(e) => setLocalVal(e.target.value)}
       onBlur={() => {
-        if (localVal !== String(value)) {
+        if (localVal !== (value === "" ? "" : String(value))) {
           onCommit(localVal);
         }
       }}
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text ${className}`}
+      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text placeholder:text-muted-foreground/45 placeholder:font-normal ${className}`}
     />
   );
 }
 
 function PreliminaryCoolingLoadPage() {
   const confirm = useConfirm();
+  const prompt = usePrompt();
 
   // State loaded from localStorage to keep 100% database compatibility
   const [projectInfo, setProjectInfo] = useState({
@@ -332,7 +335,8 @@ function PreliminaryCoolingLoadPage() {
     let totalW = 0;
 
     rows.forEach(r => {
-      totalArea += r.area;
+      const a = r.area !== "" ? Number(r.area) : 0;
+      totalArea += a;
       totalW += r.dissipation;
     });
 
@@ -475,6 +479,17 @@ function PreliminaryCoolingLoadPage() {
   // Keyboard Shortcuts Hook matching Ventilation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Deselect all selected spaces/rows
+      if (e.key === "Escape") {
+        if (selected.size > 0 || selectedPending.size > 0) {
+          e.preventDefault();
+          setSelected(new Set());
+          setSelectedPending(new Set());
+          setLastClickedIndex(null);
+        }
+        return;
+      }
+
       const activeEl = document.activeElement;
       const isInput = activeEl && (
         (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
@@ -632,23 +647,19 @@ function PreliminaryCoolingLoadPage() {
   const handleAddNewSpace = () => {
     const defaultNum = rows.length + 1;
     const defaultName = `GF-Space ${defaultNum}`;
-    const defaultType = "Apartment - Dwelling Unit";
-    const density = SPACE_DENSITIES[defaultType] || 120;
-    const area = 20;
-    const dissipation = area * density;
-    const kw = dissipation / 1000;
-    const tr = kw / 3.517;
+    const defaultType = "";
+    const density = 0;
     const floor = extractFloor(defaultName);
 
     const newRow: PclRow = {
       id: `pcl-${Date.now()}`,
       name: defaultName,
-      area,
+      area: "",
       type: defaultType,
       density,
-      dissipation,
-      kw,
-      tr,
+      dissipation: 0,
+      kw: 0,
+      tr: 0,
       floor,
     };
 
@@ -1054,7 +1065,8 @@ function PreliminaryCoolingLoadPage() {
         if (bulkEditFields.area) {
           nextRow.area = parseFloat(bulkEditValues.area) || r.area;
         }
-        nextRow.dissipation = nextRow.area * nextRow.density;
+        const numArea = nextRow.area !== "" ? Number(nextRow.area) : 0;
+        nextRow.dissipation = numArea * nextRow.density;
         nextRow.kw = nextRow.dissipation / 1000;
         nextRow.tr = nextRow.kw / 3.517;
         return nextRow;
@@ -1080,7 +1092,8 @@ function PreliminaryCoolingLoadPage() {
             const floor = extractFloor(newName);
             const defaultType = inferTypeFromName(newName) || r.type;
             const density = SPACE_DENSITIES[defaultType] || 120;
-            const dissipation = r.area * density;
+            const numArea = r.area !== "" ? Number(r.area) : 0;
+            const dissipation = numArea * density;
             const kw = dissipation / 1000;
             const tr = kw / 3.517;
 
@@ -1111,9 +1124,11 @@ function PreliminaryCoolingLoadPage() {
           type="number"
           min={1}
           value={r.area}
+          placeholder="20"
           onCommit={(newAreaStr) => {
-            const nextArea = Number(newAreaStr) || 1;
-            const dissipation = nextArea * r.density;
+            const nextArea = newAreaStr === "" ? "" : Number(newAreaStr);
+            const numArea = nextArea !== "" ? Number(nextArea) : 0;
+            const dissipation = numArea * r.density;
             const kw = dissipation / 1000;
             const tr = kw / 3.517;
 
@@ -1136,11 +1151,12 @@ function PreliminaryCoolingLoadPage() {
       editable: true,
       render: (r) => (
         <select
-          value={r.type}
+          value={r.type || ""}
           onChange={(e) => {
             const nextType = e.target.value;
-            const density = SPACE_DENSITIES[nextType] || 120;
-            const dissipation = r.area * density;
+            const density = SPACE_DENSITIES[nextType] || 0;
+            const numArea = r.area !== "" ? Number(r.area) : 0;
+            const dissipation = numArea * density;
             const kw = dissipation / 1000;
             const tr = kw / 3.517;
 
@@ -1153,10 +1169,11 @@ function PreliminaryCoolingLoadPage() {
               tr
             } : row));
           }}
-          className="w-full bg-transparent border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[12.5px] cursor-pointer font-sans"
+          className={`w-full bg-transparent border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[12.5px] cursor-pointer font-sans ${!r.type ? "text-muted-foreground/45" : "text-foreground font-medium"}`}
         >
+          <option value="" disabled className="text-muted-foreground">Select</option>
           {Object.keys(SPACE_DENSITIES).map(k => (
-            <option key={k} value={k} className="bg-background text-foreground text-xs">
+            <option key={k} value={k} className="bg-background text-foreground text-xs font-normal">
               {k} ({SPACE_DENSITIES[k]} W/m²)
             </option>
           ))}
@@ -1169,7 +1186,7 @@ function PreliminaryCoolingLoadPage() {
       width: 100,
       align: "right",
       mono: true,
-      render: (r) => `${r.density} W/m²`,
+      render: (r) => r.type ? `${r.density} W/m²` : <span className="text-muted-foreground/45 font-mono font-normal">120 W/m²</span>,
     },
     {
       key: "kw",
@@ -1177,7 +1194,9 @@ function PreliminaryCoolingLoadPage() {
       width: 90,
       align: "right",
       mono: true,
-      render: (r) => `${r.kw.toFixed(2)} kW`,
+      render: (r) => r.area === "" ? (
+        <span className="text-muted-foreground/45 font-mono font-normal">{((20 * (r.density || 120)) / 1000).toFixed(2)} kW</span>
+      ) : `${r.kw.toFixed(2)} kW`,
     },
     {
       key: "tr",
@@ -1185,7 +1204,9 @@ function PreliminaryCoolingLoadPage() {
       width: 90,
       align: "right",
       mono: true,
-      render: (r) => `${r.tr.toFixed(2)} TR`,
+      render: (r) => r.area === "" ? (
+        <span className="text-muted-foreground/45 font-mono font-normal">{(((20 * (r.density || 120)) / 1000) / 3.517).toFixed(2)} TR</span>
+      ) : `${r.tr.toFixed(2)} TR`,
     },
   ];
 
@@ -1255,8 +1276,8 @@ function PreliminaryCoolingLoadPage() {
     return (
       <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
-          onClick={() => {
-            const newFloor = prompt("Enter new floor name:", floor);
+          onClick={async () => {
+            const newFloor = await prompt("Enter new floor name:", floor, { title: "Rename Floor" });
             if (newFloor && newFloor.trim() !== "" && newFloor.trim() !== floor) {
               const trimmed = newFloor.trim();
               saveRows(rows.map(s => s.floor === floor ? { ...s, floor: trimmed } : s));
@@ -1497,9 +1518,9 @@ function PreliminaryCoolingLoadPage() {
                     </div>
 
                     {/* DataGrid container */}
-                    <div className="flex-1 min-h-0 relative">
+                    <div className="flex-1 min-h-0 relative flex flex-col">
                       {rows.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2 h-64 border border-dashed rounded-b-2xl">
+                        <div className="flex-1 h-full min-h-[350px] flex flex-col items-center justify-center p-8 bg-surface-2 border border-dashed rounded-b-2xl">
                           <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
                             <Upload className="size-6" />
                           </div>

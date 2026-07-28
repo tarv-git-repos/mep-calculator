@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { X, Search, ChevronDown, ChevronRight, Plus, Fan, Check, Edit3 } from "lucide-react";
 import { useWorkspace, type Equipment, type Zone } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
+import { usePrompt } from "@/hooks/use-confirm";
 
 export function getEquipVentMode(e: Equipment): string {
   const t = e.mode as string | undefined;
@@ -33,13 +34,14 @@ export function SharedAssignmentModal({
   onClose,
 }: SharedAssignmentModalProps) {
   const { spaces, zones, equipment, setWorkspaceState } = useWorkspace();
+  const prompt = usePrompt();
 
   const [selectedEquipId, setSelectedEquipId] = useState<string | null>(null);
   const [selectedInstances, setSelectedInstances] = useState<Set<string>>(new Set()); // `${zoneId}_${instanceIndex}`
   const [searchEquip, setSearchEquip] = useState("");
   const [searchZone, setSearchZone] = useState("");
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
-  const [showAddEquip, setShowAddEquip] = useState(false);
+  const [showAddEquip, setShowAddEquip] = useState(true);
 
   // Add Equipment Form State
   const [newTag, setNewTag] = useState("");
@@ -51,11 +53,7 @@ export function SharedAssignmentModal({
   useEffect(() => {
     if (isOpen) {
       console.log("SharedAssignmentModal: isOpen=true, initialZoneId=", initialZoneId, "initialZoneIds=", initialZoneIds);
-      if (initialShowAddEquip) {
-        setShowAddEquip(true);
-      } else {
-        setShowAddEquip(false);
-      }
+      setShowAddEquip(true);
       if (initialEquipmentId) {
         setSelectedEquipId(initialEquipmentId);
         const eq = equipment.find((e) => e.id === initialEquipmentId);
@@ -385,44 +383,44 @@ export function SharedAssignmentModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden animate-scale-in text-xs">
+      <div className="bg-background border border-border/80 rounded-[28px] shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden animate-scale-in text-xs">
         {/* Header */}
-        <header className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0 select-none bg-card">
-          <div className="flex flex-col gap-0.5">
-            <h3 className="font-bold text-[16px] text-foreground tracking-tight">Equipment Assignment Sizer</h3>
-            <p className="text-[11.5px] text-muted-foreground">
+        <header className="px-6 py-5 border-b border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
+          <div className="flex flex-col gap-1">
+            <h3 className="font-bold text-[16.5px] text-foreground tracking-tight">Equipment Assignment Sizer</h3>
+            <p className="text-[11.5px] text-muted-foreground font-medium">
               Select an equipment unit on the left and assign it to zone instances on the right.
             </p>
           </div>
           <button
             onClick={onClose}
-            className="size-8 rounded-full hover:bg-surface-2 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+            className="size-8.5 rounded-full hover:bg-surface-3 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-all duration-150"
           >
-            <X className="size-4" />
+            <X className="size-4.5" />
           </button>
         </header>
 
         {/* Modal Body */}
-        <div className="flex-1 min-h-0 flex divide-x divide-border">
+        <div className="flex-1 min-h-0 flex divide-x divide-border/50">
           {/* Left Panel: Equipment List */}
-          <div className="w-[30%] flex flex-col bg-surface-1 min-h-0 p-4">
-            <div className="flex flex-col gap-3 flex-1 min-h-0">
-              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+          <div className="w-[32%] flex flex-col bg-slate-50/50 dark:bg-zinc-950/20 min-h-0 p-5 gap-4">
+            <div className="flex flex-col gap-3.5 flex-1 min-h-0">
+              <span className="text-[9.5px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-widest block">
                 Equipment ({filteredEquipment.length})
               </span>
               <div className="relative shrink-0 select-none">
-                <Search className="absolute left-3 top-2.5 size-3.5 text-muted-foreground" />
+                <Search className="absolute left-3.5 top-3 size-3.5 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search Equipment..."
                   value={searchEquip}
                   onChange={(e) => setSearchEquip(e.target.value)}
-                  className="w-full bg-background border border-border rounded-xl pl-9 pr-3 py-2 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground"
+                  className="w-full bg-background border border-border/70 rounded-2xl pl-9.5 pr-3.5 py-2.5 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground transition-all font-sans"
                 />
               </div>
 
               {/* Equipment Items */}
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              <div className="flex-1 overflow-y-auto space-y-2.5 pr-1.5 custom-scrollbar">
                 {filteredEquipment.map((eq) => {
                   const mode = getEquipVentMode(eq);
                   const isSelected = selectedEquipId === eq.id;
@@ -437,142 +435,150 @@ export function SharedAssignmentModal({
                     <div
                       key={eq.id}
                       onClick={() => handleEquipSelect(eq.id)}
-                      className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${
+                      className={`flex items-center gap-3.5 p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
                         isSelected
-                          ? "bg-primary/5 border-primary shadow-sm ring-1 ring-primary/20"
-                          : "bg-background border-border hover:bg-surface-2"
+                          ? "bg-primary/5 border-primary shadow-[0_2px_8px_rgba(10,123,199,0.08)]"
+                          : "bg-card border-border/70 hover:bg-surface-2"
                       }`}
                     >
                       <div
-                        className={`size-4.5 rounded-full border flex items-center justify-center shrink-0 ${
-                          isSelected ? "border-primary" : "border-muted-foreground/30"
+                        className={`size-4.5 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                          isSelected ? "border-primary bg-primary/10" : "border-muted-foreground/30"
                         }`}
                       >
-                        {isSelected && <div className="size-2.5 rounded-full bg-primary" />}
+                        {isSelected && <div className="size-2 rounded-full bg-primary" />}
                       </div>
-                      <div className={`p-2 rounded-lg bg-surface-2 shrink-0 ${iconColor}`}>
+                      <div className={`p-2 rounded-xl bg-surface-2 dark:bg-zinc-800/40 shrink-0 ${iconColor}`}>
                         <Fan className="size-4 animate-spin-slow" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold font-mono text-[13px] text-foreground truncate">{eq.tag}</div>
-                        <div className="text-[10.5px] text-muted-foreground mt-0.5">{mode}</div>
+                        <div className="font-bold font-mono text-[13.5px] text-foreground truncate">{eq.tag}</div>
+                        <div className="text-[10.5px] text-muted-foreground font-medium mt-0.5">{mode}</div>
                       </div>
                     </div>
                   );
                 })}
                 {filteredEquipment.length === 0 && (
-                  <div className="text-center text-muted-foreground italic py-10 text-[12px]">
+                  <div className="text-center text-muted-foreground italic py-10 text-[12px] font-medium">
                     No equipment matched search.
                   </div>
                 )}
               </div>
 
-              {/* Add New Equipment collapsible block */}
-              <div className="pt-2 border-t border-border mt-1 shrink-0">
+              {/* Add New Equipment block (always opened) */}
+              <div className="pt-3 border-t border-border/50 mt-1 shrink-0">
                 <div
-                  onClick={() => setShowAddEquip(!showAddEquip)}
-                  className="flex items-center justify-between py-2 px-3 hover:bg-surface-2 rounded-lg cursor-pointer select-none font-bold text-[11px] uppercase tracking-wider text-muted-foreground transition-all duration-150"
+                  className="flex items-center justify-between py-1.5 px-1 select-none font-extrabold text-[9.5px] uppercase tracking-widest text-slate-500 dark:text-zinc-400"
                 >
                   <span className="flex items-center gap-1.5 text-primary">
                     <Plus className="size-3.5" /> Add New Equipment
                   </span>
-                  {showAddEquip ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
                 </div>
 
-                {showAddEquip && (
-                  <div className="border border-border bg-background p-4 rounded-2xl space-y-4 shrink-0 select-none shadow-sm mt-1 animate-scale-in">
-                    <div className="space-y-3 text-[11px]">
+                <div className="border border-border/80 bg-card p-4.5 rounded-[22px] space-y-4 shrink-0 select-none shadow-[0_1px_3px_rgba(0,0,0,0.02)] mt-1 animate-scale-in">
+                  <div className="space-y-3.5 text-[11px]">
+                    <div>
+                      <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
+                        Equipment Tag
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. AHU-02"
+                        value={newTag}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setNewTag(val);
+                          const upper = val.toUpperCase();
+                          if (upper.includes("MAHU")) {
+                            setNewType("MAHU");
+                            setNewMode("Fresh Air Only");
+                          } else if (upper.includes("EAHU")) {
+                            setNewType("EAHU");
+                            setNewMode("Extract Air Only");
+                          } else if (upper.includes("FAHU")) {
+                            setNewType("FAHU");
+                          }
+                        }}
+                        className="w-full bg-background border border-border/70 rounded-2xl px-3 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
+                        Equipment Type
+                      </label>
+                      <select
+                        value={newType}
+                        onChange={(e) => {
+                          const val = e.target.value as "FAHU" | "MAHU" | "EAHU";
+                          setNewType(val);
+                          if (val === "MAHU") setNewMode("Fresh Air Only");
+                          else if (val === "EAHU") setNewMode("Extract Air Only");
+                        }}
+                        className="w-full bg-background border border-border/70 rounded-2xl px-2.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
+                      >
+                        <option value="FAHU">FAHU (Fresh / Extract)</option>
+                        <option value="MAHU">MAHU (Fresh Air Only)</option>
+                        <option value="EAHU">EAHU (Extract Air Only)</option>
+                      </select>
+                    </div>
+                    {newType === "FAHU" && (
                       <div>
-                        <label className="block text-muted-foreground font-bold text-[10px] uppercase tracking-wider mb-1.5 select-none">
-                          Equipment Tag
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. AHU-02"
-                          value={newTag}
-                          onChange={(e) => setNewTag(e.target.value)}
-                          className="w-full bg-background border border-border rounded-xl px-3 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] font-mono text-foreground transition-all duration-150"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-muted-foreground font-bold text-[10px] uppercase tracking-wider mb-1.5 select-none">
-                          Equipment Type
+                        <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
+                          Ventilation Mode
                         </label>
                         <select
-                          value={newType}
-                          onChange={(e) => {
-                            const val = e.target.value as "FAHU" | "MAHU" | "EAHU";
-                            setNewType(val);
-                            if (val === "MAHU") setNewMode("Fresh Air Only");
-                            else if (val === "EAHU") setNewMode("Extract Air Only");
-                          }}
-                          className="w-full bg-background border border-border rounded-xl px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150"
+                          value={newMode}
+                          onChange={(e) =>
+                            setNewMode(e.target.value as "Fresh Air Only" | "Extract Air Only" | "Fresh Air + Extract Air")
+                          }
+                          className="w-full bg-background border border-border/70 rounded-2xl px-2.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
                         >
-                          <option value="FAHU">FAHU (Fresh / Extract)</option>
-                          <option value="MAHU">MAHU (Fresh Air Only)</option>
-                          <option value="EAHU">EAHU (Extract Air Only)</option>
+                          <option value="Fresh Air Only">Fresh Air Only</option>
+                          <option value="Extract Air Only">Extract Air Only</option>
+                          <option value="Fresh Air + Extract Air">Fresh Air + Extract Air</option>
                         </select>
                       </div>
-                      {newType === "FAHU" && (
-                        <div>
-                          <label className="block text-muted-foreground font-bold text-[10px] uppercase tracking-wider mb-1.5 select-none">
-                            Ventilation Mode
-                          </label>
-                          <select
-                            value={newMode}
-                            onChange={(e) =>
-                              setNewMode(e.target.value as "Fresh Air Only" | "Extract Air Only" | "Fresh Air + Extract Air")
-                            }
-                            className="w-full bg-background border border-border rounded-xl px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150"
-                          >
-                            <option value="Fresh Air Only">Fresh Air Only</option>
-                            <option value="Extract Air Only">Extract Air Only</option>
-                            <option value="Fresh Air + Extract Air">Fresh Air + Extract Air</option>
-                          </select>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-end gap-2 text-[11px] pt-1">
-                      <button
-                        onClick={() => {
-                          setShowAddEquip(false);
-                          setNewTag("");
-                        }}
-                        className="px-4 py-2 border border-border hover:bg-surface-2 rounded-xl text-muted-foreground hover:text-foreground text-[11.5px] font-semibold transition-all duration-150 cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleAddEquipment}
-                        className="px-4 py-2 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/95 text-[11.5px] transition-all duration-150 cursor-pointer shadow-sm shadow-primary/10"
-                      >
-                        Add
-                      </button>
-                    </div>
+                    )}
                   </div>
-                )}
+                  <div className="flex items-center justify-end gap-2 text-[11px] pt-1">
+                    <button
+                      onClick={() => {
+                        setNewTag("");
+                      }}
+                      className="px-4 py-2 border border-border/80 hover:bg-surface-2 rounded-2xl text-muted-foreground hover:text-foreground text-[11.5px] font-semibold transition-all duration-150 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAddEquipment}
+                      className="px-5.5 py-2 bg-primary text-primary-foreground font-bold rounded-2xl hover:bg-primary/95 text-[11.5px] transition-all duration-150 cursor-pointer shadow-md shadow-primary/10"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Right Panel: Zone / Instances List */}
-          <div className="w-[70%] flex flex-col min-h-0 p-4 bg-background">
-            <div className="flex flex-col gap-3 flex-1 min-h-0">
+          <div className="w-[68%] flex flex-col min-h-0 p-5 bg-background gap-4">
+            <div className="flex flex-col gap-3.5 flex-1 min-h-0">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                <span className="text-[9.5px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-widest">
                   Zone / Instances ({filteredZonesList.length})
                 </span>
                 <div className="flex items-center gap-2 select-none">
                   <button
                     onClick={expandAll}
-                    className="text-[11px] font-semibold text-primary hover:underline bg-transparent border-0 cursor-pointer"
+                    className="text-[10.5px] font-bold text-primary hover:text-primary/80 transition-colors bg-transparent border-0 cursor-pointer"
                   >
                     Expand All
                   </button>
                   <span className="text-muted-foreground/30 text-[10px]">|</span>
                   <button
                     onClick={collapseAll}
-                    className="text-[11px] font-semibold text-primary hover:underline bg-transparent border-0 cursor-pointer"
+                    className="text-[10.5px] font-bold text-primary hover:text-primary/80 transition-colors bg-transparent border-0 cursor-pointer"
                   >
                     Collapse All
                   </button>
@@ -580,17 +586,17 @@ export function SharedAssignmentModal({
               </div>
 
               <div className="relative shrink-0 select-none">
-                <Search className="absolute left-3 top-2.5 size-3.5 text-muted-foreground" />
+                <Search className="absolute left-3.5 top-3 size-3.5 text-muted-foreground" />
                 <input
                   type="text"
                   placeholder="Search Zone by name or floor..."
                   value={searchZone}
                   onChange={(e) => setSearchZone(e.target.value)}
-                  className="w-full bg-surface-1 border border-border rounded-xl pl-9 pr-3 py-2 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground"
+                  className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-9.5 pr-3.5 py-2.5 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground transition-all font-sans"
                 />
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-2 pr-1 select-none">
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1.5 select-none custom-scrollbar">
                 {filteredZonesList.map((zone) => {
                   const mult = zone.multiplier || 1;
                   const isMulti = mult > 1;
@@ -617,23 +623,23 @@ export function SharedAssignmentModal({
                   return (
                     <div
                       key={zone.id}
-                      className="border border-border/80 rounded-xl overflow-hidden bg-surface-1/40"
+                      className="border border-border/75 rounded-[20px] overflow-hidden bg-card shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all hover:border-border/100"
                     >
                       {/* Zone Header Row */}
                       <div
                         onClick={() => toggleZoneAll(zone, !allSelected)}
-                        className="flex items-center justify-between px-3 py-2.5 hover:bg-surface-2 transition-colors cursor-pointer"
+                        className="flex items-center justify-between px-4 py-3 hover:bg-surface-2/40 transition-colors cursor-pointer"
                       >
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="flex items-center gap-3.5 flex-1 min-w-0">
                           {isMulti ? (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 toggleExpand(zone.id);
                               }}
-                              className="p-1 rounded hover:bg-surface-3 text-muted-foreground cursor-pointer shrink-0 transition-colors"
+                              className="p-1 rounded-lg hover:bg-surface-3 text-muted-foreground cursor-pointer shrink-0 transition-colors"
                             >
-                              {isExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                              {isExpanded ? <ChevronDown className="size-4 text-slate-500" /> : <ChevronRight className="size-4 text-slate-500" />}
                             </button>
                           ) : (
                             <div className="size-6 shrink-0" />
@@ -646,16 +652,16 @@ export function SharedAssignmentModal({
                             }}
                             onChange={(e) => toggleZoneAll(zone, e.target.checked)}
                             onClick={(e) => e.stopPropagation()}
-                            className="size-4 rounded border-border text-primary focus:ring-primary focus:ring-1 cursor-pointer"
+                            className="size-4.5 rounded-md border-border/80 text-primary cursor-pointer transition-all"
                           />
                           <div className="flex flex-col min-w-0">
-                            <div className="font-semibold text-[13px] text-foreground flex items-center gap-2">
+                            <div className="font-bold text-[13.5px] text-foreground flex items-center gap-2">
                               <span>{zone.name}</span>
                               <button
                                 type="button"
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  const newName = prompt(`Rename zone "${zone.name}":`, zone.name);
+                                  const newName = await prompt(`Rename zone "${zone.name}":`, zone.name, { title: "Rename Zone" });
                                   if (newName && newName.trim() !== "" && newName.trim() !== zone.name) {
                                     const nextZones = zones.map(z => z.id === zone.id ? { ...z, name: newName.trim() } : z);
                                     const nextSpaces = spaces.map(s => s.zone === zone.name ? { ...s, zone: newName.trim() } : s);
@@ -673,20 +679,20 @@ export function SharedAssignmentModal({
                                 <Edit3 className="size-3 text-primary" />
                               </button>
                               {isMulti && (
-                                <span className="text-[10px] bg-surface-3 px-1.5 py-0.2 rounded-full text-muted-foreground font-mono">
+                                <span className="text-[9.5px] bg-surface-3 text-muted-foreground px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                                   {mult} instances
                                 </span>
                               )}
                             </div>
-                            <div className="text-[10.5px] text-muted-foreground">Floor: {zone.floor || "L01"}</div>
+                            <div className="text-[10.5px] font-semibold text-muted-foreground mt-0.5">Floor: {zone.floor || "L01"}</div>
                           </div>
                         </div>
 
                         {/* Collapsed assignments indicator */}
                         {(!isExpanded || !isMulti) && assignedTags.length > 0 && (
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-[10.5px] text-muted-foreground font-semibold">Assigned:</span>
-                            <span className="text-[11px] font-mono bg-surface-3 px-2 py-0.5 rounded text-foreground font-semibold">
+                            <span className="text-[10.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase tracking-wider">Assigned:</span>
+                            <span className="text-[10px] font-bold font-mono bg-surface-3 px-2 py-0.5 rounded text-foreground">
                               {assignedTags.join(", ")}
                             </span>
                           </div>
@@ -695,7 +701,7 @@ export function SharedAssignmentModal({
 
                       {/* Expandable sub-rows for instances */}
                       {isMulti && isExpanded && (
-                        <div className="border-t border-border/60 bg-background divide-y divide-border/60">
+                        <div className="border-t border-border/50 bg-background divide-y divide-border/40">
                           {Array.from({ length: mult }).map((_, o) => {
                             const instIdx = o + 1;
                             const instKey = `${zone.id}_${instIdx}`;
@@ -725,17 +731,17 @@ export function SharedAssignmentModal({
                               <div
                                 key={instKey}
                                 onClick={() => toggleInstance(zone.id, instIdx, !isInstSelected)}
-                                className="flex items-center justify-between pl-10 pr-3 py-2 hover:bg-surface-2 transition-colors cursor-pointer"
+                                className="flex items-center justify-between pl-11 pr-4 py-2 hover:bg-surface-2/30 transition-colors cursor-pointer text-[12px]"
                               >
-                                <div className="flex items-center gap-3 select-none">
+                                <div className="flex items-center gap-3.5 select-none">
                                   <input
                                     type="checkbox"
                                     checked={isInstSelected}
                                     onChange={(e) => toggleInstance(zone.id, instIdx, e.target.checked)}
                                     onClick={(e) => e.stopPropagation()}
-                                    className="size-3.5 rounded border-border text-primary focus:ring-primary focus:ring-1 cursor-pointer"
+                                    className="size-4 rounded border-border/80 text-primary cursor-pointer transition-all"
                                   />
-                                  <span className="font-mono text-[12px] text-foreground">
+                                  <span className="font-semibold text-foreground text-[12.5px]">
                                     {zone.name}-{instIdx}
                                   </span>
                                 </div>
@@ -747,19 +753,19 @@ export function SharedAssignmentModal({
                                     </span>
                                   )}
                                   {faEq && (
-                                    <div className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-primary/10 border border-primary/20 text-primary rounded-full">
+                                    <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-primary/5 border border-primary/20 text-primary rounded-full font-bold shadow-xs">
                                       <Fan className="size-2.5 shrink-0" />
-                                      <span className="font-semibold">FA: {faEq.tag}</span>
+                                      <span>FA: {faEq.tag}</span>
                                     </div>
                                   )}
                                   {eaEq && (
-                                    <div className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-pink-500/10 border border-pink-500/20 text-pink-600 dark:text-pink-400 rounded-full">
+                                    <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-pink-500/5 border border-pink-500/20 text-pink-600 dark:text-pink-400 rounded-full font-bold shadow-xs">
                                       <Fan className="size-2.5 shrink-0" />
-                                      <span className="font-semibold">EA: {eaEq.tag}</span>
+                                      <span>EA: {eaEq.tag}</span>
                                     </div>
                                   )}
                                   {!faEq && !eaEq && (
-                                    <span className="text-[10px] text-muted-foreground italic">Unassigned</span>
+                                    <span className="text-[10px] text-muted-foreground font-semibold italic bg-surface-2 px-2.5 py-0.5 rounded-full select-none">Unassigned</span>
                                   )}
                                 </div>
                               </div>
@@ -771,7 +777,7 @@ export function SharedAssignmentModal({
                   );
                 })}
                 {filteredZonesList.length === 0 && (
-                  <div className="text-center text-muted-foreground italic py-10 text-[12px]">
+                  <div className="text-center text-muted-foreground italic py-10 text-[12px] font-medium">
                     No zones matched search.
                   </div>
                 )}
@@ -781,26 +787,26 @@ export function SharedAssignmentModal({
         </div>
 
         {/* Footer */}
-        <footer className="px-6 py-4 border-t border-border flex items-center justify-between shrink-0 select-none bg-card">
+        <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
           <div className="flex items-center gap-6 text-[12.5px] text-foreground font-medium">
             <div>
-              <span className="text-muted-foreground">Selected Equipment: </span>
+              <span className="text-muted-foreground font-medium">Selected Equipment: </span>
               {selectedEquipment ? (
-                <span className="font-bold font-mono text-primary bg-primary/5 border border-primary/20 px-2 py-0.5 rounded">
+                <span className="font-bold font-mono text-primary bg-primary/10 border border-primary/25 px-2.5 py-0.5 rounded-lg text-[11.5px]">
                   {selectedEquipment.tag}
                 </span>
               ) : (
-                <span className="text-muted-foreground italic">None</span>
+                <span className="text-muted-foreground italic font-medium">None</span>
               )}
             </div>
-            <div className="h-4 w-px bg-border" />
+            <div className="h-4 w-px bg-border/60" />
             <div>
-              <span className="text-muted-foreground">Zones Affected: </span>
-              <span className="font-bold font-mono">{zonesAffectedCount}</span>
+              <span className="text-muted-foreground font-medium">Zones Affected: </span>
+              <span className="font-bold font-mono text-foreground">{zonesAffectedCount}</span>
             </div>
-            <div className="h-4 w-px bg-border" />
+            <div className="h-4 w-px bg-border/60" />
             <div>
-              <span className="text-muted-foreground">Instances Selected: </span>
+              <span className="text-muted-foreground font-medium">Instances Selected: </span>
               <span className="font-bold font-mono text-primary">{instancesSelectedCount}</span>
             </div>
           </div>
@@ -808,14 +814,14 @@ export function SharedAssignmentModal({
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
-              className="border border-border text-xs px-5 py-2 rounded-xl hover:bg-surface-2 text-foreground cursor-pointer transition-all"
+              className="border border-border/80 text-xs px-5 py-2.5 rounded-2xl hover:bg-surface-2 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all duration-150"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={isDoneDisabled}
-              className={`text-xs font-semibold px-6 py-2 rounded-xl transition-all cursor-pointer ${
+              className={`text-xs font-bold px-7 py-2.5 rounded-2xl transition-all cursor-pointer shadow-sm ${
                 isDoneDisabled
                   ? "bg-surface-3 text-muted-foreground border border-border cursor-not-allowed"
                   : "bg-primary text-primary-foreground hover:bg-primary/95 shadow-md shadow-primary/10"

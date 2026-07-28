@@ -76,11 +76,11 @@ function ChwPipeSizerPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
 
   const [sizingParams, setSizingParams] = useState({
-    flowRate: 80.0, // GPM (IP)
+    flowRate: "" as number | "",
     fluidType: "chw" as "chw" | "cw" | "g25" | "g40",
-    temperature: 44.0, // °F (IP)
+    temperature: "" as number | "",
     materialRoughness: 0.000046, // Carbon Steel in meters
-    targetDp: 4.0, // ft w.g./100ft (IP)
+    targetDp: "" as number | "",
   });
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
@@ -132,20 +132,14 @@ function ChwPipeSizerPage() {
 
     if (unit === "ip") {
       // SI -> IP
-      // L/s to GPM (multiply by 15.8503 as 1 L/s = 15.8503 GPM)
-      nextFlow = Number((sizingParams.flowRate * 15.8503).toFixed(1));
-      // Pa/m to ft w.g./100ft (divide by 22.62)
-      nextDp = Number((sizingParams.targetDp / 22.62).toFixed(2));
-      // °C to °F
-      nextTemp = Number((sizingParams.temperature * 1.8 + 32).toFixed(1));
+      nextFlow = sizingParams.flowRate !== "" ? Number((Number(sizingParams.flowRate) * 15.8503).toFixed(1)) : "";
+      nextDp = sizingParams.targetDp !== "" ? Number((Number(sizingParams.targetDp) / 22.62).toFixed(2)) : "";
+      nextTemp = sizingParams.temperature !== "" ? Number((Number(sizingParams.temperature) * 1.8 + 32).toFixed(1)) : "";
     } else {
       // IP -> SI
-      // GPM to L/s (divide by 15.8503)
-      nextFlow = Number((sizingParams.flowRate / 15.8503).toFixed(2));
-      // ft w.g./100ft to Pa/m (multiply by 22.62)
-      nextDp = Number((sizingParams.targetDp * 22.62).toFixed(0));
-      // °F to °C
-      nextTemp = Number(((sizingParams.temperature - 32) / 1.8).toFixed(1));
+      nextFlow = sizingParams.flowRate !== "" ? Number((Number(sizingParams.flowRate) / 15.8503).toFixed(2)) : "";
+      nextDp = sizingParams.targetDp !== "" ? Number((Number(sizingParams.targetDp) * 22.62).toFixed(0)) : "";
+      nextTemp = sizingParams.temperature !== "" ? Number(((Number(sizingParams.temperature) - 32) / 1.8).toFixed(1)) : "";
     }
 
     const updatedParams = {
@@ -161,13 +155,13 @@ function ChwPipeSizerPage() {
   // Calculations
   const calculatedData = useMemo(() => {
     const ip = unitSystem === "ip";
-    const flowVal = Number(sizingParams.flowRate) || 0;
+    const flowVal = sizingParams.flowRate !== "" ? Number(sizingParams.flowRate) : (ip ? 80 : 5.0);
     const Q = ip ? flowVal * 6.30902e-5 : flowVal * 1e-3;
-    const tRaw = Number(sizingParams.temperature) || 0;
+    const tRaw = sizingParams.temperature !== "" ? Number(sizingParams.temperature) : (ip ? 44 : 6.7);
     const tC = ip ? fToC(tRaw) : tRaw;
     const eps = Number(sizingParams.materialRoughness) || 0.000046;
     
-    const dpRaw = Number(sizingParams.targetDp) || 0;
+    const dpRaw = sizingParams.targetDp !== "" ? Number(sizingParams.targetDp) : (ip ? 4.0 : 40);
     const targetDpPaM = ip ? dpRaw * 22.62 : dpRaw;
 
     const rho = waterDens(tC) * GLYCOL_DENS[sizingParams.fluidType];
@@ -683,13 +677,13 @@ function ChwPipeSizerPage() {
                               <input
                                 type="number"
                                 step="any"
-                                value={sizingParams.flowRate || ""}
+                                value={sizingParams.flowRate}
                                 onChange={(e) => {
-                                  const val = e.target.value === "" ? 0 : Number(e.target.value);
+                                  const val = e.target.value === "" ? "" : Number(e.target.value);
                                   saveParams({ ...sizingParams, flowRate: val }, unitSystem, projectInfo);
                                 }}
-                                placeholder="e.g. 80"
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
+                                placeholder={unitSystem === "ip" ? "80" : "5.0"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
 
@@ -721,13 +715,13 @@ function ChwPipeSizerPage() {
                               <input
                                 type="number"
                                 step="any"
-                                value={sizingParams.temperature || ""}
+                                value={sizingParams.temperature}
                                 onChange={(e) => {
-                                  const val = e.target.value === "" ? 0 : Number(e.target.value);
+                                  const val = e.target.value === "" ? "" : Number(e.target.value);
                                   saveParams({ ...sizingParams, temperature: val }, unitSystem, projectInfo);
                                 }}
-                                placeholder={unitSystem === "ip" ? "e.g. 44" : "e.g. 7"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
+                                placeholder={unitSystem === "ip" ? "44" : "6.7"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
 
@@ -759,13 +753,13 @@ function ChwPipeSizerPage() {
                               <input
                                 type="number"
                                 step="any"
-                                value={sizingParams.targetDp || ""}
+                                value={sizingParams.targetDp}
                                 onChange={(e) => {
-                                  const val = e.target.value === "" ? 0 : Number(e.target.value);
+                                  const val = e.target.value === "" ? "" : Number(e.target.value);
                                   saveParams({ ...sizingParams, targetDp: val }, unitSystem, projectInfo);
                                 }}
-                                placeholder="e.g. 4.0"
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
+                                placeholder={unitSystem === "ip" ? "4.0" : "40"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                           </div>

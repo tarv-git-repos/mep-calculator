@@ -39,16 +39,16 @@ function ChwPumpHeadPage() {
 
   // State matching the calculation variables
   const [sizingParams, setSizingParams] = useState({
-    flowUsgpm: 500, // USGPM
-    flowLps: 31.5, // L/s
-    vertLength: 30, // m or ft
-    horizLength: 120, // m or ft
-    frictionFactor: 0.4, // bar/100m or psi/100ft
-    staticHead: 3.0, // bar or psi
-    residualPressure: 2.0, // bar or psi
-    suctionPressure: 0.0, // bar or psi
+    flowUsgpm: "" as number | "",
+    flowLps: "" as number | "",
+    vertLength: "" as number | "",
+    horizLength: "" as number | "",
+    frictionFactor: "" as number | "",
+    staticHead: "" as number | "",
+    residualPressure: "" as number | "",
+    suctionPressure: "" as number | "",
     safetyFactorHead: 5, // %
-    selectedHead: 0, // bar or psi (override)
+    selectedHead: "" as number | "", // bar or psi (override)
     effMotor: 85, // %
     effPump: 70, // %
   });
@@ -120,10 +120,18 @@ function ChwPumpHeadPage() {
   const calculatedData = useMemo(() => {
     const ip = unitSystem === "ip";
     
+    const flowGpm = sizingParams.flowUsgpm !== "" ? Number(sizingParams.flowUsgpm) : (ip ? 500 : 500);
+    const vertL = sizingParams.vertLength !== "" ? Number(sizingParams.vertLength) : (ip ? 100 : 30);
+    const horizL = sizingParams.horizLength !== "" ? Number(sizingParams.horizLength) : (ip ? 400 : 120);
+    const ff = sizingParams.frictionFactor !== "" ? Number(sizingParams.frictionFactor) : (ip ? 1.77 : 0.4);
+    const statH = sizingParams.staticHead !== "" ? Number(sizingParams.staticHead) : (ip ? 43.5 : 3.0);
+    const resP = sizingParams.residualPressure !== "" ? Number(sizingParams.residualPressure) : (ip ? 29 : 2.0);
+    const sucP = sizingParams.suctionPressure !== "" ? Number(sizingParams.suctionPressure) : 0.0;
+
     // Normalized internal calculation values in Metric base (m, bar, L/s)
-    const L_vert_m = ip ? sizingParams.vertLength / 3.28084 : sizingParams.vertLength;
-    const L_horiz_m = ip ? sizingParams.horizLength / 3.28084 : sizingParams.horizLength;
-    const Q_flow = (sizingParams.flowUsgpm * 3.78) / 60; // L/s
+    const L_vert_m = ip ? vertL / 3.28084 : vertL;
+    const L_horiz_m = ip ? horizL / 3.28084 : horizL;
+    const Q_flow = (flowGpm * 3.78) / 60; // L/s
 
     // Elbows & Reducers and Isolation Valves calculated dynamically: (vertical + horizontal) * 0.3
     const L_elbows_m = (L_vert_m + L_horiz_m) * 0.3;
@@ -133,12 +141,12 @@ function ChwPumpHeadPage() {
     const L_sum_m = L_vert_m + L_horiz_m + L_elbows_m + L_valves_m;
     const L_equiv_m = Math.ceil((L_sum_m * 1.05) / 10) * 10;
 
-    const ff_metric = ip ? sizingParams.frictionFactor / 4.4207 : sizingParams.frictionFactor;
+    const ff_metric = ip ? ff / 4.4207 : ff;
     const H_loss_bar = L_equiv_m * (ff_metric / 100);
 
-    const H_static_bar = ip ? sizingParams.staticHead / 14.50377 : sizingParams.staticHead;
-    const H_outlet_bar = ip ? sizingParams.residualPressure / 14.50377 : sizingParams.residualPressure;
-    const H_suction_bar = ip ? sizingParams.suctionPressure / 14.50377 : sizingParams.suctionPressure;
+    const H_static_bar = ip ? statH / 14.50377 : statH;
+    const H_outlet_bar = ip ? resP / 14.50377 : resP;
+    const H_suction_bar = ip ? sucP / 14.50377 : sucP;
 
     const H_pump_calc_bar = Math.max(0, (H_loss_bar + H_static_bar + H_outlet_bar) - H_suction_bar) * (1 + sizingParams.safetyFactorHead / 100);
 
@@ -555,13 +563,17 @@ function ChwPumpHeadPage() {
                           <div className="grid grid-cols-2 gap-4 items-center font-sans">
                             <div>
                               <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Flow Rate (GPM)
+                                Flow Rate ({unitSystem === "ip" ? "GPM" : "L/s"})
                               </label>
                               <input
                                 type="number"
                                 value={sizingParams.flowUsgpm}
-                                onChange={(e) => saveParams({ ...sizingParams, flowUsgpm: Number(e.target.value), flowLps: Number((Number(e.target.value) * 3.78 / 60).toFixed(2)) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : Number(e.target.value);
+                                  saveParams({ ...sizingParams, flowUsgpm: val, flowLps: val !== "" ? Number((Number(val) * 3.78 / 60).toFixed(2)) : "" }, unitSystem, projectInfo);
+                                }}
+                                placeholder={unitSystem === "ip" ? "500" : "31.5"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                             <div>
@@ -587,8 +599,9 @@ function ChwPumpHeadPage() {
                                   type="number"
                                   step="0.05"
                                   value={sizingParams.frictionFactor}
-                                  onChange={(e) => saveParams({ ...sizingParams, frictionFactor: Number(e.target.value) }, unitSystem, projectInfo)}
-                                  className="w-9 bg-transparent text-[#06456F] text-center outline-none border-none p-0 focus:ring-0 font-bold font-mono"
+                                  onChange={(e) => saveParams({ ...sizingParams, frictionFactor: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                  placeholder={unitSystem === "ip" ? "1.77" : "0.4"}
+                                  className="w-9 bg-transparent text-[#06456F] text-center outline-none border-none p-0 focus:ring-0 font-bold font-mono placeholder:text-muted-foreground/45"
                                 />
                               </div>
                               <span className="text-[10px] font-semibold">{unitSystem === "ip" ? "psi/100ft" : "bar/100m length"}</span>
@@ -603,8 +616,9 @@ function ChwPumpHeadPage() {
                               <input
                                 type="number"
                                 value={sizingParams.vertLength}
-                                onChange={(e) => saveParams({ ...sizingParams, vertLength: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => saveParams({ ...sizingParams, vertLength: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                placeholder={unitSystem === "ip" ? "100" : "30"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                             <div>
@@ -614,8 +628,9 @@ function ChwPumpHeadPage() {
                               <input
                                 type="number"
                                 value={sizingParams.horizLength}
-                                onChange={(e) => saveParams({ ...sizingParams, horizLength: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => saveParams({ ...sizingParams, horizLength: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                placeholder={unitSystem === "ip" ? "400" : "120"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                           </div>
@@ -655,6 +670,7 @@ function ChwPumpHeadPage() {
                               <div className="text-sm font-bold mt-1 text-slate-800 dark:text-slate-100">
                                 {calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}
                               </div>
+                            </div>
                             <div>
                               <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
                                 Static Head ({calculatedData.headUnit})
@@ -663,8 +679,9 @@ function ChwPumpHeadPage() {
                                 type="number"
                                 value={sizingParams.staticHead}
                                 step="0.1"
-                                onChange={(e) => saveParams({ ...sizingParams, staticHead: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => saveParams({ ...sizingParams, staticHead: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                placeholder={unitSystem === "ip" ? "43.5" : "3.0"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                           </div>
@@ -678,8 +695,9 @@ function ChwPumpHeadPage() {
                                 type="number"
                                 value={sizingParams.residualPressure}
                                 step="0.1"
-                                onChange={(e) => saveParams({ ...sizingParams, residualPressure: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => saveParams({ ...sizingParams, residualPressure: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                placeholder={unitSystem === "ip" ? "29.0" : "2.0"}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                             <div>
@@ -690,8 +708,9 @@ function ChwPumpHeadPage() {
                                 type="number"
                                 value={sizingParams.suctionPressure}
                                 step="0.1"
-                                onChange={(e) => saveParams({ ...sizingParams, suctionPressure: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-blue-50/40/50 dark:bg-orange-950/20 text-[#06456F] border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => saveParams({ ...sizingParams, suctionPressure: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                placeholder="0.0"
+                                className="w-full bg-blue-50/40/50 dark:bg-orange-950/20 text-[#06456F] border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                           </div>
@@ -704,8 +723,9 @@ function ChwPumpHeadPage() {
                               <input
                                 type="number"
                                 value={sizingParams.safetyFactorHead}
-                                onChange={(e) => saveParams({ ...sizingParams, safetyFactorHead: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => saveParams({ ...sizingParams, safetyFactorHead: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                placeholder="5"
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                             <div>
@@ -714,10 +734,10 @@ function ChwPumpHeadPage() {
                               </label>
                               <input
                                 type="number"
-                                value={sizingParams.selectedHead || ""}
+                                value={sizingParams.selectedHead}
                                 placeholder="Same as calculated head if left blank"
-                                onChange={(e) => saveParams({ ...sizingParams, selectedHead: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none"
+                                onChange={(e) => saveParams({ ...sizingParams, selectedHead: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
                               />
                             </div>
                           </div>
@@ -727,7 +747,6 @@ function ChwPumpHeadPage() {
                             <div className="text-base font-extrabold mt-1 text-[#0A7BC7]">
                               {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}
                             </div>
-                          </div>
                           </div>
                         </div>
 

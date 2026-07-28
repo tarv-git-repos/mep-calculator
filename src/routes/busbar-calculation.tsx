@@ -91,6 +91,10 @@ function BusbarCalculationPage() {
     }];
   });
 
+  useEffect(() => {
+    localStorage.setItem("mep-busbar-calculation-v1", JSON.stringify(panels));
+  }, [panels]);
+
   const [customBusbars, setCustomBusbars] = useState<Record<string, { r: number; x: number; label: string }>>({});
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [collapsedPanels, setCollapsedPanels] = useState<Set<string>>(new Set());
@@ -283,6 +287,15 @@ function BusbarCalculationPage() {
 
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedRows.size > 0) {
+          e.preventDefault();
+          setSelectedRows(new Set());
+          setLastSelectedRowId(null);
+        }
+        return;
+      }
+
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') return;
 
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
@@ -293,10 +306,6 @@ function BusbarCalculationPage() {
         const allIds = new Set<string>();
         panels.forEach(p => p.sections.forEach(s => s.rows.forEach(r => allIds.add(r.id))));
         setSelectedRows(allIds);
-      }
-      
-      if (e.key === 'Escape') {
-        setSelectedRows(new Set());
       }
       
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -638,6 +647,23 @@ function BusbarCalculationPage() {
       };
     });
   }, [panels, ALL_BUSBAR_DATA, unitSystem]);
+
+  useEffect(() => {
+    const vdMap: Record<string, number> = {};
+    calculatedPanels.forEach(p => {
+      p.calcSections.forEach(s => {
+        s.calcRows.forEach(r => {
+          if (r.desc) {
+            vdMap[r.desc.trim()] = r.cumulativeVdPercent;
+          }
+        });
+        if (s.name) {
+          vdMap[s.name.trim()] = s.totalCumulativeVd;
+        }
+      });
+    });
+    localStorage.setItem("mep-busbar-calculated-vd-v1", JSON.stringify(vdMap));
+  }, [calculatedPanels]);
 
   const flatCalculatedSections = useMemo(() => {
     return calculatedPanels.flatMap(p => p.calcSections.map(s => ({ ...s, panelName: p.name })));

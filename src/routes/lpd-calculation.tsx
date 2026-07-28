@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { Plus, Trash2, Search, Download, Trash, Upload, FolderKanban, ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { useConfirm } from "@/hooks/use-confirm";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { cn } from "@/lib/utils";
 import { exportLpdExcel } from "../lib/exportLpdExcel";
 
@@ -285,6 +285,7 @@ function LPDCalculationPage() {
   const [currentProjectId, setCurrentProjectId] = useState<string>(projects[0].id);
   const [authorityMapping, setAuthorityMapping] = useState<Record<string, number>>(DEFAULT_AUTHORITY_MAPPING_SQM);
   const confirm = useConfirm();
+  const prompt = usePrompt();
 
   // Load from local storage
   useEffect(() => {
@@ -586,12 +587,12 @@ function LPDCalculationPage() {
                                       <select
                                         className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 cursor-pointer font-medium text-[12.5px] transition-colors"
                                         value={space.areaType || ""}
-                                        onChange={e => {
+                                        onChange={async e => {
                                           const val = e.target.value;
                                           if (val === "ADD_NEW") {
-                                            const newArea = prompt("Enter new Area Name:");
+                                            const newArea = await prompt("Enter new Area Name:", "", { title: "New Area Name" });
                                             if (newArea) {
-                                              const newLpdStr = prompt(`Enter Baseline LPD for '${newArea}' (W/Sq.M):`);
+                                              const newLpdStr = await prompt(`Enter Baseline LPD for '${newArea}' (W/Sq.M):`, "", { title: "Baseline LPD" });
                                               if (newLpdStr && !isNaN(Number(newLpdStr))) {
                                                 const newLpd = Number(newLpdStr);
                                                 const newMap = { ...authorityMapping, [newArea]: newLpd };

@@ -93,13 +93,20 @@ function CondensateDrainCalcPage() {
     }
   };
 
-  const [newCoil, setNewCoil] = useState({
+  const [newCoil, setNewCoil] = useState<{
+    name: string;
+    dbIn: number | "";
+    wbIn: number | "";
+    dbOut: number | "";
+    wbOut: number | "";
+    flow: number | "";
+  }>({
     name: "",
-    dbIn: 24.0,
-    wbIn: 17.0,
-    dbOut: 14.0,
-    wbOut: 13.0,
-    flow: 500
+    dbIn: "",
+    wbIn: "",
+    dbOut: "",
+    wbOut: "",
+    flow: ""
   });
 
   const ip = unitSystem === "ip";
@@ -123,11 +130,11 @@ function CondensateDrainCalcPage() {
 
     setNewCoil(prev => ({
       ...prev,
-      dbIn: Number(convT(prev.dbIn).toFixed(1)),
-      wbIn: Number(convT(prev.wbIn).toFixed(1)),
-      dbOut: Number(convT(prev.dbOut).toFixed(1)),
-      wbOut: Number(convT(prev.wbOut).toFixed(1)),
-      flow: Number(convF(prev.flow).toFixed(0))
+      dbIn: prev.dbIn !== "" ? Number(convT(Number(prev.dbIn)).toFixed(1)) : "",
+      wbIn: prev.wbIn !== "" ? Number(convT(Number(prev.wbIn)).toFixed(1)) : "",
+      dbOut: prev.dbOut !== "" ? Number(convT(Number(prev.dbOut)).toFixed(1)) : "",
+      wbOut: prev.wbOut !== "" ? Number(convT(Number(prev.wbOut)).toFixed(1)) : "",
+      flow: prev.flow !== "" ? Number(convF(Number(prev.flow)).toFixed(0)) : ""
     }));
   };
 
@@ -170,13 +177,22 @@ function CondensateDrainCalcPage() {
   const handleAddCoil = () => {
     if (!newCoil.name) return;
     const id = "coil-" + Date.now();
-    setRows([...rows, { ...newCoil, id }]);
+    const dbIn = newCoil.dbIn !== "" ? Number(newCoil.dbIn) : (ip ? 75.2 : 24.0);
+    const wbIn = newCoil.wbIn !== "" ? Number(newCoil.wbIn) : (ip ? 62.6 : 17.0);
+    const dbOut = newCoil.dbOut !== "" ? Number(newCoil.dbOut) : (ip ? 57.2 : 14.0);
+    const wbOut = newCoil.wbOut !== "" ? Number(newCoil.wbOut) : (ip ? 55.4 : 13.0);
+    const flow = newCoil.flow !== "" ? Number(newCoil.flow) : (ip ? 1000 : 500);
+
+    setRows([...rows, { id, name: newCoil.name, dbIn, wbIn, dbOut, wbOut, flow }]);
     dirtyStore.set(true);
-    setNewCoil(prev => ({
-      ...prev,
+    setNewCoil({
       name: "",
-      flow: prev.flow
-    }));
+      dbIn: "",
+      wbIn: "",
+      dbOut: "",
+      wbOut: "",
+      flow: ""
+    });
   };
 
   const handleDeleteCoil = (id: string) => {
@@ -262,23 +278,23 @@ function CondensateDrainCalcPage() {
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">On DB ({uTemp})</label>
-                    <input type="number" value={newCoil.dbIn} onChange={e => setNewCoil({ ...newCoil, dbIn: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                    <input type="number" value={newCoil.dbIn} placeholder={ip ? "75.2" : "24.0"} onChange={e => setNewCoil({ ...newCoil, dbIn: e.target.value === "" ? "" : Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">On WB ({uTemp})</label>
-                    <input type="number" value={newCoil.wbIn} onChange={e => setNewCoil({ ...newCoil, wbIn: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                    <input type="number" value={newCoil.wbIn} placeholder={ip ? "62.6" : "17.0"} onChange={e => setNewCoil({ ...newCoil, wbIn: e.target.value === "" ? "" : Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">Off DB ({uTemp})</label>
-                    <input type="number" value={newCoil.dbOut} onChange={e => setNewCoil({ ...newCoil, dbOut: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                    <input type="number" value={newCoil.dbOut} placeholder={ip ? "57.2" : "14.0"} onChange={e => setNewCoil({ ...newCoil, dbOut: e.target.value === "" ? "" : Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="w-20 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">Off WB ({uTemp})</label>
-                    <input type="number" value={newCoil.wbOut} onChange={e => setNewCoil({ ...newCoil, wbOut: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                    <input type="number" value={newCoil.wbOut} placeholder={ip ? "55.4" : "13.0"} onChange={e => setNewCoil({ ...newCoil, wbOut: e.target.value === "" ? "" : Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="w-24 flex flex-col gap-1">
                     <label className="font-semibold text-muted-foreground font-sans">Airflow</label>
-                    <input type="number" value={newCoil.flow} onChange={e => setNewCoil({ ...newCoil, flow: Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                    <input type="number" value={newCoil.flow} placeholder={ip ? "1000" : "500"} onChange={e => setNewCoil({ ...newCoil, flow: e.target.value === "" ? "" : Number(e.target.value) })} className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <button onClick={handleAddCoil} className="bg-[#0A7BC7] text-white px-4 py-2 font-bold rounded-lg hover:bg-[#06456F] cursor-pointer flex items-center gap-1"><Plus className="size-3.5" /> Add</button>
                 </div>

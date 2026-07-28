@@ -4,7 +4,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { Download, FileSpreadsheet, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info } from "lucide-react";
-import { useConfirm } from "@/hooks/use-confirm";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -73,6 +73,7 @@ const STANDARD_SIZES = [
 
 function GeneratorSizingPage() {
   const confirm = useConfirm();
+  const prompt = usePrompt();
 
   const [projects, setProjects] = useState<Record<string, GenRow[]>>({ "Default Project": [] });
   const [currentProject, setCurrentProject] = useState<string>("Default Project");
@@ -287,6 +288,19 @@ function GeneratorSizingPage() {
     setDraggedRowIndex(index);
     pushState(newRows);
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectedRows.size > 0) {
+          e.preventDefault();
+          clearSelection();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedRows, clearSelection]);
 
   const handleDrop = () => setDraggedRowIndex(null);
 
@@ -804,8 +818,8 @@ function GeneratorSizingPage() {
     pushState(newRows);
   };
 
-  const createNewProject = () => {
-    const name = prompt("Enter new project name:");
+  const createNewProject = async () => {
+    const name = await prompt("Enter new project name:", "", { title: "New Project" });
     if (name && !projects[name]) {
       setProjects((p) => ({ ...p, [name]: [] }));
       setCurrentProject(name);

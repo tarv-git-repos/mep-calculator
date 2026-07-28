@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import {
   FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, FileCode,
-  MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle
+  MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search,
+  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -42,6 +43,7 @@ function ProjectsPage() {
 
   const [editingProj, setEditingProj] = useState<Project | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const filteredProjects = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -115,264 +117,514 @@ function ProjectsPage() {
     return map;
   }, [projects]);
 
+  const totalStats = useMemo(() => {
+    let spaces = 0;
+    let zones = 0;
+    let equipment = 0;
+    Object.values(statsMap).forEach((stat) => {
+      spaces += stat.spaces;
+      zones += stat.zones;
+      equipment += stat.equipment;
+    });
+    return { spaces, zones, equipment };
+  }, [statsMap]);
+
   return (
     <AppShell title="Projects" subtitle={`${projects.length} workspaces`}>
-      <div className="grid grid-cols-[1fr_360px] h-full overflow-hidden">
-        {/* Left Side: Projects List */}
-        <div className="border-r border-border flex flex-col min-h-0 bg-surface-2 p-6 overflow-y-auto">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-[16px] font-semibold tracking-tight">Active Workspaces</h2>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search projects..."
-              className="h-8 w-60 px-3 bg-background border border-border focus:border-border-strong rounded text-[12px] outline-none"
-            />
+      <div className="flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden bg-background">
+        
+        {/* Left Side: Projects List & Control Center Dashboard */}
+        <div className="flex-1 flex flex-col min-h-0 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
+          
+          <div className="flex flex-col gap-1 mb-6 select-none">
+            <h1 className="text-[20px] font-black text-foreground tracking-tight">Project Control Center</h1>
+            <p className="text-[12.5px] text-muted-foreground font-semibold">
+              Manage your MEP calculation scopes, workspace metrics, and project environments
+            </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Quick Metrics Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 select-none">
+            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
+              <div className="p-2.5 bg-primary/10 text-primary rounded-xl shrink-0">
+                <FolderKanban className="size-5" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Workspaces</span>
+                <span className="text-[18px] font-black text-foreground font-mono">{projects.length}</span>
+              </div>
+            </div>
+            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
+              <div className="p-2.5 bg-blue-500/10 text-blue-500 rounded-xl shrink-0">
+                <Boxes className="size-5" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Spaces</span>
+                <span className="text-[18px] font-black text-foreground font-mono">{totalStats.spaces}</span>
+              </div>
+            </div>
+            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
+              <div className="p-2.5 bg-purple-500/10 text-purple-500 rounded-xl shrink-0">
+                <LayoutDashboard className="size-5" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Zones</span>
+                <span className="text-[18px] font-black text-foreground font-mono">{totalStats.zones}</span>
+              </div>
+            </div>
+            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
+              <div className="p-2.5 bg-pink-500/10 text-pink-500 rounded-xl shrink-0">
+                <Wind className="size-5" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Active ID</span>
+                <span className="text-[14px] font-black text-primary font-mono truncate max-w-[120px]">{activeProject.code}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 mb-5 select-none">
+            <div className="flex flex-col gap-0.5">
+              <h2 className="font-extrabold text-foreground/90 uppercase tracking-widest text-[11px]">Workspaces List</h2>
+              <p className="text-[11.5px] text-muted-foreground font-medium">Select a project to load it into the active calculator</p>
+            </div>
+            <div className="relative shrink-0">
+              <Search className="absolute left-3.5 top-3 size-4 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search workspaces..."
+                className="h-10 w-60 pl-10 pr-4 bg-card border border-border/80 focus:border-primary/80 focus:ring-1 focus:ring-primary/20 rounded-2xl text-[12.5px] outline-none transition-all duration-150 font-sans shadow-xs text-foreground"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-7xl">
             {filteredProjects.map((p) => {
               const isActive = p.id === activeProjectId;
               const stats = statsMap[p.id] || { spaces: 0, zones: 0, equipment: 0 };
               return (
                 <div
                   key={p.id}
-                  className={`border rounded-lg p-4 flex flex-col justify-between transition-all bg-background relative overflow-hidden group ${
+                  className={`border rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 bg-card relative overflow-hidden group shadow-sm hover:shadow-md hover:-translate-y-0.5 ${
                     isActive
-                      ? "border-primary shadow-md ring-1 ring-primary/30"
-                      : "border-border hover:border-border-strong hover:shadow-sm"
+                      ? "border-primary ring-1 ring-primary/20 bg-primary/[0.01]"
+                      : "border-border hover:border-border-strong"
                   }`}
                 >
                   {isActive && (
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-accent" />
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-primary" />
                   )}
                   
-                  <div>
-                    <div className="flex items-start justify-between">
-                      <span className="font-mono text-[10px] text-muted-foreground bg-surface px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider">
+                  <div className="flex flex-col gap-3.5">
+                    {/* Header */}
+                    <div className="flex items-center justify-between gap-4 select-none">
+                      <span className="font-mono text-[9px] text-primary bg-primary/5 dark:bg-primary/10 border border-primary/25 px-2 py-0.5 rounded font-bold uppercase tracking-widest">
                         {p.code}
                       </span>
-                      {isActive && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary">
-                          <CheckCircle2 className="size-3" /> Active
+                      {isActive ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-primary">
+                          <CheckCircle2 className="size-3.5" /> Active
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground font-medium">
+                          Inactive
                         </span>
                       )}
                     </div>
-                    <h3 className="mt-2 text-[14px] font-semibold tracking-tight leading-snug group-hover:text-primary transition-colors">
-                      {p.name}
-                    </h3>
-                    <div className="mt-1 flex flex-col gap-1 text-[11px] text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <User className="size-3 shrink-0" />
-                        <span>Client: {p.client}</span>
-                      </div>
-                      {p.location && (
-                        <div className="flex items-center gap-1.5">
-                          <MapPin className="size-3 shrink-0" />
-                          <span>{p.location}</span>
+
+                    {/* Name */}
+                    <div>
+                      <h3 className="text-[14.5px] font-bold tracking-tight leading-snug group-hover:text-primary transition-colors text-foreground">
+                        {p.name}
+                      </h3>
+                      <div className="mt-2 flex flex-col gap-1.5 text-[11.5px] text-muted-foreground font-semibold">
+                        <div className="flex items-center gap-2">
+                          <User className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
+                          <span>Client: <strong className="text-foreground/80 font-bold">{p.client}</strong></span>
                         </div>
-                      )}
+                        {p.location && (
+                          <div className="flex items-center gap-2">
+                            <MapPin className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
+                            <span>{p.location}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Calendar className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
+                          <span>Modified: <span className="text-foreground/75 font-mono">2 hours ago</span></span>
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Description block */}
                     {p.description && (
-                      <p className="mt-3 text-[11.5px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      <p className="text-[11.5px] text-muted-foreground leading-relaxed font-normal bg-slate-50/50 dark:bg-zinc-800/10 p-3.5 rounded-[18px] border border-border/40 line-clamp-2">
                         {p.description}
                       </p>
                     )}
+
+                    {/* Metric Tiles */}
+                    <div className="grid grid-cols-3 gap-2.5 pt-1 select-none">
+                      <div className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-2 border border-border/40 text-center gap-0.5">
+                        <span className="text-[12px] font-bold text-foreground font-mono">{stats.spaces}</span>
+                        <span className="text-[8.5px] text-muted-foreground font-bold uppercase tracking-wider">Spaces</span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-2 border border-border/40 text-center gap-0.5">
+                        <span className="text-[12px] font-bold text-foreground font-mono">{stats.zones}</span>
+                        <span className="text-[8.5px] text-muted-foreground font-bold uppercase tracking-wider">Zones</span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-2 border border-border/40 text-center gap-0.5">
+                        <span className="text-[12px] font-bold text-foreground font-mono">{stats.equipment}</span>
+                        <span className="text-[8.5px] text-muted-foreground font-bold uppercase tracking-wider">Equip</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-border/60 flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground font-medium tabular-nums">
-                      {stats.spaces} spaces · {stats.zones} zones
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {!isActive && (
-                        <button
-                          onClick={() => selectProject(p.id)}
-                          className="size-7 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary flex items-center justify-center transition-colors"
-                          title="Open Project"
-                        >
-                          <Play className="size-3.5 fill-current" />
-                        </button>
-                      )}
+                  <div className="mt-5 pt-3.5 border-t border-border/50 flex items-center justify-end gap-1.5">
+                    {!isActive ? (
                       <button
-                        onClick={() => duplicateProject(p.id)}
-                        className="size-7 rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
-                        title="Duplicate"
+                        onClick={() => selectProject(p.id)}
+                        className="flex-1 h-8.5 rounded-lg bg-primary text-primary-foreground font-bold hover:bg-primary/95 flex items-center justify-center gap-1.5 transition-all cursor-pointer text-[11.5px] shadow-sm shadow-primary/5"
+                        title="Open Project"
                       >
-                        <Copy className="size-3.5" />
+                        <Play className="size-3 fill-current" /> Open Workspace
                       </button>
-                      <button
-                        onClick={() => setEditingProj(p)}
-                        className="size-7 rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
-                        title="Edit Details"
-                      >
-                        <Edit3 className="size-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirmId(p.id)}
-                        className="size-7 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive flex items-center justify-center transition-colors"
-                        title="Delete Workspace"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
+                    ) : (
+                      <span className="flex-1 text-[11px] text-muted-foreground font-bold italic select-none pl-1">
+                        Currently editing
+                      </span>
+                    )}
+                    <button
+                      onClick={() => duplicateProject(p.id)}
+                      className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center justify-center transition-all cursor-pointer"
+                      title="Duplicate"
+                    >
+                      <Copy className="size-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setEditingProj(p)}
+                      className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center justify-center transition-all cursor-pointer"
+                      title="Edit Details"
+                    >
+                      <Edit3 className="size-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirmId(p.id)}
+                      className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-destructive hover:bg-destructive/5 flex items-center justify-center transition-all cursor-pointer"
+                      title="Delete Workspace"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Empty state if no projects match */}
+          {filteredProjects.length === 0 && (
+            <div className="text-center py-16 bg-card border border-dashed border-border rounded-[28px] p-8 max-w-md mx-auto mt-8 flex flex-col items-center gap-4">
+              <FolderKanban className="size-12 text-muted-foreground" />
+              <div>
+                <p className="text-[14px] font-bold text-foreground">No workspaces found</p>
+                <p className="text-[12px] text-muted-foreground mt-1">Try refining your search term or create a new workspace.</p>
+              </div>
+              <button
+                onClick={() => setIsCreateOpen(true)}
+                className="px-5 py-2.5 bg-primary text-primary-foreground font-bold rounded-2xl hover:bg-primary/95 text-[12.5px] transition-all cursor-pointer shadow-sm shadow-primary/10"
+              >
+                Create a workspace
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Right Side: Create New Project Workspace */}
-        <div className="flex flex-col min-h-0 bg-background p-6">
-          <h2 className="text-[15px] font-semibold tracking-tight mb-4 flex items-center gap-2">
-            <Plus className="size-4 text-primary" /> Create New Workspace
-          </h2>
-          <form onSubmit={handleCreate} className="flex-1 flex flex-col justify-between text-xs">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-muted-foreground font-semibold">Project Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={newProject.name}
-                  onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                  placeholder="e.g. Dubai Mall Expansion"
-                  className="bg-surface-2 border border-border rounded px-3 py-2 outline-none focus:border-border-strong text-[12.5px]"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <label className="text-muted-foreground font-semibold">Project Code *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newProject.code}
-                    onChange={(e) => setNewProject({ ...newProject, code: e.target.value })}
-                    placeholder="e.g. DMX-2026"
-                    className="bg-surface-2 border border-border rounded px-3 py-2 outline-none focus:border-border-strong text-[12.5px] uppercase font-mono"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-muted-foreground font-semibold">Client Name</label>
-                  <input
-                    type="text"
-                    value={newProject.client}
-                    onChange={(e) => setNewProject({ ...newProject, client: e.target.value })}
-                    placeholder="e.g. Emaar"
-                    className="bg-surface-2 border border-border rounded px-3 py-2 outline-none focus:border-border-strong text-[12.5px]"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-muted-foreground font-semibold">Location</label>
-                <input
-                  type="text"
-                  value={newProject.location}
-                  onChange={(e) => setNewProject({ ...newProject, location: e.target.value })}
-                  placeholder="e.g. Dubai, UAE"
-                  className="bg-surface-2 border border-border rounded px-3 py-2 outline-none focus:border-border-strong text-[12.5px]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-muted-foreground font-semibold">Description</label>
-                <input
-                  type="text"
-                  value={newProject.description}
-                  onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                  placeholder="Brief scope summary..."
-                  className="bg-surface-2 border border-border rounded px-3 py-2 outline-none focus:border-border-strong text-[12.5px]"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-muted-foreground font-semibold">Design Code & Notes</label>
-                <textarea
-                  rows={4}
-                  value={newProject.notes}
-                  onChange={(e) => setNewProject({ ...newProject, notes: e.target.value })}
-                  placeholder="e.g. ASHRAE 62.1 Standard, Title 24..."
-                  className="bg-surface-2 border border-border rounded px-3 py-2 outline-none focus:border-border-strong text-[12.5px] resize-none"
-                />
+        {/* Right Side: Productivity Control Center Panel */}
+        <div className="w-full lg:w-[360px] border-t lg:border-t-0 lg:border-l border-border flex flex-col min-h-0 bg-surface-1 p-6 overflow-y-auto custom-scrollbar select-none">
+          <div className="flex flex-col gap-6">
+            
+            {/* Quick Actions */}
+            <div className="flex flex-col gap-3">
+              <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Quick Actions</h3>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  className="w-full bg-gradient-to-r from-primary to-accent hover:brightness-105 text-white font-bold h-10 rounded-xl transition-all shadow-md shadow-primary/10 flex items-center justify-center gap-1.5 cursor-pointer text-[12px]"
+                >
+                  <Plus className="size-4" /> Create New Workspace
+                </button>
+                <button
+                  onClick={() => selectProject(activeProject.id)}
+                  className="w-full bg-card border border-border text-foreground hover:bg-surface-2 font-bold h-10 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-[12px]"
+                >
+                  <Play className="size-3.5 fill-current text-primary" /> Continue Active Work
+                </button>
               </div>
             </div>
 
-            <div className="pt-6 border-t border-border mt-6">
-              <button
-                type="submit"
-                className="w-full bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-[12.5px] shadow"
-              >
-                Create Workspace
-              </button>
-              <p className="text-[10px] text-muted-foreground text-center mt-2.5 leading-normal">
-                Creating a workspace sets it as active and prepares a clean slate, ready for Excel imports.
+            {/* Recently Opened / Contributed */}
+            <div className="flex flex-col gap-3">
+              <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Recently Opened</h3>
+              <div className="flex flex-col gap-2.5">
+                {projects.slice(0, 3).map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() => selectProject(p.id)}
+                    className="flex items-center justify-between p-3 bg-card border border-border rounded-xl hover:bg-surface-2 transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 bg-primary/5 text-primary rounded-lg shrink-0">
+                        <Building2 className="size-4" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[12.5px] font-bold text-foreground truncate group-hover:text-primary transition-colors">{p.name}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">{p.code}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Recent Activity (Productivity Placeholders) */}
+            <div className="flex flex-col gap-3">
+              <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Recent Workspace Activity</h3>
+              <div className="flex flex-col gap-3">
+                <div className="flex gap-2.5 text-[12px] leading-relaxed">
+                  <div className="size-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-foreground">Assigned equipment to instances</span>
+                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">AHU-02 assigned in MBT-2026-117 · 10m ago</span>
+                  </div>
+                </div>
+                <div className="flex gap-2.5 text-[12px] leading-relaxed">
+                  <div className="size-2 rounded-full bg-purple-500 mt-1.5 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-foreground">Calculated ventilation balance</span>
+                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">Recalculated active air balance flow rate · 30m ago</span>
+                  </div>
+                </div>
+                <div className="flex gap-2.5 text-[12px] leading-relaxed">
+                  <div className="size-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-foreground">Renamed Zone</span>
+                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">Lounge zone renamed successfully · 2h ago</span>
+                  </div>
+                </div>
+                <div className="flex gap-2.5 text-[12px] leading-relaxed">
+                  <div className="size-2 rounded-full bg-slate-400 mt-1.5 shrink-0" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-foreground">Duplicated Workspace</span>
+                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">Cloned project structure MBT-2026-117 · Yesterday</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Tips */}
+            <div className="flex flex-col gap-2.5 p-4 bg-primary/[0.03] border border-primary/10 rounded-2xl select-none">
+              <div className="flex items-center gap-2 text-primary">
+                <HelpCircle className="size-4" />
+                <span className="font-bold text-[11px] uppercase tracking-wider font-sans">Quick Tip</span>
+              </div>
+              <p className="text-[11.5px] text-muted-foreground leading-relaxed font-sans">
+                Right-click on any project card or the header project dropdown to Rename, Duplicate, or Delete immediately without navigating away.
               </p>
             </div>
-          </form>
+            
+          </div>
         </div>
+
       </div>
+
+      {/* Create New Project Dialog */}
+      {isCreateOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border/80 rounded-[28px] shadow-2xl w-full max-w-lg flex flex-col overflow-hidden animate-scale-in text-xs">
+            <header className="px-6 py-5 border-b border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                  <Plus className="size-4.5" />
+                </div>
+                <h3 className="font-bold text-[16.5px] text-foreground tracking-tight font-sans">Create Workspace</h3>
+              </div>
+              <button onClick={() => setIsCreateOpen(false)} className="size-8.5 rounded-full hover:bg-surface-3 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-all duration-150">
+                <X className="size-4.5" />
+              </button>
+            </header>
+            
+            <form onSubmit={(e) => {
+              handleCreate(e);
+              setIsCreateOpen(false);
+            }} className="flex-1 flex flex-col justify-between">
+              <div className="p-6 flex flex-col gap-4 font-sans max-h-[60vh] overflow-y-auto custom-scrollbar">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Project Name *</label>
+                  <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
+                    <Building2 className="absolute left-3.5 top-3.5 size-4.5 text-muted-foreground/80 pointer-events-none" />
+                    <input
+                      type="text"
+                      required
+                      value={newProject.name}
+                      onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                      placeholder="e.g. Dubai Mall Expansion"
+                      className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-sans outline-none focus:outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none">Project Code *</label>
+                    <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
+                      <FileCode className="absolute left-3.5 top-3.5 size-4.5 text-muted-foreground/80 pointer-events-none" />
+                      <input
+                        type="text"
+                        required
+                        value={newProject.code}
+                        onChange={(e) => setNewProject({ ...newProject, code: e.target.value })}
+                        placeholder="e.g. DMX-2026"
+                        className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-mono uppercase tracking-wider outline-none focus:outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Client Name</label>
+                    <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
+                      <User className="absolute left-3.5 top-3.5 size-4.5 text-muted-foreground/80 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={newProject.client}
+                        onChange={(e) => setNewProject({ ...newProject, client: e.target.value })}
+                        placeholder="e.g. Emaar"
+                        className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-sans outline-none focus:outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Location</label>
+                  <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
+                    <MapPin className="absolute left-3.5 top-3.5 size-4.5 text-muted-foreground/80 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={newProject.location}
+                      onChange={(e) => setNewProject({ ...newProject, location: e.target.value })}
+                      placeholder="e.g. Dubai, UAE"
+                      className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-sans outline-none focus:outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Description</label>
+                  <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
+                    <FileText className="absolute left-3.5 top-3.5 size-4.5 text-muted-foreground/80 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={newProject.description}
+                      onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                      placeholder="Brief scope summary..."
+                      className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-sans outline-none focus:outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Design Code & Notes</label>
+                  <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
+                    <HelpCircle className="absolute left-3.5 top-3.5 size-4.5 text-muted-foreground/80 pointer-events-none" />
+                    <textarea
+                      rows={4}
+                      value={newProject.notes}
+                      onChange={(e) => setNewProject({ ...newProject, notes: e.target.value })}
+                      placeholder="e.g. ASHRAE 62.1 Standard, Title 24..."
+                      className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-sans resize-none outline-none focus:outline-none transition-all"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-end gap-3 bg-card/60 backdrop-blur-xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateOpen(false)}
+                  className="border border-border/80 text-xs px-5 py-2.5 rounded-2xl hover:bg-surface-2 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all duration-150 font-sans"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="bg-primary text-primary-foreground text-xs font-bold px-6 py-2.5 rounded-2xl hover:bg-primary/95 transition-all cursor-pointer shadow-md shadow-primary/10"
+                >
+                  Create Workspace
+                </button>
+              </footer>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Edit Details Overlay */}
       {editingProj && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-sm animate-scale-in">
-            <header className="px-4 py-3 border-b border-border flex items-center justify-between bg-header-bg">
-              <h3 className="font-semibold text-[14px]">Edit Project Details</h3>
-              <button onClick={() => setEditingProj(null)} className="text-muted-foreground hover:text-foreground">
-                <X className="size-4" />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border/80 rounded-[28px] shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-scale-in text-xs">
+            <header className="px-6 py-5 border-b border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
+              <h3 className="font-bold text-[16px] text-foreground tracking-tight">Edit Project Details</h3>
+              <button onClick={() => setEditingProj(null)} className="size-8.5 rounded-full hover:bg-surface-3 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-all duration-150">
+                <X className="size-4.5" />
               </button>
             </header>
-            <div className="p-4 flex flex-col gap-3 text-xs">
+            <div className="p-6 flex flex-col gap-4 font-sans">
               <div>
-                <label className="block text-muted-foreground font-semibold mb-1">Project Name</label>
+                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">Project Name</label>
                 <input
                   type="text"
                   value={editingProj.name}
                   onChange={(e) => setEditingProj({ ...editingProj, name: e.target.value })}
-                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none focus:border-border-strong text-[12.5px]"
+                  className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                 />
               </div>
               <div>
-                <label className="block text-muted-foreground font-semibold mb-1">Project Code</label>
+                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">Project Code</label>
                 <input
                   type="text"
                   value={editingProj.code}
                   onChange={(e) => setEditingProj({ ...editingProj, code: e.target.value.toUpperCase() })}
-                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none focus:border-border-strong text-[12.5px] uppercase font-mono"
+                  className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-mono uppercase tracking-wider transition-all duration-150"
                 />
               </div>
               <div>
-                <label className="block text-muted-foreground font-semibold mb-1">Client Name</label>
+                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">Client Name</label>
                 <input
                   type="text"
                   value={editingProj.client}
                   onChange={(e) => setEditingProj({ ...editingProj, client: e.target.value })}
-                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none focus:border-border-strong text-[12.5px]"
+                  className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                 />
               </div>
               <div>
-                <label className="block text-muted-foreground font-semibold mb-1">Location</label>
+                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">Location</label>
                 <input
                   type="text"
                   value={editingProj.location || ""}
                   onChange={(e) => setEditingProj({ ...editingProj, location: e.target.value })}
-                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none focus:border-border-strong text-[12.5px]"
+                  className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                 />
               </div>
             </div>
-            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+            <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-end gap-3 bg-card/60 backdrop-blur-xs">
               <button
                 onClick={() => setEditingProj(null)}
-                className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2 font-medium"
+                className="border border-border/80 text-xs px-5 py-2.5 rounded-2xl hover:bg-surface-2 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all duration-150"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveEdit}
-                className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 shadow"
+                className="bg-primary text-primary-foreground text-xs font-bold px-6 py-2.5 rounded-2xl hover:bg-primary/95 transition-all cursor-pointer shadow-md shadow-primary/10"
               >
                 Save Details
               </button>
@@ -383,27 +635,29 @@ function ProjectsPage() {
 
       {/* Delete Confirmation Overlay */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 bg-background/85 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-sm animate-scale-in">
-            <header className="px-4 py-3 border-b border-border flex items-center justify-between bg-header-bg">
-              <h3 className="font-semibold text-[14px] text-destructive">Delete Workspace?</h3>
-              <button onClick={() => setDeleteConfirmId(null)} className="text-muted-foreground hover:text-foreground">
-                <X className="size-4" />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border/80 rounded-[28px] shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-scale-in text-xs">
+            <header className="px-6 py-5 border-b border-border/50 flex items-center justify-between bg-destructive/[0.03] backdrop-blur-xs">
+              <h3 className="font-bold text-[16px] text-destructive tracking-tight font-sans">Delete Workspace?</h3>
+              <button onClick={() => setDeleteConfirmId(null)} className="size-8.5 rounded-full hover:bg-destructive/10 flex items-center justify-center text-muted-foreground hover:text-destructive cursor-pointer transition-all duration-150">
+                <X className="size-4.5" />
               </button>
             </header>
-            <div className="p-4 flex gap-3 text-xs">
-              <AlertTriangle className="size-8 text-destructive shrink-0 mt-0.5" />
-              <div className="flex flex-col gap-1.5 leading-relaxed">
-                <p className="font-semibold text-foreground">Are you sure you want to delete this workspace?</p>
-                <p className="text-muted-foreground text-[11px]">
+            <div className="p-6 flex gap-4 text-[12px] leading-relaxed font-sans">
+              <div className="size-11 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
+                <AlertTriangle className="size-5.5" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="font-bold text-foreground text-[13px]">Are you sure you want to delete this workspace?</p>
+                <p className="text-slate-500 dark:text-zinc-400 text-[11.5px] font-semibold leading-relaxed">
                   This will permanently clear all project metadata, spaces list, zones mapping, and equipment scheduling from local storage. This action cannot be undone.
                 </p>
               </div>
             </div>
-            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+            <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-end gap-3 bg-card/60 backdrop-blur-xs">
               <button
                 onClick={() => setDeleteConfirmId(null)}
-                className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2 font-medium"
+                className="border border-border/80 text-xs px-5 py-2.5 rounded-2xl hover:bg-surface-2 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all duration-150"
               >
                 Cancel
               </button>
@@ -412,7 +666,7 @@ function ProjectsPage() {
                   deleteProject(deleteConfirmId);
                   setDeleteConfirmId(null);
                 }}
-                className="bg-destructive text-destructive-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-destructive/95 shadow"
+                className="bg-destructive text-destructive-foreground text-xs font-bold px-6 py-2.5 rounded-2xl hover:bg-destructive/95 transition-all cursor-pointer shadow-md shadow-destructive/15"
               >
                 Confirm Delete
               </button>

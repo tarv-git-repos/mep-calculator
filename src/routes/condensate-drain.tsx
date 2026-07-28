@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { kwToTr, trToKw, kwToBtu, btuToKw, mToFt, ftToM } from "@/utils/conversions";
 import { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";

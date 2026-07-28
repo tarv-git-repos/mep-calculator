@@ -27,10 +27,10 @@ interface SavedCalculation {
 }
 
 function StaircasePressurizationPage() {
-  const [doorWidth, setDoorWidth] = useState<number>(1.0);
-  const [doorHeight, setDoorHeight] = useState<number>(2.1);
-  const [leakageRate, setLeakageRate] = useState<number>(0.03); // m³/s
-  const [closedDoors, setClosedDoors] = useState<number>(19);
+  const [doorWidth, setDoorWidth] = useState<number | "">("");
+  const [doorHeight, setDoorHeight] = useState<number | "">("");
+  const [leakageRate, setLeakageRate] = useState<number | "">(""); // m³/s
+  const [closedDoors, setClosedDoors] = useState<number | "">("");
   const [hasCalculated, setHasCalculated] = useState<boolean>(true); // default true for live calculations
 
   const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
@@ -60,15 +60,15 @@ function StaircasePressurizationPage() {
   const handleSaveCurrent = () => {
     if (!saveName.trim()) return;
     const newSave: SavedCalculation = {
-      id: "custom_calc_" + Date.now(),
-      type: "stair-press",
+      id: Date.now().toString(),
+      type: "Staircase Pressurization",
       name: saveName.trim(),
-      savedAt: new Date().toISOString(),
+      savedAt: new Date().toLocaleDateString(),
       values: {
         "sp-door-width": doorWidth,
         "sp-door-height": doorHeight,
-        "sp-leakage": leakageRate,
-        "sp-closed-doors": closedDoors
+        "sp-air-leakage": leakageRate,
+        "sp-closed-doors": closedDoors,
       }
     };
     const updated = [newSave, ...saves];
@@ -83,7 +83,7 @@ function StaircasePressurizationPage() {
     const v = target.values;
     if (v["sp-door-width"] !== undefined) setDoorWidth(Number(v["sp-door-width"]));
     if (v["sp-door-height"] !== undefined) setDoorHeight(Number(v["sp-door-height"]));
-    if (v["sp-leakage"] !== undefined) setLeakageRate(Number(v["sp-leakage"]));
+    if (v["sp-air-leakage"] !== undefined) setLeakageRate(Number(v["sp-air-leakage"]));
     if (v["sp-closed-doors"] !== undefined) setClosedDoors(Number(v["sp-closed-doors"]));
     setShowLoadModal(false);
   };
@@ -95,13 +95,18 @@ function StaircasePressurizationPage() {
   };
 
   const calculatedData = useMemo(() => {
-    const doorArea = doorWidth * doorHeight;
+    const wVal = doorWidth !== "" ? Number(doorWidth) : 1.0;
+    const hVal = doorHeight !== "" ? Number(doorHeight) : 2.1;
+    const leakVal = leakageRate !== "" ? Number(leakageRate) : 0.03;
+    const closedVal = closedDoors !== "" ? Number(closedDoors) : 19;
+
+    const doorArea = wVal * hVal;
     const openDoors = 2;
     const egressVelocity = 1; // m/s
     const safetyFactor = 0.15; // 15%
 
     const openFlow = doorArea * egressVelocity * openDoors;
-    const closedFlow = leakageRate * closedDoors;
+    const closedFlow = leakVal * closedVal;
     const safetyFlow = closedFlow * safetyFactor;
     const totalVol = openFlow + closedFlow + safetyFlow;
 
@@ -123,7 +128,7 @@ function StaircasePressurizationPage() {
       ["Door Width", `${doorWidth} m`],
       ["Door Height", `${doorHeight} m`],
       ["Door Area", `${calculatedData.doorArea.toFixed(4)} m²`],
-      ["Air Leakage per Closed Door", `${leakageRate.toFixed(4)} m³/s`],
+      ["Air Leakage per Closed Door", `${(Number(leakageRate) || 0.03).toFixed(4)} m³/s`],
       ["Number of Closed Doors", closedDoors],
       [],
       ["Calculation Results"],
@@ -180,19 +185,19 @@ function StaircasePressurizationPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Door Width (m)</label>
-                    <input type="number" step="any" value={doorWidth} onChange={(e) => setDoorWidth(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={doorWidth} onChange={(e) => setDoorWidth(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Door Height (m)</label>
-                    <input type="number" step="any" value={doorHeight} onChange={(e) => setDoorHeight(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={doorHeight} onChange={(e) => setDoorHeight(e.target.value === "" ? "" : Number(e.target.value))} placeholder="2.1" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Air Leakage rate at 12.5 Pa (m³/s)</label>
-                    <input type="number" step="any" value={leakageRate} onChange={(e) => setLeakageRate(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={leakageRate} onChange={(e) => setLeakageRate(e.target.value === "" ? "" : Number(e.target.value))} placeholder="0.03" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Number of Closed Doors</label>
-                    <input type="number" min="1" step="1" value={closedDoors} onChange={(e) => setClosedDoors(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" min="1" step="1" value={closedDoors} onChange={(e) => setClosedDoors(e.target.value === "" ? "" : Number(e.target.value))} placeholder="19" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>
@@ -272,7 +277,7 @@ function StaircasePressurizationPage() {
                       <div>
                         <div className="font-bold text-foreground">Step 3: Closed Door Flow</div>
                         <div className="font-mono text-primary my-1">Closed Door Flow = Air Leakage × Number of Closed Doors</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Closed Door Flow = {leakageRate.toFixed(4)} m³/s × {closedDoors}</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Closed Door Flow = {(Number(leakageRate) || 0.03).toFixed(4)} m³/s × {closedDoors || 19}</div>
                         <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.closedFlow.toFixed(4)} m³/s</div>
                       </div>
                     </div>

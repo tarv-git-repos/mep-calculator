@@ -237,6 +237,19 @@ function FixtureUnitPage() {
     };
   }, [fuSpaces, ip]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          setSelectedIds([]);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedIds]);
+
   // Handlers
   const handleAddSpace = () => {
     if (!newDesc.trim()) return;

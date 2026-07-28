@@ -86,10 +86,10 @@ type SecondParam = "rh" | "wb" | "dp" | "w";
 
 function PsychrometricPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [dbtInput, setDbtInput] = useState<number>(95);
+  const [dbtInput, setDbtInput] = useState<number | "">("");
   const [secondParam, setSecondParam] = useState<SecondParam>("rh");
-  const [paramValue, setParamValue] = useState<number>(60);
-  const [atmPressure, setAtmPressure] = useState<number>(101.325); // kPa
+  const [paramValue, setParamValue] = useState<number | "">("");
+  const [atmPressure, setAtmPressure] = useState<number | "">(""); // kPa
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
   const [showFormulaPanel, setShowFormulaPanel] = useState<boolean>(false);
 
@@ -102,29 +102,31 @@ function PsychrometricPage() {
     // Convert temperatures and param values
     if (unit === "ip") {
       // SI -> IP
-      setDbtInput(Number((dbtInput * 1.8 + 32).toFixed(1)));
+      setDbtInput(dbtInput !== "" ? Number((Number(dbtInput) * 1.8 + 32).toFixed(1)) : "");
       if (secondParam === "wb" || secondParam === "dp") {
-        setParamValue(Number((paramValue * 1.8 + 32).toFixed(1)));
+        setParamValue(paramValue !== "" ? Number((Number(paramValue) * 1.8 + 32).toFixed(1)) : "");
       } else if (secondParam === "w") {
-        setParamValue(Number((paramValue * 7).toFixed(2))); // g/kg to gr/lb
+        setParamValue(paramValue !== "" ? Number((Number(paramValue) * 7).toFixed(2)) : ""); // g/kg to gr/lb
       }
     } else {
       // IP -> SI
-      setDbtInput(Number(((dbtInput - 32) / 1.8).toFixed(1)));
+      setDbtInput(dbtInput !== "" ? Number(((Number(dbtInput) - 32) / 1.8).toFixed(1)) : "");
       if (secondParam === "wb" || secondParam === "dp") {
-        setParamValue(Number(((paramValue - 32) / 1.8).toFixed(1)));
+        setParamValue(paramValue !== "" ? Number(((Number(paramValue) - 32) / 1.8).toFixed(1)) : "");
       } else if (secondParam === "w") {
-        setParamValue(Number((paramValue / 7).toFixed(5))); // gr/lb to g/kg
+        setParamValue(paramValue !== "" ? Number((Number(paramValue) / 7).toFixed(5)) : ""); // gr/lb to g/kg
       }
     }
   };
 
   const calculatedData = useMemo(() => {
-    const pAtm = atmPressure * 1000; // kPa to Pa
-    const tC = ip ? fToC(dbtInput) : dbtInput;
+    const pAtmVal = atmPressure !== "" ? Number(atmPressure) : 101.325;
+    const pAtm = pAtmVal * 1000; // kPa to Pa
+    const dbtVal = dbtInput !== "" ? Number(dbtInput) : (ip ? 95 : 35);
+    const tC = ip ? fToC(dbtVal) : dbtVal;
     let w = 0;
 
-    const pv = Number(paramValue) || 0;
+    const pv = paramValue !== "" ? Number(paramValue) : (secondParam === "rh" ? 60 : secondParam === "wb" || secondParam === "dp" ? (ip ? 78 : 25.5) : (ip ? 100 : 15));
 
     if (secondParam === "rh") {
       w = wFromRH(tC, pv, pAtm);
@@ -275,7 +277,7 @@ function PsychrometricPage() {
                   {/* Dry Bulb */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Dry Bulb Temperature ({ip ? "°F" : "°C"})</label>
-                    <input type="number" step="any" value={dbtInput} onChange={(e) => { setDbtInput(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" step="any" value={dbtInput} onChange={(e) => { setDbtInput(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "95" : "35.0"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
 
                   {/* Parameter selector */}
@@ -292,9 +294,6 @@ function PsychrometricPage() {
                             onClick={() => {
                               setSecondParam(param);
                               setHasCalculated(false);
-                              if (param === "rh") setParamValue(60);
-                              else if (param === "wb" || param === "dp") setParamValue(ip ? 78 : 25);
-                              else setParamValue(ip ? 100 : 15);
                             }}
                             className={`py-1.5 px-3 rounded-lg border text-center font-semibold transition-all ${
                               active
@@ -314,13 +313,13 @@ function PsychrometricPage() {
                     <label className="font-semibold text-foreground">
                       {secondParam === "rh" ? "Relative Humidity (%)" : secondParam === "wb" ? `Wet Bulb Temperature (${ip ? "°F" : "°C"})` : secondParam === "dp" ? `Dew Point Temperature (${ip ? "°F" : "°C"})` : `Humidity Ratio (${ip ? "gr/lb" : "g/kg"})`}
                     </label>
-                    <input type="number" step="any" value={paramValue} onChange={(e) => { setParamValue(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" step="any" value={paramValue} onChange={(e) => { setParamValue(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={secondParam === "rh" ? "60" : secondParam === "wb" || secondParam === "dp" ? (ip ? "78" : "25.5") : (ip ? "100" : "15")} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
 
                   {/* Atmospheric Pressure */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Atmospheric Pressure (kPa)</label>
-                    <input type="number" step="any" value={atmPressure} onChange={(e) => { setAtmPressure(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" step="any" value={atmPressure} onChange={(e) => { setAtmPressure(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder="101.325" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>

@@ -27,19 +27,19 @@ interface SavedCalculation {
 }
 
 function LobbyPressurisationPage() {
-  const [area, setArea] = useState<number>(50);
-  const [height, setHeight] = useState<number>(3.0);
-  const [acph, setAcph] = useState<number>(10);
-  const [fanQty, setFanQty] = useState<number>(2);
+  const [area, setArea] = useState<number | "">("");
+  const [height, setHeight] = useState<number | "">("");
+  const [acph, setAcph] = useState<number | "">("");
+  const [fanQty, setFanQty] = useState<number | "">("");
 
-  const [ductLength, setDuctLength] = useState<number>(20);
-  const [frictionFactor, setFrictionFactor] = useState<number>(1.0); // Pa/m
-  const [louverLoss, setLouverLoss] = useState<number>(50); // Pa
-  const [fanLoss, setFanLoss] = useState<number>(20); // Pa
+  const [ductLength, setDuctLength] = useState<number | "">("");
+  const [frictionFactor, setFrictionFactor] = useState<number | "">(""); // Pa/m
+  const [louverLoss, setLouverLoss] = useState<number | "">(""); // Pa
+  const [fanLoss, setFanLoss] = useState<number | "">(""); // Pa
 
-  const [effMotor, setEffMotor] = useState<number>(90); // %
-  const [effFan, setEffFan] = useState<number>(75); // %
-  const [numFansMotor, setNumFansMotor] = useState<number>(2);
+  const [effMotor, setEffMotor] = useState<number | "">(90); // %
+  const [effFan, setEffFan] = useState<number | "">(75); // %
+  const [numFansMotor, setNumFansMotor] = useState<number | "">("");
 
   // Expandable sections
   const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
@@ -140,25 +140,37 @@ function LobbyPressurisationPage() {
   }, [saves]);
 
   const calculatedData = useMemo(() => {
-    const volume = area * height;
-    const freshAirRate = (volume * acph) / 3600; // m³/s
-    const flowEachM3s = freshAirRate / (fanQty || 1);
+    const areaVal = area !== "" ? Number(area) : 50;
+    const heightVal = height !== "" ? Number(height) : 3.0;
+    const acphVal = acph !== "" ? Number(acph) : 10;
+    const fanQtyVal = fanQty !== "" ? Number(fanQty) : 2;
+    const ductLenVal = ductLength !== "" ? Number(ductLength) : 20;
+    const ffVal = frictionFactor !== "" ? Number(frictionFactor) : 1.0;
+    const louverVal = louverLoss !== "" ? Number(louverLoss) : 50;
+    const fanLossVal = fanLoss !== "" ? Number(fanLoss) : 20;
+    const effMotorVal = effMotor !== "" ? Number(effMotor) : 90;
+    const effFanVal = effFan !== "" ? Number(effFan) : 75;
+    const numFansVal = numFansMotor !== "" ? Number(numFansMotor) : (fanQtyVal || 1);
+
+    const volume = areaVal * heightVal;
+    const freshAirRate = (volume * acphVal) / 3600; // m³/s
+    const flowEachM3s = freshAirRate / (fanQtyVal || 1);
     const flowEachLsRound = Math.ceil((flowEachM3s * 1000) / 5) * 5;
 
-    const fittingsEqLen = ductLength * 0.6;
-    const totalEqLen = ductLength + fittingsEqLen;
-    const frictionLoss = frictionFactor * totalEqLen;
-    const baseLosses = frictionLoss + louverLoss + fanLoss;
+    const fittingsEqLen = ductLenVal * 0.6;
+    const totalEqLen = ductLenVal + fittingsEqLen;
+    const frictionLoss = ffVal * totalEqLen;
+    const baseLosses = frictionLoss + louverVal + fanLossVal;
     const safetyHead = baseLosses * 0.1;
     const totalHead = baseLosses + safetyHead;
     const headRound = Math.round(totalHead / 10) * 10;
 
-    const effM = effMotor / 100;
-    const effF = effFan / 100;
+    const effM = effMotorVal / 100;
+    const effF = effFanVal / 100;
 
     const powerEach = (flowEachM3s * headRound) / ((effM * effF || 1) * 1000); // kW
     const powerEachRound = Math.ceil(powerEach * 100) / 100; // nearest 0.01 kW
-    const totalMotorPower = powerEachRound * 1.1 * numFansMotor;
+    const totalMotorPower = powerEachRound * 1.1 * numFansVal;
 
     return {
       volume,
@@ -293,19 +305,19 @@ function LobbyPressurisationPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Area of Lobby (m²)</label>
-                    <input type="number" step="any" value={area} onChange={(e) => setArea(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={area} onChange={(e) => setArea(e.target.value === "" ? "" : Number(e.target.value))} placeholder="50" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Height of Lobby (m)</label>
-                    <input type="number" step="any" value={height} onChange={(e) => setHeight(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={height} onChange={(e) => setHeight(e.target.value === "" ? "" : Number(e.target.value))} placeholder="3.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Air Changes per Hour (ACPH)</label>
-                    <input type="number" step="any" value={acph} onChange={(e) => setAcph(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={acph} onChange={(e) => setAcph(e.target.value === "" ? "" : Number(e.target.value))} placeholder="10" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Quantity of Fans</label>
-                    <input type="number" min="1" step="1" value={fanQty} onChange={(e) => { const v = Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" min="1" step="1" value={fanQty} onChange={(e) => { const v = e.target.value === "" ? "" : Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} placeholder="2" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>
@@ -320,19 +332,19 @@ function LobbyPressurisationPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Ducting Length (m)</label>
-                    <input type="number" step="any" value={ductLength} onChange={(e) => setDuctLength(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={ductLength} onChange={(e) => setDuctLength(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Frictional Factor (Pa/m)</label>
-                    <input type="number" step="any" value={frictionFactor} onChange={(e) => setFrictionFactor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={frictionFactor} onChange={(e) => setFrictionFactor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Louver &amp; Grille Pressure Drop (Pa)</label>
-                    <input type="number" step="any" value={louverLoss} onChange={(e) => setLouverLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={louverLoss} onChange={(e) => setLouverLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="50" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Fan Internal Losses (Pa)</label>
-                    <input type="number" step="any" value={fanLoss} onChange={(e) => setFanLoss(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={fanLoss} onChange={(e) => setFanLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>
@@ -347,15 +359,15 @@ function LobbyPressurisationPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Motor Efficiency (%)</label>
-                    <input type="number" step="any" value={effMotor} onChange={(e) => setEffMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={effMotor} onChange={(e) => setEffMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="90" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Fan Efficiency (%)</label>
-                    <input type="number" step="any" value={effFan} onChange={(e) => setEffFan(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" step="any" value={effFan} onChange={(e) => setEffFan(e.target.value === "" ? "" : Number(e.target.value))} placeholder="75" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Number of Fans (Motor calculation)</label>
-                    <input type="number" min="1" step="1" value={numFansMotor} onChange={(e) => setNumFansMotor(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none" />
+                    <input type="number" min="1" step="1" value={numFansMotor} onChange={(e) => setNumFansMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="2" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>
@@ -494,7 +506,7 @@ function LobbyPressurisationPage() {
                       <div>
                         <div className="font-bold text-foreground">Step 6: Sized Power per Fan</div>
                         <div className="font-mono text-primary my-1">Power = (FlowEachM3s × HeadRound) / (Eff_Motor × Eff_Fan × 1000)</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Power = ({calculatedData.flowEachM3s.toFixed(4)} m³/s × {calculatedData.headRound} Pa) / ({effMotor / 100} × {effFan / 100} × 1000)</div>
+                        <div className="font-mono text-[10.5px] text-muted-foreground">Power = ({calculatedData.flowEachM3s.toFixed(4)} m³/s × {calculatedData.headRound} Pa) / ({(Number(effMotor) || 90) / 100} × {(Number(effFan) || 75) / 100} × 1000)</div>
                         <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.powerEachRound.toFixed(2)} kW</div>
                       </div>
                     </div>

@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, m3sToCfm, cfmToM3s } from "@/utils/conversions";
 import { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -37,15 +37,13 @@ function wFromWB(db: number, wb: number, p: number): number {
   return ((2501 - 2.381 * wb) * ws - 1.006 * (db - wb)) / (2501 + 1.805 * db - 4.186 * wb);
 }
 
-
-
 function FreshAirCoolingLoadPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [dbIn, setDbIn] = useState(95);
-  const [wbIn, setWbIn] = useState(78);
-  const [dbOut, setDbOut] = useState(55);
-  const [wbOut, setWbOut] = useState(54);
-  const [flowRate, setFlowRate] = useState(1000);
+  const [dbIn, setDbIn] = useState<number | "">("");
+  const [wbIn, setWbIn] = useState<number | "">("");
+  const [dbOut, setDbOut] = useState<number | "">("");
+  const [wbOut, setWbOut] = useState<number | "">("");
+  const [flowRate, setFlowRate] = useState<number | "">("");
   const [hasCalculated, setHasCalculated] = useState(false);
 
   const ip = unitSystem === "ip";
@@ -56,56 +54,67 @@ function FreshAirCoolingLoadPage() {
     if ((window as any).__mep_keep_values) return;
     const convT = (t: number) => unit === "ip" ? cToF(t) : fToC(t);
     const convF = (f: number) => unit === "ip" ? m3sToCfm(f) : cfmToM3s(f);
-    setDbIn(Number(convT(dbIn).toFixed(1)));
-    setWbIn(Number(convT(wbIn).toFixed(1)));
-    setDbOut(Number(convT(dbOut).toFixed(1)));
-    setWbOut(Number(convT(wbOut).toFixed(1)));
-    setFlowRate(Number(convF(flowRate).toFixed(unit === "ip" ? 0 : 3)));
+
+    setDbIn(dbIn !== "" ? Number(convT(Number(dbIn)).toFixed(1)) : "");
+    setWbIn(wbIn !== "" ? Number(convT(Number(wbIn)).toFixed(1)) : "");
+    setDbOut(dbOut !== "" ? Number(convT(Number(dbOut)).toFixed(1)) : "");
+    setWbOut(wbOut !== "" ? Number(convT(Number(wbOut)).toFixed(1)) : "");
+    setFlowRate(flowRate !== "" ? Number(convF(Number(flowRate)).toFixed(unit === "ip" ? 0 : 3)) : "");
   };
 
   const calc = useMemo(() => {
-    const P = 101000;
-    const dbInC = ip ? fToC(dbIn) : dbIn;
-    const wbInC = ip ? fToC(wbIn) : wbIn;
-    const dbOutC = ip ? fToC(dbOut) : dbOut;
-    const wbOutC = ip ? fToC(wbOut) : wbOut;
+    const dbInVal = dbIn !== "" ? Number(dbIn) : (ip ? 95 : 35.0);
+    const wbInVal = wbIn !== "" ? Number(wbIn) : (ip ? 78 : 25.5);
+    const dbOutVal = dbOut !== "" ? Number(dbOut) : (ip ? 55 : 12.8);
+    const wbOutVal = wbOut !== "" ? Number(wbOut) : (ip ? 54 : 12.2);
+    const flowVal = flowRate !== "" ? Number(flowRate) : (ip ? 1000 : 0.472);
 
-    let wIn = 0, wOut = 0;
-    try { wIn = wFromWB(dbInC, wbInC, P); } catch {}
-    try { wOut = wFromWB(dbOutC, wbOutC, P); } catch {}
-    if (wIn < 0) wIn = 0;
-    if (wOut < 0) wOut = 0;
+    const dbInC = ip ? fToC(dbInVal) : dbInVal;
+    const wbInC = ip ? fToC(wbInVal) : wbInVal;
+    const dbOutC = ip ? fToC(dbOutVal) : dbOutVal;
+    const wbOutC = ip ? fToC(wbOutVal) : wbOutVal;
+    const flowM3s = ip ? cfmToM3s(flowVal) : flowVal;
 
-    const wInD = ip ? wIn * 7000 : wIn;
-    const wOutD = ip ? wOut * 7000 : wOut;
+    const pAtm = 101325;
+    const wInKg = wFromWB(dbInC, wbInC, pAtm);
+    const wOutKg = wFromWB(dbOutC, wbOutC, pAtm);
 
-    let sensLoad = ip
-      ? 1.08 * flowRate * (dbIn - dbOut)
-      : 1.23 * flowRate * (dbIn - dbOut);
-    let latLoad = ip
-      ? 0.68 * flowRate * (wInD - wOutD)
-      : 3010 * flowRate * (wIn - wOut);
+    const rho = 1.2;
+    const mDot = flowM3s * rho;
+    const cp = 1.006;
+    const hfg = 2501;
 
-    if (sensLoad < 0) sensLoad = 0;
-    if (latLoad < 0) latLoad = 0;
-    const totLoad = sensLoad + latLoad;
-    const capacityTons = Math.max(0, totLoad / (ip ? 12000 : 3.517));
+    const sensKw = mDot * cp * (dbInC - dbOutC);
+    const latKw = mDot * (wInKg - wOutKg) * hfg;
+    const totKw = sensKw + latKw;
+    const capTons = totKw / 3.51685;
 
-    return { wIn: wInD, wOut: wOutD, sensLoad, latLoad, totLoad, capacityTons };
+    const sensLoad = ip ? sensKw * 3412.14 : sensKw;
+    const latLoad = ip ? latKw * 3412.14 : latKw;
+    const totLoad = ip ? totKw * 3412.14 : totKw;
+    const wIn = ip ? wInKg * 7000 : wInKg;
+    const wOut = ip ? wOutKg * 7000 : wOutKg;
+
+    return { sensLoad, latLoad, totLoad, capacityTons: capTons, wIn, wOut };
   }, [dbIn, wbIn, dbOut, wbOut, flowRate, ip]);
 
   const warnings = useMemo(() => {
     const w: string[] = [];
-    if (wbIn > dbIn) w.push("Entering Wet Bulb cannot be higher than Entering Dry Bulb temperature.");
-    if (wbOut > dbOut) w.push("Leaving Wet Bulb cannot be higher than Leaving Dry Bulb temperature.");
-    if (dbOut > dbIn) w.push("Leaving Dry Bulb temperature is greater than Entering Dry Bulb temperature (Coil is heating instead of cooling).");
-    if (wbOut > wbIn) w.push("Leaving Wet Bulb temperature is greater than Entering Wet Bulb temperature.");
+    const dbInVal = dbIn !== "" ? Number(dbIn) : (ip ? 95 : 35);
+    const wbInVal = wbIn !== "" ? Number(wbIn) : (ip ? 78 : 25.5);
+    const dbOutVal = dbOut !== "" ? Number(dbOut) : (ip ? 55 : 12.8);
+    const wbOutVal = wbOut !== "" ? Number(wbOut) : (ip ? 54 : 12.2);
+
+    if (wbInVal > dbInVal) w.push("Entering Wet Bulb cannot be higher than Entering Dry Bulb temperature.");
+    if (wbOutVal > dbOutVal) w.push("Leaving Wet Bulb cannot be higher than Leaving Dry Bulb temperature.");
+    if (dbOutVal > dbInVal) w.push("Leaving Dry Bulb temperature is greater than Entering Dry Bulb temperature.");
+    if (wbOutVal > wbInVal) w.push("Leaving Wet Bulb temperature is greater than Entering Wet Bulb temperature.");
     return w;
-  }, [dbIn, wbIn, dbOut, wbOut]);
+  }, [dbIn, wbIn, dbOut, wbOut, ip]);
 
   const handleExportExcel = () => {
     const wb2 = XLSX.utils.book_new();
-    const uT = ip ? "F" : "C", uL = ip ? "BTU/h" : "kW", uW = ip ? "gr/lb" : "kg/kg";
+    const uT = ip ? "°F" : "°C", uL = ip ? "BTU/h" : "kW", uW = ip ? "gr/lb" : "kg/kg";
     const data = [
       ["Fresh Air Cooling Load Sizing"], [],
       ["Entering Air DB", `${dbIn} ${uT}`],
@@ -126,7 +135,7 @@ function FreshAirCoolingLoadPage() {
     XLSX.writeFile(wb2, "Fresh_Air_Cooling_Load.xlsx");
   };
 
-  const uT = ip ? "F" : "C";
+  const uT = ip ? "°F" : "°C";
   const uW = ip ? "gr/lb" : "kg/kg";
   const uL = ip ? "BTU/h" : "kW";
 
@@ -170,8 +179,9 @@ function FreshAirCoolingLoadPage() {
                       <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">{uT}</span>
                     </label>
                     <input type="number" step="any" value={dbIn}
-                      onChange={e => { setDbIn(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
+                      onChange={e => { setDbIn(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }}
+                      placeholder={ip ? "95" : "35.0"}
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground flex justify-between">
@@ -179,8 +189,9 @@ function FreshAirCoolingLoadPage() {
                       <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">{uT}</span>
                     </label>
                     <input type="number" step="any" value={wbIn}
-                      onChange={e => { setWbIn(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
+                      onChange={e => { setWbIn(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }}
+                      placeholder={ip ? "78" : "25.5"}
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="text-[11.5px] text-muted-foreground font-semibold py-1">
                     Calculated Entering Hum. Ratio:{" "}
@@ -202,8 +213,9 @@ function FreshAirCoolingLoadPage() {
                       <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">{uT}</span>
                     </label>
                     <input type="number" step="any" value={dbOut}
-                      onChange={e => { setDbOut(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
+                      onChange={e => { setDbOut(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }}
+                      placeholder={ip ? "55" : "12.8"}
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground flex justify-between">
@@ -211,8 +223,9 @@ function FreshAirCoolingLoadPage() {
                       <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">{uT}</span>
                     </label>
                     <input type="number" step="any" value={wbOut}
-                      onChange={e => { setWbOut(Number(e.target.value)); setHasCalculated(false); }}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
+                      onChange={e => { setWbOut(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }}
+                      placeholder={ip ? "54" : "12.2"}
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="text-[11.5px] text-muted-foreground font-semibold py-1">
                     Calculated Leaving Hum. Ratio:{" "}
@@ -233,8 +246,9 @@ function FreshAirCoolingLoadPage() {
                     <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-bold">{ip ? "CFM" : "m3/s"}</span>
                   </label>
                   <input type="number" step="any" value={flowRate}
-                    onChange={e => { setFlowRate(Number(e.target.value)); setHasCalculated(false); }}
-                    className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]" />
+                    onChange={e => { setFlowRate(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }}
+                    placeholder={ip ? "1000" : "0.472"}
+                    className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                 </div>
               </div>
 

@@ -4,11 +4,12 @@ import {
   Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Wrench, FileText,
-  Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert
+  Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
+  Edit3, Trash2, Copy
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
-import { useConfirm } from "@/hooks/use-confirm";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { toast } from "sonner";
 
 import {
@@ -19,6 +20,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 
 type NavLeaf = { label: string; to?: string; badge?: string; isHeader?: boolean };
 type NavItem =
@@ -341,11 +349,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   hideSubHeader?: boolean;
 }) {
   const confirm = useConfirm();
+  const prompt = usePrompt();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const searchObj = useRouterState({ select: (s) => s.location.search }) as Record<string, any>;
   const activeName = searchObj?.name;
   const navigate = useNavigate();
-  const { project, projects, selectProject } = useWorkspace();
+  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject } = useWorkspace();
 
   // Restore inputs on project/route change
   useEffect(() => {
@@ -434,7 +443,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const handleMouseLeaveGroup = () => {
     const timeoutId = setTimeout(() => {
       setHoveredGroup(null);
-    }, 150);
+    }, 200);
     setCloseTimeoutId(timeoutId);
   };
 
@@ -534,15 +543,64 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   <PanelLeftOpen className="size-5" />
                 </button>
               )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="flex items-center gap-2.5 h-10 px-4 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150">
-                    <Building2 className="size-4 text-muted-foreground" />
-                    <span className="font-semibold text-foreground dark:text-white">{project.name}</span>
-                    <span className="text-muted-foreground font-mono text-[11px]">{project.code}</span>
-                    <ChevronDown className="size-3.5 text-muted-foreground ml-0.5" />
-                  </button>
-                </DropdownMenuTrigger>
+               <DropdownMenu>
+                 <ContextMenu>
+                   <ContextMenuTrigger asChild>
+                     <DropdownMenuTrigger asChild>
+                       <button className="flex items-center gap-2.5 h-10 px-4 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150">
+                         <Building2 className="size-4 text-muted-foreground" />
+                         <span className="font-semibold text-foreground dark:text-white">{project.name}</span>
+                         <span className="text-muted-foreground font-mono text-[11px]">{project.code}</span>
+                         <ChevronDown className="size-3.5 text-muted-foreground ml-0.5" />
+                       </button>
+                     </DropdownMenuTrigger>
+                   </ContextMenuTrigger>
+                   <ContextMenuContent className="w-40 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                     <ContextMenuItem
+                       onSelect={async (e) => {
+                         e.preventDefault();
+                         e.stopPropagation();
+                         const newName = await prompt("Enter new project name:", project.name, { title: "Rename Project" });
+                         if (newName && newName.trim() !== "" && newName.trim() !== project.name) {
+                           updateProject({ ...project, name: newName.trim() });
+                         }
+                       }}
+                       className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                     >
+                       <Edit3 className="size-3.5 text-muted-foreground" />
+                       <span>Rename</span>
+                     </ContextMenuItem>
+                     <ContextMenuItem
+                       onSelect={(e) => {
+                         e.preventDefault();
+                         e.stopPropagation();
+                         duplicateProject(project.id);
+                       }}
+                       className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                     >
+                       <Copy className="size-3.5 text-muted-foreground" />
+                       <span>Duplicate</span>
+                     </ContextMenuItem>
+                     <ContextMenuSeparator className="h-px bg-border my-1" />
+                     <ContextMenuItem
+                       onSelect={async (e) => {
+                         e.preventDefault();
+                         e.stopPropagation();
+                         if (projects.length <= 1) {
+                           await confirm("Cannot delete the only project.", { hideCancel: true, title: "Cannot Delete" });
+                           return;
+                         }
+                         if (await confirm(`Are you sure you want to delete project "${project.name}"?`)) {
+                           deleteProject(project.id);
+                         }
+                       }}
+                       className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer"
+                     >
+                       <Trash2 className="size-3.5" />
+                       <span>Delete</span>
+                     </ContextMenuItem>
+                   </ContextMenuContent>
+                 </ContextMenu>
                 <DropdownMenuContent align="start" className="w-64 p-1 bg-popover border border-border rounded-lg shadow-lg font-sans">
                   <DropdownMenuLabel className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider py-1.5 px-2">
                     Switch Project
@@ -552,30 +610,78 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     {projects.map((p) => {
                       const active = p.id === project.id;
                       return (
-                        <DropdownMenuItem
-                          key={p.id}
-                          onClick={async () => {
-                            const isProjectsPage = pathname === "/projects";
-                            if (dirtyStore.isDirty && !isProjectsPage) {
-                              const choice = await confirm("Do you want to save the changes?", {
-                                title: "Unsaved Changes",
-                                threeButtons: true,
-                              });
-                              if (choice === "cancel") return;
-                              if (choice === "save") {
-                                triggerSave();
-                              }
-                            }
-                            dirtyStore.set(false);
-                            selectProject(p.id);
-                          }}
-                          className={`flex flex-col items-start gap-0.5 px-2 py-1.5 rounded cursor-pointer text-[13px] ${
-                            active ? "bg-primary/10 text-primary font-medium" : "hover:bg-surface-2 text-foreground"
-                          }`}
-                        >
-                          <span className="font-medium">{p.name}</span>
-                          <span className="text-[11px] text-muted-foreground font-mono">{p.code}</span>
-                        </DropdownMenuItem>
+                        <ContextMenu key={p.id}>
+                          <ContextMenuTrigger asChild>
+                            <DropdownMenuItem
+                              onClick={async () => {
+                                const isProjectsPage = pathname === "/projects";
+                                if (dirtyStore.isDirty && !isProjectsPage) {
+                                  const choice = await confirm("Do you want to save the changes?", {
+                                    title: "Unsaved Changes",
+                                    threeButtons: true,
+                                  });
+                                  if (choice === "cancel") return;
+                                  if (choice === "save") {
+                                    triggerSave();
+                                  }
+                                }
+                                dirtyStore.set(false);
+                                selectProject(p.id);
+                              }}
+                              className={`flex flex-col items-start gap-0.5 px-2 py-1.5 rounded cursor-pointer text-[13px] ${
+                                active ? "bg-primary/10 text-primary font-medium" : "hover:bg-surface-2 text-foreground"
+                              }`}
+                            >
+                              <span className="font-medium">{p.name}</span>
+                              <span className="text-[11px] text-muted-foreground font-mono">{p.code}</span>
+                            </DropdownMenuItem>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-40 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onSelect={async (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const newName = await prompt("Enter new project name:", p.name, { title: "Rename Project" });
+                                if (newName && newName.trim() !== "" && newName.trim() !== p.name) {
+                                  updateProject({ ...p, name: newName.trim() });
+                                }
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <Edit3 className="size-3.5 text-muted-foreground" />
+                              <span>Rename</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                duplicateProject(p.id);
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Duplicate</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onSelect={async (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (projects.length <= 1) {
+                                  await confirm("Cannot delete the only project.", { hideCancel: true, title: "Cannot Delete" });
+                                  return;
+                                }
+                                if (await confirm(`Are you sure you want to delete project "${p.name}"?`)) {
+                                  deleteProject(p.id);
+                                }
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer"
+                            >
+                              <Trash2 className="size-3.5" />
+                              <span>Delete</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       );
                     })}
                   </div>
@@ -747,7 +853,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           onMouseEnter={handleFlyoutMouseEnter}
           onMouseLeave={handleMouseLeaveGroup}
           onClick={() => setHoveredGroup(null)}
-          className="fixed z-[9999] bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar"
+          className="fixed z-[9999] bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar before:absolute before:content-[''] before:top-0 before:bottom-0 before:-left-6 before:w-6 before:bg-transparent"
           style={{
             left: `${sidebarOpen ? 272 : 72}px`,
             top: `${Math.max(88, hoveredGroup.top - 60)}px`,

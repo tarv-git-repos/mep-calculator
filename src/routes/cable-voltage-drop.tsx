@@ -10,6 +10,7 @@ import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/com
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
+import { useElectricalNetworkStore, calculateCircuitLoad } from "@/store/electrical-network";
 
 export const Route = createFileRoute("/cable-voltage-drop")({
   head: () => ({
@@ -38,6 +39,7 @@ interface CableVDRow {
   vd: number; // calculated
   vdPercent: number; // calculated
   cumulativeVd: number; // For groups this is input (parent VD), for nodes it is calculated
+  isLinked?: boolean;
 }
 
 interface InlineInputProps {
@@ -94,13 +96,76 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   );
 }
 
+const CABLE_CATALOGUE: Record<string, number> = {
+  "4c 16": 2.5,
+  "4c 25": 1.65,
+  "4c 35": 1.15,
+  "4c 50": 0.87,
+  "4c 70": 0.60,
+  "4c 95": 0.43,
+  "4c 120": 0.35,
+  "4c 150": 0.29,
+  "4c 185": 0.24,
+  "4c 240": 0.19,
+  "4c 300": 0.16,
+  "1c 16": 2.5,
+  "1c 25": 1.65,
+  "1c 35": 1.15,
+  "1c 50": 0.87,
+  "1c 70": 0.60,
+  "1c 95": 0.43,
+  "1c 120": 0.35,
+  "1c 150": 0.29,
+  "1c 185": 0.24,
+  "1c 240": 0.19,
+  "1c 300": 0.16,
+  "1c 400": 0.13,
+  "1c 500": 0.11,
+  "1c 630": 0.09
+};
+
+const normalizeString = (s: string) => (s || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+
 const computeAllRows = (rows: CableVDRow[]): CableVDRow[] => {
   let currentGroupVd = 0;
+  const computedVdMap = new Map<string, number>();
+  let busbarVdMap: Record<string, number> = {};
+  
+  if (typeof window !== "undefined") {
+    try {
+      const saved = localStorage.getItem("mep-busbar-calculated-vd-v1");
+      if (saved) busbarVdMap = JSON.parse(saved);
+    } catch (e) {}
+  }
 
   return rows.map((row) => {
     if (row.isGroup) {
-      currentGroupVd = row.cumulativeVd || 0; // Use the input parent VD for this group
-      return { ...row, lineCurrent: 0, currentPerCable: 0, vd: 0, vdPercent: 0 };
+      const fromName = normalizeString(row.from);
+      let parentVd = row.cumulativeVd || 0;
+      
+      if (fromName) {
+        if (computedVdMap.has(fromName)) {
+           parentVd = computedVdMap.get(fromName)!;
+        } else {
+           for (const key of Object.keys(busbarVdMap)) {
+              if (normalizeString(key) === fromName) {
+                  parentVd = busbarVdMap[key];
+                  break;
+              }
+           }
+        }
+      }
+      
+      currentGroupVd = parentVd; 
+      
+      return { 
+        ...row, 
+        cumulativeVd: parentVd, 
+        lineCurrent: 0, 
+        currentPerCable: 0, 
+        vd: 0, 
+        vdPercent: 0 
+      };
     }
 
     const V = row.voltage || 1; // prevent div/0
@@ -121,6 +186,10 @@ const computeAllRows = (rows: CableVDRow[]): CableVDRow[] => {
 
     // Cumulative VD = Group VD + Node VD%
     const cumulativeVd = currentGroupVd + vdPercent;
+
+    if (row.description) {
+      computedVdMap.set(normalizeString(row.description), cumulativeVd);
+    }
 
     return {
       ...row,
@@ -146,6 +215,8 @@ const pushToHistory = (
 function CableVoltageDropPage() {
   const { project } = useWorkspace();
   const confirm = useConfirm();
+  const boards = useElectricalNetworkStore(state => state.boards);
+  const setBoards = useElectricalNetworkStore(state => state.setBoards);
 
   const [rows, setRows] = useState<CableVDRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -162,14 +233,68 @@ function CableVoltageDropPage() {
     if (selected.has(id) && selected.size > 1) {
       newRows = newRows.map(row => {
         if (selected.has(row.id)) {
-          return { ...row, ...updates };
+          const updatedRow = { ...row, ...updates };
+          if (updates.size !== undefined) {
+             const normalizedSize = updates.size.toLowerCase().trim();
+             if (CABLE_CATALOGUE[normalizedSize] !== undefined) {
+                updatedRow.mvAm = CABLE_CATALOGUE[normalizedSize];
+             }
+          }
+          return updatedRow;
         }
         return row;
       });
     } else {
-      newRows = newRows.map(row => 
-        row.id === id ? { ...row, ...updates } : row
-      );
+      newRows = newRows.map(row => {
+        if (row.id === id) {
+          const updatedRow = { ...row, ...updates };
+          
+          if (updates.description !== undefined || updates.from !== undefined) {
+            if (!updatedRow.isGroup && updatedRow.from && updatedRow.description) {
+              const fromNorm = normalizeString(updatedRow.from);
+              const descNorm = normalizeString(updatedRow.description);
+              
+              const parentBoard = boards.find(b => normalizeString(b.name) === fromNorm);
+              if (parentBoard) {
+                const circuit = parentBoard.circuits.find(c => {
+                    const cDesc = c.desc || c.roomArea || "";
+                    return normalizeString(cDesc) === descNorm;
+                });
+                if (circuit) {
+                  updatedRow.isLinked = true;
+                  const loadW = circuit.loadW !== undefined ? circuit.loadW : calculateCircuitLoad(circuit);
+                  if (loadW) updatedRow.load = Number((loadW / 1000).toFixed(2));
+                  if (circuit.qty) updatedRow.runs = Number(circuit.qty);
+                  if (circuit.wire || circuit.wireEcc) updatedRow.size = circuit.wire || circuit.wireEcc;
+                  if (circuit.len) updatedRow.length = Number(circuit.len);
+                  
+                  const size = circuit.wire || circuit.wireEcc || "";
+                  const normalizedSize = size.toLowerCase().trim();
+                  if (CABLE_CATALOGUE[normalizedSize] !== undefined) {
+                     updatedRow.mvAm = CABLE_CATALOGUE[normalizedSize];
+                  }
+                } else {
+                  updatedRow.isLinked = false;
+                }
+              } else {
+                updatedRow.isLinked = false;
+              }
+            } else {
+               updatedRow.isLinked = false;
+            }
+          }
+          
+          if (updates.size !== undefined) {
+             const normalizedSize = updates.size.toLowerCase().trim();
+             if (CABLE_CATALOGUE[normalizedSize] !== undefined) {
+                updatedRow.mvAm = CABLE_CATALOGUE[normalizedSize];
+             }
+          }
+          
+          return updatedRow;
+        }
+        return row;
+      });
     }
     
     setRows(computeAllRows(newRows));
@@ -235,16 +360,65 @@ function CableVoltageDropPage() {
   };
 
   const loadDummyData = () => {
+    // 1. Inject Sample Load Schedule Data
+    const sampleMDB: any = {
+      id: "board-sample-mdb",
+      name: "MDB-MAIN",
+      type: "MDB",
+      phaseType: "3-Phase",
+      fedFrom: "DEWA",
+      incomer: { rating: "1600A", sptp: "4P", faultKa: "50", cableSize: "300", eccSize: "150", inc1: "", inc2: "", meterType: "None" },
+      circuits: [
+        {
+          id: "c-1", cirNo: 1, desc: "SMDB-1", qty: 1, loadW: 45000, phase: "R", df: 1, mcb: "100", faultKa: "36", wire: "4c 35", type: "XLPE", ecc: "16", len: "45", ph1Mtr: "", ph3Mtr: "", ctMtr: "", remarks: ""
+        },
+        {
+          id: "c-2", cirNo: 2, desc: "CHILLER-1", qty: 2, loadW: 120000, phase: "Y", df: 1, mcb: "250", faultKa: "36", wire: "4c 120", type: "XLPE", ecc: "70", len: "60", ph1Mtr: "", ph3Mtr: "", ctMtr: "", remarks: ""
+        }
+      ]
+    };
+    
+    // Check if it already exists so we don't duplicate
+    if (!boards.find(b => b.name === "MDB-MAIN")) {
+      setBoards([...boards, sampleMDB]);
+    }
+
+    // 2. Inject Sample Busbar Data
+    const sampleBusbarCalc = {
+      "lv panel 01": 0.42,
+      "bb 1": 0.42,
+      "smdb 1": 0.25
+    };
+    localStorage.setItem("mep-busbar-calculated-vd-v1", JSON.stringify(sampleBusbarCalc));
+    
+    const sampleBusbarPanels = [{
+      id: "pan_sample",
+      name: "LV PANEL-01",
+      sections: [{
+        id: "sec_sample",
+        name: "BB-1",
+        ratingId: "1600_rt",
+        volts: 415,
+        pf: 0.8,
+        rows: [
+          { id: "bb_1", from: "LV PANEL-01", desc: "SMDB-1", ref: "BB-1", length: 15, loadKw: 45, div: 1 }
+        ]
+      }]
+    }];
+    localStorage.setItem("mep-busbar-calculation-v1", JSON.stringify(sampleBusbarPanels));
+
+    // 3. Provide an empty workspace for the user to try the automation
     const dummy: CableVDRow[] = [
-      { id: `vd_${Math.random().toString(36).slice(2, 9)}`, isGroup: true, from: "", description: "VOLTAGE DROP FROM SMDB-01 TO DBs", load: 0, voltage: 0, pf: 0, lineCurrent: 0, runs: 0, size: "", currentPerCable: 0, length: 0, mvAm: 0, vd: 0, vdPercent: 0, cumulativeVd: 0.5 },
-      { id: `vd_${Math.random().toString(36).slice(2, 9)}`, isGroup: false, from: "SMDB-01", description: "DB-G", load: 25, voltage: 400, pf: 0.8, lineCurrent: 0, runs: 1, size: "4c 16", currentPerCable: 0, length: 30, mvAm: 2.4, vd: 0, vdPercent: 0, cumulativeVd: 0 },
-      { id: `vd_${Math.random().toString(36).slice(2, 9)}`, isGroup: false, from: "SMDB-01", description: "DB-1", load: 35, voltage: 400, pf: 0.8, lineCurrent: 0, runs: 1, size: "4c 25", currentPerCable: 0, length: 45, mvAm: 1.5, vd: 0, vdPercent: 0, cumulativeVd: 0 },
-      { id: `vd_${Math.random().toString(36).slice(2, 9)}`, isGroup: true, from: "", description: "VOLTAGE DROP FROM MDB TO CHILLERS", load: 0, voltage: 0, pf: 0, lineCurrent: 0, runs: 0, size: "", currentPerCable: 0, length: 0, mvAm: 0, vd: 0, vdPercent: 0, cumulativeVd: 0.2 },
-      { id: `vd_${Math.random().toString(36).slice(2, 9)}`, isGroup: false, from: "MDB", description: "Chiller-1", load: 150, voltage: 400, pf: 0.8, lineCurrent: 0, runs: 2, size: "4c 120", currentPerCable: 0, length: 80, mvAm: 0.35, vd: 0, vdPercent: 0, cumulativeVd: 0 },
+      { id: `vd_${Math.random().toString(36).slice(2, 9)}`, isGroup: true, from: "BB-1", description: "VOLTAGE DROP FROM BB-1 TO SMDB-1", load: 0, voltage: 0, pf: 0, lineCurrent: 0, runs: 0, size: "", currentPerCable: 0, length: 0, mvAm: 0, vd: 0, vdPercent: 0, cumulativeVd: 0 },
+      { id: `vd_${Math.random().toString(36).slice(2, 9)}`, isGroup: false, from: "", description: "", load: 0, voltage: 400, pf: 0.8, lineCurrent: 0, runs: 1, size: "", currentPerCable: 0, length: 0, mvAm: 0, vd: 0, vdPercent: 0, cumulativeVd: 0 },
     ];
     
     pushToHistory(rows, history, setHistory, setRedoStack);
     setRows(prev => computeAllRows([...prev, ...dummy]));
+
+    setTimeout(() => {
+        alert("Sample data loaded successfully!\n\n1. I've added 'MDB-MAIN' to your Project Load Schedule.\n2. I've added 'LV PANEL-01' to your Busbar Calculation.\n\nTo see the automation work right now:\nClick on the empty row at the bottom and type:\nFrom: MDB MAIN\nDescription: SMDB 1");
+    }, 100);
   };
 
   const deleteSelected = async () => {
@@ -528,12 +702,24 @@ function CableVoltageDropPage() {
       width: 250,
       render: (row) => {
         return (
-          <InlineInput
-            className={`w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 ${row.isGroup ? 'font-bold' : ''}`}
-            value={row.description}
-            onCommit={(val) => updateRow(row.id, { description: val })}
-            onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
-          />
+          <div className="relative flex items-center w-full">
+            <InlineInput
+              className={`w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 pr-6 ${row.isGroup ? 'font-bold' : ''}`}
+              value={row.description}
+              onCommit={(val) => updateRow(row.id, { description: val })}
+              onFocus={(e) => { if (!selected.has(row.id)) { setSelected(new Set([row.id])); } setActiveRowId(row.id); }}
+            />
+            {!row.isGroup && row.isLinked && (
+               <div className="absolute right-1 text-green-500 bg-white dark:bg-slate-900 rounded-full" title="Linked to Load Schedule">
+                  <Database size={14} />
+               </div>
+            )}
+            {!row.isGroup && !row.isLinked && (
+               <div className="absolute right-1 text-slate-300 dark:text-slate-600 bg-white dark:bg-slate-900 rounded-full" title="Not found in Load Schedule">
+                  <Database size={14} />
+               </div>
+            )}
+          </div>
         );
       },
     },

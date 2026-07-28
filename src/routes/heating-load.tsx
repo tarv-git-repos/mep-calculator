@@ -17,14 +17,14 @@ export const Route = createFileRoute("/heating-load")({
 
 function HeatingLoadPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [area, setArea] = useState<number>(2000); // ft\u00b2 or m\u00b2
-  const [height, setHeight] = useState<number>(10); // ft or m
-  const [uWall, setUWall] = useState<number>(0.05); // U-value Wall
-  const [uGlaz, setUGlaz] = useState<number>(0.45); // U-value Glazing
-  const [glazArea, setGlazArea] = useState<number>(150); // ft\u00b2 or m\u00b2
-  const [oat, setOat] = useState<number>(32); // Outdoor design temp
-  const [iat, setIat] = useState<number>(70); // Indoor setpoint
-  const [ach, setAch] = useState<number>(0.5); // Air changes per hour
+  const [area, setArea] = useState<number | "">(""); // ft² or m²
+  const [height, setHeight] = useState<number | "">(""); // ft or m
+  const [uWall, setUWall] = useState<number | "">(""); // U-value Wall
+  const [uGlaz, setUGlaz] = useState<number | "">(""); // U-value Glazing
+  const [glazArea, setGlazArea] = useState<number | "">(""); // ft² or m²
+  const [oat, setOat] = useState<number | "">(""); // Outdoor design temp
+  const [iat, setIat] = useState<number | "">(""); // Indoor setpoint
+  const [ach, setAch] = useState<number | "">(""); // Air changes per hour
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
 
   const ip = unitSystem === "ip";
@@ -37,31 +37,40 @@ function HeatingLoadPage() {
     const convArea = (a: number) => unit === "ip" ? a * 10.764 : a / 10.764;
     const convHt = (h: number) => unit === "ip" ? h * 3.28084 : h / 3.28084;
     const convT = (t: number) => unit === "ip" ? t * 1.8 + 32 : (t - 32) / 1.8;
-    const convU = (u: number) => unit === "ip" ? u / 5.678 : u * 5.678; // W/m\u00b2K to BTU/hr·ft\u00b2·°F
+    const convU = (u: number) => unit === "ip" ? u / 5.678 : u * 5.678; // W/m²K to BTU/hr·ft²·°F
 
-    setArea(Number(convArea(area).toFixed(0)));
-    setHeight(Number(convHt(height).toFixed(1)));
-    setUWall(Number(convU(uWall).toFixed(3)));
-    setUGlaz(Number(convU(uGlaz).toFixed(3)));
-    setGlazArea(Number(convArea(glazArea).toFixed(0)));
-    setOat(Number(convT(oat).toFixed(1)));
-    setIat(Number(convT(iat).toFixed(1)));
+    setArea(area !== "" ? Number(convArea(Number(area)).toFixed(0)) : "");
+    setHeight(height !== "" ? Number(convHt(Number(height)).toFixed(1)) : "");
+    setUWall(uWall !== "" ? Number(convU(Number(uWall)).toFixed(3)) : "");
+    setUGlaz(uGlaz !== "" ? Number(convU(Number(uGlaz)).toFixed(3)) : "");
+    setGlazArea(glazArea !== "" ? Number(convArea(Number(glazArea)).toFixed(0)) : "");
+    setOat(oat !== "" ? Number(convT(Number(oat)).toFixed(1)) : "");
+    setIat(iat !== "" ? Number(convT(Number(iat)).toFixed(1)) : "");
   };
 
   const calculatedData = useMemo(() => {
-    const areaFt2 = ip ? area : area * 10.764;
-    const htFt = ip ? height : height * 3.281;
-    const glazFt2 = ip ? glazArea : glazArea * 10.764;
-    const oatF = ip ? oat : oat * 1.8 + 32;
-    const iatF = ip ? iat : iat * 1.8 + 32;
+    const areaVal = area !== "" ? Number(area) : (ip ? 2000 : 185);
+    const htVal = height !== "" ? Number(height) : (ip ? 10 : 3.0);
+    const uWallVal = uWall !== "" ? Number(uWall) : (ip ? 0.05 : 0.28);
+    const uGlazVal = uGlaz !== "" ? Number(uGlaz) : (ip ? 0.45 : 2.55);
+    const glazAreaVal = glazArea !== "" ? Number(glazArea) : (ip ? 150 : 14);
+    const oatVal = oat !== "" ? Number(oat) : (ip ? 32 : 0);
+    const iatVal = iat !== "" ? Number(iat) : (ip ? 70 : 21);
+    const achVal = ach !== "" ? Number(ach) : 0.5;
+
+    const areaFt2 = ip ? areaVal : areaVal * 10.764;
+    const htFt = ip ? htVal : htVal * 3.281;
+    const glazFt2 = ip ? glazAreaVal : glazAreaVal * 10.764;
+    const oatF = ip ? oatVal : oatVal * 1.8 + 32;
+    const iatF = ip ? iatVal : iatVal * 1.8 + 32;
     const dT = iatF - oatF;
 
     const sqrtA = Math.sqrt(areaFt2);
     const wallArea = sqrtA * 4 * htFt - glazFt2 + areaFt2;
-    const qCond = uWall * wallArea * dT;
-    const qGlaz = uGlaz * glazFt2 * dT;
+    const qCond = uWallVal * wallArea * dT;
+    const qGlaz = uGlazVal * glazFt2 * dT;
     const volFt3 = areaFt2 * htFt;
-    const qInfil = 0.018 * ach * volFt3 * dT;
+    const qInfil = 0.018 * achVal * volFt3 * dT;
     const qTotal = qCond + qGlaz + qInfil;
 
     const kwTotal = qTotal * 0.293071 / 1000;
@@ -193,45 +202,45 @@ function HeatingLoadPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Floor Area ({ip ? "ft\u00b2" : "m\u00b2"})</label>
-                      <input type="number" step="any" value={area} onChange={(e) => { setArea(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <label className="font-semibold text-foreground">Floor Area ({ip ? "ft²" : "m²"})</label>
+                      <input type="number" step="any" value={area} onChange={(e) => { setArea(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "2000" : "185"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Ceiling Height ({ip ? "ft" : "m"})</label>
-                      <input type="number" step="any" value={height} onChange={(e) => { setHeight(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <input type="number" step="any" value={height} onChange={(e) => { setHeight(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "10" : "3.0"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Wall U-Value ({ip ? "BTU/h·ft\u00b2·\u00b0F" : "W/m\u00b2K"})</label>
-                      <input type="number" step="any" value={uWall} onChange={(e) => { setUWall(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <label className="font-semibold text-foreground">Wall U-Value ({ip ? "BTU/h·ft²·°F" : "W/m²K"})</label>
+                      <input type="number" step="any" value={uWall} onChange={(e) => { setUWall(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "0.05" : "0.28"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Glazing U-Value ({ip ? "BTU/h·ft\u00b2·\u00b0F" : "W/m\u00b2K"})</label>
-                      <input type="number" step="any" value={uGlaz} onChange={(e) => { setUGlaz(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <label className="font-semibold text-foreground">Glazing U-Value ({ip ? "BTU/h·ft²·°F" : "W/m²K"})</label>
+                      <input type="number" step="any" value={uGlaz} onChange={(e) => { setUGlaz(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "0.45" : "2.55"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Glazing Area ({ip ? "ft\u00b2" : "m\u00b2"})</label>
-                      <input type="number" step="any" value={glazArea} onChange={(e) => { setGlazArea(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <label className="font-semibold text-foreground">Glazing Area ({ip ? "ft²" : "m²"})</label>
+                      <input type="number" step="any" value={glazArea} onChange={(e) => { setGlazArea(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "150" : "14"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="font-semibold text-foreground">Infiltration Rate (ACH)</label>
-                      <input type="number" step="any" value={ach} onChange={(e) => { setAch(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <input type="number" step="any" value={ach} onChange={(e) => { setAch(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder="0.5" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Outdoor Temp ({ip ? "\u00b0F" : "\u00b0C"})</label>
-                      <input type="number" step="any" value={oat} onChange={(e) => { setOat(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <label className="font-semibold text-foreground">Outdoor Temp ({ip ? "°F" : "°C"})</label>
+                      <input type="number" step="any" value={oat} onChange={(e) => { setOat(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "32" : "0"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                     <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Indoor Temp ({ip ? "\u00b0F" : "\u00b0C"})</label>
-                      <input type="number" step="any" value={iat} onChange={(e) => { setIat(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7]" />
+                      <label className="font-semibold text-foreground">Indoor Temp ({ip ? "°F" : "°C"})</label>
+                      <input type="number" step="any" value={iat} onChange={(e) => { setIat(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "70" : "21"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                     </div>
                   </div>
                 </div>
@@ -303,7 +312,7 @@ function HeatingLoadPage() {
                       <div className="flex justify-between items-center py-1.5 col-span-2">
                         <span className="font-semibold text-muted-foreground">Load Density Index</span>
                         <strong className="font-bold text-foreground font-mono">
-                          {ip ? `${(calculatedData.qTotal / area).toFixed(1)} BTU/hr/ft\u00b2` : `${(calculatedData.kwTotal / area * 1000).toFixed(1)} W/m\u00b2`}
+                          {ip ? `${(calculatedData.qTotal / (Number(area) || 2000)).toFixed(1)} BTU/hr/ft²` : `${((calculatedData.kwTotal / (Number(area) || 185)) * 1000).toFixed(1)} W/m²`}
                         </strong>
                       </div>
                     </div>

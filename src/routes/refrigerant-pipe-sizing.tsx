@@ -49,7 +49,7 @@ const REF_PIPE_DATA: Record<LineType, Record<string, PipeData>> = {
 
 function RefrigerantPipeSizingPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [coolingCapacity, setCoolingCapacity] = useState<number>(10); // TR (IP) or kW (SI)
+  const [coolingCapacity, setCoolingCapacity] = useState<number | "">(""); // TR (IP) or kW (SI)
   const [refrigerant, setRefrigerant] = useState<Refrigerant>("R410A");
   const [lineType, setLineType] = useState<LineType>("suction");
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
@@ -61,14 +61,15 @@ function RefrigerantPipeSizingPage() {
     setUnitSystem(unit);
     if ((window as any).__mep_keep_values) return;
     if (unit === "ip") {
-      setCoolingCapacity(Number((coolingCapacity / 3.51685).toFixed(1)));
+      setCoolingCapacity(coolingCapacity !== "" ? Number((Number(coolingCapacity) / 3.51685).toFixed(1)) : "");
     } else {
-      setCoolingCapacity(Number((coolingCapacity * 3.51685).toFixed(1)));
+      setCoolingCapacity(coolingCapacity !== "" ? Number((Number(coolingCapacity) * 3.51685).toFixed(1)) : "");
     }
   };
 
   const calculatedData = useMemo(() => {
-    const trIP = ip ? coolingCapacity : coolingCapacity / 3.51685;
+    const capVal = coolingCapacity !== "" ? Number(coolingCapacity) : (ip ? 10 : 35);
+    const trIP = ip ? capVal : capVal / 3.51685;
     const lineData = REF_PIPE_DATA[lineType][refrigerant] || REF_PIPE_DATA[lineType]["R410A"];
     
     let od = "Out of range / No data";
@@ -136,7 +137,7 @@ function RefrigerantPipeSizingPage() {
                   {/* Cooling Capacity */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Cooling Capacity ({ip ? "TR" : "kW"})</label>
-                    <input type="number" step="any" value={coolingCapacity} onChange={(e) => { setCoolingCapacity(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]" />
+                    <input type="number" step="any" value={coolingCapacity} onChange={(e) => { setCoolingCapacity(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "10" : "35.0"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
 
                   {/* Refrigerant Type */}

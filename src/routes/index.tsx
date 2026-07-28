@@ -17,7 +17,7 @@ import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { CategorySelect } from "@/components/workspace/CategorySelect";
 import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
-import { useConfirm } from "@/hooks/use-confirm";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -402,6 +402,7 @@ function SpacesView() {
   }, [setSelected]);
 
   const confirm = useConfirm();
+  const prompt = usePrompt();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
 
@@ -1467,8 +1468,8 @@ function SpacesView() {
     return (
       <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
         <ContextMenuItem
-          onClick={() => {
-            const newFloor = prompt("Enter new floor name:", floor);
+          onClick={async () => {
+            const newFloor = await prompt("Enter new floor name:", floor, { title: "Rename Floor" });
             if (newFloor && newFloor.trim() !== "" && newFloor.trim() !== floor) {
               const floorSpaces = spaces.filter((s) => s.floor === floor);
               bulkUpdateSpaces(floorSpaces.map((s) => s.id), { floor: newFloor.trim() });
@@ -1616,8 +1617,8 @@ function SpacesView() {
     setQuery(viewFilters.query);
   };
 
-  const handleSaveView = () => {
-    const viewName = prompt("Enter a name for the current view:");
+  const handleSaveView = async () => {
+    const viewName = await prompt("Enter a name for the current view:", "", { title: "Save View" });
     if (!viewName) return;
     const cleanName = viewName.trim();
     if (!cleanName) return;
@@ -2140,6 +2141,16 @@ function SpacesView() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Deselect all selected spaces/rows
+      if (e.key === "Escape") {
+        if (selected.size > 0 || selectedPending.size > 0) {
+          e.preventDefault();
+          setSelected(new Set());
+          setSelectedPending(new Set());
+        }
+        return;
+      }
+
       const activeEl = document.activeElement;
       const isInput = activeEl && (
         (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
@@ -4166,6 +4177,10 @@ function ZonesView() {
   }, [rows, selectedZones, deleteZone, setOpenId, undo, redo]);
 
 
+  const getZoneEditIds = (zId: string): string[] => {
+    return selectedZones.has(zId) ? Array.from(selectedZones) : [zId];
+  };
+
   const columns: Column<Zone>[] = [
     {
       key: "name",
@@ -4203,7 +4218,7 @@ function ZonesView() {
     },
     {
       key: "area",
-      header: "Area (mÂ²)",
+      header: "Area (m²)",
       width: 100,
       align: "center",
       render: (z) => <span>{z.area.toFixed(0)}</span>,
@@ -4222,8 +4237,9 @@ function ZonesView() {
             min={1}
             onCommit={(val) => {
               const m = Math.max(1, parseInt(val) || 1);
+              const editIds = getZoneEditIds(z.id);
               const updatedZones = zones.map((zoneItem) => {
-                if (zoneItem.id === z.id) {
+                if (editIds.includes(zoneItem.id)) {
                   const clamp = (assigns: Record<string, number> | undefined) => {
                     if (!assigns) return {};
                     const res: Record<string, number> = {};
@@ -4529,8 +4545,9 @@ function ZonesView() {
           onToggleAll={toggleAllZones}
           renderContextMenu={renderZoneContextMenu}
           onRowDoubleClick={(z) => {
-            setOpenId(openId === z.id ? null : z.id);
             setSelectedZones(new Set([z.id]));
+            setAllocZoneId(z.id);
+            setZoneAllocOpen(true);
           }}
           rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
         />
@@ -5898,60 +5915,71 @@ function ReportView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-3 h-10 shrink-0">
-        <span className="text-[12px] text-muted-foreground">Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString()}</span></span>
-        <div className="ml-auto flex items-center gap-1">
+      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50">
+        <span className="text-[12px] text-muted-foreground font-semibold">Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString()}</span></span>
+        <div className="ml-auto flex items-center gap-1.5">
           <TBtn><Printer className="size-3.5" /> Print</TBtn>
           <TBtn><FileSpreadsheet className="size-3.5" /> Excel</TBtn>
           <TBtn primary><FileText className="size-3.5" /> Export PDF</TBtn>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-5xl mx-auto space-y-4">
+      <div className="flex-1 overflow-auto p-6 bg-slate-50/30 dark:bg-zinc-950/20">
+        <div className="max-w-4xl mx-auto space-y-6">
           <ReportSection title="Project Summary">
-            <div className="grid grid-cols-4 gap-px bg-border border border-border rounded overflow-hidden">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
               <KPI label="Spaces" value={spaces.length.toLocaleString()} />
               <KPI label="Zones" value={zones.length} />
               <KPI label="Equipment" value={equipment.length} />
-              <KPI label="Total Area" value={`${totalArea.toFixed(0)} mÂ²`} />
+              <KPI label="Total Area" value={`${totalArea.toFixed(0)} m²`} />
             </div>
           </ReportSection>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <ReportSection title="Fresh Air Totals">
-              <KVRow k="Required (min)" v={`${spaces.reduce((a, s) => a + (s.minOA || 0), 0).toLocaleString()} L/s`} />
-              <KVRow k="Supplied" v={`${totalFresh.toLocaleString()} L/s`} tone="primary" />
-              <KVRow k="Surplus" v={`+${(totalFresh - spaces.reduce((a, s) => a + (s.minOA || 0), 0)).toLocaleString()} L/s`} tone="success" />
+              <div className="bg-surface-2 dark:bg-zinc-800/40 p-4 rounded-2xl border border-border/80 space-y-1">
+                <KVRow k="Required (min)" v={`${spaces.reduce((a, s) => a + (s.minOA || 0), 0).toLocaleString()} L/s`} />
+                <KVRow k="Supplied" v={`${totalFresh.toLocaleString()} L/s`} tone="primary" />
+                <KVRow k="Surplus" v={`+${(totalFresh - spaces.reduce((a, s) => a + (s.minOA || 0), 0)).toLocaleString()} L/s`} tone="success" />
+              </div>
             </ReportSection>
             <ReportSection title="Extract Air Totals">
-              <KVRow k="Required (min)" v={`${spaces.reduce((a, s) => a + (s.minExt || 0), 0).toLocaleString()} L/s`} />
-              <KVRow k="Extracted" v={`${totalExtract.toLocaleString()} L/s`} tone="primary" />
-              <KVRow k="Surplus" v={`+${(totalExtract - spaces.reduce((a, s) => a + (s.minExt || 0), 0)).toLocaleString()} L/s`} tone="success" />
+              <div className="bg-surface-2 dark:bg-zinc-800/40 p-4 rounded-2xl border border-border/80 space-y-1">
+                <KVRow k="Required (min)" v={`${spaces.reduce((a, s) => a + (s.minExt || 0), 0).toLocaleString()} L/s`} />
+                <KVRow k="Extracted" v={`${totalExtract.toLocaleString()} L/s`} tone="primary" />
+                <KVRow k="Surplus" v={`+${(totalExtract - spaces.reduce((a, s) => a + (s.minExt || 0), 0)).toLocaleString()} L/s`} tone="success" />
+              </div>
             </ReportSection>
           </div>
 
-          <ReportSection title="Pressure Balance Summary">
-            <KVRow k="Net Balance" v={`${balance > 0 ? "+" : ""}${balance.toLocaleString()} L/s`} tone={Math.abs(balance) < 500 ? "success" : "warning"} />
-            <KVRow k="Positive Zones" v={zones.filter((z) => z.pressureType === "positive").length} />
-            <KVRow k="Negative Zones" v={zones.filter((z) => z.pressureType === "negative").length} />
-            <KVRow k="Neutral Zones" v={zones.filter((z) => z.pressureType === "neutral").length} />
-          </ReportSection>
-
-          <ReportSection title="ASHRAE 62.1 Compliance Summary">
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-2 bg-surface-2 rounded-full overflow-hidden">
-                <div className="h-full bg-success" style={{ width: `${compliance}%` }} />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <ReportSection title="Pressure Balance Summary">
+              <div className="bg-surface-2 dark:bg-zinc-800/40 p-4 rounded-2xl border border-border/80 space-y-1">
+                <KVRow k="Net Balance" v={`${balance > 0 ? "+" : ""}${balance.toLocaleString()} L/s`} tone={Math.abs(balance) < 500 ? "success" : "warning"} />
+                <KVRow k="Positive Zones" v={zones.filter((z) => z.pressureType === "positive").length} />
+                <KVRow k="Negative Zones" v={zones.filter((z) => z.pressureType === "negative").length} />
+                <KVRow k="Neutral Zones" v={zones.filter((z) => z.pressureType === "neutral").length} />
               </div>
-              <span className="font-mono tabular text-[14px] font-semibold">{compliance}%</span>
-            </div>
-            <div className="text-[12px] text-muted-foreground mt-2">
-              {spaces.length - warningsCount} compliant Â· {warningsCount} require attention
-            </div>
-          </ReportSection>
+            </ReportSection>
+
+            <ReportSection title="ASHRAE 62.1 Compliance">
+              <div className="bg-surface-2 dark:bg-zinc-800/40 p-5 rounded-2xl border border-border/80 flex flex-col justify-center h-full min-h-[155px]">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[13px] font-semibold text-foreground">Compliance Rating</span>
+                  <span className="font-mono tabular text-[18px] font-extrabold text-primary">{compliance}%</span>
+                </div>
+                <div className="w-full h-3 bg-[#e2e8f0] dark:bg-zinc-700 rounded-full overflow-hidden shadow-inner">
+                  <div className="h-full bg-success transition-all duration-500 rounded-full" style={{ width: `${compliance}%` }} />
+                </div>
+                <div className="text-[12px] text-muted-foreground mt-3 font-medium">
+                  {spaces.length - warningsCount} compliant spaces · {warningsCount} require attention
+                </div>
+              </div>
+            </ReportSection>
+          </div>
 
           <ReportSection title="Equipment Summary">
-            <div className="grid grid-cols-3 gap-px bg-border border border-border rounded overflow-hidden">
-              <KPI label="Operational" value={zones.length} /> {/* Note: equipment in zones */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              <KPI label="Operational" value={zones.length} />
               <KPI label="Warnings" value={equipment.filter((e) => e.status === "warning").length} />
               <KPI label="Avg Utilization" value={`${equipment.length > 0 ? Math.round(equipment.reduce((a, e) => a + e.utilization, 0) / equipment.length) : 0}%`} />
             </div>
@@ -5964,30 +5992,30 @@ function ReportView() {
 
 function ReportSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border border-border rounded bg-background">
-      <header className="px-4 h-9 flex items-center border-b border-border">
-        <h3 className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">{title}</h3>
+    <section className="border border-border/80 rounded-3xl bg-card shadow-[0_1px_3px_rgba(0,0,0,0.02)] overflow-hidden">
+      <header className="px-5 h-11 flex items-center border-b border-border/50 bg-card shrink-0">
+        <h3 className="text-[10px] uppercase tracking-widest font-extrabold text-slate-500 dark:text-zinc-400">{title}</h3>
       </header>
-      <div className="p-4">{children}</div>
+      <div className="p-5">{children}</div>
     </section>
   );
 }
 
 function KPI({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="bg-background px-3 py-3">
-      <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="font-mono tabular text-[18px] font-semibold mt-0.5">{value}</div>
+    <div className="bg-surface-2 dark:bg-zinc-800/40 px-4 py-3.5 rounded-2xl border border-border/80 shadow-xs flex flex-col justify-between">
+      <div className="text-[9.5px] uppercase tracking-wider font-extrabold text-muted-foreground">{label}</div>
+      <div className="font-mono tabular text-[20px] font-bold mt-1 text-foreground">{value}</div>
     </div>
   );
 }
 
 function KVRow({ k, v, tone }: { k: string; v: React.ReactNode; tone?: "primary" | "success" | "warning" }) {
-  const color = tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : tone === "primary" ? "text-primary" : "text-foreground";
+  const color = tone === "success" ? "text-success font-semibold" : tone === "warning" ? "text-warning font-semibold" : tone === "primary" ? "text-primary font-semibold" : "text-foreground";
   return (
-    <div className="flex items-center justify-between py-1.5 border-b border-border/60 last:border-b-0 text-[12.5px]">
-      <span className="text-muted-foreground">{k}</span>
-      <span className={`font-mono tabular font-medium ${color}`}>{v}</span>
+    <div className="flex items-center justify-between py-2 border-b border-border/40 last:border-b-0 text-[12.5px]">
+      <span className="text-muted-foreground font-medium">{k}</span>
+      <span className={`font-mono tabular ${color}`}>{v}</span>
     </div>
   );
 }
