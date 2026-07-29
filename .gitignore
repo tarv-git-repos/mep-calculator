@@ -30,3 +30,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+MEP_Calculator_App/
+*.exe

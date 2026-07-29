@@ -217,6 +217,7 @@ function CableVoltageDropPage() {
   const confirm = useConfirm();
   const boards = useElectricalNetworkStore(state => state.boards);
   const setBoards = useElectricalNetworkStore(state => state.setBoards);
+  const updateCircuit = useElectricalNetworkStore(state => state.updateCircuit);
 
   const [rows, setRows] = useState<CableVDRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -224,6 +225,33 @@ function CableVoltageDropPage() {
   
   const [history, setHistory] = useState<CableVDRow[][]>([]);
   const [redoStack, setRedoStack] = useState<CableVDRow[][]>([]);
+
+  const syncToLoadSchedule = (updatedRow: CableVDRow, updates: Partial<CableVDRow>) => {
+    if (!updatedRow.isLinked || (!updates.size && updates.length === undefined && updates.runs === undefined)) return;
+    
+    const fromNorm = normalizeString(updatedRow.from);
+    const descNorm = normalizeString(updatedRow.description);
+    const parentBoard = boards.find(b => normalizeString(b.name) === fromNorm);
+    
+    if (parentBoard) {
+       const circuit = parentBoard.circuits.find(c => {
+          const cDesc = c.desc || c.roomArea || "";
+          return normalizeString(cDesc) === descNorm;
+       });
+       if (circuit) {
+          if (updates.size !== undefined) {
+             const field = circuit.wire !== undefined ? "wire" : "wireEcc";
+             updateCircuit(parentBoard.id, circuit.id, field, updates.size);
+          }
+          if (updates.length !== undefined) {
+             updateCircuit(parentBoard.id, circuit.id, "len", updates.length.toString());
+          }
+          if (updates.runs !== undefined) {
+             updateCircuit(parentBoard.id, circuit.id, "qty", updates.runs);
+          }
+       }
+    }
+  };
 
   const updateRow = (id: string, updates: Partial<CableVDRow>) => {
     pushToHistory(rows, history, setHistory, setRedoStack);
@@ -240,6 +268,7 @@ function CableVoltageDropPage() {
                 updatedRow.mvAm = CABLE_CATALOGUE[normalizedSize];
              }
           }
+          syncToLoadSchedule(updatedRow, updates);
           return updatedRow;
         }
         return row;
@@ -291,6 +320,7 @@ function CableVoltageDropPage() {
              }
           }
           
+          syncToLoadSchedule(updatedRow, updates);
           return updatedRow;
         }
         return row;
