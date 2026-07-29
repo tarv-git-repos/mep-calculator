@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -128,7 +129,8 @@ function SanityCheckToolPage() {
     ]);
     const ws = XLSX.utils.aoa_to_sheet([["HV\u00b0C Engineering Sanity Check Report"], [], headers, ...exportData]);
     XLSX.utils.book_append_sheet(wb, ws, "Sanity Check");
-    XLSX.writeFile(wb, "Engineering_Sanity_Checks.xlsx");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Engineering_Sanity_Checks.xlsx", "Excel Document", ["xlsx"]);
   };
 
   return (

@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { kwToTr, trToKw, kwToBtu, btuToKw, mToFt, ftToM } from "@/utils/conversions";
 import { useState, useMemo } from "react";
@@ -113,7 +114,8 @@ function CondensateDrainPage() {
     ];
     const ws = XLSX.utils.aoa_to_sheet([["Condensate Drain Sizing"], [], headers, ...exportData]);
     XLSX.utils.book_append_sheet(wb, ws, "Drain Sizing");
-    XLSX.writeFile(wb, "Condensate_Drain_Sizing.xlsx");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Condensate_Drain_Sizing.xlsx", "Excel Document", ["xlsx"]);
   };
 
   return (

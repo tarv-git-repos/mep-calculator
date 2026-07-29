@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import ExcelJS from 'exceljs';
 import pkg from 'file-saver';
 const { saveAs } = pkg;
@@ -215,6 +216,5 @@ export async function exportCableTrayExcel(trays: Tray[], unitSystem: "si" | "ip
 
   // Write and Save
   const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  saveAs(blob, "Cable_Tray_Sizing.xlsx");
+  await downloadFile(new Uint8Array(buffer), "Cable_Tray_Sizing.xlsx", "Excel Document", ["xlsx"]);
 }

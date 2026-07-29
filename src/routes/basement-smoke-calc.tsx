@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -330,7 +331,8 @@ function BasementSmokeCalcPage() {
     const headers = ["Floor Name", `Gross Area (${ip ? "ft\u00b2" : "m\u00b2"})`, `Effective Area (${ip ? "ft\u00b2" : "m\u00b2"})`, `Height (${ip ? "ft" : "m"})`, `3 ACH Flow (${ip ? "CFM" : "L/s"})`, `6 ACH Flow (${ip ? "CFM" : "L/s"})`, `10 ACH Flow (${ip ? "CFM" : "L/s"})` ];
     const ws = XLSX.utils.aoa_to_sheet([["Basement Ventilation Schedule"], [], headers, ...floorData]);
     XLSX.utils.book_append_sheet(wb, ws, "Basement Schedule");
-    XLSX.writeFile(wb, "Basement_Smoke_Calculation.xlsx");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Basement_Smoke_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
 
   return (

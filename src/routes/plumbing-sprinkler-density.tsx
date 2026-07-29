@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
@@ -153,7 +154,8 @@ function SprinklerDensityPage() {
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Density & Flow");
-    XLSX.writeFile(workbook, `Sprinkler_Density_Flow_Report_${project.code}.xlsx`);
+    const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), `Sprinkler_Density_Flow_Report_${project.code}.xlsx`, "Excel Document", ["xlsx"]);
   };
 
   const exportPdf = () => {
@@ -191,7 +193,8 @@ function SprinklerDensityPage() {
       headStyles: { fillColor: [220, 76, 52] }
     });
 
-    doc.save(`Sprinkler_Density_Flow_Report_${project.code}.pdf`);
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_Density_Flow_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };
 
   return (

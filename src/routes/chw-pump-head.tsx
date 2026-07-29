@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -395,7 +396,8 @@ function ChwPumpHeadPage() {
       },
     });
 
-    doc.save(`${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`);
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };
 
   return (

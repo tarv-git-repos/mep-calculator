@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import * as XLSX from "xlsx";
@@ -161,7 +162,8 @@ function FM200SizerPage() {
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "FM-200 Calculation");
-    XLSX.writeFile(workbook, `FM200_Flooding_Sizer_${project.code}.xlsx`);
+    const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), `FM200_Flooding_Sizer_${project.code}.xlsx`, "Excel Document", ["xlsx"]);
   };
 
   // Export to PDF handler
@@ -213,7 +215,8 @@ function FM200SizerPage() {
       doc.text("- WARNING: Design concentration exceeds human exposure limits for occupied zones.", 14, finalY + 13);
     }
 
-    doc.save(`FM200_Sizing_Report_${project.code}.pdf`);
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), `FM200_Sizing_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };
 
   return (

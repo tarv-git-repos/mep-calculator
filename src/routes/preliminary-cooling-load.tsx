@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -1046,7 +1047,8 @@ function PreliminaryCoolingLoadPage() {
       headStyles: { fillColor: [10, 123, 199] },
     });
 
-    doc.save(`${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`);
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };
 
   // Bulk Edit Callback

@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -302,7 +303,8 @@ function CapacitorBankSizingPage() {
       }
     });
 
-    doc.save("Capacitor_Bank_Calculations.pdf");
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), "Capacitor_Bank_Calculations.pdf", "PDF Document", ["pdf"]);
   };
 
   const handleImportExcelRows = (mappedRows: any[]) => {

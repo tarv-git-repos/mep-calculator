@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useEffect, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -219,8 +220,7 @@ function StormWaterPage() {
       worksheet.getRow(worksheet.rowCount).font = { bold: true };
 
       const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      saveAs(blob, `Storm_Water_Sizing_${project.name.replace(/\s+/g, "_")}.xlsx`);
+      await downloadFile(new Uint8Array(buffer), `Storm_Water_Sizing_${project.name.replace(/\s+/g, "_")}.xlsx`, "Excel Document", ["xlsx"]);
       toast.success("Excel report exported successfully!");
     } catch (e) {
       toast.error("Failed to export Excel report.");

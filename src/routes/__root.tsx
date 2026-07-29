@@ -14,6 +14,69 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { Navigate, useRouterState } from "@tanstack/react-router";
+import { useAutoBackup } from "@/hooks/useAutoBackup";
+import { Clock } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { isFeatureLocked } from "@/utils/featureFlags";
+
+function AuthGuard({ children }: { children: ReactNode }) {
+  const { session, profile, loading } = useAuth();
+  const routerState = useRouterState();
+  
+  if (loading) return (
+    <div className="flex h-screen w-screen items-center justify-center bg-background">
+      <div className="text-primary font-medium">Loading session...</div>
+    </div>
+  );
+  
+  const isLoginPage = routerState.location.pathname === '/login';
+  const isAdminPage = routerState.location.pathname.startsWith('/admin');
+  
+  if (!session && !isLoginPage) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Security & Smart Routing
+  if (session && profile && !isLoginPage) {
+    if (profile.role !== 'ADMIN' && isAdminPage) {
+      return <Navigate to="/" replace />;
+    }
+    if (profile.role !== 'ADMIN' && isFeatureLocked(routerState.location.pathname, profile)) {
+      return <Navigate to="/" replace />;
+    }
+  }
+
+  // Subscription Enforcement
+  if (session && profile && !isLoginPage) {
+    if (profile.role !== 'ADMIN') {
+      const expiryDate = new Date(profile.subscription_expires);
+      if (new Date() > expiryDate) {
+        return (
+          <div className="flex flex-col h-screen w-screen items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 text-center">
+            <Clock className="w-16 h-16 text-amber-500 mb-4" />
+            <h2 className="text-2xl font-bold">Subscription Expired</h2>
+            <p className="text-muted-foreground mt-2 max-w-md">
+              Your access to the MEP Calculator has expired. Please contact your administrator to renew your subscription.
+            </p>
+            <div className="mt-8 p-4 bg-slate-200 dark:bg-slate-800 rounded-lg">
+              <p className="text-sm">Expired on: {expiryDate.toLocaleDateString()}</p>
+            </div>
+            <button 
+              onClick={() => supabase.auth.signOut()}
+              className="mt-6 px-4 py-2 bg-slate-200 dark:bg-slate-800 rounded-lg font-medium hover:bg-slate-300 dark:hover:bg-slate-700"
+            >
+              Sign out
+            </button>
+          </div>
+        );
+      }
+    }
+  }
+  
+  return <>{children}</>;
+}
 
 function NotFoundComponent() {
   return (
@@ -196,15 +259,20 @@ function DirtyWatcher() {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useAutoBackup();
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ConfirmProvider>
-        <DirtyWatcher />
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <Outlet />
-        <Toaster />
-      </ConfirmProvider>
+      <AuthProvider>
+        <ConfirmProvider>
+          <DirtyWatcher />
+          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+          <AuthGuard>
+            <Outlet />
+          </AuthGuard>
+          <Toaster />
+        </ConfirmProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

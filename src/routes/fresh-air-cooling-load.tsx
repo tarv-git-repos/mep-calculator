@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, m3sToCfm, cfmToM3s } from "@/utils/conversions";
 import { useState, useMemo } from "react";
@@ -132,7 +133,8 @@ function FreshAirCoolingLoadPage() {
     ];
     const ws2 = XLSX.utils.aoa_to_sheet(data);
     XLSX.utils.book_append_sheet(wb2, ws2, "Fresh Air Sizing");
-    XLSX.writeFile(wb2, "Fresh_Air_Cooling_Load.xlsx");
+    const xlsxBuffer = XLSX.write(wb2, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Fresh_Air_Cooling_Load.xlsx", "Excel Document", ["xlsx"]);
   };
 
   const uT = ip ? "°F" : "°C";

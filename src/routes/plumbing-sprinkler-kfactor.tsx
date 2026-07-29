@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
@@ -724,7 +725,8 @@ function SprinklerKFactorPage() {
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Sprinkler Schedule");
-    XLSX.writeFile(workbook, `Sprinkler_KFactor_Report_${project.code}.xlsx`);
+    const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), `Sprinkler_KFactor_Report_${project.code}.xlsx`, "Excel Document", ["xlsx"]);
   };
 
   const exportPdf = () => {
@@ -775,7 +777,8 @@ function SprinklerKFactorPage() {
       headStyles: { fillColor: [220, 76, 52], halign: "left" }
     });
 
-    doc.save(`Sprinkler_KFactor_Report_${project.code}.pdf`);
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };
 
   // AI intelligence optimizations

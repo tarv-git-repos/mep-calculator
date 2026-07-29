@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -366,7 +367,8 @@ function CircuitBreakerSizingPage() {
       },
     });
 
-    doc.save(`circuit_breaker_sizing_report.pdf`);
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), `circuit_breaker_sizing_report.pdf`, "PDF Document", ["pdf"]);
   };
 
   return (

@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -126,7 +127,8 @@ function HeatingLoadPage() {
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, "Heating Sizing");
-    XLSX.writeFile(wb, "Heating_Load_Calculation.xlsx");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Heating_Load_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
 
   const renderChart = () => {

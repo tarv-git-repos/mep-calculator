@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -772,10 +773,7 @@ function GeneratorSizingPage() {
     for (let c = 10; c <= 12; c++) setBorder(worksheet.getCell(rowIndex, c));
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-    saveAs(blob, "Generator_Sizing_Calculation.xlsx");
+    await downloadFile(new Uint8Array(buffer), "Generator_Sizing_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
 
   const exportPdf = () => {
@@ -805,7 +803,8 @@ function GeneratorSizingPage() {
       body: tableData,
       startY: 20,
     });
-    doc.save("generator_sizing.pdf");
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), "generator_sizing.pdf", "PDF Document", ["pdf"]);
   };
 
   const duplicateRow = (id: string) => {

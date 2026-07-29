@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -514,7 +515,8 @@ function ShortCircuitCalculationsPage() {
       }
     });
 
-    doc.save("Short_Circuit_Report.pdf");
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), "Short_Circuit_Report.pdf", "PDF Document", ["pdf"]);
   };
 
   // DataGrid columns setup

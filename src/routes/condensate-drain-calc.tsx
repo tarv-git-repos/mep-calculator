@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
 import { useState, useMemo, useEffect } from "react";
@@ -230,7 +231,8 @@ function CondensateDrainCalcPage() {
     ]);
     const ws = XLSX.utils.aoa_to_sheet([["Moisture Extraction Coil Schedule"], [], headers, ...exportData]);
     XLSX.utils.book_append_sheet(wb, ws, "Coils Schedule");
-    XLSX.writeFile(wb, "Condensate_Drain_Calculation.xlsx");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Condensate_Drain_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
 
   const uTemp = ip ? "\u00b0F" : "\u00b0C";

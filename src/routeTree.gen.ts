@@ -23,6 +23,7 @@ import { Route as RefrigerantPipeSizingRouteImport } from './routes/refrigerant-
 import { Route as PsychrometricRouteImport } from './routes/psychrometric'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ProjectLoadScheduleRouteImport } from './routes/project-load-schedule'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as PreliminaryCoolingLoadRouteImport } from './routes/preliminary-cooling-load'
 import { Route as PlumbingWaterDemandRouteImport } from './routes/plumbing-water-demand'
 import { Route as PlumbingTankSizingRouteImport } from './routes/plumbing-tank-sizing'
@@ -45,6 +46,7 @@ import { Route as PlumbingFireTankCapacityRouteImport } from './routes/plumbing-
 import { Route as PlumbingFirePumpDutyRouteImport } from './routes/plumbing-fire-pump-duty'
 import { Route as PlumbingDrainageRouteImport } from './routes/plumbing-drainage'
 import { Route as LpdCalculationRouteImport } from './routes/lpd-calculation'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as LobbyPressurisationRouteImport } from './routes/lobby-pressurisation'
 import { Route as LoadSummaryRouteImport } from './routes/load-summary'
 import { Route as LightingLuxCalculationRouteImport } from './routes/lighting-lux-calculation'
@@ -69,6 +71,7 @@ import { Route as CableTraySizingRouteImport } from './routes/cable-tray-sizing'
 import { Route as BusbarVoltageDropRouteImport } from './routes/busbar-voltage-drop'
 import { Route as BusbarCalculationRouteImport } from './routes/busbar-calculation'
 import { Route as BasementSmokeCalcRouteImport } from './routes/basement-smoke-calc'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as R3dViewRouteImport } from './routes/3d-view'
 import { Route as IndexRouteImport } from './routes/index'
 
@@ -141,6 +144,11 @@ const ProjectsRoute = ProjectsRouteImport.update({
 const ProjectLoadScheduleRoute = ProjectLoadScheduleRouteImport.update({
   id: '/project-load-schedule',
   path: '/project-load-schedule',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PreliminaryCoolingLoadRoute = PreliminaryCoolingLoadRouteImport.update({
@@ -255,6 +263,11 @@ const PlumbingDrainageRoute = PlumbingDrainageRouteImport.update({
 const LpdCalculationRoute = LpdCalculationRouteImport.update({
   id: '/lpd-calculation',
   path: '/lpd-calculation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LobbyPressurisationRoute = LobbyPressurisationRouteImport.update({
@@ -377,6 +390,11 @@ const BasementSmokeCalcRoute = BasementSmokeCalcRouteImport.update({
   path: '/basement-smoke-calc',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const R3dViewRoute = R3dViewRouteImport.update({
   id: '/3d-view',
   path: '/3d-view',
@@ -391,6 +409,7 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/3d-view': typeof R3dViewRoute
+  '/admin': typeof AdminRoute
   '/basement-smoke-calc': typeof BasementSmokeCalcRoute
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
@@ -415,6 +434,7 @@ export interface FileRoutesByFullPath {
   '/lighting-lux-calculation': typeof LightingLuxCalculationRoute
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
+  '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
@@ -437,6 +457,7 @@ export interface FileRoutesByFullPath {
   '/plumbing-tank-sizing': typeof PlumbingTankSizingRoute
   '/plumbing-water-demand': typeof PlumbingWaterDemandRoute
   '/preliminary-cooling-load': typeof PreliminaryCoolingLoadRoute
+  '/privacy': typeof PrivacyRoute
   '/project-load-schedule': typeof ProjectLoadScheduleRoute
   '/projects': typeof ProjectsRoute
   '/psychrometric': typeof PsychrometricRoute
@@ -455,6 +476,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/3d-view': typeof R3dViewRoute
+  '/admin': typeof AdminRoute
   '/basement-smoke-calc': typeof BasementSmokeCalcRoute
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
@@ -479,6 +501,7 @@ export interface FileRoutesByTo {
   '/lighting-lux-calculation': typeof LightingLuxCalculationRoute
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
+  '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
@@ -501,6 +524,7 @@ export interface FileRoutesByTo {
   '/plumbing-tank-sizing': typeof PlumbingTankSizingRoute
   '/plumbing-water-demand': typeof PlumbingWaterDemandRoute
   '/preliminary-cooling-load': typeof PreliminaryCoolingLoadRoute
+  '/privacy': typeof PrivacyRoute
   '/project-load-schedule': typeof ProjectLoadScheduleRoute
   '/projects': typeof ProjectsRoute
   '/psychrometric': typeof PsychrometricRoute
@@ -520,6 +544,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/3d-view': typeof R3dViewRoute
+  '/admin': typeof AdminRoute
   '/basement-smoke-calc': typeof BasementSmokeCalcRoute
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
@@ -544,6 +569,7 @@ export interface FileRoutesById {
   '/lighting-lux-calculation': typeof LightingLuxCalculationRoute
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
+  '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
@@ -566,6 +592,7 @@ export interface FileRoutesById {
   '/plumbing-tank-sizing': typeof PlumbingTankSizingRoute
   '/plumbing-water-demand': typeof PlumbingWaterDemandRoute
   '/preliminary-cooling-load': typeof PreliminaryCoolingLoadRoute
+  '/privacy': typeof PrivacyRoute
   '/project-load-schedule': typeof ProjectLoadScheduleRoute
   '/projects': typeof ProjectsRoute
   '/psychrometric': typeof PsychrometricRoute
@@ -586,6 +613,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/3d-view'
+    | '/admin'
     | '/basement-smoke-calc'
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
@@ -610,6 +638,7 @@ export interface FileRouteTypes {
     | '/lighting-lux-calculation'
     | '/load-summary'
     | '/lobby-pressurisation'
+    | '/login'
     | '/lpd-calculation'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
@@ -632,6 +661,7 @@ export interface FileRouteTypes {
     | '/plumbing-tank-sizing'
     | '/plumbing-water-demand'
     | '/preliminary-cooling-load'
+    | '/privacy'
     | '/project-load-schedule'
     | '/projects'
     | '/psychrometric'
@@ -650,6 +680,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/3d-view'
+    | '/admin'
     | '/basement-smoke-calc'
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
@@ -674,6 +705,7 @@ export interface FileRouteTypes {
     | '/lighting-lux-calculation'
     | '/load-summary'
     | '/lobby-pressurisation'
+    | '/login'
     | '/lpd-calculation'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
@@ -696,6 +728,7 @@ export interface FileRouteTypes {
     | '/plumbing-tank-sizing'
     | '/plumbing-water-demand'
     | '/preliminary-cooling-load'
+    | '/privacy'
     | '/project-load-schedule'
     | '/projects'
     | '/psychrometric'
@@ -714,6 +747,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/3d-view'
+    | '/admin'
     | '/basement-smoke-calc'
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
@@ -738,6 +772,7 @@ export interface FileRouteTypes {
     | '/lighting-lux-calculation'
     | '/load-summary'
     | '/lobby-pressurisation'
+    | '/login'
     | '/lpd-calculation'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
@@ -760,6 +795,7 @@ export interface FileRouteTypes {
     | '/plumbing-tank-sizing'
     | '/plumbing-water-demand'
     | '/preliminary-cooling-load'
+    | '/privacy'
     | '/project-load-schedule'
     | '/projects'
     | '/psychrometric'
@@ -779,6 +815,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   R3dViewRoute: typeof R3dViewRoute
+  AdminRoute: typeof AdminRoute
   BasementSmokeCalcRoute: typeof BasementSmokeCalcRoute
   BusbarCalculationRoute: typeof BusbarCalculationRoute
   BusbarVoltageDropRoute: typeof BusbarVoltageDropRoute
@@ -803,6 +840,7 @@ export interface RootRouteChildren {
   LightingLuxCalculationRoute: typeof LightingLuxCalculationRoute
   LoadSummaryRoute: typeof LoadSummaryRoute
   LobbyPressurisationRoute: typeof LobbyPressurisationRoute
+  LoginRoute: typeof LoginRoute
   LpdCalculationRoute: typeof LpdCalculationRoute
   PlumbingDrainageRoute: typeof PlumbingDrainageRoute
   PlumbingFirePumpDutyRoute: typeof PlumbingFirePumpDutyRoute
@@ -825,6 +863,7 @@ export interface RootRouteChildren {
   PlumbingTankSizingRoute: typeof PlumbingTankSizingRoute
   PlumbingWaterDemandRoute: typeof PlumbingWaterDemandRoute
   PreliminaryCoolingLoadRoute: typeof PreliminaryCoolingLoadRoute
+  PrivacyRoute: typeof PrivacyRoute
   ProjectLoadScheduleRoute: typeof ProjectLoadScheduleRoute
   ProjectsRoute: typeof ProjectsRoute
   PsychrometricRoute: typeof PsychrometricRoute
@@ -939,6 +978,13 @@ declare module '@tanstack/react-router' {
       path: '/project-load-schedule'
       fullPath: '/project-load-schedule'
       preLoaderRoute: typeof ProjectLoadScheduleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/preliminary-cooling-load': {
@@ -1093,6 +1139,13 @@ declare module '@tanstack/react-router' {
       path: '/lpd-calculation'
       fullPath: '/lpd-calculation'
       preLoaderRoute: typeof LpdCalculationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lobby-pressurisation': {
@@ -1263,6 +1316,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BasementSmokeCalcRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/3d-view': {
       id: '/3d-view'
       path: '/3d-view'
@@ -1283,6 +1343,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   R3dViewRoute: R3dViewRoute,
+  AdminRoute: AdminRoute,
   BasementSmokeCalcRoute: BasementSmokeCalcRoute,
   BusbarCalculationRoute: BusbarCalculationRoute,
   BusbarVoltageDropRoute: BusbarVoltageDropRoute,
@@ -1307,6 +1368,7 @@ const rootRouteChildren: RootRouteChildren = {
   LightingLuxCalculationRoute: LightingLuxCalculationRoute,
   LoadSummaryRoute: LoadSummaryRoute,
   LobbyPressurisationRoute: LobbyPressurisationRoute,
+  LoginRoute: LoginRoute,
   LpdCalculationRoute: LpdCalculationRoute,
   PlumbingDrainageRoute: PlumbingDrainageRoute,
   PlumbingFirePumpDutyRoute: PlumbingFirePumpDutyRoute,
@@ -1329,6 +1391,7 @@ const rootRouteChildren: RootRouteChildren = {
   PlumbingTankSizingRoute: PlumbingTankSizingRoute,
   PlumbingWaterDemandRoute: PlumbingWaterDemandRoute,
   PreliminaryCoolingLoadRoute: PreliminaryCoolingLoadRoute,
+  PrivacyRoute: PrivacyRoute,
   ProjectLoadScheduleRoute: ProjectLoadScheduleRoute,
   ProjectsRoute: ProjectsRoute,
   PsychrometricRoute: PsychrometricRoute,

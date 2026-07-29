@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -163,7 +164,8 @@ function DiffuserSelectorPage() {
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, "Diffuser Selector");
-    XLSX.writeFile(wb, "Diffuser_Selection.xlsx");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Diffuser_Selection.xlsx", "Excel Document", ["xlsx"]);
   };
 
   return (

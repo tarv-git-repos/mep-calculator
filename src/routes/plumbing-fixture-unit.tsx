@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -358,7 +359,8 @@ function FixtureUnitPage() {
     const wsRows = XLSX.utils.aoa_to_sheet(rowsData);
     XLSX.utils.book_append_sheet(wb, wsRows, "Fixture Schedule");
 
-    XLSX.writeFile(wb, "Fixture_Unit_Calculation_Report.xlsx");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Fixture_Unit_Calculation_Report.xlsx", "Excel Document", ["xlsx"]);
   };
 
   // Group by floor for listing

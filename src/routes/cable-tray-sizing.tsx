@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -676,7 +677,8 @@ function CableTraySizingPage() {
        doc.text("No trays to export.", 14, 30);
     }
 
-    doc.save("Cable_Tray_Sizing.pdf");
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), "Cable_Tray_Sizing.pdf", "PDF Document", ["pdf"]);
   };
 
   const actions = (

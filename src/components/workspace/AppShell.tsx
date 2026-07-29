@@ -2,15 +2,22 @@ import { Link, useRouterState, useNavigate, useRouter } from "@tanstack/react-ro
 import React, { useState, useEffect, useCallback, type ReactNode } from "react";
 import {
   Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
-  LayoutDashboard, FolderKanban, Wind, Droplets, Flame,
+  LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy
+  Edit3, Trash2, Copy, ShieldAlert, Lock
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
+import { isFeatureLocked } from "@/utils/featureFlags";
+import { logActivity } from "@/utils/logger";
+import { VersionManager } from "./VersionManager";
+import { useCollaboration } from "@/lib/collaboration-store";
+import { supabase } from "@/lib/supabase";
+import { Megaphone, X as XIcon } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -28,103 +35,7 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 
-type NavLeaf = { label: string; to?: string; badge?: string; isHeader?: boolean };
-type NavItem =
-  | { kind: "item"; label: string; to?: string; icon: any }
-  | { kind: "group"; label: string; icon: any; children: NavLeaf[]; defaultOpen?: boolean };
-
-const NAV: NavItem[] = [
-  { kind: "item", label: "Dashboard", to: "/", icon: LayoutDashboard },
-  { kind: "item", label: "Projects", to: "/projects", icon: FolderKanban },
-  {
-    kind: "group", label: "HVAC", icon: Wind, defaultOpen: true,
-    children: [
-      { label: "CONCEPT DESIGN", isHeader: true },
-      { label: "Preliminary Cooling Load", to: "/preliminary-cooling-load" },
-      { label: "HYDRONIC SYSTEM", isHeader: true },
-      { label: "CHW Pipe Sizer", to: "/chw-pipe-sizer" },
-      { label: "CHW Pump Head", to: "/chw-pump-head" },
-      { label: "LOAD & VENTILATION", isHeader: true },
-      { label: "VENTILATION", to: "/ventilation" },
-      { label: "Fresh Air Cooling Load", to: "/fresh-air-cooling-load" },
-      { label: "Condensate Drain Calc", to: "/condensate-drain-calc" },
-      { label: "Heating Load", to: "/heating-load" },
-      { label: "SMOKE", isHeader: true },
-      { label: "Lobby Pressurisation", to: "/lobby-pressurisation" },
-      { label: "Staircase Pressurization", to: "/staircase-pressurization" },
-      { label: "Smoke Extract Fan", to: "/smoke-extract-fan" },
-      { label: "Basement Smoke Calc", to: "/basement-smoke-calc" },
-      { label: "AIR DISTRIBUTION", isHeader: true },
-      { label: "Duct Sizer", to: "/duct-sizer" },
-      { label: "Diffuser Selector", to: "/diffuser-selector" },
-      { label: "REFRIGERATION & MISC", isHeader: true },
-      { label: "Refrigerant Pipe Sizing", to: "/refrigerant-pipe-sizing" },
-      { label: "Condensate Drain", to: "/condensate-drain" },
-      { label: "DESIGN ASSISTANT", isHeader: true },
-      { label: "Sanity Check Tool", to: "/sanity-check-tool" },
-      { label: "PSYCHROMETRIC", isHeader: true },
-      { label: "Psychrometric", to: "/psychrometric" },
-    ],
-  },
-  {
-    kind: "group", label: "Electrical", icon: Zap,
-    children: [
-      { label: "ESSENTIAL CALCULATIONS", isHeader: true },
-      { label: "Central Battery Sizing", to: "/central-battery-sizing" },
-      { label: "UPS Sizing Calculation", to: "/ups-sizing-calculation" },
-      { label: "Generator Sizing", to: "/generator-sizing" },
-      { label: "LIGHTING", isHeader: true },
-      { label: "Lighting LUX Calculation", to: "/lighting-lux-calculation" },
-      { label: "LPD Calculation", to: "/lpd-calculation" },
-      { label: "POWER DISTRIBUTION", isHeader: true },
-      { label: "Transformer Sizing", to: "/transformer-sizing" },
-      { label: "Circuit Breaker Sizing", to: "/circuit-breaker-sizing" },
-      { label: "Busbar Calculation", to: "/busbar-calculation" },
-      { label: "Cable Tray Sizing", to: "/cable-tray-sizing" },
-      { label: "Capacitor Bank Sizing", to: "/capacitor-bank-sizing" },
-      { label: "Conductor (Cable) Sizing", to: "/conductor-sizing" },
-      { label: "Cable Voltage Drop", to: "/cable-voltage-drop" },
-      { label: "Busbar Voltage Drop", to: "/busbar-voltage-drop" },
-      { label: "Short Circuit Calculations", to: "/short-circuit-calculations" },
-      { label: "LOAD ANALYSIS", isHeader: true },
-      { label: "Load Summary", to: "/load-summary" },
-      { label: "Project Load Schedule (DB Builder)", to: "/project-load-schedule" }
-    ],
-  },
-  {
-    kind: "group", label: "Fire Fighting", icon: Droplets,
-    children: [
-      { label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor" },
-      { label: "Sprinkler Density & Flow", to: "/plumbing-sprinkler-density" },
-      { label: "Hazen-Williams", to: "/plumbing-hazen-williams" },
-      { label: "FM-200 Calculation", to: "/plumbing-fm200" },
-      { label: "Fire Water Demand", to: "/plumbing-fire-water-demand" },
-      { label: "Fire Pump Duty", to: "/plumbing-fire-pump-duty" },
-      { label: "Fire Tank Capacity", to: "/plumbing-fire-tank-capacity" },
-      { label: "Tank Duration", to: "/plumbing-fire-tank-duration" }
-    ],
-  },
-  {
-    kind: "group", label: "Plumbing", icon: Wrench,
-    children: [
-      { label: "Water Demand", to: "/plumbing-water-demand" },
-      { label: "Fixture Unit Calculator", to: "/plumbing-fixture-unit" },
-      { label: "Loading Unit Calculator", to: "/plumbing-loading-unit" },
-      { label: "Supply Pipe Sizer", to: "/plumbing-supply-pipe-sizer" },
-      { label: "Pump Sizing (Transfer/Booster)", to: "/plumbing-pump-sizing" },
-      { label: "Pressure Vessel Sizing", to: "/plumbing-pressure-vessel" },
-      { label: "Sump Pump Sizing", to: "/plumbing-sump-pump" },
-      { label: "Drainage Sizing", to: "/plumbing-drainage" },
-      { label: "Discharge Unit Sizing", to: "/plumbing-discharge-unit" },
-      { label: "Sewage Pump Sizing", to: "/plumbing-sewage-pump" },
-      { label: "Storm Water Sizing", to: "/plumbing-storm-water" },
-      { label: "Tank Sizing", to: "/plumbing-tank-sizing" },
-      { label: "Gas Storage Capacity", to: "/plumbing-gas-tank" }
-    ],
-  },
-  { kind: "item", label: "Reports", to: "/reports", icon: FileBarChart },
-  { kind: "item", label: "Settings", to: "/settings", icon: Cog },
-];
+import { NAV, type NavItem, type NavLeaf } from "@/config/navigation";
 
 function getSections(children: NavLeaf[]) {
   const sections: { header: string; items: NavLeaf[] }[] = [];
@@ -264,6 +175,56 @@ const savePageInputs = (projectId: string, pathname: string) => {
   });
   
   localStorage.setItem(`mep_auto_state_${projectId}_${pathname}`, JSON.stringify(state));
+  
+  // Broadcast to other users in the project!
+  // Read-only users won't trigger this because their screen is pointer-events-none
+  useCollaboration.getState().broadcastData(pathname, state);
+};
+
+
+const applyLiveData = (state: Record<string, any>) => {
+  if (typeof document === "undefined") return;
+  const inputs = Array.from(document.querySelectorAll("input, select, textarea")) as HTMLElement[];
+  
+  (window as any).__mep_is_restoring = true;
+  
+  inputs.forEach((el, index) => {
+    if (el.closest("aside") || el.closest("header") || el.closest("[data-ignore-persist]")) return;
+    
+    const key = getElementKey(el, index);
+    const savedVal = state[key];
+    if (!savedVal) return;
+    
+    if (el instanceof HTMLInputElement) {
+      if (el.type === "checkbox" || el.type === "radio") {
+        if (el.checked !== savedVal.checked) {
+          setReactCheckboxValue(el, savedVal.checked);
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      } else {
+        if (el.value !== savedVal.value) {
+          setReactInputValue(el, savedVal.value);
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+    } else if (el instanceof HTMLTextAreaElement) {
+      if (el.value !== savedVal.value) {
+        setReactInputValue(el, savedVal.value);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    } else if (el instanceof HTMLSelectElement) {
+      if (el.value !== savedVal.value) {
+        setReactSelectValue(el, savedVal.value);
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+  });
+  
+  setTimeout(() => {
+    (window as any).__mep_is_restoring = false;
+  }, 100);
 };
 
 const restorePageInputs = (projectId: string, pathname: string) => {
@@ -286,6 +247,7 @@ const restorePageInputs = (projectId: string, pathname: string) => {
   
   inputs.forEach((el, index) => {
     if (el.closest("aside") || el.closest("header") || el.closest("[data-ignore-persist]")) return;
+    if (el instanceof HTMLInputElement && el.type === "file") return;
     
     const key = getElementKey(el, index);
     const savedVal = state[key];
@@ -338,6 +300,8 @@ const triggerSave = () => {
   return true;
 };
 
+import { useAuth } from "@/contexts/AuthContext";
+
 export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader }: {
   children: ReactNode;
   title: string;
@@ -348,6 +312,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   intelLabel?: string;
   hideSubHeader?: boolean;
 }) {
+  const { profile } = useAuth();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -355,6 +320,66 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const activeName = searchObj?.name;
   const navigate = useNavigate();
   const { project, projects, selectProject, deleteProject, duplicateProject, updateProject } = useWorkspace();
+  const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
+  const [myEmail, setMyEmail] = useState<string>("unknown");
+
+  const [announcement, setAnnouncement] = useState<{ id: string; message: string; type: string } | null>(null);
+
+  useEffect(() => {
+    const fetchActiveAnnouncement = async () => {
+      const { data } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        setAnnouncement(data[0]);
+      }
+    };
+    fetchActiveAnnouncement();
+  }, []);
+
+  useEffect(() => {
+    if (profile?.id && pathname && pathname !== '/') {
+      logActivity(profile.id, 'VIEW_CALCULATOR', { path: pathname });
+    }
+  }, [pathname, profile?.id]);
+
+  // Init Collaboration
+  useEffect(() => {
+    const initCollab = async () => {
+      const { data } = await supabase.auth.getSession();
+      const email = data.session?.user.email || "unknown";
+      setMyEmail(email);
+      if (project?.name) {
+        joinProject(project.name, email);
+      }
+    };
+    initCollab();
+    return () => {
+      leaveProject();
+    };
+  }, [project?.name]);
+
+  // Update active module on route change
+  useEffect(() => {
+    if (pathname && !EXCLUDED_PERSIST_PATHS.includes(pathname)) {
+      setActiveModule(pathname);
+    } else {
+      setActiveModule(null);
+    }
+
+    // Force privacy policy acceptance
+    const acceptedPrivacy = localStorage.getItem('mep-privacy-accepted') === 'true';
+    if (!acceptedPrivacy && pathname !== '/login' && pathname !== '/privacy') {
+      navigate({ to: '/privacy' });
+    }
+  }, [pathname, navigate]);
+
+  const lockOwnerObj = getLockOwner(pathname);
+  const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
+  const lockOwnerEmail = lockOwnerObj ? lockOwnerObj.email : "Unknown";
 
   // Restore inputs on project/route change
   useEffect(() => {
@@ -398,6 +423,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       document.removeEventListener("change", handleInput, true);
     };
   }, [pathname, project.id]);
+
+  // Listen for Live Sync Broadcasts!
+  const setOnDataReceived = useCollaboration(s => s.setOnDataReceived);
+  useEffect(() => {
+    setOnDataReceived((moduleName, data) => {
+      if (pathname === moduleName) {
+        // We received live data! Apply it instantly
+        applyLiveData(data);
+      }
+    });
+  }, [pathname, setOnDataReceived]);
 
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (typeof window !== "undefined") {
@@ -543,8 +579,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   <PanelLeftOpen className="size-5" />
                 </button>
               )}
-               <DropdownMenu>
-                 <ContextMenu>
+               <div className="flex items-center gap-4">
+                 <DropdownMenu>
+                   <ContextMenu>
                    <ContextMenuTrigger asChild>
                      <DropdownMenuTrigger asChild>
                        <button className="flex items-center gap-2.5 h-10 px-4 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150">
@@ -710,7 +747,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
+                 
+                 {/* Revisions & Read-Only Manager */}
+                 <VersionManager projectName={project.name} />
+               </div>
+             </div>
 
             {/* Centered Search Bar */}
             <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
@@ -738,9 +779,33 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               <button className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
                 <Bell className="size-5" />
               </button>
-              <div className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626]">
-                JM
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626] cursor-pointer hover:ring-2 ring-primary transition-all">
+                    {myEmail.substring(0, 2).toUpperCase() !== 'UN' ? myEmail.substring(0, 2).toUpperCase() : 'ME'}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64 bg-popover border border-border rounded-lg shadow-lg font-sans">
+                  <DropdownMenuLabel className="py-2 px-3">
+                    <div className="text-sm font-semibold text-foreground truncate">{myEmail}</div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-1">
+                      <div className="size-1.5 rounded-full bg-green-500"></div>
+                      License Active
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem 
+                    className="py-2 px-3 text-red-500 cursor-pointer focus:bg-red-50 dark:focus:bg-red-950 focus:text-red-600"
+                    onSelect={async () => {
+                      await supabase.auth.signOut();
+                      navigate({ to: "/login" });
+                    }}
+                  >
+                    <LogOut className="size-4 mr-2" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -778,7 +843,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               ? [
                   { kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }
                 ]
-              : NAV
+              : [...NAV, ...(profile?.role === 'ADMIN' ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])]
             ).map((n) =>
               n.kind === "item" ? (
                 <NavLink
@@ -819,6 +884,35 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       <main className={`col-start-2 row-start-2 min-w-0 flex flex-col overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300 ${
         sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "px-3.5 pb-3.5"
       }`}>
+        <AnimatePresence>
+          {announcement && (
+            <motion.div 
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className={`w-full overflow-hidden shrink-0 no-print ${
+                announcement.type === 'warning' ? 'bg-amber-500 text-white' :
+                announcement.type === 'error' ? 'bg-red-500 text-white' :
+                announcement.type === 'success' ? 'bg-emerald-500 text-white' :
+                'bg-blue-600 text-white'
+              }`}
+            >
+              <div className="px-4 py-2 flex items-center justify-between text-sm font-medium">
+                <div className="flex items-center gap-2">
+                  <Megaphone className="w-4 h-4" />
+                  {announcement.message}
+                </div>
+                <button 
+                  onClick={() => setAnnouncement(null)}
+                  className="p-1 hover:bg-white/20 rounded-md transition-colors"
+                >
+                  <XIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {!hideSubHeader && (
           <div className="flex items-center justify-between border-b border-border px-4 h-12 shrink-0 bg-surface-1 no-print print:hidden">
             <div className="flex items-center gap-3">
@@ -845,7 +939,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             </div>
           </div>
         )}
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col relative">
+          {isLockedByOther && (
+            <div className="absolute top-0 left-0 right-0 z-[100] bg-amber-500 text-white px-4 py-2 flex items-center justify-center gap-2 shadow-md shrink-0">
+              <ShieldAlert className="w-4 h-4" />
+              <span className="font-medium text-sm">
+                Read Only Mode: This module is currently being edited by {lockOwnerEmail}
+              </span>
+            </div>
+          )}
+          <div className={`flex-1 min-h-0 overflow-hidden flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'pointer-events-none opacity-80 mt-10' : ''}`}>
+            {children}
+          </div>
+        </div>
       </main>
       {/* FLOATING FLYOUT MEGA-MENU */}
       {hoveredGroup && (
@@ -972,24 +1078,32 @@ function NavLink({
   const navigate = useNavigate();
   const confirm = useConfirm();
   const router = useRouter();
+  const { profile } = useAuth();
   const pathname = router.state.location.pathname;
-  const cls = `flex items-center gap-2 ${showDot ? "pl-2.5 pr-3" : "px-3"} py-1.5 rounded-xl text-[13px] transition-all duration-150 cursor-pointer ${indent ? "pl-8" : ""} ${
-    active
-      ? "bg-primary/10 text-primary font-semibold dark:bg-primary/20 dark:text-primary-foreground"
-      : "text-muted-foreground hover:bg-surface-2 hover:text-foreground dark:text-[#9b9b9b] dark:hover:bg-white/5 dark:hover:text-white"
+  const locked = isFeatureLocked(to, profile);
+  const cls = `flex items-center gap-2 ${showDot ? "pl-2.5 pr-3" : "px-3"} py-1.5 rounded-xl text-[13px] transition-all duration-150 ${locked ? "cursor-not-allowed" : "cursor-pointer"} ${indent ? "pl-8" : ""} ${
+    locked
+      ? "text-slate-400 dark:text-slate-600 opacity-60"
+      : active
+        ? "bg-primary/10 text-primary font-semibold dark:bg-primary/20 dark:text-primary-foreground"
+        : "text-muted-foreground hover:bg-surface-2 hover:text-foreground dark:text-[#9b9b9b] dark:hover:bg-white/5 dark:hover:text-white"
   }`;
   const content = (
     <>
-      {Icon && <Icon className={`size-4 ${active ? "text-primary" : "text-muted-foreground dark:text-[#9b9b9b]"}`} />}
+      {Icon && <Icon className={`size-4 ${locked ? "text-slate-400 dark:text-slate-600" : active ? "text-primary" : "text-muted-foreground dark:text-[#9b9b9b]"}`} />}
       {showDot && (
         <span className={`size-1.5 rounded-full shrink-0 ${active ? "bg-primary" : "bg-slate-350 dark:bg-slate-600"}`} />
       )}
       <span className="flex-1 truncate text-left">{label}</span>
-      {active && !showDot && <span className="size-1.5 rounded-full bg-primary dark:bg-white shrink-0" />}
+      {locked && <Lock className="size-3.5 ml-auto text-slate-400 dark:text-slate-600" />}
     </>
   );
 
   const handleClick = useCallback(async (e: React.MouseEvent) => {
+    if (locked) {
+      toast.error("This feature is disabled by the Administrator.", { icon: "🔒" });
+      return;
+    }
     if (!to) return;
     const isFromProjectsPage = pathname === "/projects";
     const isToProjectsPage = to === "/projects" || to.startsWith("/projects");

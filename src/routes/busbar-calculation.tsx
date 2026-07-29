@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -7,8 +8,7 @@ import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy,
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
-import saveAsPkg from "file-saver";
-const saveAs = saveAsPkg.saveAs || saveAsPkg;
+import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -960,8 +960,7 @@ function BusbarCalculationPage() {
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    saveAs(blob, "Busbar_Calculation.xlsx");
+    await downloadFile(new Uint8Array(buffer), "Busbar_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
 
   const exportPdf = () => {
@@ -986,8 +985,8 @@ function BusbarCalculationPage() {
         styles: { fontSize: 8 },
       });
     });
-    
-    doc.save("Busbar_Calculation.pdf");
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), "Busbar_Calculation.pdf", "PDF Document", ["pdf"]);
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {

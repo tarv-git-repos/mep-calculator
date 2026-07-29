@@ -1,3 +1,4 @@
+import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -434,7 +435,8 @@ function TransformerSizingPage() {
       },
     });
 
-    doc.save(`transformer_sizing_report.pdf`);
+    const pdfBuffer = doc.output("arraybuffer");
+    downloadFile(new Uint8Array(pdfBuffer), `transformer_sizing_report.pdf`, "PDF Document", ["pdf"]);
   };
 
   return (
