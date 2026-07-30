@@ -918,7 +918,7 @@ function SpacesView() {
 
       const targetSpace = nextSpaces.find((sp) => sp.id === s.id);
       if (targetSpace) {
-        targetSpace.zone = zoneId;
+        targetSpace.zone = uniqueName;
       }
     });
 
@@ -947,7 +947,37 @@ function SpacesView() {
     // If a zone is being assigned, validate it first
     if (bulkEditFields.zone && bulkEditValues.zone) {
       const trimmedZone = bulkEditValues.zone.trim();
-      const finalZoneName = zones.find((z) => z.name.toLowerCase() === trimmedZone.toLowerCase())?.name || trimmedZone;
+      const selectedSpaces = spaces.filter((s) => spaceIds.includes(s.id));
+
+      // Multi-floor check
+      const uniqueFloors = Array.from(new Set(selectedSpaces.map((s) => s.floor || "Unassigned")));
+      if (uniqueFloors.length > 1) {
+        await confirm(
+          `Spaces from different floors cannot be grouped into the same zone.\n\nSelected spaces belong to multiple floors: (${uniqueFloors.join(", ")}). Please select spaces from the same floor only.`,
+          {
+            title: "Multi-Floor Zone Error",
+            confirmText: "OK",
+            hideCancel: true,
+          }
+        );
+        return;
+      }
+
+      // Existing Zone Floor Mismatch check
+      const existingZone = zones.find((z) => z.name.toLowerCase() === trimmedZone.toLowerCase());
+      if (existingZone && selectedSpaces[0]?.floor && existingZone.floor !== selectedSpaces[0].floor) {
+        await confirm(
+          `Zone "${existingZone.name}" already exists on floor ${existingZone.floor}.\n\nSpaces from ${selectedSpaces[0].floor} cannot be assigned to a zone on ${existingZone.floor}.`,
+          {
+            title: "Zone Floor Mismatch",
+            confirmText: "OK",
+            hideCancel: true,
+          }
+        );
+        return;
+      }
+
+      const finalZoneName = existingZone?.name || trimmedZone;
       const finalSpacesInZone = spaces.map((s) => {
         if (spaceIds.includes(s.id)) {
           return { 
@@ -986,7 +1016,6 @@ function SpacesView() {
       }
 
       // Check if spaces are already in other zones
-      const selectedSpaces = spaces.filter((s) => spaceIds.includes(s.id));
       const spacesAlreadyInZone = selectedSpaces.filter((s) => s.zone && s.zone.trim() !== "" && s.zone.toLowerCase() !== finalZoneName.toLowerCase());
       if (spacesAlreadyInZone.length > 0) {
         const message = spacesAlreadyInZone.length === 1
@@ -1006,7 +1035,6 @@ function SpacesView() {
       // Create zone if it doesn't exist
       const zoneExists = zones.some((z) => z.name.toLowerCase() === trimmedZone.toLowerCase());
       if (!zoneExists) {
-        const selectedSpaces = spaces.filter((s) => spaceIds.includes(s.id));
         const firstSpace = selectedSpaces[0];
         const building = firstSpace?.building || "Tower A";
         const floor = firstSpace?.floor || "L01";
@@ -1181,7 +1209,21 @@ function SpacesView() {
 
     const selectedSpaces = spaces.filter((s) => Array.from(selected).includes(s.id));
 
-    // 1. Category and Area are compulsory
+    // 1. Multi-floor check: Spaces from different floors CANNOT form a zone
+    const uniqueFloors = Array.from(new Set(selectedSpaces.map((s) => s.floor || "Unassigned")));
+    if (uniqueFloors.length > 1) {
+      await confirm(
+        `Spaces from different floors cannot be grouped into the same zone.\n\nSelected spaces belong to multiple floors: (${uniqueFloors.join(", ")}). Please select spaces from the same floor only.`,
+        {
+          title: "Multi-Floor Zone Error",
+          confirmText: "OK",
+          hideCancel: true,
+        }
+      );
+      return;
+    }
+
+    // 2. Category and Area are compulsory
     const missingCategoryOrArea = selectedSpaces.some(
       (s) => !s.category || s.category.trim() === "" || !s.area || s.area <= 0
     );
@@ -1194,9 +1236,28 @@ function SpacesView() {
       return;
     }
 
-    // Check if the zone already exists in the zones list (case-insensitive check)
-    const exists = zones.some((z) => z.name.toLowerCase() === trimmedZone.toLowerCase());
-    const finalZoneName = zones.find((z) => z.name.toLowerCase() === trimmedZone.toLowerCase())?.name || trimmedZone;
+    // Check if the zone already exists in the zones list or among existing spaces
+    const existingZone = zones.find((z) => z.name.toLowerCase() === trimmedZone.toLowerCase());
+    const spaceWithZone = spaces.find((s) => s.zone && s.zone.toLowerCase() === trimmedZone.toLowerCase());
+    const exists = !!existingZone || !!spaceWithZone;
+    const finalZoneName = existingZone?.name || spaceWithZone?.zone || trimmedZone;
+
+    if (exists) {
+      const existingZoneFloor = existingZone?.floor || spaceWithZone?.floor;
+      const currentSpaceFloor = selectedSpaces[0]?.floor;
+
+      if (existingZoneFloor && currentSpaceFloor && existingZoneFloor !== currentSpaceFloor) {
+        await confirm(
+          `Zone "${finalZoneName}" already exists on floor ${existingZoneFloor}.\n\nSpaces from ${currentSpaceFloor} cannot be assigned to a zone on ${existingZoneFloor}.`,
+          {
+            title: "Zone Floor Mismatch",
+            confirmText: "OK",
+            hideCancel: true,
+          }
+        );
+        return;
+      }
+    }
 
     // Check if spaces are already in other zones
     const spacesAlreadyInZone = selectedSpaces.filter((s) => s.zone && s.zone.trim() !== "" && s.zone.toLowerCase() !== finalZoneName.toLowerCase());
@@ -1781,22 +1842,54 @@ function SpacesView() {
           value={zoneName}
           onCommit={(val) => {
             const trimmed = val.trim();
+            const editIds = getSpaceEditIds(r.id);
+            const selectedSpaces = spaces.filter((s) => editIds.includes(s.id));
+
             if (trimmed === "") {
-              bulkUpdateSpaces(getSpaceEditIds(r.id), { zone: "" });
+              bulkUpdateSpaces(editIds, { zone: "" });
               return;
             }
+
+            // 1. Multi-floor check
+            const uniqueFloors = Array.from(new Set(selectedSpaces.map((s) => s.floor || "Unassigned")));
+            if (uniqueFloors.length > 1) {
+              confirm(
+                `Spaces from different floors cannot be grouped into the same zone.\n\nSelected spaces belong to multiple floors: (${uniqueFloors.join(", ")}). Please select spaces from the same floor only.`,
+                {
+                  title: "Multi-Floor Zone Error",
+                  confirmText: "OK",
+                  hideCancel: true,
+                }
+              );
+              return;
+            }
+
+            // 2. Existing Zone & Floor check
             const existingZone = zones.find(
               (z) => z.id.toLowerCase() === trimmed.toLowerCase() || z.name.toLowerCase() === trimmed.toLowerCase()
             );
+
             if (existingZone) {
-              bulkUpdateSpaces(getSpaceEditIds(r.id), { zone: existingZone.id });
+              const currentFloor = selectedSpaces[0]?.floor || "L01";
+              if (existingZone.floor && existingZone.floor !== currentFloor) {
+                confirm(
+                  `Zone "${existingZone.name}" already exists on floor ${existingZone.floor}.\n\nSpaces from ${currentFloor} cannot be assigned to a zone on ${existingZone.floor}.`,
+                  {
+                    title: "Zone Floor Mismatch",
+                    confirmText: "OK",
+                    hideCancel: true,
+                  }
+                );
+                return;
+              }
+              bulkUpdateSpaces(editIds, { zone: existingZone.name });
             } else {
               const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
               const newZone = {
                 id: zoneId,
                 name: trimmed,
-                building: r.building || "Tower A",
-                floor: r.floor || "L01",
+                building: selectedSpaces[0]?.building || "Tower A",
+                floor: selectedSpaces[0]?.floor || "L01",
                 spaceCount: 0,
                 area: 0,
                 freshAir: 0,
@@ -1808,7 +1901,7 @@ function SpacesView() {
                 eaAssignment: null,
               };
               addZone(newZone);
-              bulkUpdateSpaces(getSpaceEditIds(r.id), { zone: zoneId });
+              bulkUpdateSpaces(editIds, { zone: trimmed });
             }
           }}
           className="font-medium text-[13.5px]"
@@ -2116,6 +2209,21 @@ function SpacesView() {
 
   const handleOpenAssignZone = async () => {
     const selectedSpaces = spaces.filter((s) => Array.from(selected).includes(s.id));
+    
+    // Check if selected spaces span multiple floors
+    const uniqueFloors = Array.from(new Set(selectedSpaces.map((s) => s.floor || "Unassigned")));
+    if (uniqueFloors.length > 1) {
+      await confirm(
+        `Spaces from different floors cannot be grouped into the same zone.\n\nSelected spaces belong to multiple floors: (${uniqueFloors.join(", ")}). Please select spaces from the same floor only.`,
+        {
+          title: "Multi-Floor Zone Error",
+          confirmText: "OK",
+          hideCancel: true,
+        }
+      );
+      return;
+    }
+
     const missingCategoryOrArea = selectedSpaces.some(
       (s) => !s.category || s.category.trim() === "" || !s.area || s.area <= 0
     );
@@ -3964,11 +4072,25 @@ function ZonesView() {
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null);
   const [editZoneName, setEditZoneName] = useState("");
 
-  const handleRenameZone = () => {
+  const handleRenameZone = async () => {
     const newName = editZoneName.trim();
     if (!newName || !editingZoneId) return;
     const zone = zones.find(z => z.id === editingZoneId);
     if (!zone) return;
+
+    if (newName.toLowerCase() !== zone.name.toLowerCase()) {
+      const nameExists = zones.some(
+        z => z.id !== editingZoneId && z.name.toLowerCase() === newName.toLowerCase()
+      );
+      if (nameExists) {
+        await confirm(`Zone already exists with this name "${newName}".`, {
+          title: "Zone Already Exists",
+          confirmText: "OK",
+          hideCancel: true,
+        });
+        return;
+      }
+    }
 
     // Update zone name in zones list
     const updatedZones = zones.map(z => {

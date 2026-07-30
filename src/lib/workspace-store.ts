@@ -34,6 +34,7 @@ export function sanitizeWorkspaceState(state: any) {
 
   const seenIds = new Set<string>();
   const idMap = new Map<string, string>(); // oldId -> newId
+  const zoneNameMap = new Map<string, string>();
 
   state.zones = state.zones.map((z: any) => {
     if (!z.id || seenIds.has(z.id)) {
@@ -42,14 +43,23 @@ export function sanitizeWorkspaceState(state: any) {
       z.id = newId;
     }
     seenIds.add(z.id);
+    if (z.name) {
+      zoneNameMap.set(z.id, z.name);
+      zoneNameMap.set(z.name.toLowerCase(), z.name);
+    }
     return z;
   });
 
-  // If we had duplicate IDs, update spaces' zone reference
-  if (idMap.size > 0 && Array.isArray(state.spaces)) {
+  // Always resolve space.zone to clean human-readable zone.name, NEVER raw zone-xxxx
+  if (Array.isArray(state.spaces)) {
     state.spaces = state.spaces.map((s: any) => {
-      if (s.zone && idMap.has(s.zone)) {
-        s.zone = idMap.get(s.zone);
+      if (s.zone) {
+        const cleanName = zoneNameMap.get(s.zone) || zoneNameMap.get(s.zone.toLowerCase());
+        if (cleanName) {
+          s.zone = cleanName;
+        } else if (s.zone.startsWith("zone-")) {
+          s.zone = "Default";
+        }
       }
       return s;
     });
@@ -121,13 +131,15 @@ let currentWorkspaceState = {
   zones: [] as Zone[],
   equipment: [] as Equipment[],
   roundOffPreset: 5,
+  isReadOnly: false,
 };
 
 if (!IS_SERVER) {
   try {
     const savedState = localStorage.getItem(`mep_project_workspace_${activeProjectId}`);
     if (savedState) {
-      currentWorkspaceState = sanitizeWorkspaceState(JSON.parse(savedState));
+      const parsed = JSON.parse(savedState);
+      currentWorkspaceState = { ...currentWorkspaceState, ...sanitizeWorkspaceState(parsed) };
       if (currentWorkspaceState.roundOffPreset === undefined) {
         currentWorkspaceState.roundOffPreset = 5;
       }
@@ -190,10 +202,17 @@ export const workspaceStore = {
       zones: currentWorkspaceState.zones,
       equipment: currentWorkspaceState.equipment,
       roundOffPreset: currentWorkspaceState.roundOffPreset ?? 5,
+      isReadOnly: currentWorkspaceState.isReadOnly ?? false,
     };
   },
 
-  setState(newState: { project?: Project; spaces: Space[]; zones: Zone[]; equipment: Equipment[] }) {
+  setReadOnly(val: boolean) {
+    currentWorkspaceState.isReadOnly = val;
+    saveState();
+    notify();
+  },
+
+  setState(newState: { project?: Project; spaces: Space[]; zones: Zone[]; equipment: Equipment[]; isReadOnly?: boolean }) {
     pushHistory();
     if (newState.project) {
       const proj = newState.project;
@@ -208,6 +227,8 @@ export const workspaceStore = {
       spaces: processedSpaces,
       zones: newState.zones,
       equipment: newState.equipment,
+      roundOffPreset: currentWorkspaceState.roundOffPreset,
+      isReadOnly: newState.isReadOnly ?? currentWorkspaceState.isReadOnly,
     };
     saveState();
     notify();
@@ -304,11 +325,11 @@ export const workspaceStore = {
     }
 
     // Load workspace state of source
-    let sourceState = { spaces: [], zones: [], equipment: [] };
+    let sourceState = { spaces: [], zones: [], equipment: [], isReadOnly: false };
     if (!IS_SERVER) {
       try {
         const saved = localStorage.getItem(`mep_project_workspace_${id}`);
-        if (saved) sourceState = JSON.parse(saved);
+        if (saved) sourceState = { ...JSON.parse(saved), isReadOnly: false }; // Never duplicate as read-only by default
       } catch (e) {}
     }
 
@@ -317,6 +338,28 @@ export const workspaceStore = {
       localStorage.setItem(`mep_project_workspace_${newId}`, JSON.stringify(sourceState));
     }
 
+    saveState();
+    notify();
+    return newProj;
+  },
+
+  saveAsRevision(versionName: string) {
+    if (!currentProject) return null;
+    const newId = `proj_${Date.now()}_${versionName}`;
+    const newProj: Project = {
+      ...currentProject,
+      id: newId,
+      name: `${currentProject.name} (${versionName})`,
+      createdDate: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+    };
+    
+    projects.unshift(newProj);
+    
+    if (!IS_SERVER) {
+      localStorage.setItem(`mep_project_workspace_${newId}`, JSON.stringify({ ...currentWorkspaceState, isReadOnly: true }));
+    }
+    
     saveState();
     notify();
     return newProj;
@@ -605,6 +648,16 @@ export const workspaceStore = {
       if (ids.includes(s.id)) {
         const next = { ...s, ...updates };
 
+        // Sanitize zone to ensure we store human-readable zone name, never raw zoneId
+        if (updates.zone !== undefined && updates.zone !== "") {
+          const matchingZone = currentWorkspaceState.zones.find(
+            (z) => z.id === updates.zone || z.name === updates.zone
+          );
+          if (matchingZone) {
+            next.zone = matchingZone.name;
+          }
+        }
+
         // If the name is being updated, perform automatic classification!
         if (updates.name !== undefined) {
           const nameVal = updates.name.trim();
@@ -796,7 +849,7 @@ export const workspaceStore = {
       const spaceIds = p.spaces.map((s) => s.id);
       nextSpaces.forEach((s, idx) => {
         if (spaceIds.includes(s.id)) {
-          nextSpaces[idx] = { ...s, zone: zoneId };
+          nextSpaces[idx] = { ...s, zone: newZone.name };
         }
       });
     });
@@ -1181,6 +1234,9 @@ export function useWorkspace() {
     hasClipboard: copiedSpaces.length > 0,
     roundOffPreset: state.roundOffPreset,
     setRoundOffPreset: (val: number) => workspaceStore.setRoundOffPreset(val),
+    isReadOnly: state.isReadOnly,
+    setReadOnly: (val: boolean) => workspaceStore.setReadOnly(val),
+    saveAsRevision: (name: string) => workspaceStore.saveAsRevision(name),
   };
 }
 

@@ -1,83 +1,135 @@
-import { createContext, useContext, useEffect, useState } from 'react'
-import { Session, User } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { authService, AuthUserData } from '@/services/authService';
 
 export type Profile = {
-  id: string
-  email: string
-  role: 'ADMIN' | 'USER'
-  subscription_status: string
-  subscription_expires: string
-  features: {
-    voltageDrop: boolean
-    loadSchedule: boolean
-    cableSizing: boolean
-    shortCircuit: boolean
-  }
-}
+  id: string;
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'USER';
+  subscription_status: string;
+  isAccountVerified: boolean;
+};
 
 interface AuthContextType {
-  session: Session | null
-  user: User | null
-  profile: Profile | null
-  loading: boolean
+  isLoggedin: boolean;
+  userData: AuthUserData | null;
+  profile: Profile | null;
+  loading: boolean;
+  session: { user: { id: string; email: string } } | null;
+  user: { id: string; email: string } | null;
+  setIsLoggedin: (logged: boolean) => void;
+  setUserData: (data: AuthUserData | null) => void;
+  getUserData: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ session: null, user: null, profile: null, loading: true })
+const AuthContext = createContext<AuthContextType>({
+  isLoggedin: false,
+  userData: null,
+  profile: null,
+  loading: true,
+  session: null,
+  user: null,
+  setIsLoggedin: () => {},
+  setUserData: () => {},
+  getUserData: async () => {},
+  logout: async () => {},
+});
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [session, setSession] = useState<Session | null>(null)
-  const [user, setUser] = useState<User | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
+const LOCAL_STORAGE_USER_KEY = 'mep_calculator_user_data';
 
-  const fetchProfile = async (userId: string, userEmail?: string) => {
-    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
-    if (data) {
-      if (userEmail === 'admin@tarv.ai') {
-        data.role = 'ADMIN'
-      } else {
-        data.role = 'USER'
-      }
-      setProfile(data)
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [isLoggedin, setIsLoggedin] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(LOCAL_STORAGE_USER_KEY) !== null;
     }
-  }
+    return false;
+  });
+  const [userData, setUserDataState] = useState<AuthUserData | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(LOCAL_STORAGE_USER_KEY);
+      return saved ? JSON.parse(saved) : null;
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const setUserData = (data: AuthUserData | null) => {
+    setUserDataState(data);
+    if (typeof window !== 'undefined') {
+      if (data) {
+        localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(data));
+        setIsLoggedin(true);
+      } else {
+        localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
+        setIsLoggedin(false);
+      }
+    }
+  };
+
+  const getUserData = async () => {
+    const res = await authService.getUserData();
+    if (res.success && res.userData) {
+      setUserData(res.userData);
+    } else if (res.success === false) {
+      // Keep existing local state if offline or standalone
+    }
+  };
+
+  const checkAuth = async () => {
+    try {
+      const authState = await authService.getAuthState();
+      if (authState.success && authState.userData) {
+        setUserData(authState.userData);
+      } else {
+        const res = await authService.getUserData();
+        if (res.success && res.userData) {
+          setUserData(res.userData);
+        }
+      }
+    } catch (e) {
+      console.warn('Auth check error:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    await authService.logout();
+    setUserData(null);
+  };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        fetchProfile(session.user.id, session.user.email).finally(() => setLoading(false))
-      } else {
-        setLoading(false)
-      }
-    }).catch(err => {
-      console.error("Supabase getSession error:", err);
-      setLoading(false);
-    })
+    checkAuth();
+  }, []);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        fetchProfile(session.user.id, session.user.email).finally(() => setLoading(false))
-      } else {
-        setProfile(null)
-        setLoading(false)
-      }
-    })
-
-    return () => subscription.unsubscribe()
-  }, [])
+  const session = userData ? { user: { id: userData.id, email: userData.email } } : null;
+  const user = session?.user ?? null;
+  const profile: Profile | null = userData ? {
+    id: userData.id,
+    email: userData.email,
+    name: userData.name,
+    role: userData.email.toLowerCase().includes('admin') ? 'ADMIN' : 'USER',
+    subscription_status: 'ACTIVE',
+    isAccountVerified: userData.isAccountVerified,
+  } : null;
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading }}>
+    <AuthContext.Provider value={{
+      isLoggedin,
+      userData,
+      profile,
+      loading,
+      session,
+      user,
+      setIsLoggedin,
+      setUserData,
+      getUserData,
+      logout,
+    }}>
       {children}
     </AuthContext.Provider>
-  )
-}
+  );
+};
 
-export const useAuth = () => {
-  return useContext(AuthContext)
-}
+export const useAuth = () => useContext(AuthContext);

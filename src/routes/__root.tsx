@@ -22,19 +22,19 @@ import { supabase } from "@/lib/supabase";
 import { isFeatureLocked } from "@/utils/featureFlags";
 
 function AuthGuard({ children }: { children: ReactNode }) {
-  const { session, profile, loading } = useAuth();
+  const { session, profile, loading, isLoggedin } = useAuth();
   const routerState = useRouterState();
   
   if (loading) return (
-    <div className="flex h-screen w-screen items-center justify-center bg-background">
-      <div className="text-primary font-medium">Loading session...</div>
+    <div className="flex h-screen w-screen items-center justify-center bg-slate-950">
+      <div className="text-sky-400 font-medium">Loading session...</div>
     </div>
   );
   
   const isLoginPage = routerState.location.pathname === '/login';
   const isAdminPage = routerState.location.pathname.startsWith('/admin');
   
-  if (!session && !isLoginPage) {
+  if (!isLoggedin && !isLoginPage) {
     return <Navigate to="/login" replace />;
   }
 

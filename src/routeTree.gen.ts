@@ -18,6 +18,7 @@ import { Route as SmokeExtractFanRouteImport } from './routes/smoke-extract-fan'
 import { Route as ShortCircuitCalculationsRouteImport } from './routes/short-circuit-calculations'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SanityCheckToolRouteImport } from './routes/sanity-check-tool'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as RefrigerantPipeSizingRouteImport } from './routes/refrigerant-pipe-sizing'
 import { Route as PsychrometricRouteImport } from './routes/psychrometric'
@@ -119,6 +120,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const SanityCheckToolRoute = SanityCheckToolRouteImport.update({
   id: '/sanity-check-tool',
   path: '/sanity-check-tool',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReportsRoute = ReportsRouteImport.update({
@@ -463,6 +469,7 @@ export interface FileRoutesByFullPath {
   '/psychrometric': typeof PsychrometricRoute
   '/refrigerant-pipe-sizing': typeof RefrigerantPipeSizingRoute
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sanity-check-tool': typeof SanityCheckToolRoute
   '/settings': typeof SettingsRoute
   '/short-circuit-calculations': typeof ShortCircuitCalculationsRoute
@@ -530,6 +537,7 @@ export interface FileRoutesByTo {
   '/psychrometric': typeof PsychrometricRoute
   '/refrigerant-pipe-sizing': typeof RefrigerantPipeSizingRoute
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sanity-check-tool': typeof SanityCheckToolRoute
   '/settings': typeof SettingsRoute
   '/short-circuit-calculations': typeof ShortCircuitCalculationsRoute
@@ -598,6 +606,7 @@ export interface FileRoutesById {
   '/psychrometric': typeof PsychrometricRoute
   '/refrigerant-pipe-sizing': typeof RefrigerantPipeSizingRoute
   '/reports': typeof ReportsRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/sanity-check-tool': typeof SanityCheckToolRoute
   '/settings': typeof SettingsRoute
   '/short-circuit-calculations': typeof ShortCircuitCalculationsRoute
@@ -667,6 +676,7 @@ export interface FileRouteTypes {
     | '/psychrometric'
     | '/refrigerant-pipe-sizing'
     | '/reports'
+    | '/reset-password'
     | '/sanity-check-tool'
     | '/settings'
     | '/short-circuit-calculations'
@@ -734,6 +744,7 @@ export interface FileRouteTypes {
     | '/psychrometric'
     | '/refrigerant-pipe-sizing'
     | '/reports'
+    | '/reset-password'
     | '/sanity-check-tool'
     | '/settings'
     | '/short-circuit-calculations'
@@ -801,6 +812,7 @@ export interface FileRouteTypes {
     | '/psychrometric'
     | '/refrigerant-pipe-sizing'
     | '/reports'
+    | '/reset-password'
     | '/sanity-check-tool'
     | '/settings'
     | '/short-circuit-calculations'
@@ -869,6 +881,7 @@ export interface RootRouteChildren {
   PsychrometricRoute: typeof PsychrometricRoute
   RefrigerantPipeSizingRoute: typeof RefrigerantPipeSizingRoute
   ReportsRoute: typeof ReportsRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   SanityCheckToolRoute: typeof SanityCheckToolRoute
   SettingsRoute: typeof SettingsRoute
   ShortCircuitCalculationsRoute: typeof ShortCircuitCalculationsRoute
@@ -943,6 +956,13 @@ declare module '@tanstack/react-router' {
       path: '/sanity-check-tool'
       fullPath: '/sanity-check-tool'
       preLoaderRoute: typeof SanityCheckToolRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reports': {
@@ -1397,6 +1417,7 @@ const rootRouteChildren: RootRouteChildren = {
   PsychrometricRoute: PsychrometricRoute,
   RefrigerantPipeSizingRoute: RefrigerantPipeSizingRoute,
   ReportsRoute: ReportsRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   SanityCheckToolRoute: SanityCheckToolRoute,
   SettingsRoute: SettingsRoute,
   ShortCircuitCalculationsRoute: ShortCircuitCalculationsRoute,

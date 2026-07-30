@@ -2,7 +2,7 @@ import { Link, useRouterState, useNavigate, useRouter } from "@tanstack/react-ro
 import React, { useState, useEffect, useCallback, type ReactNode } from "react";
 import {
   Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
-  LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut,
+  LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
   Edit3, Trash2, Copy, ShieldAlert, Lock
@@ -312,14 +312,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   intelLabel?: string;
   hideSubHeader?: boolean;
 }) {
-  const { profile } = useAuth();
+  const { profile, userData, logout } = useAuth();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const searchObj = useRouterState({ select: (s) => s.location.search }) as Record<string, any>;
   const activeName = searchObj?.name;
   const navigate = useNavigate();
-  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject } = useWorkspace();
+  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision } = useWorkspace();
   const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
   const [myEmail, setMyEmail] = useState<string>("unknown");
 
@@ -618,6 +618,20 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                        <Copy className="size-3.5 text-muted-foreground" />
                        <span>Duplicate</span>
                      </ContextMenuItem>
+                     <ContextMenuItem
+                       onSelect={async (e) => {
+                         e.preventDefault();
+                         e.stopPropagation();
+                         const revName = await prompt("Enter revision name (e.g., V1, V2):", "V1", { title: "Save as Version" });
+                         if (revName && revName.trim() !== "") {
+                           saveAsRevision(revName.trim());
+                         }
+                       }}
+                       className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                     >
+                       <Save className="size-3.5 text-muted-foreground" />
+                       <span>Save as Version...</span>
+                     </ContextMenuItem>
                      <ContextMenuSeparator className="h-px bg-border my-1" />
                      <ContextMenuItem
                        onSelect={async (e) => {
@@ -765,10 +779,31 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </div>
             </div>
 
-            {/* Right side: Action Widgets */}
-            <div className="flex items-center gap-2">
-              <button 
+            {/* Right side: Actions & Profile */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {isReadOnly && (
+                <div className="mr-2 flex items-center gap-1.5 px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-semibold shadow-sm border border-amber-200 dark:border-amber-800">
+                  <Lock className="size-3" />
+                  READ ONLY
+                </div>
+              )}
+              
+              <button
+                onClick={() => setReadOnly(!isReadOnly)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+                  isReadOnly 
+                    ? "bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900"
+                    : "bg-surface-2 dark:bg-white/5 text-muted-foreground border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10"
+                }`}
+                title="Toggle Read-Only Mode"
+              >
+                {isReadOnly ? <Lock className="size-3.5" /> : <Edit3 className="size-3.5" />}
+                {isReadOnly ? "Unlock" : "Lock"}
+              </button>
+
+              <button
                 onClick={() => {
+                  dirtyStore.set(false);
                   document.documentElement.classList.toggle("dark");
                 }}
                 className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
@@ -782,22 +817,23 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626] cursor-pointer hover:ring-2 ring-primary transition-all">
-                    {myEmail.substring(0, 2).toUpperCase() !== 'UN' ? myEmail.substring(0, 2).toUpperCase() : 'ME'}
+                    {userData?.name ? userData.name.substring(0, 2).toUpperCase() : (myEmail.substring(0, 2).toUpperCase() !== 'UN' ? myEmail.substring(0, 2).toUpperCase() : 'ME')}
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64 bg-popover border border-border rounded-lg shadow-lg font-sans">
                   <DropdownMenuLabel className="py-2 px-3">
-                    <div className="text-sm font-semibold text-foreground truncate">{myEmail}</div>
+                    <div className="text-sm font-semibold text-foreground truncate">{userData?.name || 'MEP User'}</div>
+                    <div className="text-xs text-muted-foreground truncate">{userData?.email || myEmail}</div>
                     <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-1">
                       <div className="size-1.5 rounded-full bg-green-500"></div>
-                      License Active
+                      Verified License Active
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
-                    className="py-2 px-3 text-red-500 cursor-pointer focus:bg-red-50 dark:focus:bg-red-950 focus:text-red-600"
+                    className="py-2 px-3 text-red-500 cursor-pointer focus:bg-red-50 dark:focus:bg-red-950 focus:text-red-600 font-semibold"
                     onSelect={async () => {
-                      await supabase.auth.signOut();
+                      await logout();
                       navigate({ to: "/login" });
                     }}
                   >

@@ -236,46 +236,60 @@ function AdminDashboard() {
     }
   }
 
+  const [signUpErrorDetails, setSignUpErrorDetails] = useState<string | null>(null)
+
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newEmail || !newPassword) return
-
+    setSignUpErrorDetails(null)
     setIsAddingUser(true)
-    const { data, error } = await adminAuthClient.auth.signUp({
-      email: newEmail,
-      password: newPassword
-    })
+    
+    try {
+      const { data, error } = await adminAuthClient.auth.signUp({
+        email: newEmail,
+        password: newPassword
+      })
 
-    if (error) {
-      if (error.message.includes('rate limit')) {
-        toast.error('Too many attempts. Supabase free tier limits emails to 3 per hour. Please use the Supabase Dashboard to add users for now, or increase your rate limit in Supabase settings.')
-      } else {
-        toast.error(error.message)
-      }
-    } else {
-      if (data?.user) {
-        // Explicitly create the profile record in case the database trigger is missing
-        const { error: profileError } = await supabase.from('profiles').upsert({
-          id: data.user.id,
-          email: newEmail,
-          role: 'USER',
-          subscription_expires: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-          status: 'TRIAL',
-          features: {}
-        });
-        
-        if (profileError) {
-          console.error("Profile creation error:", profileError);
-          toast.error("Warning: User created but profile sync failed.");
+      if (error) {
+        if (error.message.includes('rate limit')) {
+          toast.error('Supabase Rate Limit Reached!')
+          setSignUpErrorDetails('Supabase free tier limits emails to 3 per hour. Wait an hour or add them in the Supabase Dashboard.')
+        } else {
+          toast.error(error.message)
+          setSignUpErrorDetails(JSON.stringify(error, null, 2))
         }
+      } else {
+        if (data?.user) {
+          // Explicitly create the profile record in case the database trigger is missing
+          const { error: profileError } = await supabase.from('profiles').upsert({
+            id: data.user.id,
+            email: newEmail,
+            role: 'USER',
+            subscription_expires: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+            status: 'TRIAL',
+            features: {}
+          });
+          
+          if (profileError) {
+            console.error("Profile creation error:", profileError);
+            toast.error("User auth created, but profile failed!");
+            setSignUpErrorDetails('Profile Database Error: ' + JSON.stringify(profileError, null, 2));
+            setIsAddingUser(false)
+            return;
+          }
+        }
+        
+        toast.success("User added successfully!")
+        setShowAddUser(false)
+        setNewEmail('')
+        setNewPassword('')
+        fetchProfiles()
       }
-      
-      toast.success("User added successfully!")
-      setShowAddUser(false)
-      setNewEmail('')
-      setNewPassword('')
-      fetchProfiles()
+    } catch (err: any) {
+      toast.error("Unexpected error occurred")
+      setSignUpErrorDetails(err.message || JSON.stringify(err))
     }
+    
     setIsAddingUser(false)
   }
 
@@ -498,6 +512,12 @@ function AdminDashboard() {
                         Cancel
                       </button>
                     </form>
+                    {signUpErrorDetails && (
+                      <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                        <p className="text-sm font-bold text-red-600 dark:text-red-400 mb-1">Failed to create user:</p>
+                        <pre className="text-xs text-red-500 whitespace-pre-wrap font-mono overflow-auto max-h-40">{signUpErrorDetails}</pre>
+                      </div>
+                    )}
                   </div>
                 )}
                 
@@ -784,7 +804,7 @@ function AdminDashboard() {
                             type="text" 
                             value={serverBackupPath} 
                             onChange={(e) => setServerBackupPath(e.target.value)}
-                            placeholder="Z:\00 R&D Server\Backups"
+                            placeholder="Z:/00 R&D Server/Backups"
                             className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm"
                           />
                           <button 

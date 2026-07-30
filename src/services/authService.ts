@@ -1,0 +1,144 @@
+import axios from 'axios';
+
+const getBackendUrl = () => {
+  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    return `${protocol}//${hostname}:4000`;
+  }
+  return 'http://localhost:4000';
+};
+
+axios.defaults.withCredentials = true;
+
+export interface AuthUserData {
+  id: string;
+  name: string;
+  email: string;
+  isAccountVerified: boolean;
+}
+
+export interface AuthResponse {
+  success: boolean;
+  message?: string;
+  token?: string;
+  userData?: AuthUserData;
+}
+
+export const authService = {
+  async register(name: string, email: string, password: string): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/register`, {
+        name,
+        email,
+        password,
+      });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Registration failed',
+      };
+    }
+  },
+
+  async login(email: string, password: string): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/login`, {
+        email,
+        password,
+      });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Login failed',
+      };
+    }
+  },
+
+  async logout(): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/logout`);
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Logout failed',
+      };
+    }
+  },
+
+  async sendVerifyOtp(email?: string): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-verify-otp`, { email });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to send OTP',
+      };
+    }
+  },
+
+  async verifyAccount(otp: string, email?: string): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/verify-account`, {
+        otp,
+        email,
+      });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Verification failed',
+      };
+    }
+  },
+
+  async getAuthState(): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.get<AuthResponse>(`${getBackendUrl()}/api/auth/is-auth`);
+      return data;
+    } catch (error: any) {
+      return { success: false };
+    }
+  },
+
+  async getUserData(): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.get<AuthResponse>(`${getBackendUrl()}/api/user/data`);
+      return data;
+    } catch (error: any) {
+      return { success: false };
+    }
+  },
+
+  async sendResetOtp(email: string): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-reset-otp`, { email });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Failed to send reset code',
+      };
+    }
+  },
+
+  async resetPassword(email: string, otp: string, newPassword: string): Promise<AuthResponse> {
+    try {
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/reset-password`, {
+        email,
+        otp,
+        newPassword,
+      });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Password reset failed',
+      };
+    }
+  },
+};

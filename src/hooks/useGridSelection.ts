@@ -87,7 +87,12 @@ export function useGridSelection<T extends { id: string }>(
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        if (items.length > 0) {
+          e.preventDefault();
+          setSelectedRows(new Set(items.map(i => i.id)));
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
         if (selectedRows.size > 0) {
           e.preventDefault();
           copyRows(Array.from(selectedRows));

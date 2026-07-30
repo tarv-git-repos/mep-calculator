@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { LpdProject } from '../routes/lpd-calculation';
+import { getLicenseWatermark } from './license';
 
 const getColLetter = (colIndex: number) => {
   let temp, letter = '';
@@ -218,6 +219,14 @@ export const exportLpdExcel = async (project: LpdProject) => {
       currentRow++;
     });
   });
+
+  // Watermark Footer
+  const watermarkText = await getLicenseWatermark();
+  sheet.mergeCells(`A${currentRow}:F${currentRow + 1}`);
+  const watermarkCell = sheet.getCell(`A${currentRow}`);
+  watermarkCell.value = watermarkText;
+  watermarkCell.font = { name: 'Cambria', size: 12, bold: true, color: { argb: 'FF999999' } };
+  watermarkCell.alignment = { horizontal: 'left', vertical: 'middle' };
 
   const buffer = await workbook.xlsx.writeBuffer();
   saveAs(new Blob([buffer]), `LPD Calculation - ${project.type} Area.xlsx`);

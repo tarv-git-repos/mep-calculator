@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import pkg from 'file-saver';
 const { saveAs } = pkg;
 import { Tray, Cable, getCableTraySize } from './cableTrayHelpers';
+import { getLicenseWatermark } from './license';
 
 // Utility for borders
 const allBorders: Partial<ExcelJS.Borders> = {
@@ -213,6 +214,14 @@ export async function exportCableTrayExcel(trays: Tray[], unitSystem: "si" | "ip
 
     currentRow += 2; // Blank rows before next tray
   });
+
+  // 5. Watermark Footer
+  const watermarkText = await getLicenseWatermark();
+  sheet.mergeCells(`A${currentRow}:I${currentRow + 1}`);
+  const watermarkCell = sheet.getCell(`A${currentRow}`);
+  watermarkCell.value = watermarkText;
+  watermarkCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF999999' } };
+  watermarkCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
   // Write and Save
   const buffer = await workbook.xlsx.writeBuffer();

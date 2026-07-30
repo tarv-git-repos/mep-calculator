@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const { fork } = require('child_process');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -21,6 +22,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  try {
+    const authServerPath = path.join(__dirname, '../server/authServer.js');
+    const authProc = fork(authServerPath);
+    authProc.on('error', (err) => console.log('Auth server error:', err.message));
+  } catch (e) {
+    console.log('Auth server fork note:', e.message);
+  }
+
   ipcMain.handle('read-file', async (e, fp) => {
     return await fs.readFile(fp);
   });

@@ -7,4 +7,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Missing Supabase environment variables.")
 }
 
+if (typeof window === 'undefined' && typeof globalThis !== 'undefined') {
+  if (!globalThis.WebSocket) {
+    (globalThis as any).WebSocket = class DummyWebSocket {
+      constructor() {}
+      addEventListener() {}
+      removeEventListener() {}
+      send() {}
+      close() {}
+    };
+  }
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
