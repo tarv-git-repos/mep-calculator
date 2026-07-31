@@ -1,13 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
-  FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, FileCode,
+  FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, FileCode,
   MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search,
   Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace, type Project } from "@/lib/workspace-store";
+import { api } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 export const Route = createFileRoute("/projects")({
   head: () => ({
@@ -39,11 +41,33 @@ function ProjectsPage() {
     location: "",
     description: "",
     notes: "",
+    assigned_users: [] as string[],
+    assigned_teams: [] as string[],
   });
+
+  const { profile } = useAuth();
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [allTeams, setAllTeams] = useState<any[]>([]);
+  
+  const loadUsersAndTeams = async () => {
+    const u = await api.getUsers();
+    setAllUsers(u);
+    const t = await api.getTeams();
+    setAllTeams(t);
+  };
+
+  useEffect(() => {
+    loadUsersAndTeams();
+  }, []);
 
   const [editingProj, setEditingProj] = useState<Project | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  
+  const openCreateModal = () => {
+    loadUsersAndTeams();
+    setIsCreateOpen(true);
+  };
 
   const filteredProjects = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -73,7 +97,7 @@ function ProjectsPage() {
       location: newProject.location.trim(),
       description: newProject.description.trim(),
       notes: newProject.notes.trim(),
-    });
+    }, newProject.assigned_users, newProject.assigned_teams);
     setNewProject({
       name: "",
       code: "",
@@ -81,6 +105,8 @@ function ProjectsPage() {
       location: "",
       description: "",
       notes: "",
+      assigned_users: [],
+      assigned_teams: [],
     });
   };
 
@@ -95,24 +121,81 @@ function ProjectsPage() {
     }
   };
 
+  const handleRemoveUserFromProject = async (projectId: string, userId: string) => {
+    if (!confirm("Remove user from this project?")) return;
+    const res = await api.removeUserFromProject(projectId, userId);
+    if (res.success) {
+      const proj = projects.find(p => p.id === projectId);
+      if (proj && (proj as any).project_users) {
+        (proj as any).project_users = (proj as any).project_users.filter((u: any) => u.user_id !== userId);
+        updateProject({...proj});
+        if (editingProj?.id === projectId) setEditingProj({...proj} as any);
+      }
+    } else {
+      alert(res.message);
+    }
+  };
+
+  const handleAddUserToProject = async (projectId: string, userId: string) => {
+    if (!userId) return;
+    const res = await api.addUserToProject(projectId, userId);
+    if (res.success) {
+      const proj = projects.find(p => p.id === projectId);
+      if (proj) {
+        if (!(proj as any).project_users) (proj as any).project_users = [];
+        if (!(proj as any).project_users.find((u: any) => u.user_id === userId)) {
+          (proj as any).project_users.push({ project_id: projectId, user_id: userId });
+          updateProject({...proj});
+          if (editingProj?.id === projectId) setEditingProj({...proj} as any);
+        }
+      }
+    } else alert(res.message);
+  };
+
+  const handleRemoveTeamFromProject = async (projectId: string, teamId: string) => {
+    if (!confirm("Remove team from this project?")) return;
+    const res = await api.removeTeamFromProject(projectId, teamId);
+    if (res.success) {
+      const proj = projects.find(p => p.id === projectId);
+      if (proj && (proj as any).project_teams) {
+        (proj as any).project_teams = (proj as any).project_teams.filter((t: any) => t.team_id !== teamId);
+        updateProject({...proj});
+        if (editingProj?.id === projectId) setEditingProj({...proj} as any);
+      }
+    } else {
+      alert(res.message);
+    }
+  };
+
+  const handleAddTeamToProject = async (projectId: string, teamId: string) => {
+    if (!teamId) return;
+    const res = await api.addTeamToProject(projectId, teamId);
+    if (res.success) {
+      const proj = projects.find(p => p.id === projectId);
+      if (proj) {
+        if (!(proj as any).project_teams) (proj as any).project_teams = [];
+        if (!(proj as any).project_teams.find((t: any) => t.team_id === teamId)) {
+          (proj as any).project_teams.push({ project_id: projectId, team_id: teamId });
+          updateProject({...proj});
+          if (editingProj?.id === projectId) setEditingProj({...proj} as any);
+        }
+      }
+    } else alert(res.message);
+  };
+
   const statsMap = useMemo(() => {
     const map: Record<string, { spaces: number; zones: number; equipment: number }> = {};
     projects.forEach((p) => {
-      if (typeof window !== "undefined") {
-        try {
-          const saved = localStorage.getItem(`mep_project_workspace_${p.id}`);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            map[p.id] = {
-              spaces: Array.isArray(parsed.spaces) ? parsed.spaces.length : 0,
-              zones: Array.isArray(parsed.zones) ? parsed.zones.length : 0,
-              equipment: Array.isArray(parsed.equipment) ? parsed.equipment.length : 0,
-            };
-            return;
-          }
-        } catch (e) {}
+      const wdata = (p as any).workspace_data;
+      if (wdata) {
+        map[p.id] = {
+          spaces: Array.isArray(wdata.spaces) ? wdata.spaces.length : 0,
+          zones: Array.isArray(wdata.zones) ? wdata.zones.length : 0,
+          equipment: Array.isArray(wdata.equipment) ? wdata.equipment.length : 0,
+        };
+      } else {
+        map[p.id] = { spaces: 0, zones: 0, equipment: 0 };
       }
-      map[p.id] = { spaces: 0, zones: 0, equipment: 0 };
     });
     return map;
   }, [projects]);
@@ -278,6 +361,38 @@ function ProjectsPage() {
                         <span className="text-[8.5px] text-muted-foreground font-bold uppercase tracking-wider">Equip</span>
                       </div>
                     </div>
+
+                    {/* Assignments (Users/Teams) */}
+                    {((p as any).project_users?.length > 0 || (p as any).project_teams?.length > 0) && (
+                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50">
+                        {(p as any).project_teams?.map((pt: any) => {
+                          const team = allTeams.find(t => t.id === pt.team_id);
+                          return (
+                            <span key={`t-${pt.team_id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
+                              <Users className="size-3" /> {team?.name || 'Team'}
+                              {(profile?.role === 'ADMIN' || p.created_by === profile?.id) && (
+                                <button onClick={() => handleRemoveTeamFromProject(p.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
+                                  <X className="size-2.5" />
+                                </button>
+                              )}
+                            </span>
+                          );
+                        })}
+                        {(p as any).project_users?.map((pu: any) => {
+                          const user = allUsers.find(u => u.id === pu.user_id);
+                          return (
+                            <span key={`u-${pu.user_id}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
+                              <User className="size-3 text-muted-foreground" /> {user?.name || 'User'}
+                              {(profile?.role === 'ADMIN' || p.created_by === profile?.id) && (
+                                <button onClick={() => handleRemoveUserFromProject(p.id, pu.user_id)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
+                                  <X className="size-2.5" />
+                                </button>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-5 pt-3.5 border-t border-border/50 flex items-center justify-end gap-1.5">
@@ -330,7 +445,7 @@ function ProjectsPage() {
                 <p className="text-[12px] text-muted-foreground mt-1">Try refining your search term or create a new workspace.</p>
               </div>
               <button
-                onClick={() => setIsCreateOpen(true)}
+                onClick={openCreateModal}
                 className="px-5 py-2.5 bg-primary text-primary-foreground font-bold rounded-2xl hover:bg-primary/95 text-[12.5px] transition-all cursor-pointer shadow-sm shadow-primary/10"
               >
                 Create a workspace
@@ -348,7 +463,7 @@ function ProjectsPage() {
               <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Quick Actions</h3>
               <div className="flex flex-col gap-2">
                 <button
-                  onClick={() => setIsCreateOpen(true)}
+                  onClick={openCreateModal}
                   className="w-full bg-gradient-to-r from-primary to-accent hover:brightness-105 text-white font-bold h-10 rounded-xl transition-all shadow-md shadow-primary/10 flex items-center justify-center gap-1.5 cursor-pointer text-[12px]"
                 >
                   <Plus className="size-4" /> Create New Workspace
@@ -545,6 +660,47 @@ function ProjectsPage() {
                     />
                   </div>
                 </div>
+
+                {profile?.role === 'ADMIN' && (
+                  <div className="flex flex-col gap-4 mt-2 p-4 bg-primary/5 rounded-2xl border border-primary/10">
+                     <div className="flex flex-col gap-1.5">
+                        <label className="text-primary font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Assign Users to Project</label>
+                        <select 
+                           multiple 
+                           value={newProject.assigned_users}
+                           onChange={(e) => {
+                             const vals = Array.from(e.target.selectedOptions, option => option.value);
+                             setNewProject({ ...newProject, assigned_users: vals });
+                           }}
+                           className="w-full bg-background border border-border/70 rounded-xl px-3 py-2 text-[12px] h-24 custom-scrollbar outline-none focus:border-primary"
+                        >
+                           {allUsers.map(u => (
+                              <option key={u.id} value={u.id}>{u.name}</option>
+                           ))}
+                        </select>
+                        <span className="text-[9px] text-muted-foreground">Hold Ctrl/Cmd to select multiple</span>
+                     </div>
+                     
+                     <div className="flex flex-col gap-1.5">
+                        <label className="text-primary font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Assign Teams to Project</label>
+                        <select 
+                           multiple 
+                           value={newProject.assigned_teams}
+                           onChange={(e) => {
+                             const vals = Array.from(e.target.selectedOptions, option => option.value);
+                             setNewProject({ ...newProject, assigned_teams: vals });
+                           }}
+                           className="w-full bg-background border border-border/70 rounded-xl px-3 py-2 text-[12px] h-24 custom-scrollbar outline-none focus:border-primary"
+                        >
+                           {allTeams.map(t => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                           ))}
+                        </select>
+                        <span className="text-[9px] text-muted-foreground">Hold Ctrl/Cmd to select multiple</span>
+                     </div>
+                  </div>
+                )}
+
               </div>
               
               <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-end gap-3 bg-card/60 backdrop-blur-xs shrink-0">
@@ -613,6 +769,65 @@ function ProjectsPage() {
                   onChange={(e) => setEditingProj({ ...editingProj, location: e.target.value })}
                   className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                 />
+              </div>
+              <div>
+                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">Add Team</label>
+                <select
+                  onChange={(e) => {
+                    handleAddTeamToProject(editingProj.id, e.target.value);
+                    e.target.value = "";
+                  }}
+                  className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
+                  defaultValue=""
+                >
+                  <option value="" disabled>Select Team to add...</option>
+                  {allTeams.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">Add Engineer/User</label>
+                <select
+                  onChange={(e) => {
+                    handleAddUserToProject(editingProj.id, e.target.value);
+                    e.target.value = "";
+                  }}
+                  className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150 mb-2"
+                  defaultValue=""
+                >
+                  <option value="" disabled>Select User to add...</option>
+                  {allUsers.map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+                {/* Active Assignments List in Edit Modal */}
+                {((editingProj as any).project_users?.length > 0 || (editingProj as any).project_teams?.length > 0) && (
+                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50 mt-2">
+                    {(editingProj as any).project_teams?.map((pt: any) => {
+                      const team = allTeams.find(t => t.id === pt.team_id);
+                      return (
+                        <span key={`t-${pt.team_id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
+                          <Users className="size-3" /> {team?.name || 'Team'}
+                          <button onClick={() => handleRemoveTeamFromProject(editingProj.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
+                            <X className="size-2.5" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {(editingProj as any).project_users?.map((pu: any) => {
+                      const user = allUsers.find(u => u.id === pu.user_id);
+                      return (
+                        <span key={`u-${pu.user_id}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
+                          <User className="size-3 text-muted-foreground" /> {user?.name || 'User'}
+                          <button onClick={() => handleRemoveUserFromProject(editingProj.id, pu.user_id)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
+                            <X className="size-2.5" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
             <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-end gap-3 bg-card/60 backdrop-blur-xs">

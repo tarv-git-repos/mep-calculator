@@ -1,34 +1,42 @@
 import http from 'http';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import transporter from './nodemailer.js';
 import { WELCOME_EMAIL_TEMPLATE, EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from './emailTemplates.js';
+import * as dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'mep_calculator_auth_secret_key_2026';
 const SENDER_EMAIL = process.env.SENDER_EMAIL || 'tarv.official@gmail.com';
 
-// Local database persistence
-const DATA_DIR = path.join(__dirname, 'data');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(USERS_FILE)) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf8');
+if (!supabaseUrl || !supabaseKey) {
+  console.error("Missing SUPABASE credentials in .env");
+  process.exit(1);
 }
 
-function readUsers() {
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+async function readUsers() {
   try {
-    const data = fs.readFileSync(USERS_FILE, 'utf8');
-    const users = JSON.parse(data || '[]');
+    const { data, error } = await supabase.from('custom_users').select('*');
+    if (error) {
+      if (error.code === '42P01') {
+        console.warn("Table custom_users does not exist yet! Please create it in Supabase.");
+        return [];
+      }
+      throw error;
+    }
+    const users = data || [];
     const adminEmail = 'admin@tarv.ai';
     let adminUser = users.find(u => u.email === adminEmail);
     if (!adminUser) {
@@ -46,18 +54,22 @@ function readUsers() {
         resetOtpExpireAt: 0,
         createdAt: new Date().toISOString()
       };
+      await supabase.from('custom_users').insert([adminUser]);
       users.push(adminUser);
-      fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
     }
     return users;
   } catch (e) {
+    console.error("Error reading users:", e);
     return [];
   }
 }
 
-function writeUsers(users) {
+async function writeUsers(users) {
   try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+    const { error } = await supabase.from('custom_users').upsert(users);
+    if (error) {
+      console.error('Error writing users to Supabase:', error);
+    }
   } catch (e) {
     console.error('Error writing users:', e);
   }
@@ -75,7 +87,7 @@ function parseCookies(request) {
   return list;
 }
 
-function getUserFromReq(req) {
+async function getUserFromReq(req) {
   const cookies = parseCookies(req);
   let token = cookies.token;
   if (!token && req.headers.authorization) {
@@ -84,7 +96,7 @@ function getUserFromReq(req) {
   if (!token) return null;
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const users = readUsers();
+    const users = await readUsers();
     return users.find((u) => u.id === decoded.id) || null;
   } catch (e) {
     return null;
@@ -145,21 +157,19 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Missing Details: Name, email, and password required' });
     }
 
-    const users = readUsers();
+    const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
     const existingUser = users.find((u) => u.email === cleanEmail);
 
     if (existingUser) {
       if (!existingUser.isAccountVerified) {
-        // User attempted sign up previously but hasn't completed OTP verification yet.
-        // Update details, generate fresh 6-digit OTP, send verification email, and open OTP screen!
         const otp = String(Math.floor(100000 + Math.random() * 900000));
         existingUser.name = name.trim();
         existingUser.password = await bcrypt.hash(password, 10);
         existingUser.verifyOtp = otp;
         existingUser.verifyOtpExpireAt = Date.now() + 24 * 60 * 60 * 1000;
 
-        writeUsers(users.map((u) => (u.id === existingUser.id ? existingUser : u)));
+        await writeUsers(users.map((u) => (u.id === existingUser.id ? existingUser : u)));
 
         const token = jwt.sign({ id: existingUser.id, email: cleanEmail }, JWT_SECRET, { expiresIn: '7d' });
         const cookieStr = `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`;
@@ -195,6 +205,8 @@ const server = http.createServer(async (req, res) => {
               name: existingUser.name,
               email: existingUser.email,
               isAccountVerified: false,
+              role: existingUser.role,
+              privacyPolicyAccepted: existingUser.privacyPolicyAccepted || false,
             },
           },
           cookieStr
@@ -216,18 +228,19 @@ const server = http.createServer(async (req, res) => {
       verifyOtp: otp,
       verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000,
       isAccountVerified: false,
+      role: 'USER',
       resetOtp: '',
       resetOtpExpireAt: 0,
       createdAt: new Date().toISOString(),
+      privacyPolicyAccepted: false,
     };
 
     users.push(newUser);
-    writeUsers(users);
+    await writeUsers(users);
 
     const token = jwt.sign({ id: userId, email: cleanEmail }, JWT_SECRET, { expiresIn: '7d' });
     const cookieStr = `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`;
 
-    // Dispatch Emails via Nodemailer Engine
     const welcomeMailOptions = {
       from: SENDER_EMAIL,
       to: cleanEmail,
@@ -259,6 +272,7 @@ const server = http.createServer(async (req, res) => {
           name: newUser.name,
           email: newUser.email,
           isAccountVerified: false,
+          role: newUser.role,
         },
       },
       cookieStr
@@ -273,7 +287,7 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email and password are required' });
     }
 
-    const users = readUsers();
+    const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
     const user = users.find((u) => u.email === cleanEmail);
 
@@ -302,6 +316,8 @@ const server = http.createServer(async (req, res) => {
           name: user.name,
           email: user.email,
           isAccountVerified: user.isAccountVerified,
+          role: user.role,
+          privacyPolicyAccepted: user.privacyPolicyAccepted || false,
         },
       },
       cookieStr
@@ -317,8 +333,8 @@ const server = http.createServer(async (req, res) => {
   // 4. SEND VERIFY OTP
   if (req.method === 'POST' && url === '/api/auth/send-verify-otp') {
     const { email } = await getRequestBody(req);
-    const userFromToken = getUserFromReq(req);
-    const users = readUsers();
+    const userFromToken = await getUserFromReq(req);
+    const users = await readUsers();
     const user = userFromToken || users.find((u) => u.email === (email || '').trim().toLowerCase());
 
     if (!user) {
@@ -333,7 +349,7 @@ const server = http.createServer(async (req, res) => {
     user.verifyOtp = otp;
     user.verifyOtpExpireAt = Date.now() + 24 * 60 * 60 * 1000;
 
-    writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
     const mailOption = {
       from: SENDER_EMAIL,
@@ -352,13 +368,13 @@ const server = http.createServer(async (req, res) => {
   // 5. VERIFY ACCOUNT (OTP CONFIRMATION)
   if (req.method === 'POST' && url === '/api/auth/verify-account') {
     const { otp, email } = await getRequestBody(req);
-    const userFromToken = getUserFromReq(req);
+    const userFromToken = await getUserFromReq(req);
 
     if (!otp) {
       return sendJSON(res, 200, { success: false, message: 'Missing 6-digit OTP' });
     }
 
-    const users = readUsers();
+    const users = await readUsers();
     const cleanEmail = (email || '').trim().toLowerCase();
     const user = userFromToken || users.find((u) => u.email === cleanEmail || (u.verifyOtp && u.verifyOtp === String(otp).trim()));
 
@@ -378,7 +394,7 @@ const server = http.createServer(async (req, res) => {
     user.verifyOtp = '';
     user.verifyOtpExpireAt = 0;
 
-    writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
     return sendJSON(res, 200, {
       success: true,
@@ -388,17 +404,17 @@ const server = http.createServer(async (req, res) => {
         name: user.name,
         email: user.email,
         isAccountVerified: true,
+        role: user.role,
       },
     });
   }
 
-  // 6. IS AUTH CHECK
   if (req.method === 'GET' && url === '/api/auth/is-auth') {
-    const user = getUserFromReq(req);
+    const user = await getUserFromReq(req);
     if (user) {
       return sendJSON(res, 200, {
         success: true,
-        userData: { id: user.id, name: user.name, email: user.email, isAccountVerified: user.isAccountVerified },
+        userData: { id: user.id, name: user.name, email: user.email, isAccountVerified: user.isAccountVerified, role: user.role, privacyPolicyAccepted: user.privacyPolicyAccepted || false },
       });
     }
     return sendJSON(res, 200, { success: false, message: 'Not authenticated' });
@@ -406,7 +422,7 @@ const server = http.createServer(async (req, res) => {
 
   // 7. USER DATA
   if (req.method === 'GET' && url === '/api/user/data') {
-    const user = getUserFromReq(req);
+    const user = await getUserFromReq(req);
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'User not logged in' });
     }
@@ -417,8 +433,25 @@ const server = http.createServer(async (req, res) => {
         name: user.name,
         email: user.email,
         isAccountVerified: user.isAccountVerified,
+        role: user.role,
+        privacyPolicyAccepted: user.privacyPolicyAccepted || false,
       },
     });
+  }
+
+  // 7.5 ACCEPT PRIVACY
+  if (req.method === 'POST' && url === '/api/auth/accept-privacy') {
+    const user = await getUserFromReq(req);
+    if (!user) {
+      return sendJSON(res, 401, { success: false, message: 'Not authenticated' });
+    }
+    const users = await readUsers();
+    const dbUser = users.find((u) => u.id === user.id);
+    if (dbUser) {
+      dbUser.privacyPolicyAccepted = true;
+      await writeUsers(users.map((u) => (u.id === dbUser.id ? dbUser : u)));
+    }
+    return sendJSON(res, 200, { success: true, message: 'Privacy policy accepted' });
   }
 
   // 8. SEND RESET OTP
@@ -428,7 +461,7 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email is required' });
     }
 
-    const users = readUsers();
+    const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
     const user = users.find((u) => u.email === cleanEmail);
 
@@ -440,7 +473,7 @@ const server = http.createServer(async (req, res) => {
     user.resetOtp = otp;
     user.resetOtpExpireAt = Date.now() + 15 * 60 * 1000;
 
-    writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
     const mailOption = {
       from: SENDER_EMAIL,
@@ -464,7 +497,7 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email, OTP, and new password are required' });
     }
 
-    const users = readUsers();
+    const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
     const user = users.find((u) => u.email === cleanEmail);
 
@@ -485,9 +518,227 @@ const server = http.createServer(async (req, res) => {
     user.resetOtp = '';
     user.resetOtpExpireAt = 0;
 
-    writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
     return sendJSON(res, 200, { success: true, message: 'Password reset successfully' });
+  }
+
+  // ==========================================
+  // TEAMS & PROJECTS (CLOUD COLLABORATION)
+  // ==========================================
+
+  // A. LIST ALL USERS (For assigning to teams/projects)
+  if (req.method === 'GET' && url === '/api/users/list') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    // Only return id, name, email
+    const users = await readUsers();
+    const safeUsers = users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role }));
+    return sendJSON(res, 200, { success: true, users: safeUsers });
+  }
+
+  // B. CREATE TEAM
+  if (req.method === 'POST' && url === '/api/teams/create') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can create teams' });
+    const { name } = await getRequestBody(req);
+    if (!name) return sendJSON(res, 400, { success: false, message: 'Team name required' });
+    
+    const teamId = `team_${Date.now()}`;
+    const { error } = await supabase.from('teams').insert({ id: teamId, name: name.trim(), created_by: user.id });
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'Team created', team: { id: teamId, name } });
+  }
+
+  // C. LIST TEAMS
+  if (req.method === 'GET' && url === '/api/teams/list') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { data: teams, error } = await supabase.from('teams').select('*, team_members(user_id)');
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, teams });
+  }
+
+  // D. ADD USER TO TEAM
+  if (req.method === 'POST' && url === '/api/teams/add-user') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    const { team_id, user_id } = await getRequestBody(req);
+    const { error } = await supabase.from('team_members').upsert({ team_id, user_id });
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'User added to team' });
+  }
+
+  // D2. REMOVE USER FROM TEAM
+  if (req.method === 'POST' && url === '/api/teams/remove-user') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    const { team_id, user_id } = await getRequestBody(req);
+    const { error } = await supabase.from('team_members').delete().match({ team_id, user_id });
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'User removed from team' });
+  }
+
+  // E. CREATE PROJECT
+  if (req.method === 'POST' && url === '/api/projects/create') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { projectData, assigned_users = [], assigned_teams = [] } = await getRequestBody(req);
+    
+    if (!projectData.name || !projectData.code) return sendJSON(res, 400, { success: false, message: 'Name and Code required' });
+    
+    const projectId = `proj_${Date.now()}`;
+    const newProject = {
+      id: projectId,
+      name: projectData.name,
+      code: projectData.code,
+      client: projectData.client || '',
+      location: projectData.location || '',
+      description: projectData.description || '',
+      notes: projectData.notes || '',
+      created_by: user.id,
+      workspace_data: projectData.workspace_data || {}
+    };
+
+    const { error } = await supabase.from('projects').insert(newProject);
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+
+    // Always assign creator
+    if (!assigned_users.includes(user.id)) assigned_users.push(user.id);
+
+    // Insert access rules
+    if (assigned_users.length > 0) {
+      await supabase.from('project_users').insert(assigned_users.map(uid => ({ project_id: projectId, user_id: uid })));
+    }
+    if (assigned_teams.length > 0) {
+      await supabase.from('project_teams').insert(assigned_teams.map(tid => ({ project_id: projectId, team_id: tid })));
+    }
+
+    return sendJSON(res, 200, { success: true, project: newProject });
+  }
+
+  // F. LIST PROJECTS
+  if (req.method === 'GET' && url === '/api/projects/list') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    let query = supabase.from('projects').select('*, project_users(user_id), project_teams(team_id)');
+    const { data: projects, error } = await query;
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+
+    // Filter projects the user is allowed to see
+    let visibleProjects = projects;
+    if (user.role !== 'ADMIN') {
+      // Find what teams the user is in
+      const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
+      const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
+
+      visibleProjects = projects.filter(p => {
+        if (p.project_users.some(pu => pu.user_id === user.id)) return true;
+        if (p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
+        return false;
+      });
+    }
+
+    return sendJSON(res, 200, { success: true, projects: visibleProjects });
+  }
+
+  // G. SAVE WORKSPACE
+  if (req.method === 'POST' && url === '/api/projects/save-workspace') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { project_id, workspace_data } = await getRequestBody(req);
+
+    const { error } = await supabase.from('projects').update({ 
+      workspace_data, 
+      last_modified: new Date().toISOString() 
+    }).eq('id', project_id);
+    
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'Workspace saved successfully' });
+  }
+
+  // G2. REMOVE USER FROM PROJECT
+  if (req.method === 'POST' && url === '/api/projects/remove-user') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { project_id, user_id } = await getRequestBody(req);
+
+    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
+    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+
+    const { error } = await supabase.from('project_users').delete().match({ project_id, user_id });
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'User removed from project' });
+  }
+
+  // G2b. ADD USER TO PROJECT
+  if (req.method === 'POST' && url === '/api/projects/add-user') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { project_id, user_id } = await getRequestBody(req);
+
+    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
+    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+
+    const { error } = await supabase.from('project_users').insert({ project_id, user_id });
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'User added to project' });
+  }
+
+  // G3. REMOVE TEAM FROM PROJECT
+  if (req.method === 'POST' && url === '/api/projects/remove-team') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { project_id, team_id } = await getRequestBody(req);
+
+    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
+    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+
+    const { error } = await supabase.from('project_teams').delete().match({ project_id, team_id });
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'Team removed from project' });
+  }
+
+  // G3b. ADD TEAM TO PROJECT
+  if (req.method === 'POST' && url === '/api/projects/add-team') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { project_id, team_id } = await getRequestBody(req);
+
+    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
+    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+
+    const { error } = await supabase.from('project_teams').insert({ project_id, team_id });
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'Team added to project' });
+  }
+
+  // H. DELETE PROJECT
+  if (req.method === 'POST' && url === '/api/projects/delete') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { project_id } = await getRequestBody(req);
+
+    // Only allow creator or Admin to delete
+    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
+    if (!proj) return sendJSON(res, 404, { success: false, message: 'Project not found' });
+    
+    if (proj.created_by !== user.id && user.role !== 'ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+
+    const { error } = await supabase.from('projects').delete().eq('id', project_id);
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'Project deleted' });
   }
 
   // 404 Fallback
@@ -497,5 +748,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`\n==================================================`);
   console.log(`🚀 MEP Calculator Auth Engine running on http://localhost:${PORT}`);
+  console.log(`☁️ Supabase Cloud DB Connected for Credentials`);
   console.log(`==================================================\n`);
 });

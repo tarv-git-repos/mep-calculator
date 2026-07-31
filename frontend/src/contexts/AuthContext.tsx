@@ -21,6 +21,7 @@ interface AuthContextType {
   setUserData: (data: AuthUserData | null) => void;
   getUserData: () => Promise<void>;
   logout: () => Promise<void>;
+  acceptPrivacy: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -34,6 +35,7 @@ const AuthContext = createContext<AuthContextType>({
   setUserData: () => {},
   getUserData: async () => {},
   logout: async () => {},
+  acceptPrivacy: async () => {},
 });
 
 const LOCAL_STORAGE_USER_KEY = 'mep_calculator_user_data';
@@ -99,6 +101,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUserData(null);
   };
 
+  const acceptPrivacy = async () => {
+    try {
+      const { api } = await import('@/services/api');
+      const res = await api.acceptPrivacyPolicy();
+      if (res.success && userData) {
+        setUserData({ ...userData, privacyPolicyAccepted: true });
+      }
+    } catch (e) {
+      console.error("Failed to accept privacy policy", e);
+    }
+  };
+
   useEffect(() => {
     checkAuth();
   }, []);
@@ -109,7 +123,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     id: userData.id,
     email: userData.email,
     name: userData.name,
-    role: userData.email.toLowerCase().includes('admin') ? 'ADMIN' : 'USER',
+    role: userData.role || 'USER',
     subscription_status: 'ACTIVE',
     isAccountVerified: userData.isAccountVerified,
   } : null;
@@ -126,6 +140,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUserData,
       getUserData,
       logout,
+      acceptPrivacy
     }}>
       {children}
     </AuthContext.Provider>

@@ -13,6 +13,7 @@ import { Route as ZonesRouteImport } from './routes/zones'
 import { Route as VentilationRouteImport } from './routes/ventilation'
 import { Route as UpsSizingCalculationRouteImport } from './routes/ups-sizing-calculation'
 import { Route as TransformerSizingRouteImport } from './routes/transformer-sizing'
+import { Route as TeamsRouteImport } from './routes/teams'
 import { Route as StaircasePressurizationRouteImport } from './routes/staircase-pressurization'
 import { Route as SmokeExtractFanRouteImport } from './routes/smoke-extract-fan'
 import { Route as ShortCircuitCalculationsRouteImport } from './routes/short-circuit-calculations'
@@ -94,6 +95,11 @@ const UpsSizingCalculationRoute = UpsSizingCalculationRouteImport.update({
 const TransformerSizingRoute = TransformerSizingRouteImport.update({
   id: '/transformer-sizing',
   path: '/transformer-sizing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamsRoute = TeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StaircasePressurizationRoute = StaircasePressurizationRouteImport.update({
@@ -475,6 +481,7 @@ export interface FileRoutesByFullPath {
   '/short-circuit-calculations': typeof ShortCircuitCalculationsRoute
   '/smoke-extract-fan': typeof SmokeExtractFanRoute
   '/staircase-pressurization': typeof StaircasePressurizationRoute
+  '/teams': typeof TeamsRoute
   '/transformer-sizing': typeof TransformerSizingRoute
   '/ups-sizing-calculation': typeof UpsSizingCalculationRoute
   '/ventilation': typeof VentilationRoute
@@ -543,6 +550,7 @@ export interface FileRoutesByTo {
   '/short-circuit-calculations': typeof ShortCircuitCalculationsRoute
   '/smoke-extract-fan': typeof SmokeExtractFanRoute
   '/staircase-pressurization': typeof StaircasePressurizationRoute
+  '/teams': typeof TeamsRoute
   '/transformer-sizing': typeof TransformerSizingRoute
   '/ups-sizing-calculation': typeof UpsSizingCalculationRoute
   '/ventilation': typeof VentilationRoute
@@ -612,6 +620,7 @@ export interface FileRoutesById {
   '/short-circuit-calculations': typeof ShortCircuitCalculationsRoute
   '/smoke-extract-fan': typeof SmokeExtractFanRoute
   '/staircase-pressurization': typeof StaircasePressurizationRoute
+  '/teams': typeof TeamsRoute
   '/transformer-sizing': typeof TransformerSizingRoute
   '/ups-sizing-calculation': typeof UpsSizingCalculationRoute
   '/ventilation': typeof VentilationRoute
@@ -682,6 +691,7 @@ export interface FileRouteTypes {
     | '/short-circuit-calculations'
     | '/smoke-extract-fan'
     | '/staircase-pressurization'
+    | '/teams'
     | '/transformer-sizing'
     | '/ups-sizing-calculation'
     | '/ventilation'
@@ -750,6 +760,7 @@ export interface FileRouteTypes {
     | '/short-circuit-calculations'
     | '/smoke-extract-fan'
     | '/staircase-pressurization'
+    | '/teams'
     | '/transformer-sizing'
     | '/ups-sizing-calculation'
     | '/ventilation'
@@ -818,6 +829,7 @@ export interface FileRouteTypes {
     | '/short-circuit-calculations'
     | '/smoke-extract-fan'
     | '/staircase-pressurization'
+    | '/teams'
     | '/transformer-sizing'
     | '/ups-sizing-calculation'
     | '/ventilation'
@@ -887,6 +899,7 @@ export interface RootRouteChildren {
   ShortCircuitCalculationsRoute: typeof ShortCircuitCalculationsRoute
   SmokeExtractFanRoute: typeof SmokeExtractFanRoute
   StaircasePressurizationRoute: typeof StaircasePressurizationRoute
+  TeamsRoute: typeof TeamsRoute
   TransformerSizingRoute: typeof TransformerSizingRoute
   UpsSizingCalculationRoute: typeof UpsSizingCalculationRoute
   VentilationRoute: typeof VentilationRoute
@@ -921,6 +934,13 @@ declare module '@tanstack/react-router' {
       path: '/transformer-sizing'
       fullPath: '/transformer-sizing'
       preLoaderRoute: typeof TransformerSizingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/teams': {
+      id: '/teams'
+      path: '/teams'
+      fullPath: '/teams'
+      preLoaderRoute: typeof TeamsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/staircase-pressurization': {
@@ -1423,6 +1443,7 @@ const rootRouteChildren: RootRouteChildren = {
   ShortCircuitCalculationsRoute: ShortCircuitCalculationsRoute,
   SmokeExtractFanRoute: SmokeExtractFanRoute,
   StaircasePressurizationRoute: StaircasePressurizationRoute,
+  TeamsRoute: TeamsRoute,
   TransformerSizingRoute: TransformerSizingRoute,
   UpsSizingCalculationRoute: UpsSizingCalculationRoute,
   VentilationRoute: VentilationRoute,

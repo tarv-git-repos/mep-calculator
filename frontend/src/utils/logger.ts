@@ -16,10 +16,10 @@ export const logActivity = async (userId: string | undefined, action: ActivityAc
         }
       ])
       
-    if (error) {
-      console.error('Failed to log activity:', error)
+    if (error && error.code !== '42501' && !error.message?.includes('401')) {
+      console.warn('Failed to log activity (non-auth error):', error.message)
     }
   } catch (err) {
-    console.error('Activity logging error:', err)
+    // Silently ignore network/auth errors for activity logs to prevent console spam
   }
 }

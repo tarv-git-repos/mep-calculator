@@ -7,7 +7,8 @@ import {
   Wrench, 
   FileBarChart, 
   Trash2, 
-  Cog 
+  Cog,
+  Users
 } from "lucide-react";
 
 export type NavLeaf = { label: string; to?: string; badge?: string; isHeader?: boolean };
@@ -106,5 +107,6 @@ export const NAV: NavItem[] = [
   },
   { kind: "item", label: "Reports", to: "/reports", icon: FileBarChart },
   { kind: "item", label: "Trash", to: "/trash", icon: Trash2 },
+  { kind: "item", label: "Teams", to: "/teams", icon: Users },
   { kind: "item", label: "Settings", to: "/settings", icon: Cog },
 ];

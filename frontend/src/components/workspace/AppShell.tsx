@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy, ShieldAlert, Lock
+  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -319,7 +319,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const searchObj = useRouterState({ select: (s) => s.location.search }) as Record<string, any>;
   const activeName = searchObj?.name;
   const navigate = useNavigate();
-  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision } = useWorkspace();
+  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, isInitializing } = useWorkspace();
   const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
   const [myEmail, setMyEmail] = useState<string>("unknown");
 
@@ -350,17 +350,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   useEffect(() => {
     const initCollab = async () => {
       const { data } = await supabase.auth.getSession();
-      const email = data.session?.user.email || "unknown";
-      setMyEmail(email);
+      const displayName = userData?.name || profile?.name || data.session?.user.email || "unknown";
+      setMyEmail(displayName);
       if (project?.name) {
-        joinProject(project.name, email);
+        joinProject(project.name, displayName);
       }
     };
     initCollab();
     return () => {
       leaveProject();
     };
-  }, [project?.name]);
+  }, [project?.name, userData?.name, profile?.name]);
 
   // Update active module on route change
   useEffect(() => {
@@ -371,11 +371,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
 
     // Force privacy policy acceptance
-    const acceptedPrivacy = localStorage.getItem('mep-privacy-accepted') === 'true';
+    const acceptedPrivacy = userData?.privacyPolicyAccepted === true;
     if (!acceptedPrivacy && pathname !== '/login' && pathname !== '/privacy') {
       navigate({ to: '/privacy' });
     }
-  }, [pathname, navigate]);
+  }, [pathname, navigate, userData?.privacyPolicyAccepted]);
 
   const lockOwnerObj = getLockOwner(pathname);
   const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
@@ -787,7 +787,33 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   READ ONLY
                 </div>
               )}
-              
+              <button
+                type="button"
+                onClick={() => {
+                  savePageInputs(project.id, pathname);
+                  triggerSave();
+                  forceSaveToCloud();
+                  toast.success("Calculations synced to cloud successfully!");
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border border-transparent"
+                title="Save to Cloud"
+              >
+                <Save className="size-3.5" />
+                Save to Cloud
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.reload();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors shadow-sm cursor-pointer border border-transparent mr-1"
+                title="Sync from Cloud"
+              >
+                <RefreshCw className="size-3.5" />
+                SYNC
+              </button>
+
               <button
                 onClick={() => setReadOnly(!isReadOnly)}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
@@ -977,15 +1003,22 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         )}
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col relative">
           {isLockedByOther && (
-            <div className="absolute top-0 left-0 right-0 z-[100] bg-amber-500 text-white px-4 py-2 flex items-center justify-center gap-2 shadow-md shrink-0">
+            <div className="absolute top-0 left-0 right-0 z-[100] bg-transparent text-amber-500 px-4 py-2 flex items-center justify-center gap-2 shrink-0">
               <ShieldAlert className="w-4 h-4" />
-              <span className="font-medium text-sm">
+              <span className="font-bold text-sm">
                 Read Only Mode: This module is currently being edited by {lockOwnerEmail}
               </span>
             </div>
           )}
           <div className={`flex-1 min-h-0 overflow-hidden flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'pointer-events-none opacity-80 mt-10' : ''}`}>
-            {children}
+            {isInitializing ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-slate-50/50">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
+                <span className="text-slate-500 font-medium">Syncing with workspace...</span>
+              </div>
+            ) : (
+              children
+            )}
           </div>
         </div>
       </main>

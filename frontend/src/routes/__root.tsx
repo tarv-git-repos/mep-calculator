@@ -257,9 +257,15 @@ function DirtyWatcher() {
   return null;
 }
 
+import { workspaceStore } from "@/lib/workspace-store";
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   useAutoBackup();
+
+  useEffect(() => {
+    workspaceStore.initCloud();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

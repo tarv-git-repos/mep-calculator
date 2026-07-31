@@ -16,6 +16,7 @@ export interface AuthUserData {
   name: string;
   email: string;
   isAccountVerified: boolean;
+  privacyPolicyAccepted?: boolean;
 }
 
 export interface AuthResponse {

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { calculateVentilation, setGlobalRoundOffPreset, type Space, type Zone, type Equipment, type ZoneInstanceAssignment } from "./ventilation-calc";
 export type { ZoneInstanceAssignment };
 import { predictOccupancyCategory, predictSpacePressure } from "./ai-occupancy";
+import { api } from "../services/api";
 import { getOccupancyData } from "./ashrae-data";
 export type { Space, Zone, Equipment };
 export type { SpaceStatus } from "./mock-data";
@@ -79,53 +80,15 @@ export interface Project {
   createdDate?: string;
   lastModified?: string;
   status?: string;
+  workspace_data?: any;
 }
 
 const IS_SERVER = typeof window === "undefined";
 
 let projects: Project[] = [];
 let activeProjectId: string = "";
+let currentProject: Project | undefined = undefined;
 
-if (!IS_SERVER) {
-  try {
-    const saved = localStorage.getItem("mep_projects");
-    projects = saved ? JSON.parse(saved) : [];
-  } catch (e) {
-    console.error("Failed to parse projects:", e);
-  }
-  activeProjectId = localStorage.getItem("mep_active_project_id") || "";
-}
-
-// Fallback if no projects exist
-if (projects.length === 0) {
-  const defaultProj: Project = {
-    id: "proj_default",
-    name: "Marina Bay Tower",
-    code: "MBT-2026-117",
-    client: "Marina Holdings",
-    createdDate: new Date().toISOString(),
-    lastModified: new Date().toISOString(),
-    status: "Active",
-  };
-  projects = [defaultProj];
-  activeProjectId = "proj_default";
-  if (!IS_SERVER) {
-    localStorage.setItem("mep_projects", JSON.stringify(projects));
-    localStorage.setItem("mep_active_project_id", activeProjectId);
-  }
-}
-
-// If activeProjectId is not in projects, use the first one
-let currentProject = projects.find((p) => p.id === activeProjectId);
-if (!currentProject) {
-  currentProject = projects[0];
-  activeProjectId = currentProject.id || "proj_default";
-  if (!IS_SERVER) {
-    localStorage.setItem("mep_active_project_id", activeProjectId);
-  }
-}
-
-// Load workspace state for the active project
 let currentWorkspaceState = {
   spaces: [] as Space[],
   zones: [] as Zone[],
@@ -134,21 +97,8 @@ let currentWorkspaceState = {
   isReadOnly: false,
 };
 
-if (!IS_SERVER) {
-  try {
-    const savedState = localStorage.getItem(`mep_project_workspace_${activeProjectId}`);
-    if (savedState) {
-      const parsed = JSON.parse(savedState);
-      currentWorkspaceState = { ...currentWorkspaceState, ...sanitizeWorkspaceState(parsed) };
-      if (currentWorkspaceState.roundOffPreset === undefined) {
-        currentWorkspaceState.roundOffPreset = 5;
-      }
-      setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
-    }
-  } catch (e) {
-    console.error("Failed to parse workspace state:", e);
-  }
-}
+let cloudInitDone = false;
+export let isInitializing = true;
 
 const listeners = new Set<() => void>();
 
@@ -184,20 +134,98 @@ function notify() {
   listeners.forEach((l) => l());
 }
 
+let saveTimeout: any = null;
 function saveState() {
   if (IS_SERVER) return;
   currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
-  localStorage.setItem(`mep_project_workspace_${activeProjectId}`, JSON.stringify(currentWorkspaceState));
-  localStorage.setItem("mep_projects", JSON.stringify(projects));
-  localStorage.setItem("mep_active_project_id", activeProjectId);
+  
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    if (activeProjectId) {
+      const lsState: Record<string, string> = {};
+      const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'customCableCatalog', 'customBusbarRatings'];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && knownPrefixes.some(p => key.startsWith(p)) && !key.includes('clipboard')) {
+          lsState[key] = localStorage.getItem(key) || "";
+        }
+      }
+      
+      const payload = {
+        ...currentWorkspaceState,
+        localStorageCache: lsState
+      };
+      
+      api.saveWorkspace(activeProjectId, payload);
+    }
+  }, 1000);
+}
+
+function injectLocalStorageCache(wdata: any) {
+  if (typeof localStorage === "undefined") return;
+  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'customCableCatalog', 'customBusbarRatings'];
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && knownPrefixes.some(p => key.startsWith(p)) && !key.includes('clipboard')) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+  
+  if (wdata && wdata.localStorageCache) {
+    Object.entries(wdata.localStorageCache).forEach(([key, val]) => {
+       localStorage.setItem(key, val as string);
+    });
+  }
 }
 
 export const workspaceStore = {
+  forceSaveToCloud() {
+    saveState();
+  },
+  async initCloud() {
+    if (cloudInitDone) return;
+    cloudInitDone = true;
+    const cloudProjects = await api.getProjects();
+    projects = cloudProjects || [];
+    
+    if (projects.length > 0) {
+       let target = projects[0];
+       if (typeof localStorage !== "undefined") {
+         const lastActive = localStorage.getItem("mep_active_project_id");
+         if (lastActive) {
+           const found = projects.find(p => p.id === lastActive);
+           if (found) target = found;
+         }
+       }
+       activeProjectId = target.id;
+       currentProject = target;
+       const wdata = currentProject.workspace_data || {};
+       injectLocalStorageCache(wdata);
+       currentWorkspaceState = sanitizeWorkspaceState({
+          spaces: wdata.spaces || [],
+          zones: wdata.zones || [],
+          equipment: wdata.equipment || [],
+          roundOffPreset: wdata.roundOffPreset ?? 5,
+          isReadOnly: false
+       });
+    } else {
+       activeProjectId = "";
+       currentProject = undefined;
+       currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+    }
+    setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+    isInitializing = false;
+    notify();
+  },
   getState() {
+    const defaultProject = { id: "", name: "No Workspace Selected", code: "---", client: "N/A" };
     return {
-      project: currentProject!,
+      project: currentProject || defaultProject,
       projects,
       activeProjectId,
+      isInitializing,
       spaces: currentWorkspaceState.spaces,
       zones: currentWorkspaceState.zones,
       equipment: currentWorkspaceState.equipment,
@@ -238,109 +266,72 @@ export const workspaceStore = {
     const target = projects.find((p) => p.id === id);
     if (!target) return;
 
-    // Save previous active project's state first
     saveState();
     clearHistory();
 
     currentProject = target;
     activeProjectId = id;
-
-    // Load target project's state
-    let nextState = {
-      spaces: [] as Space[],
-      zones: [] as Zone[],
-      equipment: [] as Equipment[],
-      roundOffPreset: 5,
-    };
-
-    if (!IS_SERVER) {
-      try {
-        const saved = localStorage.getItem(`mep_project_workspace_${id}`);
-        if (saved) {
-          nextState = sanitizeWorkspaceState(JSON.parse(saved));
-          if (nextState.roundOffPreset === undefined) {
-            nextState.roundOffPreset = 5;
-          }
-        }
-      } catch (e) {
-        console.error("Failed to load project state:", e);
-      }
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("mep_active_project_id", id);
     }
+
+    const wdata = target.workspace_data || {};
+    injectLocalStorageCache(wdata);
+    
+    let nextState = sanitizeWorkspaceState({
+      spaces: wdata.spaces || [],
+      zones: wdata.zones || [],
+      equipment: wdata.equipment || [],
+      roundOffPreset: wdata.roundOffPreset ?? 5,
+      isReadOnly: false
+    });
 
     setGlobalRoundOffPreset(nextState.roundOffPreset);
     currentWorkspaceState = nextState;
-    saveState();
     notify();
   },
 
-  createNewProject(projData: Omit<Project, "id">) {
-    const newId = `proj_${Date.now()}`;
-    const newProj: Project = {
-      ...projData,
-      id: newId,
-      createdDate: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      status: "Active",
-    };
-
-    // Save current active project
-    saveState();
-    clearHistory();
-
-    projects.unshift(newProj);
-    currentProject = newProj;
-    activeProjectId = newId;
-
-    currentWorkspaceState = {
-      spaces: [],
-      zones: [],
-      equipment: [],
-    };
-
-    saveState();
-    notify();
-    return newProj;
+  async createNewProject(projData: Omit<Project, "id">, assigned_users: string[] = [], assigned_teams: string[] = []) {
+    const res = await api.createProject({
+       ...projData,
+       workspace_data: { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
+    }, assigned_users, assigned_teams);
+    
+    if (res.success) {
+      const newProj = res.project;
+      projects.unshift(newProj);
+      
+      saveState();
+      clearHistory();
+      
+      currentProject = newProj;
+      activeProjectId = newProj.id;
+      currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+      
+      notify();
+      return newProj;
+    }
+    return null;
   },
 
-  duplicateProject(id: string) {
+  async duplicateProject(id: string) {
+    // Currently disabled for cloud MVP, will just fetch the target and create a new project
     const target = projects.find((p) => p.id === id);
     if (!target) return null;
-
-    const newId = `proj_${Date.now()}`;
-    const newProj: Project = {
+    
+    const res = await api.createProject({
       ...target,
-      id: newId,
       name: `${target.name} (Copy)`,
       code: `${target.code}-COPY`,
-      createdDate: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-    };
+      workspace_data: target.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
+    }, [], []);
 
-    // Find position of target and insert after it
-    const idx = projects.findIndex((p) => p.id === id);
-    if (idx !== -1) {
-      projects.splice(idx + 1, 0, newProj);
-    } else {
-      projects.push(newProj);
+    if (res.success) {
+      projects.unshift(res.project);
+      notify();
+      return res.project;
     }
-
-    // Load workspace state of source
-    let sourceState = { spaces: [], zones: [], equipment: [], isReadOnly: false };
-    if (!IS_SERVER) {
-      try {
-        const saved = localStorage.getItem(`mep_project_workspace_${id}`);
-        if (saved) sourceState = { ...JSON.parse(saved), isReadOnly: false }; // Never duplicate as read-only by default
-      } catch (e) {}
-    }
-
-    // Save workspace state of clone
-    if (!IS_SERVER) {
-      localStorage.setItem(`mep_project_workspace_${newId}`, JSON.stringify(sourceState));
-    }
-
-    saveState();
-    notify();
-    return newProj;
+    return null;
   },
 
   saveAsRevision(versionName: string) {
@@ -365,52 +356,35 @@ export const workspaceStore = {
     return newProj;
   },
 
-  deleteProject(id: string) {
-    projects = projects.filter((p) => p.id !== id);
-    if (!IS_SERVER) {
-      localStorage.removeItem(`mep_project_workspace_${id}`);
-    }
+  async deleteProject(id: string) {
+    const res = await api.deleteProject(id);
+    if (res.success) {
+      projects = projects.filter((p) => p.id !== id);
 
-    if (activeProjectId === id) {
-      if (projects.length > 0) {
-        activeProjectId = projects[0].id;
-        currentProject = projects[0];
-        // Load its workspace state
-        let nextState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5 };
-        if (!IS_SERVER) {
-          try {
-            const saved = localStorage.getItem(`mep_project_workspace_${activeProjectId}`);
-            if (saved) {
-              nextState = sanitizeWorkspaceState(JSON.parse(saved));
-              if (nextState.roundOffPreset === undefined) {
-                nextState.roundOffPreset = 5;
-              }
-            }
-          } catch (e) {}
+      if (activeProjectId === id) {
+        if (projects.length > 0) {
+          activeProjectId = projects[0].id;
+          currentProject = projects[0];
+          const wdata = currentProject.workspace_data || {};
+          currentWorkspaceState = sanitizeWorkspaceState({
+            spaces: wdata.spaces || [],
+            zones: wdata.zones || [],
+            equipment: wdata.equipment || [],
+            roundOffPreset: wdata.roundOffPreset ?? 5,
+            isReadOnly: false
+          });
+          setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+        } else {
+          activeProjectId = "";
+          currentProject = undefined;
+          setGlobalRoundOffPreset(5);
+          currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
         }
-        setGlobalRoundOffPreset(nextState.roundOffPreset);
-        currentWorkspaceState = nextState;
-      } else {
-        // Fallback default
-        const defaultProj: Project = {
-          id: "proj_default",
-          name: "Marina Bay Tower",
-          code: "MBT-2026-117",
-          client: "Marina Holdings",
-          createdDate: new Date().toISOString(),
-          lastModified: new Date().toISOString(),
-          status: "Active",
-        };
-        projects = [defaultProj];
-        activeProjectId = "proj_default";
-        currentProject = defaultProj;
-        setGlobalRoundOffPreset(5);
-        currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5 };
       }
+      notify();
+    } else {
+      alert("Failed to delete: " + res.message);
     }
-
-    saveState();
-    notify();
   },
 
   clearWorkspace() {
@@ -1205,6 +1179,7 @@ export function useWorkspace() {
     createNewProject: (project: Omit<Project, "id">) => workspaceStore.createNewProject(project),
     duplicateProject: (id: string) => workspaceStore.duplicateProject(id),
     deleteProject: (id: string) => workspaceStore.deleteProject(id),
+    forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
     clearWorkspace: () => workspaceStore.clearWorkspace(),
     updateProject: (project: Project) => workspaceStore.updateProject(project),
     updateSpaces: (spaces: Space[]) => workspaceStore.updateSpaces(spaces),

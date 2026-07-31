@@ -71,6 +71,14 @@ interface LVPanel {
 function BusbarCalculationPage() {
   const confirm = useConfirm();
   const [panels, setPanels] = useState<LVPanel[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep-busbar-calculation-v1");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse busbar panels:", e);
+      }
+    }
     const isIp = false;
     return [{
       id: `pan_${Date.now()}`,

@@ -1,15 +1,18 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { FileText, CheckCircle2 } from 'lucide-react'
 
+import { useAuth } from '@/contexts/AuthContext'
+
 export const Route = createFileRoute('/privacy')({
   component: PrivacyPolicy,
 })
 
 function PrivacyPolicy() {
   const navigate = useNavigate()
+  const { acceptPrivacy } = useAuth()
 
-  const handleAccept = () => {
-    localStorage.setItem('mep-privacy-accepted', 'true')
+  const handleAccept = async () => {
+    await acceptPrivacy()
     navigate({ to: '/' })
   }
 
