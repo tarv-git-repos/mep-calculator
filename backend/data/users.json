@@ -1,0 +1,87 @@
+[
+  {
+    "id": "usr_1785397240626_722",
+    "name": "Test Engineer",
+    "email": "testuser@example.com",
+    "password": "$2b$10$66PJzq87vhPJOJ18UGTzV.WXyEz5LaKfFxQrMcQK91zYCp6b9GGvO",
+    "verifyOtp": "",
+    "verifyOtpExpireAt": 0,
+    "isAccountVerified": true,
+    "resetOtp": "",
+    "resetOtpExpireAt": 0,
+    "createdAt": "2026-07-30T07:40:40.627Z"
+  },
+  {
+    "id": "usr_1785397981196_320",
+    "name": "Kirtan",
+    "email": "kirtankarwa2y@gmail.com",
+    "password": "$2b$10$FMI/XkMZp3BT9H98HZlfRe/TlIxj83Glm0ifR0nvUKS09gwQdcePK",
+    "verifyOtp": "",
+    "verifyOtpExpireAt": 0,
+    "isAccountVerified": true,
+    "resetOtp": "",
+    "resetOtpExpireAt": 0,
+    "createdAt": "2026-07-30T07:53:01.196Z"
+  },
+  {
+    "id": "usr_admin_tarv_ai",
+    "name": "System Admin",
+    "email": "admin@tarv.ai",
+    "password": "$2b$10$i1JRL.6DMnUmbRFmYcwmLuKSCa.6B6GXfD2miox6WfOgzq3sQ2/My",
+    "verifyOtp": "",
+    "verifyOtpExpireAt": 0,
+    "isAccountVerified": true,
+    "role": "ADMIN",
+    "resetOtp": "285180",
+    "resetOtpExpireAt": 1785399465453,
+    "createdAt": "2026-07-30T07:59:41.943Z"
+  },
+  {
+    "id": "usr_1785398730041_882",
+    "name": "Aftaab",
+    "email": "aftaabm0724@gmail.com",
+    "password": "$2b$10$RnPLmFlMk1sx6VGL55G9C.aajqY7ywts3vEEQ8AZxdy/a25Pg7EgS",
+    "verifyOtp": "",
+    "verifyOtpExpireAt": 0,
+    "isAccountVerified": true,
+    "resetOtp": "",
+    "resetOtpExpireAt": 0,
+    "createdAt": "2026-07-30T08:05:30.041Z"
+  },
+  {
+    "id": "usr_1785399378876_732",
+    "name": "Vikram",
+    "email": "kadamvikram0308@gmail.com",
+    "password": "$2b$10$YCaNE2C62yTB.FL8Nvhbl.rw3cncK5f0w.a.U293gqWQNf8o41.NS",
+    "verifyOtp": "",
+    "verifyOtpExpireAt": 0,
+    "isAccountVerified": true,
+    "resetOtp": "",
+    "resetOtpExpireAt": 0,
+    "createdAt": "2026-07-30T08:16:18.876Z"
+  },
+  {
+    "id": "usr_1785473842424_256",
+    "name": "Kirtan Majdoor",
+    "email": "kirtankarwa@gmail.com",
+    "password": "$2b$10$1.5x/JD/dHietltwbW49uemGkdBy2zoV8PPBDpAsUv9SeWYfOo/Zy",
+    "verifyOtp": "303921",
+    "verifyOtpExpireAt": 1785560242424,
+    "isAccountVerified": false,
+    "resetOtp": "",
+    "resetOtpExpireAt": 0,
+    "createdAt": "2026-07-31T04:57:22.424Z"
+  },
+  {
+    "id": "usr_1785473866921_807",
+    "name": "Kirtan Majdoor",
+    "email": "karwakirtan@gmail.com",
+    "password": "$2b$10$Sg8LXKRI.EYTodr0ZiatyuiqSXFrk1vQQ7zsZoDO71YntGaTAWZ.W",
+    "verifyOtp": "",
+    "verifyOtpExpireAt": 0,
+    "isAccountVerified": true,
+    "resetOtp": "",
+    "resetOtpExpireAt": 0,
+    "createdAt": "2026-07-31T04:57:46.921Z"
+  }
+]
