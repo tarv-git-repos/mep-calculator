@@ -9,7 +9,7 @@ import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 function SewagePumpPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
 
   // Inputs
   const [inflow, setInflow] = useState<number>(30); // GPM
@@ -36,6 +36,7 @@ function SewagePumpPage() {
           console.error("Failed to parse saved Sewage Pump data:", e);
         }
       }
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [project]);
 
@@ -53,6 +54,8 @@ function SewagePumpPage() {
     const data = { inflow, cycle, starts, lift, hf, sf };
     localStorage.setItem(`sewagePump_${project.id}`, JSON.stringify(data));
     dirtyStore.set(false);
+    if (forceSaveToCloud) forceSaveToCloud();
+
     alert("Sewage Pump calculation saved successfully.");
   };
 
@@ -111,6 +114,15 @@ function SewagePumpPage() {
     const buf = await wb.xlsx.writeBuffer();
     saveAs(new Blob([buf]), 'Sewage_Pump_Sizing.xlsx');
   };
+
+  
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { inflow, cycle, starts, lift, hf, sf };
+      localStorage.setItem(`sewagePump_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, inflow, cycle, starts, lift, hf, sf]);
 
   return (
     <AppShell title="Sewage Pump Sizing">

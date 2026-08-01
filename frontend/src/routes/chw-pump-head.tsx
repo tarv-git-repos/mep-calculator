@@ -13,6 +13,7 @@ import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/chw-pump-head")({
   head: () => ({
@@ -25,6 +26,7 @@ export const Route = createFileRoute("/chw-pump-head")({
 });
 
 function ChwPumpHeadPage() {
+  const { project, forceSaveToCloud } = useWorkspace();
   const [projectInfo, setProjectInfo] = useState({
     projectName: "Commercial Tower CHW Pumping Study",
     projectNumber: "MEP-CHW-02",
@@ -57,6 +59,8 @@ function ChwPumpHeadPage() {
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
 
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
   // Load from local storage
   useEffect(() => {
     try {
@@ -69,6 +73,7 @@ function ChwPumpHeadPage() {
       }
     } catch (e) {
       console.error(e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, []);
 
@@ -77,12 +82,15 @@ function ChwPumpHeadPage() {
     setUnitSystem(unit);
     if ((window as any).__mep_keep_values) return;
     setProjectInfo(proj);
+  };
+
+  useEffect(() => {
     try {
-      localStorage.setItem("chw_pump_sizer_v2_params", JSON.stringify({ sizingParams: params, unitSystem: unit, projectInfo: proj }));
+      localStorage.setItem("chw_pump_sizer_v2_params", JSON.stringify({ sizingParams, unitSystem, projectInfo }));
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [sizingParams, unitSystem, projectInfo]);
 
   // Convert values when unit system changes
   const handleUnitSystemChange = (unit: "si" | "ip") => {
@@ -399,6 +407,15 @@ function ChwPumpHeadPage() {
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };
+
+  
+  useEffect(() => {
+    if (true) {
+      const dataToSave = { projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel };
+      localStorage.setItem(`chw_pump_sizer_v2_params`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel]);
 
   return (
     <AppShell title="CHW Pump Head" hideSubHeader={true}>

@@ -8,6 +8,7 @@ import {
   Save, FolderOpen, ChevronDown, ChevronUp, Trash2
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/staircase-pressurization")({
   head: () => ({
@@ -41,6 +42,34 @@ function StaircasePressurizationPage() {
   const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
   const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
   const [saveName, setSaveName] = useState<string>("");
+
+  const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`staircase_press_state_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.doorWidth !== undefined) setDoorWidth(data.doorWidth);
+          if (data.doorHeight !== undefined) setDoorHeight(data.doorHeight);
+          if (data.leakageRate !== undefined) setLeakageRate(data.leakageRate);
+          if (data.closedDoors !== undefined) setClosedDoors(data.closedDoors);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setLoadedProjectId(project.id);
+    }
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { doorWidth, doorHeight, leakageRate, closedDoors };
+      localStorage.setItem(`staircase_press_state_${project.id}`, JSON.stringify(dataToSave));
+    }
+  }, [project?.id, loadedProjectId, doorWidth, doorHeight, leakageRate, closedDoors]);
 
   useEffect(() => {
     try {
@@ -76,6 +105,7 @@ function StaircasePressurizationPage() {
     saveToLocalStorage(updated);
     setSaveName("");
     setShowSaveModal(false);
+    forceSaveToCloud();
   };
 
   const handleLoadSave = (id: string) => {

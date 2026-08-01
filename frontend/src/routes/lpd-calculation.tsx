@@ -316,6 +316,7 @@ function LPDCalculationPage() {
         const parsed = JSON.parse(savedMapping);
         setAuthorityMapping(prev => ({ ...prev, ...parsed }));
       } catch(e) {}
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, []);
 
@@ -450,6 +451,24 @@ function LPDCalculationPage() {
   );
 
   let globalSrNo = 1;
+
+  
+  useEffect(() => {
+    if (true) {
+      const dataToSave = { projects, currentProjectId, authorityMapping };
+      localStorage.setItem(`mep-lpd-calc-v2`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [projects, currentProjectId, authorityMapping]);
+
+  
+  useEffect(() => {
+    if (loadedProjectId) {
+      const dataToSave = { projects, currentProjectId, authorityMapping };
+      localStorage.setItem(`mep-lpd-calc-v2`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [loadedProjectId, projects, currentProjectId, authorityMapping]);
 
   return (
     <AppShell title="LPD Calculation" hideSubHeader={true}>

@@ -20,7 +20,7 @@ export const Route = createFileRoute("/plumbing-fire-tank-capacity")({
 });
 
 function FireTankCapacityPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   
   // Inputs
@@ -36,46 +36,63 @@ function FireTankCapacityPage() {
   const [hoseDur, setHoseDur] = useState<string>("60");
   
   const [makeupFlow, setMakeupFlow] = useState<string>("0");
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state from localStorage on project change
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`mep_fire_tank_capacity_calc_${project.id}`);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.systemType !== undefined) setSystemType(data.systemType);
-        if (data.sprinklerFlow !== undefined) setSprinklerFlow(data.sprinklerFlow);
-        if (data.sprinklerDur !== undefined) setSprinklerDur(data.sprinklerDur);
-        if (data.standpipeFlow !== undefined) setStandpipeFlow(data.standpipeFlow);
-        if (data.standpipeDur !== undefined) setStandpipeDur(data.standpipeDur);
-        if (data.hoseFlow !== undefined) setHoseFlow(data.hoseFlow);
-        if (data.hoseDur !== undefined) setHoseDur(data.hoseDur);
-        if (data.makeupFlow !== undefined) setMakeupFlow(data.makeupFlow);
-      } else {
-        // Reset to defaults
-        setSystemType("combined");
-        setSprinklerFlow("500");
-        setSprinklerDur("60");
-        setStandpipeFlow("500");
-        setStandpipeDur("60");
-        setHoseFlow("250");
-        setHoseDur("60");
-        setMakeupFlow("0");
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`mep_fire_tank_capacity_calc_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.systemType !== undefined) setSystemType(data.systemType);
+          if (data.sprinklerFlow !== undefined) setSprinklerFlow(data.sprinklerFlow);
+          if (data.sprinklerDur !== undefined) setSprinklerDur(data.sprinklerDur);
+          if (data.standpipeFlow !== undefined) setStandpipeFlow(data.standpipeFlow);
+          if (data.standpipeDur !== undefined) setStandpipeDur(data.standpipeDur);
+          if (data.hoseFlow !== undefined) setHoseFlow(data.hoseFlow);
+          if (data.hoseDur !== undefined) setHoseDur(data.hoseDur);
+          if (data.makeupFlow !== undefined) setMakeupFlow(data.makeupFlow);
+        } else {
+          // Reset to defaults
+          setSystemType("combined");
+          setSprinklerFlow("500");
+          setSprinklerDur("60");
+          setStandpipeFlow("500");
+          setStandpipeDur("60");
+          setHoseFlow("250");
+          setHoseDur("60");
+          setMakeupFlow("0");
+        }
+        setTimeout(() => dirtyStore.set(false), 50);
+      } catch (e) {
+        console.error("Failed to load fire tank capacity calculation", e);
       }
-      setTimeout(() => dirtyStore.set(false), 50);
-    } catch (e) {
-      console.error("Failed to load fire tank capacity calculation", e);
+      setLoadedProjectId(project.id);
     }
-  }, [project.id]);
+  }, [project?.id]);
 
-  const handleSaveCurrent = () => {
-    try {
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
       const dataToSave = {
         systemType, sprinklerFlow, sprinklerDur, standpipeFlow, standpipeDur, hoseFlow, hoseDur, makeupFlow
       };
       localStorage.setItem(`mep_fire_tank_capacity_calc_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(false);
-      toast.success("Fire Tank Capacity Calculation saved to project successfully!");
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, systemType, sprinklerFlow, sprinklerDur, standpipeFlow, standpipeDur, hoseFlow, hoseDur, makeupFlow]);
+
+  const handleSaveCurrent = () => {
+    try {
+      if (project?.id) {
+        const dataToSave = {
+          systemType, sprinklerFlow, sprinklerDur, standpipeFlow, standpipeDur, hoseFlow, hoseDur, makeupFlow
+        };
+        localStorage.setItem(`mep_fire_tank_capacity_calc_${project.id}`, JSON.stringify(dataToSave));
+        dirtyStore.set(false);
+        if (forceSaveToCloud) forceSaveToCloud();
+        toast.success("Fire Tank Capacity Calculation saved to project successfully!");
+      }
     } catch (e) {
       toast.error("Failed to save calculation.");
     }

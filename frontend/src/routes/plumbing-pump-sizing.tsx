@@ -54,7 +54,7 @@ function wsfuToLPS(wsfu: number): number {
 }
 
 function PumpSizingPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   // Inputs matching defaults in screenshots
   const [pumpType, setPumpType] = useState<"booster" | "transfer" | "transfer-booster">("booster");
@@ -94,6 +94,8 @@ function PumpSizingPage() {
   // Accordion UI state
   const [expandDetails, setExpandDetails] = useState<boolean>(false);
   const [expandAssumptions, setExpandAssumptions] = useState<boolean>(false);
+
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state from localStorage on project change
   useEffect(() => {
@@ -149,6 +151,7 @@ function PumpSizingPage() {
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
       console.error("Failed to load pump sizing calculation", e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [project.id]);
 
@@ -179,6 +182,8 @@ function PumpSizingPage() {
       };
       localStorage.setItem(`mep_pump_sizing_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(false);
+    if (forceSaveToCloud) forceSaveToCloud();
+
       toast.success("Pump Sizing Calculation saved to project successfully!");
     } catch (e) {
       toast.error("Failed to save calculation.");
@@ -388,6 +393,15 @@ function PumpSizingPage() {
       toast.error("Failed to export Excel report.");
     }
   };
+
+  
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { pumpType, wsfuVal, manualFlow, reqVolume, fillTime, workingPumps, standbyPumps, fricFactor, pipeVert, pipeHoriz, filtCarbon, filtMM, filtCuAg, filtSoftener, staticHead, presidHead, suctionHead, sfHead, selectedHead, effMotor, effPump, expandDetails, expandAssumptions };
+      localStorage.setItem(`mep_pump_sizing_calc_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, pumpType, wsfuVal, manualFlow, reqVolume, fillTime, workingPumps, standbyPumps, fricFactor, pipeVert, pipeHoriz, filtCarbon, filtMM, filtCuAg, filtSoftener, staticHead, presidHead, suctionHead, sfHead, selectedHead, effMotor, effPump, expandDetails, expandAssumptions]);
 
   return (
     <AppShell

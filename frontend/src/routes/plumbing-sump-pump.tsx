@@ -9,7 +9,7 @@ import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 function SumpPumpPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
 
   const [req, setReq] = useState<number>(1000);
   const [time, setTime] = useState<number>(1);
@@ -32,6 +32,8 @@ function SumpPumpPage() {
   const [selectedHead, setSelectedHead] = useState<number>(0);
   const [effMotor, setEffMotor] = useState<number>(85);
   const [effPump, setEffPump] = useState<number>(70);
+
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // State loading
   useEffect(() => {
@@ -57,6 +59,7 @@ function SumpPumpPage() {
         setEffMotor(p.effMotor ?? 85);
         setEffPump(p.effPump ?? 70);
       }
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [project]);
 
@@ -69,6 +72,15 @@ function SumpPumpPage() {
       dirtyStore.set(true);
     }
   };
+
+  
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { req, time, flow, pitFlow, pitHold, longestPipe, propSide, pipeVert, pipeHoriz, fricFactor, staticHead, presid, suction, sfHead, selectedHead, effMotor, effPump };
+      localStorage.setItem(`sumpPump_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, req, time, flow, pitFlow, pitHold, longestPipe, propSide, pipeVert, pipeHoriz, fricFactor, staticHead, presid, suction, sfHead, selectedHead, effMotor, effPump]);
 
   const handleSave = () => {
     saveState();

@@ -1,4 +1,5 @@
 import http from 'http';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
@@ -10,6 +11,10 @@ import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const PORT = process.env.PORT || 4000;
@@ -24,7 +29,20 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1);
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+if (typeof globalThis.WebSocket === 'undefined') {
+  class DummyWebSocket {
+    constructor() {}
+    addEventListener() {}
+    removeEventListener() {}
+    send() {}
+    close() {}
+  }
+  globalThis.WebSocket = DummyWebSocket;
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false },
+});
 
 async function readUsers() {
   try {
@@ -633,11 +651,12 @@ const server = http.createServer(async (req, res) => {
       const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
       const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
 
-      visibleProjects = projects.filter(p => {
-        if (p.project_users.some(pu => pu.user_id === user.id)) return true;
-        if (p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
-        return false;
-      });
+        visibleProjects = projects.filter(p => {
+          if (p.created_by === user.id) return true;
+          if (p.project_users.some(pu => pu.user_id === user.id)) return true;
+          if (p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
+          return false;
+        });
     }
 
     return sendJSON(res, 200, { success: true, projects: visibleProjects });
@@ -739,6 +758,302 @@ const server = http.createServer(async (req, res) => {
     const { error } = await supabase.from('projects').delete().eq('id', project_id);
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
     return sendJSON(res, 200, { success: true, message: 'Project deleted' });
+  }
+
+  // ==========================================
+  // HARDWARE FINGERPRINTED TRIAL & UNIQUE LICENSING
+  // ==========================================
+
+  const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
+  const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
+
+  if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8');
+  if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8');
+
+  function readLicenses() {
+    try { return JSON.parse(fs.readFileSync(LICENSES_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+  }
+  function writeLicenses(lics) {
+    try { fs.writeFileSync(LICENSES_FILE, JSON.stringify(lics, null, 2), 'utf8'); } catch (e) {}
+  }
+  function readTrials() {
+    try { return JSON.parse(fs.readFileSync(TRIALS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+  }
+  function writeTrials(trials) {
+    try { fs.writeFileSync(TRIALS_FILE, JSON.stringify(trials, null, 2), 'utf8'); } catch (e) {}
+  }
+
+  function generateUniqueLicenseKey(tier = 'PRO') {
+    const licenses = readLicenses();
+    const existingKeys = new Set(licenses.map(l => l.key));
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    
+    let attempts = 0;
+    while (attempts < 1000) {
+      let key = `MEP-${tier.toUpperCase()}`;
+      for (let block = 0; block < 3; block++) {
+        let part = '';
+        for (let i = 0; i < 4; i++) {
+          part += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        key += `-${part}`;
+      }
+      if (!existingKeys.has(key)) {
+        return key;
+      }
+      attempts++;
+    }
+    return `MEP-${tier.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+  }
+
+  // 1. HARDWARE TRIAL CHECK & INITIALIZATION
+  if (req.method === 'POST' && url === '/api/license/hardware-trial') {
+    const { hwid, email } = await getRequestBody(req);
+    if (!hwid) return sendJSON(res, 400, { success: false, message: 'Hardware ID (hwid) required' });
+
+    const trials = readTrials();
+    let trial = trials.find(t => t.hwid === hwid);
+
+    if (!trial) {
+      // First time on this hardware device! Grant 14-day Free Trial
+      const now = Date.now();
+      const expiresAt = now + 14 * 24 * 60 * 60 * 1000;
+      trial = {
+        hwid,
+        email: email ? email.trim().toLowerCase() : 'unregistered_device',
+        firstSeenAt: now,
+        expiresAt,
+        status: 'FREE_TRIAL'
+      };
+      trials.push(trial);
+      writeTrials(trials);
+
+      // Attempt Supabase log (safe fallback if table not created)
+      try {
+        supabase.from('hardware_trials').upsert({ hwid, email: trial.email, expires_at: new Date(expiresAt).toISOString() }).catch(() => {});
+      } catch (e) {}
+    }
+
+    const isExpired = Date.now() > trial.expiresAt;
+    const remainingMs = Math.max(0, trial.expiresAt - Date.now());
+    const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
+
+    return sendJSON(res, 200, {
+      success: true,
+      trial: {
+        hwid: trial.hwid,
+        status: isExpired ? 'EXPIRED_TRIAL' : 'FREE_TRIAL',
+        expiresAt: trial.expiresAt,
+        remainingDays,
+        isExpired
+      }
+    });
+  }
+
+  // 2. CHECK LICENSE & SUBSCRIPTION STATUS
+  if (req.method === 'POST' && url === '/api/license/status') {
+    const { hwid, email } = await getRequestBody(req);
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+
+    const licenses = readLicenses();
+    let activeLicense = null;
+
+    if (cleanEmail) {
+      activeLicense = licenses.find(l => l.boundEmail === cleanEmail && l.status === 'ACTIVE' && l.expiresAt > Date.now());
+    }
+    if (!activeLicense && hwid) {
+      activeLicense = licenses.find(l => l.boundHwid === hwid && l.status === 'ACTIVE' && l.expiresAt > Date.now());
+    }
+
+    if (activeLicense) {
+      const remainingDays = Math.ceil((activeLicense.expiresAt - Date.now()) / (1000 * 60 * 60 * 24));
+      return sendJSON(res, 200, {
+        success: true,
+        plan: activeLicense.tier,
+        status: 'ACTIVE',
+        key: activeLicense.key,
+        expiresAt: activeLicense.expiresAt,
+        remainingDays,
+        watermark: `Licensed to: ${activeLicense.boundEmail || 'Verified Device'} | Key: ${activeLicense.key}`
+      });
+    }
+
+    // Check Hardware Trial
+    const trials = readTrials();
+    const trial = trials.find(t => t.hwid === hwid);
+    if (trial) {
+      const isExpired = Date.now() > trial.expiresAt;
+      const remainingDays = Math.ceil(Math.max(0, trial.expiresAt - Date.now()) / (1000 * 60 * 60 * 24));
+      return sendJSON(res, 200, {
+        success: true,
+        plan: 'FREE',
+        status: isExpired ? 'EXPIRED_TRIAL' : 'FREE_TRIAL',
+        expiresAt: trial.expiresAt,
+        remainingDays,
+        watermark: isExpired ? 'EXPIRED TRIAL - UPGRADE TO PRO' : `FREE TRIAL (${remainingDays} days remaining)`
+      });
+    }
+
+    return sendJSON(res, 200, {
+      success: true,
+      plan: 'FREE',
+      status: 'UNLICENSED',
+      remainingDays: 0,
+      watermark: 'UNLICENSED / DEMO VERSION'
+    });
+  }
+
+  // 3. MOCK CHECKOUT & AUTOMATIC UNIQUE KEY GENERATION
+  if (req.method === 'POST' && url === '/api/license/checkout') {
+    const { email, planTier = 'PRO', durationDays = 365, hwid = '' } = await getRequestBody(req);
+    if (!email) return sendJSON(res, 400, { success: false, message: 'User email is required for checkout' });
+
+    const cleanEmail = email.trim().toLowerCase();
+    const uniqueKey = generateUniqueLicenseKey(planTier);
+    const now = Date.now();
+    const expiresAt = now + durationDays * 24 * 60 * 60 * 1000;
+
+    const newLicense = {
+      key: uniqueKey,
+      tier: planTier.toUpperCase(),
+      boundEmail: cleanEmail,
+      boundHwid: hwid,
+      createdAt: now,
+      expiresAt,
+      status: 'ACTIVE',
+      paymentStatus: 'PAID_MOCK'
+    };
+
+    const licenses = readLicenses();
+    licenses.push(newLicense);
+    writeLicenses(licenses);
+
+    // Save to Supabase
+    try {
+      await supabase.from('custom_licenses').insert({
+        key: uniqueKey,
+        tier: newLicense.tier,
+        email: cleanEmail,
+        hwid,
+        created_at: new Date(now).toISOString(),
+        expires_at: new Date(expiresAt).toISOString(),
+        status: 'ACTIVE'
+      });
+    } catch (e) {}
+
+    // Update user profile subscription_status if user exists
+    const users = await readUsers();
+    const user = users.find(u => u.email === cleanEmail);
+    if (user) {
+      user.subscription_status = newLicense.tier;
+      user.subscription_expires = new Date(expiresAt).toISOString();
+      await writeUsers(users.map(u => u.id === user.id ? user : u));
+    }
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: 'Payment completed successfully! License key bound to your account.',
+      key: uniqueKey,
+      tier: newLicense.tier,
+      expiresAt,
+      remainingDays: durationDays
+    });
+  }
+
+  // 4. ACTIVATE EXISTING LICENSE KEY
+  if (req.method === 'POST' && url === '/api/license/activate') {
+    const { key, email, hwid } = await getRequestBody(req);
+    if (!key) return sendJSON(res, 400, { success: false, message: 'License key is required' });
+
+    const cleanKey = key.trim().toUpperCase();
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    const licenses = readLicenses();
+
+    const lic = licenses.find(l => l.key === cleanKey);
+    if (!lic) {
+      return sendJSON(res, 404, { success: false, message: 'Invalid license key' });
+    }
+
+    if (lic.status === 'REVOKED') {
+      return sendJSON(res, 400, { success: false, message: 'This license key has been revoked' });
+    }
+
+    if (lic.expiresAt < Date.now()) {
+      return sendJSON(res, 400, { success: false, message: 'This license key has expired' });
+    }
+
+    if (lic.boundEmail && cleanEmail && lic.boundEmail !== cleanEmail) {
+      return sendJSON(res, 400, { success: false, message: `This key is registered to another email (${lic.boundEmail})` });
+    }
+
+    // Bind email and HWID if not bound yet
+    if (!lic.boundEmail && cleanEmail) lic.boundEmail = cleanEmail;
+    if (hwid) lic.boundHwid = hwid;
+    lic.status = 'ACTIVE';
+
+    writeLicenses(licenses.map(l => l.key === lic.key ? lic : l));
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: `License key ${cleanKey} activated successfully!`,
+      tier: lic.tier,
+      expiresAt: lic.expiresAt,
+      remainingDays: Math.ceil((lic.expiresAt - Date.now()) / (1000 * 60 * 60 * 24))
+    });
+  }
+
+  // 5. ADMIN: LIST ALL LICENSES
+  if (req.method === 'GET' && url === '/api/admin/licenses/list') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+
+    const licenses = readLicenses();
+    const trials = readTrials();
+    return sendJSON(res, 200, { success: true, licenses, trials });
+  }
+
+  // 6. ADMIN: GENERATE CUSTOM UNIQUE KEY
+  if (req.method === 'POST' && url === '/api/admin/licenses/generate') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+
+    const { tier = 'PRO', durationDays = 365, targetEmail = '' } = await getRequestBody(req);
+    const uniqueKey = generateUniqueLicenseKey(tier);
+    const now = Date.now();
+    const expiresAt = now + parseInt(durationDays) * 24 * 60 * 60 * 1000;
+
+    const newLic = {
+      key: uniqueKey,
+      tier: tier.toUpperCase(),
+      boundEmail: targetEmail ? targetEmail.trim().toLowerCase() : '',
+      boundHwid: '',
+      createdAt: now,
+      expiresAt,
+      status: 'ACTIVE',
+      paymentStatus: 'ADMIN_GENERATED'
+    };
+
+    const licenses = readLicenses();
+    licenses.push(newLic);
+    writeLicenses(licenses);
+
+    return sendJSON(res, 200, { success: true, message: 'Unique License Key generated!', key: uniqueKey, license: newLic });
+  }
+
+  // 7. ADMIN: REVOKE LICENSE KEY
+  if (req.method === 'POST' && url === '/api/admin/licenses/revoke') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+
+    const { key } = await getRequestBody(req);
+    const licenses = readLicenses();
+    const lic = licenses.find(l => l.key === key);
+    if (!lic) return sendJSON(res, 404, { success: false, message: 'License key not found' });
+
+    lic.status = 'REVOKED';
+    writeLicenses(licenses.map(l => l.key === key ? lic : l));
+
+    return sendJSON(res, 200, { success: true, message: `License ${key} revoked` });
   }
 
   // 404 Fallback

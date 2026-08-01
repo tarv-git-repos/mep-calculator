@@ -142,4 +142,68 @@ export const authService = {
       };
     }
   },
+
+  // --- LICENSING & SUBSCRIPTION METHODS ---
+  async initHardwareTrial(hwid: string, email?: string): Promise<any> {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/hardware-trial`, { hwid, email });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Trial initialization failed' };
+    }
+  },
+
+  async getLicenseStatus(hwid: string, email?: string): Promise<any> {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/status`, { hwid, email });
+      return data;
+    } catch (error: any) {
+      return { success: false, plan: 'FREE', status: 'UNLICENSED', remainingDays: 0, watermark: 'UNLICENSED / DEMO VERSION' };
+    }
+  },
+
+  async checkoutPlan(email: string, planTier: string, durationDays: number, hwid?: string): Promise<any> {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/checkout`, { email, planTier, durationDays, hwid });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Checkout failed' };
+    }
+  },
+
+  async activateLicenseKey(key: string, email?: string, hwid?: string): Promise<any> {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/activate`, { key, email, hwid });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'License activation failed' };
+    }
+  },
+
+  async adminListLicenses(): Promise<any> {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/licenses/list`);
+      return data;
+    } catch (error: any) {
+      return { success: false, licenses: [], trials: [] };
+    }
+  },
+
+  async adminGenerateLicenseKey(tier: string, durationDays: number, targetEmail?: string): Promise<any> {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/licenses/generate`, { tier, durationDays, targetEmail });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Key generation failed' };
+    }
+  },
+
+  async adminRevokeLicenseKey(key: string): Promise<any> {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/licenses/revoke`, { key });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Revocation failed' };
+    }
+  },
 };

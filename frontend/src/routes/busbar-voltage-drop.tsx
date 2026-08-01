@@ -108,7 +108,7 @@ const pushToHistory = (
 };
 
 function BusbarVoltageDropPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
 
   const [rows, setRows] = useState<BusbarVDRow[]>([]);
@@ -124,13 +124,16 @@ function BusbarVoltageDropPage() {
 
   const [customRatings, setCustomRatings] = useState<BusbarRatingDef[]>([]);
 
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem("customBusbarRatings");
       if (stored) {
         setCustomRatings(JSON.parse(stored));
       }
-    } catch (e) {}
+    } catch (e) {  if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    }
   }, []);
 
   const allRatings = useMemo(() => [...DEFAULT_RATINGS, ...customRatings], [customRatings]);
@@ -367,7 +370,16 @@ function BusbarVoltageDropPage() {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    
+  useEffect(() => {
+    if (true) {
+      const dataToSave = { rows, selected, activeRowId, history, redoStack, globalRating, globalR, globalX, customRatings };
+      localStorage.setItem(`customBusbarRatings`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [rows, selected, activeRowId, history, redoStack, globalRating, globalR, globalX, customRatings]);
+
+  return () => window.removeEventListener("keydown", handleKeyDown);
   }, [rows, selected, history, redoStack, activeRowId]);
 
   const handleImportRatings = (e: React.ChangeEvent<HTMLInputElement>) => {

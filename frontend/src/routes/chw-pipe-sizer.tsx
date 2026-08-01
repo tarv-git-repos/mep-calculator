@@ -13,6 +13,7 @@ import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/chw-pipe-sizer")({
   head: () => ({
@@ -58,10 +59,20 @@ function waterVisc(tC: number): number {
 }
 
 function fToC(f: number): number {
+  
+  useEffect(() => {
+    if (true) {
+      const dataToSave = { projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel, hasCalculated, inputError };
+      localStorage.setItem(`chw_pipe_sizer_params`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel, hasCalculated, inputError]);
+
   return (f - 32) * 5 / 9;
 }
 
 function ChwPipeSizerPage() {
+  const { project, forceSaveToCloud } = useWorkspace();
   // State matching the original defaults for IP mode
   const [projectInfo, setProjectInfo] = useState({
     projectName: "Commercial Tower CHW Sizing",
@@ -89,6 +100,8 @@ function ChwPipeSizerPage() {
   const [hasCalculated, setHasCalculated] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
 
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
   // Load from local storage
   useEffect(() => {
     try {
@@ -109,6 +122,7 @@ function ChwPipeSizerPage() {
       }
     } catch (e) {
       console.error(e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, []);
 
@@ -117,12 +131,15 @@ function ChwPipeSizerPage() {
     setUnitSystem(unit);
     if ((window as any).__mep_keep_values) return;
     setProjectInfo(proj);
+  };
+
+  useEffect(() => {
     try {
-      localStorage.setItem("chw_pipe_sizer_params", JSON.stringify({ sizingParams: params, unitSystem: unit, projectInfo: proj }));
+      localStorage.setItem("chw_pipe_sizer_params", JSON.stringify({ sizingParams, unitSystem, projectInfo }));
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [sizingParams, unitSystem, projectInfo]);
 
   const handleUnitSystemChange = (unit: "si" | "ip") => {
     if (unit === unitSystem) return;

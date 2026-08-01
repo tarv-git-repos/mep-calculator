@@ -20,7 +20,7 @@ export const Route = createFileRoute("/plumbing-fire-water-demand")({
 });
 
 function FireWaterDemandPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   
   // Inputs
@@ -30,42 +30,59 @@ function FireWaterDemandPage() {
   const [hyFlow, setHyFlow] = useState<string>("250");
   const [hrCount, setHrCount] = useState<string>("0");
   const [hrFlow, setHrFlow] = useState<string>("50");
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state from localStorage on project change
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`mep_fire_water_demand_calc_${project.id}`);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.spFlow !== undefined) setSpFlow(data.spFlow);
-        if (data.spPress !== undefined) setSpPress(data.spPress);
-        if (data.hyCount !== undefined) setHyCount(data.hyCount);
-        if (data.hyFlow !== undefined) setHyFlow(data.hyFlow);
-        if (data.hrCount !== undefined) setHrCount(data.hrCount);
-        if (data.hrFlow !== undefined) setHrFlow(data.hrFlow);
-      } else {
-        // Reset to defaults
-        setSpFlow("500");
-        setSpPress("60");
-        setHyCount("2");
-        setHyFlow("250");
-        setHrCount("0");
-        setHrFlow("50");
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`mep_fire_water_demand_calc_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.spFlow !== undefined) setSpFlow(data.spFlow);
+          if (data.spPress !== undefined) setSpPress(data.spPress);
+          if (data.hyCount !== undefined) setHyCount(data.hyCount);
+          if (data.hyFlow !== undefined) setHyFlow(data.hyFlow);
+          if (data.hrCount !== undefined) setHrCount(data.hrCount);
+          if (data.hrFlow !== undefined) setHrFlow(data.hrFlow);
+        } else {
+          // Reset to defaults
+          setSpFlow("500");
+          setSpPress("60");
+          setHyCount("2");
+          setHyFlow("250");
+          setHrCount("0");
+          setHrFlow("50");
+        }
+        setTimeout(() => dirtyStore.set(false), 50);
+      } catch (e) {
+        console.error("Failed to load fire water demand calculation", e);
       }
-      setTimeout(() => dirtyStore.set(false), 50);
-    } catch (e) {
-      console.error("Failed to load fire water demand calculation", e);
+      setLoadedProjectId(project.id);
     }
-  }, [project.id]);
+  }, [project?.id]);
 
-  const handleSaveCurrent = () => {
-    try {
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
       const dataToSave = {
         spFlow, spPress, hyCount, hyFlow, hrCount, hrFlow
       };
       localStorage.setItem(`mep_fire_water_demand_calc_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(false);
-      toast.success("Fire Water Demand Calculation saved to project successfully!");
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, spFlow, spPress, hyCount, hyFlow, hrCount, hrFlow]);
+
+  const handleSaveCurrent = () => {
+    try {
+      if (project?.id) {
+        const dataToSave = {
+          spFlow, spPress, hyCount, hyFlow, hrCount, hrFlow
+        };
+        localStorage.setItem(`mep_fire_water_demand_calc_${project.id}`, JSON.stringify(dataToSave));
+        dirtyStore.set(false);
+        if (forceSaveToCloud) forceSaveToCloud();
+        toast.success("Fire Water Demand Calculation saved to project successfully!");
+      }
     } catch (e) {
       toast.error("Failed to save calculation.");
     }

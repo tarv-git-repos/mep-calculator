@@ -48,7 +48,7 @@ const SURFACE_LABELS: Record<string, string> = {
 };
 
 function StormWaterPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
   // Schedule state
@@ -62,6 +62,8 @@ function StormWaterPage() {
   const [newArea, setNewArea] = useState("500");
   const [newSurface, setNewSurface] = useState("concrete");
   const [newIntensity, setNewIntensity] = useState("50");
+
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load project state on mount or project switch
   useEffect(() => {
@@ -81,6 +83,7 @@ function StormWaterPage() {
       }
     } catch (e) {
       console.error(e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [project.id]);
 
@@ -95,9 +98,20 @@ function StormWaterPage() {
     }
   };
 
+  
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { unitSystem, rows, newName, newArea, newSurface, newIntensity };
+      localStorage.setItem(`mep_storm_water_calc_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, unitSystem, rows, newName, newArea, newSurface, newIntensity]);
+
   const handleSave = () => {
     saveState();
     dirtyStore.set(false);
+    if (forceSaveToCloud) forceSaveToCloud();
+
     toast.success("Storm water calculation saved successfully!");
   };
 

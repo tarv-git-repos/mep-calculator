@@ -85,7 +85,7 @@ const IRR_TYPE_MAP: Record<string, number> = {
 };
 
 function WaterDemandPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
   // Domestic state
@@ -106,6 +106,8 @@ function WaterDemandPage() {
 
   // Fire state
   const [fireFlow, setFireFlow] = useState<number | "">("");
+
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state from localStorage on project change
   useEffect(() => {
@@ -139,6 +141,7 @@ function WaterDemandPage() {
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
       console.error("Failed to load water demand calculation", e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [project.id]);
 
@@ -155,6 +158,8 @@ function WaterDemandPage() {
       };
       localStorage.setItem(`mep_water_demand_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(false);
+    if (forceSaveToCloud) forceSaveToCloud();
+
       toast.success("Water Demand Calculation saved to project successfully!");
     } catch (e) {
       toast.error("Failed to save calculation.");
@@ -315,6 +320,15 @@ function WaterDemandPage() {
     const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     downloadFile(new Uint8Array(xlsxBuffer), "Water_Demand_Report.xlsx", "Excel Document", ["xlsx"]);
   };
+
+  
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { unitSystem, wdRows, newWdName, newWdPeople, newWdCat, irrRows, newIrrArea, newIrrVegType, poolArea, poolDepth, poolEvap, fireFlow };
+      localStorage.setItem(`mep_water_demand_calc_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, unitSystem, wdRows, newWdName, newWdPeople, newWdCat, irrRows, newIrrArea, newIrrVegType, poolArea, poolDepth, poolEvap, fireFlow]);
 
   return (
     <AppShell title="Water Demand Calculator" hideSubHeader={true}>

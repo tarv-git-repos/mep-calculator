@@ -38,7 +38,7 @@ const PIPE_SIZES: PipeSize[] = [
 ];
 
 function SupplyPipeSizerPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
   // Inputs state
@@ -78,6 +78,7 @@ function SupplyPipeSizerPage() {
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
       console.error("Failed to load supply pipe sizer calculation", e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [project.id]);
 
@@ -95,6 +96,8 @@ function SupplyPipeSizerPage() {
       };
       localStorage.setItem(`mep_supply_pipe_sizer_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(false);
+    if (forceSaveToCloud) forceSaveToCloud();
+
       toast.success("Supply Pipe Sizer Calculation saved to project successfully!");
     } catch (e) {
       toast.error("Failed to save calculation.");
@@ -248,6 +251,15 @@ function SupplyPipeSizerPage() {
     const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     downloadFile(new Uint8Array(xlsxBuffer), "Water_Supply_Pipe_Sizer_Report.xlsx", "Excel Document", ["xlsx"]);
   };
+
+  
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { unitSystem, flow, pAvail, pResid, length, fittingAllowance, elevation, pipeMaterial };
+      localStorage.setItem(`mep_supply_pipe_sizer_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, unitSystem, flow, pAvail, pResid, length, fittingAllowance, elevation, pipeMaterial]);
 
   return (
     <AppShell title="Water Supply Pipe Sizer" hideSubHeader={true}>

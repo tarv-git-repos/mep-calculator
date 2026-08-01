@@ -20,7 +20,7 @@ export const Route = createFileRoute("/plumbing-fire-pump-duty")({
 });
 
 function FirePumpDutyPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   
   // Inputs
@@ -29,38 +29,53 @@ function FirePumpDutyPage() {
   const [fpDisch, setFpDisch] = useState<string>("5");
   const [fpSuct, setFpSuct] = useState<string>("0");
   const [fpEff, setFpEff] = useState<string>("70");
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state from localStorage on project change
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`mep_fire_pump_duty_calc_${project.id}`);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.fpFlow !== undefined) setFpFlow(data.fpFlow);
-        if (data.fpPress !== undefined) setFpPress(data.fpPress);
-        if (data.fpDisch !== undefined) setFpDisch(data.fpDisch);
-        if (data.fpSuct !== undefined) setFpSuct(data.fpSuct);
-        if (data.fpEff !== undefined) setFpEff(data.fpEff);
-      } else {
-        // Reset to defaults
-        setFpFlow("500");
-        setFpPress("100");
-        setFpDisch("5");
-        setFpSuct("0");
-        setFpEff("70");
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`mep_fire_pump_duty_calc_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.fpFlow !== undefined) setFpFlow(data.fpFlow);
+          if (data.fpPress !== undefined) setFpPress(data.fpPress);
+          if (data.fpDisch !== undefined) setFpDisch(data.fpDisch);
+          if (data.fpSuct !== undefined) setFpSuct(data.fpSuct);
+          if (data.fpEff !== undefined) setFpEff(data.fpEff);
+        } else {
+          // Reset to defaults
+          setFpFlow("500");
+          setFpPress("100");
+          setFpDisch("5");
+          setFpSuct("0");
+          setFpEff("70");
+        }
+        setTimeout(() => dirtyStore.set(false), 50);
+      } catch (e) {
+        console.error("Failed to load fire pump duty calculation", e);
       }
-      setTimeout(() => dirtyStore.set(false), 50);
-    } catch (e) {
-      console.error("Failed to load fire pump duty calculation", e);
+      setLoadedProjectId(project.id);
     }
-  }, [project.id]);
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { fpFlow, fpPress, fpDisch, fpSuct, fpEff };
+      localStorage.setItem(`mep_fire_pump_duty_calc_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, fpFlow, fpPress, fpDisch, fpSuct, fpEff]);
 
   const handleSaveCurrent = () => {
     try {
-      const dataToSave = { fpFlow, fpPress, fpDisch, fpSuct, fpEff };
-      localStorage.setItem(`mep_fire_pump_duty_calc_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(false);
-      toast.success("Fire Pump Duty Calculation saved to project successfully!");
+      if (project?.id) {
+        const dataToSave = { fpFlow, fpPress, fpDisch, fpSuct, fpEff };
+        localStorage.setItem(`mep_fire_pump_duty_calc_${project.id}`, JSON.stringify(dataToSave));
+        dirtyStore.set(false);
+        if (forceSaveToCloud) forceSaveToCloud();
+        toast.success("Fire Pump Duty Calculation saved to project successfully!");
+      }
     } catch (e) {
       toast.error("Failed to save calculation.");
     }

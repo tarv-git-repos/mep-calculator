@@ -17,28 +17,44 @@ const drainFxDef = [
 ];
 
 function DrainagePage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const [fixtures, setFixtures] = useState(drainFxDef);
   const [drainType, setDrainType] = useState<'branch' | 'stack' | 'building'>('branch');
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // State loading
   useEffect(() => {
-    if (project) {
-      const saved = localStorage.getItem(`drainage_${project.id}`);
-      if (saved) {
-        const p = JSON.parse(saved);
-        setFixtures(p.fixtures ?? drainFxDef);
-        setDrainType(p.drainType ?? 'branch');
+    if (project?.id) {
+      try {
+        const saved = localStorage.getItem(`drainage_${project.id}`);
+        if (saved) {
+          const p = JSON.parse(saved);
+          setFixtures(p.fixtures ?? drainFxDef);
+          setDrainType(p.drainType ?? 'branch');
+        }
+      } catch (e) {
+        console.error(e);
       }
+      setLoadedProjectId(project.id);
     }
-  }, [project]);
+  }, [project?.id]);
 
-  const saveState = () => {
-    if (project) {
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
       localStorage.setItem(`drainage_${project.id}`, JSON.stringify({
         fixtures, drainType
       }));
       dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, fixtures, drainType]);
+
+  const saveState = () => {
+    if (project?.id) {
+      localStorage.setItem(`drainage_${project.id}`, JSON.stringify({
+        fixtures, drainType
+      }));
+      dirtyStore.set(true);
+      if (forceSaveToCloud) forceSaveToCloud();
     }
   };
 

@@ -8,6 +8,7 @@ import {
   Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Import
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/lobby-pressurisation")({
   head: () => ({
@@ -52,6 +53,41 @@ function LobbyPressurisationPage() {
   const [saveName, setSaveName] = useState<string>("");
   const [showImportDropdown, setShowImportDropdown] = useState<boolean>(false);
 
+  const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`lobby_press_state_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.area !== undefined) setArea(data.area);
+          if (data.height !== undefined) setHeight(data.height);
+          if (data.acph !== undefined) setAcph(data.acph);
+          if (data.fanQty !== undefined) setFanQty(data.fanQty);
+          if (data.ductLength !== undefined) setDuctLength(data.ductLength);
+          if (data.frictionFactor !== undefined) setFrictionFactor(data.frictionFactor);
+          if (data.louverLoss !== undefined) setLouverLoss(data.louverLoss);
+          if (data.fanLoss !== undefined) setFanLoss(data.fanLoss);
+          if (data.effMotor !== undefined) setEffMotor(data.effMotor);
+          if (data.effFan !== undefined) setEffFan(data.effFan);
+          if (data.numFansMotor !== undefined) setNumFansMotor(data.numFansMotor);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setLoadedProjectId(project.id);
+    }
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor };
+      localStorage.setItem(`lobby_press_state_${project.id}`, JSON.stringify(dataToSave));
+    }
+  }, [project?.id, loadedProjectId, area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor]);
+
   // Load custom saves on mount
   useEffect(() => {
     try {
@@ -94,6 +130,7 @@ function LobbyPressurisationPage() {
     saveToLocalStorage(updated);
     setSaveName("");
     setShowSaveModal(false);
+    forceSaveToCloud();
   };
 
   const handleLoadSave = (id: string) => {

@@ -12,6 +12,7 @@ interface PresenceState {
   session_id: string;
   active_module: string | null;
   joined_module_at?: number;
+  user_name?: string;
 }
 
 interface CollaborationState {
@@ -20,15 +21,16 @@ interface CollaborationState {
   activeUsers: Record<string, PresenceState>; // key is presence ID
   mySessionId: string;
   myEmail: string;
+  myName: string;
   pendingModule: string | null;
   isSubscribed: boolean;
   
-  joinProject: (projectName: string, email: string) => void;
+  joinProject: (projectName: string, email: string, name?: string) => void;
   leaveProject: () => void;
   setActiveModule: (moduleName: string | null) => Promise<void>;
   setOnDataReceived: (callback: (moduleName: string, data: Record<string, any>) => void) => void;
   broadcastData: (moduleName: string, data: Record<string, any>) => void;
-  getLockOwner: (moduleName: string) => { email: string; sessionId: string } | null;
+  getLockOwner: (moduleName: string) => { email: string; sessionId: string; name?: string } | null;
   onDataReceived: ((moduleName: string, data: Record<string, any>) => void) | null;
 }
 
@@ -38,11 +40,12 @@ export const useCollaboration = create<CollaborationState>((set, get) => ({
   activeUsers: {},
   mySessionId: generateSessionId(),
   myEmail: "unknown",
+  myName: "Unknown User",
   pendingModule: null,
   isSubscribed: false,
   onDataReceived: null,
 
-  joinProject: (projectName: string, email: string) => {
+  joinProject: (projectName: string, email: string, name?: string) => {
     const existingChannel = get().channel;
     if (existingChannel) {
       existingChannel.unsubscribe();
@@ -77,9 +80,9 @@ export const useCollaboration = create<CollaborationState>((set, get) => ({
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          set({ isSubscribed: true, myEmail: email });
+          set({ isSubscribed: true, myEmail: email, myName: name || email });
           const pending = get().pendingModule;
-          await channel.track({ user_email: email, session_id: get().mySessionId, active_module: pending, joined_module_at: pending ? Date.now() : 0 });
+          await channel.track({ user_email: email, user_name: name || email, session_id: get().mySessionId, active_module: pending, joined_module_at: pending ? Date.now() : 0 });
         }
       });
 
@@ -102,7 +105,7 @@ export const useCollaboration = create<CollaborationState>((set, get) => ({
 
     if (channel && isSubscribed) {
       try {
-        await channel.track({ user_email: myEmail, session_id: mySessionId, active_module: moduleName, joined_module_at: moduleName ? Date.now() : 0 });
+        await channel.track({ user_email: myEmail, user_name: get().myName, session_id: mySessionId, active_module: moduleName, joined_module_at: moduleName ? Date.now() : 0 });
       } catch (e) {
         console.error("Failed to track active module", e);
       }
@@ -131,7 +134,7 @@ export const useCollaboration = create<CollaborationState>((set, get) => ({
     }
     
     if (oldestUser) {
-      return { email: oldestUser.user_email, sessionId: oldestUser.session_id };
+      return { email: oldestUser.user_email, sessionId: oldestUser.session_id, name: oldestUser.user_name };
     }
     return null;
   },

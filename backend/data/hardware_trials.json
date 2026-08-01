@@ -1,0 +1,16 @@
+[
+  {
+    "hwid": "HWID-TEST-DEVICE-0001",
+    "email": "testuser@mepcalc.com",
+    "firstSeenAt": 1785568865125,
+    "expiresAt": 1786778465125,
+    "status": "FREE_TRIAL"
+  },
+  {
+    "hwid": "HWID-1F3D927BAA0F00-113EF9FEE45FA",
+    "email": "admin@tarv.ai",
+    "firstSeenAt": 1785568882399,
+    "expiresAt": 1786778482399,
+    "status": "FREE_TRIAL"
+  }
+]

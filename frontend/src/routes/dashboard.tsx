@@ -1,20 +1,30 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, AlertTriangle, CheckCircle2, ChevronRight,
-  TrendingUp, Activity, ShieldCheck, Layers, Boxes, FileText
+  TrendingUp, Activity, ShieldCheck, Layers, Boxes, FileText, Clock
 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
-  beforeLoad: () => {
-    throw redirect({ to: "/" });
-  },
 });
 
 export function DashboardPage() {
-  const { spaces, zones, equipment } = useWorkspace();
+  const { spaces, zones, equipment, activeProjectId } = useWorkspace();
+  const { profile } = useAuth();
+  
+  const [recentCalcs, setRecentCalcs] = useState<string[]>([]);
+  
+  useEffect(() => {
+    if (profile?.id && activeProjectId) {
+      try {
+        const key = `recent_calcs_${profile.id}_${activeProjectId}`;
+        setRecentCalcs(JSON.parse(localStorage.getItem(key) || "[]"));
+      } catch {}
+    }
+  }, [profile?.id, activeProjectId]);
 
   const stats = useMemo(() => {
     // Total ventilation flowrate
@@ -80,19 +90,7 @@ export function DashboardPage() {
         <div className="max-w-5xl mx-auto flex flex-col gap-6">
 
           {/* Quick stats grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5">
-            <StatCard
-              icon={<Layers className="size-5 text-primary" />}
-              label="Total Spaces"
-              value={spaces.length}
-              desc="Active design rooms"
-            />
-            <StatCard
-              icon={<Boxes className="size-5 text-primary" />}
-              label="Equipment Count"
-              value={equipment.length}
-              desc="AHU, Ecology, Fans"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-5">
             <StatCard
               icon={<Activity className="size-5 text-success" />}
               label="Fresh Intake"
@@ -103,8 +101,32 @@ export function DashboardPage() {
               icon={<ShieldCheck className="size-5 text-primary" />}
               label="Compliance"
               value={`${stats.compliance}%`}
-              desc="Ventilation compliance score"
+              desc="Ventilation score"
               progress={stats.compliance}
+            />
+            <StatCard
+              icon={<Layers className="size-5 text-blue-500" />}
+              label="Cooling Load"
+              value="--- TR"
+              desc="Global placeholder"
+            />
+            <StatCard
+              icon={<TrendingUp className="size-5 text-amber-500" />}
+              label="Electrical Load"
+              value="--- kW"
+              desc="Global placeholder"
+            />
+            <StatCard
+              icon={<Layers className="size-5 text-primary" />}
+              label="Total Spaces"
+              value={spaces.length}
+              desc="Active design rooms"
+            />
+            <StatCard
+              icon={<Boxes className="size-5 text-primary" />}
+              label="Equipment"
+              value={equipment.length}
+              desc="AHU, Fans, etc."
             />
           </div>
 
@@ -145,13 +167,31 @@ export function DashboardPage() {
               )}
             </div>
 
-            {/* Calculations Index / Shortcut menu */}
-            <div className="border border-border/80 rounded-3xl bg-card p-6 flex flex-col gap-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
-              <div className="flex items-center gap-2 border-b border-border/50 pb-3">
-                <LayoutDashboard className="size-4.5 text-primary" />
-                <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Calculators Quick Access</h3>
-              </div>
-              <div className="flex flex-col gap-2 overflow-y-auto max-h-[360px] pr-1.5 custom-scrollbar">
+            {/* Right side panels wrapper */}
+            <div className="flex flex-col gap-6">
+              
+              {/* Recent Calculations Panel */}
+              {recentCalcs.length > 0 && (
+                <div className="border border-border/80 rounded-3xl bg-card p-6 flex flex-col gap-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+                  <div className="flex items-center gap-2 border-b border-border/50 pb-3">
+                    <Clock className="size-4.5 text-primary" />
+                    <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Recently Opened</h3>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {recentCalcs.map(calc => (
+                      <CalcLink key={calc} name={calc} label={calc} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Calculations Index / Shortcut menu */}
+              <div className="border border-border/80 rounded-3xl bg-card p-6 flex flex-col gap-5 shadow-[0_1px_3px_rgba(0,0,0,0.02)]">
+                <div className="flex items-center gap-2 border-b border-border/50 pb-3">
+                  <LayoutDashboard className="size-4.5 text-primary" />
+                  <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Calculators Quick Access</h3>
+                </div>
+                <div className="flex flex-col gap-2 overflow-y-auto max-h-[360px] pr-1.5 custom-scrollbar">
                 <CalcLink name="Cooling Load" label="Cooling Load Sizer" />
                 <CalcLink name="Fresh Air Cooling Load" label="Fresh Air Load" />
                 <CalcLink name="Heating Load" label="Heating Load" />
@@ -221,6 +261,7 @@ export function DashboardPage() {
                   <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </Link>
               </div>
+            </div>
             </div>
           </div>
 

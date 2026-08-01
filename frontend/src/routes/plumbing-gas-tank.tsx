@@ -9,7 +9,7 @@ import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 function GasTankPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
 
   // Inputs
   const [gasType, setGasType] = useState<'ng' | 'lpg'>('ng');
@@ -18,13 +18,14 @@ function GasTankPage() {
   const [retDemandConst, setRetDemandConst] = useState<number>(52);
   const [retKitchens, setRetKitchens] = useState<number>(0);
   const [storageCapacity, setStorageCapacity] = useState<number>(30000);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load project state
   useEffect(() => {
-    if (project) {
-      const saved = localStorage.getItem(`gasTank_${project.id}`);
-      if (saved) {
-        try {
+    if (project?.id) {
+      try {
+        const saved = localStorage.getItem(`gasTank_${project.id}`);
+        if (saved) {
           const p = JSON.parse(saved);
           setGasType(p.gasType || 'ng');
           setResDemandConst(p.resDemandConst ?? 0.19);
@@ -32,12 +33,21 @@ function GasTankPage() {
           setRetDemandConst(p.retDemandConst ?? 52);
           setRetKitchens(p.retKitchens ?? 0);
           setStorageCapacity(p.storageCapacity ?? 30000);
-        } catch (e) {
-          console.error("Failed to parse saved Gas Tank data:", e);
         }
+      } catch (e) {
+        console.error("Failed to parse saved Gas Tank data:", e);
       }
+      setLoadedProjectId(project.id);
     }
-  }, [project]);
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const data = { gasType, resDemandConst, resKitchens, retDemandConst, retKitchens, storageCapacity };
+      localStorage.setItem(`gasTank_${project.id}`, JSON.stringify(data));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, gasType, resDemandConst, resKitchens, retDemandConst, retKitchens, storageCapacity]);
 
   // Handle changes and mark dirty
   const hc = (setter: React.Dispatch<React.SetStateAction<number>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,13 +61,14 @@ function GasTankPage() {
   };
 
   const saveCalc = () => {
-    if (!project) {
+    if (!project?.id) {
       alert("No project selected.");
       return;
     }
     const data = { gasType, resDemandConst, resKitchens, retDemandConst, retKitchens, storageCapacity };
     localStorage.setItem(`gasTank_${project.id}`, JSON.stringify(data));
     dirtyStore.set(false);
+    if (forceSaveToCloud) forceSaveToCloud();
     alert("Gas Tank calculation saved successfully.");
   };
 

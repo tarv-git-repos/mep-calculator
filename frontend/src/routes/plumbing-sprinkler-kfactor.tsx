@@ -206,7 +206,7 @@ function computeRowOutputs(row: SprinklerRow): SprinklerRow {
 }
 
 function SprinklerKFactorPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
 
   // Tabs
@@ -413,7 +413,16 @@ function SprinklerKFactorPage() {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    
+  useEffect(() => {
+    if (loadedProjectId) {
+      const dataToSave = { tab, intelOpen, unitSystem, solverK, solverSolveFor, solverKnownVal, isCustomK, selectedBulbColor, rows, selected, lastSelectedId, searchQuery, hazardFilter, kFilter, undoStack, redoStack, localVal };
+      localStorage.setItem(`mep_clipboard_sprinklers`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [loadedProjectId, tab, intelOpen, unitSystem, solverK, solverSolveFor, solverKnownVal, isCustomK, selectedBulbColor, rows, selected, lastSelectedId, searchQuery, hazardFilter, kFilter, undoStack, redoStack, localVal]);
+
+  return () => window.removeEventListener("keydown", handleKeyDown);
   }, [rows, selected, tab, undoStack, redoStack]);
 
   // Quick Solver Math
@@ -439,6 +448,7 @@ function SprinklerKFactorPage() {
         formula: `P = (Q / K)\u00b2 = (${knownValNum} / ${kFactorNum || 1})\u00b2 = ${press.toFixed(2)} ${isSI ? "bar" : "psi"}`,
         pressure: press
       };
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [solverK, solverSolveFor, solverKnownVal, unitSystem]);
 
@@ -883,6 +893,8 @@ function SprinklerKFactorPage() {
 
   function InlineInput({ value, onCommit, className = "", type = "text", step, min, disabled = false }: InlineInputProps) {
     const [localVal, setLocalVal] = useState(String(value));
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
     useEffect(() => {
       setLocalVal(String(value));
     }, [value]);

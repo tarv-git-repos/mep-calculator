@@ -8,6 +8,7 @@ import {
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/basement-smoke-calc")({
   head: () => ({
@@ -41,6 +42,7 @@ interface FanSystem {
 }
 
 function BasementSmokeCalcPage() {
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
   // Schedule state
@@ -101,6 +103,7 @@ function BasementSmokeCalcPage() {
       }
     } catch (e) {
       console.error("Failed to load basement smoke calc configurations", e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, []);
 
@@ -334,6 +337,24 @@ function BasementSmokeCalcPage() {
     const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     downloadFile(new Uint8Array(xlsxBuffer), "Basement_Smoke_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
+
+  
+  useEffect(() => {
+    if (true) {
+      const dataToSave = { unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError };
+      localStorage.setItem(`bs_rows`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError]);
+
+  
+  useEffect(() => {
+    if (loadedProjectId) {
+      const dataToSave = { unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError };
+      localStorage.setItem(`bs_rows`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [loadedProjectId, unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError]);
 
   return (
     <AppShell title="Basement Smoke Calc" hideSubHeader={true}>

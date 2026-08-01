@@ -1,0 +1,22 @@
+[
+  {
+    "key": "MEP-PRO-G64W-PFBF-6FSF",
+    "tier": "PRO",
+    "boundEmail": "testuser@mepcalc.com",
+    "boundHwid": "HWID-TEST-DEVICE-0001",
+    "createdAt": 1785568866613,
+    "expiresAt": 1817104866613,
+    "status": "ACTIVE",
+    "paymentStatus": "PAID_MOCK"
+  },
+  {
+    "key": "MEP-PRO-W7GQ-G8YW-62WZ",
+    "tier": "PRO",
+    "boundEmail": "admin@tarv.ai",
+    "boundHwid": "HWID-1F3D927BAA0F00-113EF9FEE45FA",
+    "createdAt": 1785571052112,
+    "expiresAt": 1817107052112,
+    "status": "ACTIVE",
+    "paymentStatus": "PAID_MOCK"
+  }
+]

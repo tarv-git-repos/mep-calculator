@@ -72,7 +72,7 @@ function extractFloorFU(name: string) {
 }
 
 function LoadingUnitPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [iopSpaces, setIopSpaces] = useState<LUSpace[]>([]);
 
@@ -80,46 +80,65 @@ function LoadingUnitPage() {
   const [newDesc, setNewDesc] = useState("");
   const [newFixtures, setNewFixtures] = useState<Record<string, number>>({});
   const [globalBuildingType, setGlobalBuildingType] = useState<"low" | "med" | "high">("med");
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state from localStorage on project change
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`mep_loading_unit_calc_${project.id}`);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.unitSystem) setUnitSystem(data.unitSystem);
-        if (data.iopSpaces) setIopSpaces(data.iopSpaces);
-        if (data.globalBuildingType) setGlobalBuildingType(data.globalBuildingType);
-      } else {
-        // Reset to defaults
-        setUnitSystem("si");
-        setIopSpaces([
-          {
-            id: 1,
-            desc: "Office Washroom A",
-            floor: "G",
-            std: "med",
-            fixtures: { wc: 3, basin: 2, urinal: 2 }
-          }
-        ]);
-        setGlobalBuildingType("med");
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`mep_loading_unit_calc_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.unitSystem) setUnitSystem(data.unitSystem);
+          if (data.iopSpaces) setIopSpaces(data.iopSpaces);
+          if (data.globalBuildingType) setGlobalBuildingType(data.globalBuildingType);
+        } else {
+          // Reset to defaults
+          setUnitSystem("si");
+          setIopSpaces([
+            {
+              id: 1,
+              desc: "Office Washroom A",
+              floor: "G",
+              std: "med",
+              fixtures: { wc: 3, basin: 2, urinal: 2 }
+            }
+          ]);
+          setGlobalBuildingType("med");
+        }
+        setTimeout(() => dirtyStore.set(false), 50);
+      } catch (e) {
+        console.error("Failed to load loading unit calculation", e);
       }
-      setTimeout(() => dirtyStore.set(false), 50);
-    } catch (e) {
-      console.error("Failed to load loading unit calculation", e);
+      setLoadedProjectId(project.id);
     }
-  }, [project.id]);
+  }, [project?.id]);
 
-  const handleSaveCurrent = () => {
-    try {
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
       const dataToSave = {
         unitSystem,
         iopSpaces,
         globalBuildingType
       };
       localStorage.setItem(`mep_loading_unit_calc_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(false);
-      toast.success("Loading Unit Calculation saved to project successfully!");
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, unitSystem, iopSpaces, globalBuildingType]);
+
+  const handleSaveCurrent = () => {
+    try {
+      if (project?.id) {
+        const dataToSave = {
+          unitSystem,
+          iopSpaces,
+          globalBuildingType
+        };
+        localStorage.setItem(`mep_loading_unit_calc_${project.id}`, JSON.stringify(dataToSave));
+        dirtyStore.set(false);
+        if (forceSaveToCloud) forceSaveToCloud();
+        toast.success("Loading Unit Calculation saved to project successfully!");
+      }
     } catch (e) {
       toast.error("Failed to save calculation.");
     }

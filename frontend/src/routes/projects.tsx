@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import {
   FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, FileCode,
   MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search,
-  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight
+  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, Pin
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -48,6 +48,68 @@ function ProjectsPage() {
   const { profile } = useAuth();
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [allTeams, setAllTeams] = useState<any[]>([]);
+
+  const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`pinned_projects_${profile?.id}`) || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const [workspaceHistory, setWorkspaceHistory] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`workspace_history_${profile?.id}`) || "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  const [globalActivity, setGlobalActivity] = useState<any[]>([]);
+
+  const loadGlobalActivity = () => {
+    try {
+      const log = JSON.parse(localStorage.getItem(`global_activity_${profile?.id}`) || "[]");
+      setGlobalActivity(log);
+    } catch {}
+  };
+
+  const handleSelectProject = (id: string) => {
+    setWorkspaceHistory(prev => {
+      const next = { ...prev, [id]: Date.now() };
+      localStorage.setItem(`workspace_history_${profile?.id}`, JSON.stringify(next));
+      return next;
+    });
+
+    // Global Activity Log for opening workspace
+    const globalKey = `global_activity_${profile?.id}`;
+    try {
+      const globalLog = JSON.parse(localStorage.getItem(globalKey) || "[]");
+      const p = projects.find(proj => proj.id === id);
+      const newActivity = {
+        id: Date.now().toString(),
+        action: "Opened Workspace",
+        detail: p ? p.name : "A workspace",
+        time: Date.now(),
+        color: "bg-purple-500"
+      };
+      if (globalLog[0]?.detail !== newActivity.detail || (Date.now() - globalLog[0]?.time > 60000)) {
+        globalLog.unshift(newActivity);
+        localStorage.setItem(globalKey, JSON.stringify(globalLog.slice(0, 5)));
+        loadGlobalActivity(); // update local state immediately
+      }
+    } catch {}
+      
+    selectProject(id);
+  };
+
+  const togglePin = (id: string) => {
+    setPinnedProjects(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      localStorage.setItem(`pinned_projects_${profile?.id}`, JSON.stringify(next));
+      return next;
+    });
+  };
   
   const loadUsersAndTeams = async () => {
     const u = await api.getUsers();
@@ -60,6 +122,22 @@ function ProjectsPage() {
     loadUsersAndTeams();
   }, []);
 
+  useEffect(() => {
+    if (!profile?.id) return;
+    
+    // Function that uses the current profile.id correctly
+    const refreshActivity = () => {
+      try {
+        const log = JSON.parse(localStorage.getItem(`global_activity_${profile.id}`) || "[]");
+        setGlobalActivity(log);
+      } catch {}
+    };
+
+    refreshActivity();
+    const interval = setInterval(refreshActivity, 2000);
+    return () => clearInterval(interval);
+  }, [profile?.id]);
+
   const [editingProj, setEditingProj] = useState<Project | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -70,15 +148,27 @@ function ProjectsPage() {
   };
 
   const filteredProjects = useMemo(() => {
+    let result = projects;
     const q = search.toLowerCase().trim();
-    if (!q) return projects;
-    return projects.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.code.toLowerCase().includes(q) ||
-        p.client.toLowerCase().includes(q)
-    );
-  }, [projects, search]);
+    if (q) {
+      result = projects.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.code.toLowerCase().includes(q) ||
+          p.client.toLowerCase().includes(q)
+      );
+    }
+    return [...result].sort((a, b) => {
+      const aPinned = pinnedProjects.includes(a.id);
+      const bPinned = pinnedProjects.includes(b.id);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      
+      const aTime = workspaceHistory[a.id] || new Date((a as any).updated_at || (a as any).created_at || 0).getTime();
+      const bTime = workspaceHistory[b.id] || new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
+      return bTime - aTime;
+    });
+  }, [projects, search, pinnedProjects, workspaceHistory]);
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,11 +347,11 @@ function ProjectsPage() {
             </div>
             <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
               <div className="p-2.5 bg-pink-500/10 text-pink-500 rounded-xl shrink-0">
-                <Wind className="size-5" />
+                <User className="size-5" />
               </div>
               <div className="flex flex-col">
-                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Active ID</span>
-                <span className="text-[14px] font-black text-primary font-mono truncate max-w-[120px]">{activeProject.code}</span>
+                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Engineers</span>
+                <span className="text-[18px] font-black text-foreground font-mono">{allUsers.length}</span>
               </div>
             </div>
           </div>
@@ -302,9 +392,12 @@ function ProjectsPage() {
                   <div className="flex flex-col gap-3.5">
                     {/* Header */}
                     <div className="flex items-center justify-between gap-4 select-none">
-                      <span className="font-mono text-[9px] text-primary bg-primary/5 dark:bg-primary/10 border border-primary/25 px-2 py-0.5 rounded font-bold uppercase tracking-widest">
-                        {p.code}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {pinnedProjects.includes(p.id) && <Pin className="size-3.5 fill-primary text-primary" />}
+                        <span className="font-mono text-[9px] text-primary bg-primary/5 dark:bg-primary/10 border border-primary/25 px-2 py-0.5 rounded font-bold uppercase tracking-widest">
+                          {p.code}
+                        </span>
+                      </div>
                       {isActive ? (
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-primary">
                           <CheckCircle2 className="size-3.5" /> Active
@@ -398,7 +491,7 @@ function ProjectsPage() {
                   <div className="mt-5 pt-3.5 border-t border-border/50 flex items-center justify-end gap-1.5">
                     {!isActive ? (
                       <button
-                        onClick={() => selectProject(p.id)}
+                        onClick={() => handleSelectProject(p.id)}
                         className="flex-1 h-8.5 rounded-lg bg-primary text-primary-foreground font-bold hover:bg-primary/95 flex items-center justify-center gap-1.5 transition-all cursor-pointer text-[11.5px] shadow-sm shadow-primary/5"
                         title="Open Project"
                       >
@@ -409,6 +502,13 @@ function ProjectsPage() {
                         Currently editing
                       </span>
                     )}
+                    <button
+                      onClick={() => togglePin(p.id)}
+                      className={`size-8.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${pinnedProjects.includes(p.id) ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/20' : 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2'}`}
+                      title={pinnedProjects.includes(p.id) ? "Unpin Workspace" : "Pin Workspace"}
+                    >
+                      <Pin className="size-3.5" />
+                    </button>
                     <button
                       onClick={() => duplicateProject(p.id)}
                       className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center justify-center transition-all cursor-pointer"
@@ -469,7 +569,7 @@ function ProjectsPage() {
                   <Plus className="size-4" /> Create New Workspace
                 </button>
                 <button
-                  onClick={() => selectProject(activeProject.id)}
+                  onClick={() => handleSelectProject(activeProject.id)}
                   className="w-full bg-card border border-border text-foreground hover:bg-surface-2 font-bold h-10 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-[12px]"
                 >
                   <Play className="size-3.5 fill-current text-primary" /> Continue Active Work
@@ -481,10 +581,10 @@ function ProjectsPage() {
             <div className="flex flex-col gap-3">
               <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Recently Opened</h3>
               <div className="flex flex-col gap-2.5">
-                {projects.slice(0, 3).map((p) => (
+                {[...projects].sort((a,b) => (workspaceHistory[b.id] || new Date((b as any).updated_at || (b as any).created_at || 0).getTime()) - (workspaceHistory[a.id] || new Date((a as any).updated_at || (a as any).created_at || 0).getTime())).slice(0, 3).map((p) => (
                   <div
                     key={p.id}
-                    onClick={() => selectProject(p.id)}
+                    onClick={() => handleSelectProject(p.id)}
                     className="flex items-center justify-between p-3 bg-card border border-border rounded-xl hover:bg-surface-2 transition-all cursor-pointer group"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -502,38 +602,29 @@ function ProjectsPage() {
               </div>
             </div>
 
-            {/* Recent Activity (Productivity Placeholders) */}
+            {/* Recent Activity (Productivity Placeholders or Dynamic) */}
             <div className="flex flex-col gap-3">
               <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Recent Workspace Activity</h3>
               <div className="flex flex-col gap-3">
-                <div className="flex gap-2.5 text-[12px] leading-relaxed">
-                  <div className="size-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-foreground">Assigned equipment to instances</span>
-                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">AHU-02 assigned in MBT-2026-117 · 10m ago</span>
+                {globalActivity.length > 0 ? globalActivity.map(act => (
+                  <div key={act.id} className="flex gap-2.5 text-[12px] leading-relaxed">
+                    <div className={`size-2 rounded-full ${act.color || 'bg-blue-500'} mt-1.5 shrink-0`} />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-foreground">{act.action}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                        {act.detail} · {Math.max(1, Math.floor((Date.now() - act.time) / 60000))}m ago
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-2.5 text-[12px] leading-relaxed">
-                  <div className="size-2 rounded-full bg-purple-500 mt-1.5 shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-foreground">Calculated ventilation balance</span>
-                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">Recalculated active air balance flow rate · 30m ago</span>
+                )) : (
+                  <div className="flex gap-2.5 text-[12px] leading-relaxed">
+                    <div className="size-2 rounded-full bg-slate-300 dark:bg-zinc-700 mt-1.5 shrink-0" />
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-muted-foreground">No recent activity</span>
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-600">Open a workspace or calculator to track</span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-2.5 text-[12px] leading-relaxed">
-                  <div className="size-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-foreground">Renamed Zone</span>
-                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">Lounge zone renamed successfully · 2h ago</span>
-                  </div>
-                </div>
-                <div className="flex gap-2.5 text-[12px] leading-relaxed">
-                  <div className="size-2 rounded-full bg-slate-400 mt-1.5 shrink-0" />
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-foreground">Duplicated Workspace</span>
-                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">Cloned project structure MBT-2026-117 · Yesterday</span>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
 

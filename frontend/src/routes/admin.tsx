@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone } from "lucide-react"
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { open, confirm } from '@tauri-apps/plugin-dialog'
+import { authService } from '@/services/authService'
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -60,7 +61,16 @@ function AdminDashboard() {
   
   const [isAdmin, setIsAdmin] = useState(false)
   const [checking, setChecking] = useState(true)
-  const [activeTab, setActiveTab] = useState<'users' | 'storage' | 'settings' | 'activity' | 'broadcasts'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>('users')
+  
+  // License management state
+  const [licensesList, setLicensesList] = useState<any[]>([])
+  const [trialsList, setTrialsList] = useState<any[]>([])
+  const [loadingLicenses, setLoadingLicenses] = useState(false)
+  const [genTier, setGenTier] = useState<'PRO' | 'ENTERPRISE'>('PRO')
+  const [genDays, setGenDays] = useState<number>(365)
+  const [genTargetEmail, setGenTargetEmail] = useState<string>('')
+  const [generatedAdminKey, setGeneratedAdminKey] = useState<string>('')
   
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loadingProfiles, setLoadingProfiles] = useState(false)
@@ -154,10 +164,45 @@ function AdminDashboard() {
     setLoadingAnnouncements(false)
   }
 
+  const fetchAdminLicenses = async () => {
+    setLoadingLicenses(true)
+    const res = await authService.adminListLicenses()
+    if (res && res.success) {
+      setLicensesList(res.licenses || [])
+      setTrialsList(res.trials || [])
+    }
+    setLoadingLicenses(false)
+  }
+
   useEffect(() => {
     if (activeTab === 'activity') fetchActivityLogs()
     if (activeTab === 'broadcasts') fetchAnnouncements()
+    if (activeTab === 'licenses') fetchAdminLicenses()
   }, [activeTab])
+
+  const handleAdminGenerateKey = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const res = await authService.adminGenerateLicenseKey(genTier, genDays, genTargetEmail)
+    if (res && res.success) {
+      setGeneratedAdminKey(res.key)
+      toast.success(res.message || "License Key Generated!")
+      fetchAdminLicenses()
+    } else {
+      toast.error(res.message || "Failed to generate key")
+    }
+  }
+
+  const handleAdminRevokeKey = async (key: string) => {
+    const choice = await confirm(`Revoke license key ${key}? User will lose Pro access immediately.`, { title: "Revoke License Key", confirmText: "Revoke", cancelText: "Cancel" })
+    if (!choice) return
+    const res = await authService.adminRevokeLicenseKey(key)
+    if (res && res.success) {
+      toast.success(res.message || "License Key Revoked")
+      fetchAdminLicenses()
+    } else {
+      toast.error(res.message || "Revocation failed")
+    }
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -446,6 +491,13 @@ function AdminDashboard() {
             >
               <Megaphone size={18} />
               Broadcasts
+            </button>
+            <button 
+              onClick={() => setActiveTab('licenses')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'licenses' ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+            >
+              <Key size={18} />
+              Key Manager & Licensing
             </button>
             <button 
               onClick={() => setActiveTab('storage')}
@@ -831,6 +883,176 @@ function AdminDashboard() {
                       Save Backup Settings
                     </button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'licenses' && (
+              <div className="p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Key Manager & Licensing</h2>
+                    <p className="text-xs text-slate-500">Generate unique non-repeatable license keys and manage hardware trials.</p>
+                  </div>
+                  <button onClick={fetchAdminLicenses} className="text-sm text-blue-600 hover:underline">Refresh List</button>
+                </div>
+
+                {/* Generator Form */}
+                <div className="p-5 border border-amber-200 dark:border-amber-900/30 bg-amber-50/40 dark:bg-amber-900/10 rounded-2xl space-y-4">
+                  <h3 className="text-sm font-bold text-amber-900 dark:text-amber-300 flex items-center gap-2">
+                    <Key className="size-4" />
+                    Generate Unique Non-Repeatable License Key
+                  </h3>
+
+                  <form onSubmit={handleAdminGenerateKey} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">License Tier</label>
+                      <select
+                        value={genTier}
+                        onChange={(e) => setGenTier(e.target.value as any)}
+                        className="w-full h-9 px-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold"
+                      >
+                        <option value="PRO">PRO Plan</option>
+                        <option value="ENTERPRISE">ENTERPRISE Plan</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Duration (Days)</label>
+                      <input
+                        type="number"
+                        value={genDays}
+                        onChange={(e) => setGenDays(parseInt(e.target.value) || 365)}
+                        className="w-full h-9 px-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Target User Email (Optional)</label>
+                      <input
+                        type="email"
+                        value={genTargetEmail}
+                        onChange={(e) => setGenTargetEmail(e.target.value)}
+                        placeholder="user@domain.com"
+                        className="w-full h-9 px-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="h-9 px-4 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl transition cursor-pointer"
+                    >
+                      Generate Key
+                    </button>
+                  </form>
+
+                  {generatedAdminKey && (
+                    <div className="p-3 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 rounded-xl flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 font-semibold">Generated Key:</span>
+                        <code className="text-sm font-mono font-bold text-amber-500 tracking-wider">{generatedAdminKey}</code>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedAdminKey);
+                          toast.success("License key copied to clipboard!");
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/30 rounded-lg text-xs font-bold transition cursor-pointer"
+                      >
+                        <Copy className="size-3.5" />
+                        Copy Key
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Generated Keys Table */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Active & Generated License Keys ({licensesList.length})</h3>
+                  {loadingLicenses ? (
+                    <div className="py-8 text-center text-slate-400"><Loader2 className="animate-spin size-6 mx-auto mb-2" />Loading keys...</div>
+                  ) : licensesList.length === 0 ? (
+                    <div className="py-8 text-center text-slate-400 text-xs italic">No custom license keys generated yet.</div>
+                  ) : (
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold uppercase text-slate-500 text-[10px]">
+                          <tr>
+                            <th className="p-3">License Key</th>
+                            <th className="p-3">Tier</th>
+                            <th className="p-3">Bound Email</th>
+                            <th className="p-3">Status</th>
+                            <th className="p-3">Expires</th>
+                            <th className="p-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                          {licensesList.map((lic) => (
+                            <tr key={lic.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                              <td className="p-3 font-bold text-amber-600 dark:text-amber-400">{lic.key}</td>
+                              <td className="p-3 font-semibold">{lic.tier}</td>
+                              <td className="p-3 text-slate-600 dark:text-slate-300">{lic.boundEmail || 'Unbound'}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  lic.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
+                                }`}>
+                                  {lic.status}
+                                </span>
+                              </td>
+                              <td className="p-3 text-slate-500">{new Date(lic.expiresAt).toLocaleDateString()}</td>
+                              <td className="p-3 text-right">
+                                {lic.status === 'ACTIVE' && (
+                                  <button
+                                    onClick={() => handleAdminRevokeKey(lic.key)}
+                                    className="px-2.5 py-1 text-[11px] font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded-lg transition"
+                                  >
+                                    Revoke
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Hardware Fingerprint Trials Table */}
+                <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Hardware Fingerprinted Trials ({trialsList.length})</h3>
+                  {trialsList.length === 0 ? (
+                    <div className="py-4 text-center text-slate-400 text-xs italic">No hardware device trials logged yet.</div>
+                  ) : (
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold uppercase text-slate-500 text-[10px]">
+                          <tr>
+                            <th className="p-3">Hardware ID (HWID)</th>
+                            <th className="p-3">Bound Email</th>
+                            <th className="p-3">First Claimed</th>
+                            <th className="p-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                          {trialsList.map((tr) => (
+                            <tr key={tr.hwid} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                              <td className="p-3 text-slate-700 dark:text-slate-300 font-bold">{tr.hwid}</td>
+                              <td className="p-3 text-slate-500">{tr.email}</td>
+                              <td className="p-3 text-slate-500">{new Date(tr.firstSeenAt).toLocaleDateString()}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  Date.now() > tr.expiresAt ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'
+                                }`}>
+                                  {Date.now() > tr.expiresAt ? 'EXPIRED' : 'FREE_TRIAL'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

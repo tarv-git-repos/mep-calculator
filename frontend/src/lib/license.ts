@@ -1,14 +1,40 @@
-import { supabase } from "@/lib/supabase";
+import { authService } from "@/services/authService";
+import { getHardwareFingerprint } from "@/lib/hardwareFingerprint";
 
-export async function getLicenseWatermark(): Promise<string> {
+export interface LicenseStatusInfo {
+  plan: "FREE" | "PRO" | "ENTERPRISE";
+  status: "ACTIVE" | "FREE_TRIAL" | "EXPIRED_TRIAL" | "UNLICENSED";
+  key?: string;
+  expiresAt?: number;
+  remainingDays: number;
+  watermark: string;
+}
+
+export async function fetchLicenseStatus(email?: string): Promise<LicenseStatusInfo> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user?.email) {
-      // In a real app, you would also verify the license validity in a database.
-      return `Licensed to: ${session.user.email} | MEP Calculator Pro`;
+    const hwid = getHardwareFingerprint();
+    const res = await authService.getLicenseStatus(hwid, email);
+    if (res && res.success) {
+      return {
+        plan: res.plan || "FREE",
+        status: res.status || "FREE_TRIAL",
+        key: res.key,
+        expiresAt: res.expiresAt,
+        remainingDays: res.remainingDays ?? 0,
+        watermark: res.watermark || "FREE TRIAL",
+      };
     }
-    return "UNLICENSED / DEMO VERSION";
-  } catch (err) {
-    return "UNLICENSED / DEMO VERSION";
-  }
+  } catch (err) {}
+  
+  return {
+    plan: "FREE",
+    status: "UNLICENSED",
+    remainingDays: 0,
+    watermark: "UNLICENSED / DEMO VERSION",
+  };
+}
+
+export async function getLicenseWatermark(email?: string): Promise<string> {
+  const status = await fetchLicenseStatus(email);
+  return status.watermark;
 }

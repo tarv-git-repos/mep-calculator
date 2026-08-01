@@ -124,7 +124,7 @@ function extractFloorFU(name: string) {
 }
 
 function FixtureUnitPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [fuSpaces, setFuSpaces] = useState<FUSpace[]>([]);
 
@@ -132,6 +132,7 @@ function FixtureUnitPage() {
   const [newDesc, setNewDesc] = useState("");
   const [newStd, setNewStd] = useState("ipc-total");
   const [newFixtures, setNewFixtures] = useState<Record<string, number>>({});
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Selection states for batch update
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -139,47 +140,64 @@ function FixtureUnitPage() {
 
   // Load state from localStorage on project change
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`mep_fixture_unit_calc_${project.id}`);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.unitSystem) setUnitSystem(data.unitSystem);
-        if (data.fuSpaces) setFuSpaces(data.fuSpaces);
-      } else {
-        // Reset to defaults
-        setUnitSystem("si");
-        setFuSpaces([
-          {
-            id: 1,
-            desc: "1F Male Washroom",
-            floor: "1F",
-            std: "ipc-total",
-            fixtures: { wc: 4, urinal: 3, basin: 4 }
-          },
-          {
-            id: 2,
-            desc: "1F Female Washroom",
-            floor: "1F",
-            std: "ipc-total",
-            fixtures: { wc: 5, basin: 4 }
-          }
-        ]);
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`mep_fixture_unit_calc_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.unitSystem) setUnitSystem(data.unitSystem);
+          if (data.fuSpaces) setFuSpaces(data.fuSpaces);
+        } else {
+          // Reset to defaults
+          setUnitSystem("si");
+          setFuSpaces([
+            {
+              id: 1,
+              desc: "1F Male Washroom",
+              floor: "1F",
+              std: "ipc-total",
+              fixtures: { wc: 4, urinal: 3, basin: 4 }
+            },
+            {
+              id: 2,
+              desc: "1F Female Washroom",
+              floor: "1F",
+              std: "ipc-total",
+              fixtures: { wc: 5, basin: 4 }
+            }
+          ]);
+        }
+        setTimeout(() => dirtyStore.set(false), 50);
+      } catch (e) {
+        console.error("Failed to load fixture unit calculation", e);
       }
-      setTimeout(() => dirtyStore.set(false), 50);
-    } catch (e) {
-      console.error("Failed to load fixture unit calculation", e);
+      setLoadedProjectId(project.id);
     }
-  }, [project.id]);
+  }, [project?.id]);
 
-  const handleSaveCurrent = () => {
-    try {
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
       const dataToSave = {
         unitSystem,
         fuSpaces
       };
       localStorage.setItem(`mep_fixture_unit_calc_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(false);
-      toast.success("Fixture Unit Calculation saved to project successfully!");
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, unitSystem, fuSpaces]);
+
+  const handleSaveCurrent = () => {
+    try {
+      if (project?.id) {
+        const dataToSave = {
+          unitSystem,
+          fuSpaces
+        };
+        localStorage.setItem(`mep_fixture_unit_calc_${project.id}`, JSON.stringify(dataToSave));
+        dirtyStore.set(false);
+        if (forceSaveToCloud) forceSaveToCloud();
+        toast.success("Fixture Unit Calculation saved to project successfully!");
+      }
     } catch (e) {
       toast.error("Failed to save calculation.");
     }

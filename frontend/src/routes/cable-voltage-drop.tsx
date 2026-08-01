@@ -55,6 +55,8 @@ interface InlineInputProps {
 function InlineInput({ value, onCommit, className = "", type = "text", step, min, onFocus }: InlineInputProps) {
   const [localVal, setLocalVal] = useState(String(value));
 
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
   useEffect(() => {
     const strVal = String(value);
     if (localVal !== strVal) {
@@ -213,7 +215,7 @@ const pushToHistory = (
 };
 
 function CableVoltageDropPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
   const boards = useElectricalNetworkStore(state => state.boards);
   const setBoards = useElectricalNetworkStore(state => state.setBoards);

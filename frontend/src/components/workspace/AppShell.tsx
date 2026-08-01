@@ -18,6 +18,10 @@ import { VersionManager } from "./VersionManager";
 import { useCollaboration } from "@/lib/collaboration-store";
 import { supabase } from "@/lib/supabase";
 import { Megaphone, X as XIcon } from "lucide-react";
+import { PricingModal } from "./PricingModal";
+import { fetchLicenseStatus, type LicenseStatusInfo } from "@/lib/license";
+import { getHardwareFingerprint } from "@/lib/hardwareFingerprint";
+import { authService } from "@/services/authService";
 
 import {
   DropdownMenu,
@@ -319,9 +323,23 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const searchObj = useRouterState({ select: (s) => s.location.search }) as Record<string, any>;
   const activeName = searchObj?.name;
   const navigate = useNavigate();
-  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, isInitializing } = useWorkspace();
+  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, syncFromCloud, isInitializing } = useWorkspace();
   const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
   const [myEmail, setMyEmail] = useState<string>("unknown");
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(null);
+
+  const refreshLicenseStatus = useCallback(async () => {
+    const hwid = getHardwareFingerprint();
+    const userEmail = userData?.email || myEmail;
+    await authService.initHardwareTrial(hwid, userEmail);
+    const status = await fetchLicenseStatus(userEmail);
+    setLicenseInfo(status);
+  }, [userData?.email, myEmail]);
+
+  useEffect(() => {
+    refreshLicenseStatus();
+  }, [refreshLicenseStatus]);
 
   const [announcement, setAnnouncement] = useState<{ id: string; message: string; type: string } | null>(null);
 
@@ -350,10 +368,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   useEffect(() => {
     const initCollab = async () => {
       const { data } = await supabase.auth.getSession();
-      const displayName = userData?.name || profile?.name || data.session?.user.email || "unknown";
-      setMyEmail(displayName);
+      const userEmail = data.session?.user.email || "unknown";
+      const userName = userData?.name || profile?.name || userEmail;
+      setMyEmail(userEmail);
       if (project?.name) {
-        joinProject(project.name, displayName);
+        joinProject(project.name, userEmail, userName);
       }
     };
     initCollab();
@@ -379,7 +398,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   const lockOwnerObj = getLockOwner(pathname);
   const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
-  const lockOwnerEmail = lockOwnerObj ? lockOwnerObj.email : "Unknown";
+  const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
 
   // Restore inputs on project/route change
   useEffect(() => {
@@ -563,32 +582,30 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   return (
     <div className="grid h-screen grid-cols-[auto_1fr] grid-rows-[80px_1fr] bg-surface dark:bg-[#121212] text-foreground text-[14px] print:block print:h-auto">
       {/* Top Header (Column 2, Row 1) */}
-      <header className={`appshell-header col-start-2 row-start-1 flex items-start pt-3.5 h-full bg-surface dark:bg-[#121212] no-print print:hidden transition-all duration-300 ${
-        sidebarOpen ? "pl-0 pr-3.5" : "px-3.5"
-      }`}>
-        <div className="flex-1 bg-card dark:bg-[#1a1a1a] border border-border dark:border-[#262626] rounded-full h-[60px] px-5 flex items-center shadow-[0_1px_3px_rgba(0,0,0,0.05)] relative">
-          <div className="flex items-center justify-between w-full">
+      <header className="appshell-header col-start-2 row-start-1 flex items-start pt-3.5 px-3.5 h-full bg-surface dark:bg-[#121212] no-print print:hidden transition-all duration-300">
+        <div className="flex-1 bg-card dark:bg-[#1a1a1a] border border-border dark:border-[#262626] rounded-full h-[60px] px-2.5 flex items-center shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+          <div className="flex items-center justify-between w-full gap-2 md:gap-3 min-w-0">
             {/* Left side: Project Selector */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {!sidebarOpen && (
                 <button
                   onClick={() => setSidebarOpen(true)}
-                  className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors mr-1 shrink-0"
+                  className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors shrink-0"
                   title="Expand Sidebar"
                 >
                   <PanelLeftOpen className="size-5" />
                 </button>
               )}
-               <div className="flex items-center gap-4">
+               <div className="flex items-center gap-2">
                  <DropdownMenu>
                    <ContextMenu>
                    <ContextMenuTrigger asChild>
                      <DropdownMenuTrigger asChild>
-                       <button className="flex items-center gap-2.5 h-10 px-4 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150">
-                         <Building2 className="size-4 text-muted-foreground" />
-                         <span className="font-semibold text-foreground dark:text-white">{project.name}</span>
-                         <span className="text-muted-foreground font-mono text-[11px]">{project.code}</span>
-                         <ChevronDown className="size-3.5 text-muted-foreground ml-0.5" />
+                       <button className="flex items-center gap-2 h-10 px-3.5 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150">
+                         <Building2 className="size-4 text-muted-foreground shrink-0" />
+                         <span className="font-semibold text-foreground dark:text-white truncate max-w-[140px] sm:max-w-[200px]">{project.name}</span>
+                         <span className="text-muted-foreground font-mono text-[11px] hidden sm:inline">{project.code}</span>
+                         <ChevronDown className="size-3.5 text-muted-foreground ml-0.5 shrink-0" />
                        </button>
                      </DropdownMenuTrigger>
                    </ContextMenuTrigger>
@@ -767,24 +784,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                </div>
              </div>
 
-            {/* Centered Search Bar */}
-            <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <input
-                  placeholder="Search calculators, projects…"
-                  className="h-10 w-[400px] pl-11 pr-12 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] focus:border-border-strong rounded-full text-[13.5px] outline-none transition-all duration-150"
-                />
-                <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[9.5px] font-sans font-medium text-muted-foreground bg-background dark:bg-white/5 border border-border dark:border-[#262626] rounded px-1.5 py-0.5 select-none leading-none">?K</kbd>
-              </div>
-            </div>
+             {/* Search Bar (Flex responsive, centered in available space) */}
+             <div className="flex-1 max-w-xs sm:max-w-sm md:max-w-md mx-2 min-w-0">
+               <div className="relative w-full">
+                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                 <input
+                   placeholder="Search calculators, projects…"
+                   className="h-10 w-full pl-10 pr-10 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] focus:border-border-strong rounded-full text-[13.5px] outline-none transition-all duration-150"
+                 />
+                 <kbd className="hidden sm:inline-flex absolute right-3 top-1/2 -translate-y-1/2 text-[9.5px] font-sans font-medium text-muted-foreground bg-background dark:bg-white/5 border border-border dark:border-[#262626] rounded px-1.5 py-0.5 select-none leading-none">⌘K</kbd>
+               </div>
+             </div>
 
             {/* Right side: Actions & Profile */}
             <div className="flex items-center gap-1.5 shrink-0">
               {isReadOnly && (
-                <div className="mr-2 flex items-center gap-1.5 px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-semibold shadow-sm border border-amber-200 dark:border-amber-800">
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 dark:text-amber-400 rounded-full text-xs font-bold shrink-0">
                   <Lock className="size-3" />
-                  READ ONLY
+                  <span>READ ONLY</span>
                 </div>
               )}
               <button
@@ -795,36 +812,55 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   forceSaveToCloud();
                   toast.success("Calculations synced to cloud successfully!");
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border border-transparent"
+                className="size-10 rounded-full flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border border-transparent"
                 title="Save to Cloud"
               >
-                <Save className="size-3.5" />
-                Save to Cloud
+                <Save className="size-4" />
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  window.location.reload();
+                onClick={async () => {
+                  await syncFromCloud();
+                  toast.success("Synced latest data from cloud!");
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-medium bg-blue-500 text-white hover:bg-blue-600 transition-colors shadow-sm cursor-pointer border border-transparent mr-1"
+                className="size-10 rounded-full flex items-center justify-center bg-blue-500 text-white hover:bg-blue-600 transition-colors shadow-sm cursor-pointer border border-transparent"
                 title="Sync from Cloud"
               >
-                <RefreshCw className="size-3.5" />
-                SYNC
+                <RefreshCw className="size-4" />
               </button>
 
               <button
                 onClick={() => setReadOnly(!isReadOnly)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors border ${
+                className={`size-10 rounded-full flex items-center justify-center transition-colors border ${
                   isReadOnly 
-                    ? "bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900"
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
                     : "bg-surface-2 dark:bg-white/5 text-muted-foreground border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10"
                 }`}
-                title="Toggle Read-Only Mode"
+                title={isReadOnly ? "Unlock Editing" : "Lock Read-Only Mode"}
               >
-                {isReadOnly ? <Lock className="size-3.5" /> : <Edit3 className="size-3.5" />}
-                {isReadOnly ? "Unlock" : "Lock"}
+                {isReadOnly ? <Lock className="size-4" /> : <Edit3 className="size-4" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPricingModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold transition-all shadow-sm cursor-pointer border ${
+                  licenseInfo?.plan === 'PRO' || licenseInfo?.plan === 'ENTERPRISE'
+                    ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
+                    : licenseInfo?.status === 'EXPIRED_TRIAL'
+                    ? "bg-red-500/10 text-red-500 border-red-500/30 hover:bg-red-500/20 animate-pulse"
+                    : "bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-500 border-amber-500/40 hover:from-amber-500/30 hover:to-orange-500/30"
+                }`}
+                title="Manage License & Subscription"
+              >
+                <Zap className="size-3.5" />
+                <span>
+                  {licenseInfo?.plan === 'PRO' ? 'PRO ACTIVE' :
+                   licenseInfo?.plan === 'ENTERPRISE' ? 'ENTERPRISE' :
+                   licenseInfo?.status === 'EXPIRED_TRIAL' ? 'TRIAL EXPIRED - UPGRADE' :
+                   `TRIAL: ${licenseInfo?.remainingDays ?? 14} DAYS LEFT`}
+                </span>
               </button>
 
               <button
@@ -1006,7 +1042,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             <div className="absolute top-0 left-0 right-0 z-[100] bg-transparent text-amber-500 px-4 py-2 flex items-center justify-center gap-2 shrink-0">
               <ShieldAlert className="w-4 h-4" />
               <span className="font-bold text-sm">
-                Read Only Mode: This module is currently being edited by {lockOwnerEmail}
+                Read Only, it is being edited by {lockOwnerName}
               </span>
             </div>
           )}
@@ -1125,6 +1161,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           </div>
         </div>
       )}
+
+      <PricingModal
+        isOpen={pricingModalOpen}
+        onClose={() => setPricingModalOpen(false)}
+        onSuccess={refreshLicenseStatus}
+        currentStatus={licenseInfo}
+      />
     </div>
   );
 }

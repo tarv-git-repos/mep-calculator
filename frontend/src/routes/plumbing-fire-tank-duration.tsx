@@ -6,37 +6,52 @@ import { AppShell } from '@/components/workspace/AppShell';
 import { createFileRoute } from '@tanstack/react-router';
 
 function FireTankDurationPage() {
-  const { project } = useWorkspace();
-
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unit, setUnit] = useState<'ip' | 'si'>('si');
   const [demand, setDemand] = useState<number>(1892.7); // L/min (500 GPM)
   const [durationSel, setDurationSel] = useState<string>('60');
   const [customDur, setCustomDur] = useState<number>(60);
   const [tankCap, setTankCap] = useState<number>(120000); // L
   const [refillRate, setRefillRate] = useState<number>(0); // L/min
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // State loading
   useEffect(() => {
-    if (project) {
-      const saved = localStorage.getItem(`fireTankDuration_${project.id}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setUnit(parsed.unit ?? 'si');
-        setDemand(parsed.demand ?? 1892.7);
-        setDurationSel(parsed.durationSel ?? '60');
-        setCustomDur(parsed.customDur ?? 60);
-        setTankCap(parsed.tankCap ?? 120000);
-        setRefillRate(parsed.refillRate ?? 0);
+    if (project?.id) {
+      try {
+        const saved = localStorage.getItem(`fireTankDuration_${project.id}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setUnit(parsed.unit ?? 'si');
+          setDemand(parsed.demand ?? 1892.7);
+          setDurationSel(parsed.durationSel ?? '60');
+          setCustomDur(parsed.customDur ?? 60);
+          setTankCap(parsed.tankCap ?? 120000);
+          setRefillRate(parsed.refillRate ?? 0);
+        }
+      } catch (e) {
+        console.error(e);
       }
+      setLoadedProjectId(project.id);
     }
-  }, [project]);
+  }, [project?.id]);
 
-  const saveState = () => {
-    if (project) {
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
       localStorage.setItem(`fireTankDuration_${project.id}`, JSON.stringify({
         unit, demand, durationSel, customDur, tankCap, refillRate
       }));
       dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, unit, demand, durationSel, customDur, tankCap, refillRate]);
+
+  const saveState = () => {
+    if (project?.id) {
+      localStorage.setItem(`fireTankDuration_${project.id}`, JSON.stringify({
+        unit, demand, durationSel, customDur, tankCap, refillRate
+      }));
+      dirtyStore.set(true);
+      if (forceSaveToCloud) forceSaveToCloud();
     }
   };
 

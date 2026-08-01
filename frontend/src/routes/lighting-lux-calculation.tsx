@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useState, useMemo, useEffect } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { Plus, Download, Trash, Copy, Trash2, X, Database } from "lucide-react";
@@ -86,7 +87,7 @@ function pushToHistory(
 }
 
 function LightingLuxCalculationPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
 
   const [rows, setRows] = useState<LuxRow[]>(DEFAULT_ROWS);
@@ -94,6 +95,28 @@ function LightingLuxCalculationPage() {
   const [activeRowId, setActiveRowId] = useState<string | undefined>();
   const [history, setHistory] = useState<LuxRow[][]>([]);
   const [redoStack, setRedoStack] = useState<LuxRow[][]>([]);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`mep_lux_calc_${project.id}`);
+      if (saved) {
+        setRows(JSON.parse(saved));
+      }
+      setTimeout(() => dirtyStore.set(false), 50);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    } catch (e) {
+      console.error(e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    }
+  }, [project.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      localStorage.setItem(`mep_lux_calc_${project.id}`, JSON.stringify(rows));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, rows]);
 
   // Helper to update a row
   const updateRow = (id: string, updates: Partial<LuxRow>) => {

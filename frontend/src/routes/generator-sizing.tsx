@@ -29,6 +29,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useEditableGrid, useGridNavigation } from "@/core/gridEngine";
 import { toast } from "@/core/notifications";
+import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 
 export const Route = createFileRoute("/generator-sizing")({
   head: () => ({
@@ -75,6 +77,7 @@ const STANDARD_SIZES = [
 function GeneratorSizingPage() {
   const confirm = useConfirm();
   const prompt = usePrompt();
+  const { project, forceSaveToCloud } = useWorkspace();
 
   const [projects, setProjects] = useState<Record<string, GenRow[]>>({ "Default Project": [] });
   const [currentProject, setCurrentProject] = useState<string>("Default Project");
@@ -101,9 +104,7 @@ function GeneratorSizingPage() {
     onStateChange: (newRows) => {
       setProjects((prev) => {
         if (prev[currentProject] === newRows) return prev;
-        const newProjects = { ...prev, [currentProject]: newRows };
-        window.localStorage.setItem("mep_gen_projects", JSON.stringify(newProjects));
-        return newProjects;
+        return { ...prev, [currentProject]: newRows };
       });
     },
     onNewRow: () => addRow(),
@@ -137,19 +138,55 @@ function GeneratorSizingPage() {
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
   const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
 
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem("mep_gen_projects");
+      const saved = window.localStorage.getItem(`mep_gen_projects_${project.id}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setProjects(parsed);
-        if (parsed["Default Project"]) {
-          pushState(parsed["Default Project"]);
+        if (parsed.projects) { // New format
+           setProjects(parsed.projects);
+           setCurrentProject(parsed.currentProject || "Default Project");
+           if (parsed.pf) setPf(parsed.pf);
+           if (parsed.lf) setLf(parsed.lf);
+           if (parsed.userSelectedSize) setUserSelectedSize(parsed.userSelectedSize);
+           if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
+           if (parsed.manualOverrides) setManualOverrides(parsed.manualOverrides);
+           
+           if (parsed.projects[parsed.currentProject || "Default Project"]) {
+             pushState(parsed.projects[parsed.currentProject || "Default Project"]);
+           }
+        } else { // Old format fallback
+           setProjects(parsed);
+           if (parsed["Default Project"]) {
+             pushState(parsed["Default Project"]);
+           }
         }
       }
-    } catch {}
+      setTimeout(() => dirtyStore.set(false), 50);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    } catch {
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    }
     setIsLoaded(true);
-  }, []);
+  }, [project.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = {
+        projects,
+        currentProject,
+        pf,
+        lf,
+        userSelectedSize,
+        unitSystem,
+        manualOverrides
+      };
+      window.localStorage.setItem(`mep_gen_projects_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, projects, currentProject, pf, lf, userSelectedSize, unitSystem, manualOverrides]);
 
   const setOverride = (key: string, val: string) => {
     setManualOverrides((prev) => ({ ...prev, [key]: val }));

@@ -9,7 +9,7 @@ import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 function TankSizingPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
 
   // Inputs
   const [daily, setDaily] = useState<number>(5000); // gal
@@ -32,6 +32,7 @@ function TankSizingPage() {
           console.error("Failed to parse saved Tank Sizing data:", e);
         }
       }
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [project]);
 
@@ -49,6 +50,8 @@ function TankSizingPage() {
     const data = { daily, days, peak, pump };
     localStorage.setItem(`tankSizing_${project.id}`, JSON.stringify(data));
     dirtyStore.set(false);
+    if (forceSaveToCloud) forceSaveToCloud();
+
     alert("Tank Sizing calculation saved successfully.");
   };
 
@@ -101,6 +104,15 @@ function TankSizingPage() {
     const buf = await wb.xlsx.writeBuffer();
     saveAs(new Blob([buf]), 'Tank_Sizing.xlsx');
   };
+
+  
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { daily, days, peak, pump };
+      localStorage.setItem(`tankSizing_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, daily, days, peak, pump]);
 
   return (
     <AppShell title="Domestic Water Tank Sizing">

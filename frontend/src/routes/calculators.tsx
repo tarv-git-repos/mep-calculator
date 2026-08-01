@@ -5,6 +5,9 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   Flame, Wind, Droplets, ArrowRight, CheckCircle2, AlertTriangle, Info, RefreshCw, Settings2, Play
 } from "lucide-react";
+import { useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/calculators")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -187,6 +190,37 @@ function CalculatorsPage() {
   const { name } = Route.useSearch();
   const config = CALC_CONFIGS[name] || CALC_CONFIGS["Cooling Load"];
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  
+  const { profile } = useAuth();
+  const { activeProjectId } = useWorkspace();
+
+  useEffect(() => {
+    if (!profile?.id || !activeProjectId || !name) return;
+    try {
+      // Local Project History
+      const key = `recent_calcs_${profile.id}_${activeProjectId}`;
+      const existing = JSON.parse(localStorage.getItem(key) || "[]");
+      const next = [name, ...existing.filter((n: string) => n !== name)].slice(0, 4);
+      localStorage.setItem(key, JSON.stringify(next));
+
+      // Global Activity Feed
+      const globalKey = `global_activity_${profile.id}`;
+      const globalLog = JSON.parse(localStorage.getItem(globalKey) || "[]");
+      const newActivity = {
+        id: Date.now().toString(),
+        action: "Opened Calculator",
+        detail: `${name} in workspace`,
+        time: Date.now(),
+        color: "bg-blue-500"
+      };
+      
+      // Avoid duplicate spam if they just refreshed the same page
+      if (globalLog[0]?.detail !== newActivity.detail || (Date.now() - globalLog[0]?.time > 60000)) {
+        globalLog.unshift(newActivity);
+        localStorage.setItem(globalKey, JSON.stringify(globalLog.slice(0, 5)));
+      }
+    } catch {}
+  }, [name, profile?.id, activeProjectId]);
 
   // Initialize values state dynamically when name changes
   const [values, setValues] = useState<Record<string, number>>(() => {

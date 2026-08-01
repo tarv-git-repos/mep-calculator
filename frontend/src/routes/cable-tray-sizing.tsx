@@ -11,6 +11,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { cn } from "@/lib/utils";
 import { Cable, Tray, TRAY_RANGES, getCableTraySize } from "../lib/cableTrayHelpers";
+import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 
 export const Route = createFileRoute("/cable-tray-sizing")({
   head: () => ({
@@ -56,6 +58,7 @@ function formatTraySize(size: string, isSI: boolean) {
 }
 
 function CableTraySizingPage() {
+  const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [cableDatabase, setCableDatabase] = useState<Record<string, Record<string, number>>>(() => {
@@ -221,6 +224,29 @@ function CableTraySizingPage() {
       ]
     }
   ]);
+
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`mep_cable_tray_${project.id}`);
+      if (saved) {
+        setTrays(JSON.parse(saved));
+      }
+      setTimeout(() => dirtyStore.set(false), 50);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    } catch (e) {
+      console.error(e);
+      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    }
+  }, [project.id]);
+
+  React.useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      localStorage.setItem(`mep_cable_tray_${project.id}`, JSON.stringify(trays));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, trays]);
 
   React.useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {

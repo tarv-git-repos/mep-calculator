@@ -184,6 +184,26 @@ export const workspaceStore = {
   forceSaveToCloud() {
     saveState();
   },
+  async syncFromCloud() {
+    const cloudProjects = await api.getProjects();
+    if (cloudProjects && cloudProjects.length > 0) {
+      projects = cloudProjects;
+      let target = projects.find(p => p.id === activeProjectId) || projects[0];
+      activeProjectId = target.id;
+      currentProject = target;
+      const wdata = currentProject.workspace_data || {};
+      injectLocalStorageCache(wdata);
+      currentWorkspaceState = sanitizeWorkspaceState({
+        spaces: wdata.spaces || [],
+        zones: wdata.zones || [],
+        equipment: wdata.equipment || [],
+        roundOffPreset: wdata.roundOffPreset ?? 5,
+        isReadOnly: false
+      });
+      setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+      notify();
+    }
+  },
   async initCloud() {
     if (cloudInitDone) return;
     cloudInitDone = true;
@@ -1180,6 +1200,7 @@ export function useWorkspace() {
     duplicateProject: (id: string) => workspaceStore.duplicateProject(id),
     deleteProject: (id: string) => workspaceStore.deleteProject(id),
     forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
+    syncFromCloud: () => workspaceStore.syncFromCloud(),
     clearWorkspace: () => workspaceStore.clearWorkspace(),
     updateProject: (project: Project) => workspaceStore.updateProject(project),
     updateSpaces: (spaces: Space[]) => workspaceStore.updateSpaces(spaces),

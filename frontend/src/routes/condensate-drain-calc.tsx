@@ -54,9 +54,10 @@ interface CoilRow {
 }
 
 function CondensateDrainCalcPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<CoilRow[]>([]);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state on project change
   useEffect(() => {
@@ -78,7 +79,18 @@ function CondensateDrainCalcPage() {
     } catch (e) {
       console.error("Failed to load condensate calculation", e);
     }
-  }, [project.id]);
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = {
+        unitSystem,
+        rows
+      };
+      localStorage.setItem(`mep_condensate_calc_${project.id}`, JSON.stringify(dataToSave));
+    }
+  }, [project?.id, loadedProjectId, unitSystem, rows]);
 
   const handleSaveCurrent = () => {
     try {
@@ -88,6 +100,7 @@ function CondensateDrainCalcPage() {
       };
       localStorage.setItem(`mep_condensate_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(false);
+      forceSaveToCloud();
       toast.success("Condensate Calculation saved to project successfully!");
     } catch (e) {
       toast.error("Failed to save calculation.");

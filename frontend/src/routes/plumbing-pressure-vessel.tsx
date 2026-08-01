@@ -20,7 +20,7 @@ export const Route = createFileRoute("/plumbing-pressure-vessel")({
 });
 
 function PressureVesselPage() {
-  const { project } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
   
   // State variables matching the calculator parameters
   const [importedFlow, setImportedFlow] = useState<string>("0.00");
@@ -30,38 +30,42 @@ function PressureVesselPage() {
   const [ppVal, setPpVal] = useState<string>("8.52");
   const [paVal, setPaVal] = useState<string>("5.68");
   const [zmax, setZmax] = useState<string>("60");
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load state from localStorage on project change
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`mep_pressure_vessel_calc_${project.id}`);
-      if (stored) {
-        const data = JSON.parse(stored);
-        if (data.importedFlow !== undefined) setImportedFlow(data.importedFlow);
-        if (data.importedHead !== undefined) setImportedHead(data.importedHead);
-        if (data.qLmin !== undefined) setQLmin(data.qLmin);
-        if (data.bandFactor !== undefined) setBandFactor(data.bandFactor);
-        if (data.ppVal !== undefined) setPpVal(data.ppVal);
-        if (data.paVal !== undefined) setPaVal(data.paVal);
-        if (data.zmax !== undefined) setZmax(data.zmax);
-      } else {
-        // Defaults
-        setImportedFlow("0.00");
-        setImportedHead("0.00");
-        setQLmin("78.00");
-        setBandFactor("0.20");
-        setPpVal("8.52");
-        setPaVal("5.68");
-        setZmax("60");
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`mep_pressure_vessel_calc_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.importedFlow !== undefined) setImportedFlow(data.importedFlow);
+          if (data.importedHead !== undefined) setImportedHead(data.importedHead);
+          if (data.qLmin !== undefined) setQLmin(data.qLmin);
+          if (data.bandFactor !== undefined) setBandFactor(data.bandFactor);
+          if (data.ppVal !== undefined) setPpVal(data.ppVal);
+          if (data.paVal !== undefined) setPaVal(data.paVal);
+          if (data.zmax !== undefined) setZmax(data.zmax);
+        } else {
+          // Defaults
+          setImportedFlow("0.00");
+          setImportedHead("0.00");
+          setQLmin("78.00");
+          setBandFactor("0.20");
+          setPpVal("8.52");
+          setPaVal("5.68");
+          setZmax("60");
+        }
+        setTimeout(() => dirtyStore.set(false), 50);
+      } catch (e) {
+        console.error("Failed to load pressure vessel calculation", e);
       }
-      setTimeout(() => dirtyStore.set(false), 50);
-    } catch (e) {
-      console.error("Failed to load pressure vessel calculation", e);
+      setLoadedProjectId(project.id);
     }
-  }, [project.id]);
+  }, [project?.id]);
 
-  const handleSaveCurrent = () => {
-    try {
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
       const dataToSave = {
         importedFlow,
         importedHead,
@@ -72,8 +76,27 @@ function PressureVesselPage() {
         zmax
       };
       localStorage.setItem(`mep_pressure_vessel_calc_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(false);
-      toast.success("Pressure Vessel Sizing saved to project successfully!");
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, importedFlow, importedHead, qLmin, bandFactor, ppVal, paVal, zmax]);
+
+  const handleSaveCurrent = () => {
+    try {
+      if (project?.id) {
+        const dataToSave = {
+          importedFlow,
+          importedHead,
+          qLmin,
+          bandFactor,
+          ppVal,
+          paVal,
+          zmax
+        };
+        localStorage.setItem(`mep_pressure_vessel_calc_${project.id}`, JSON.stringify(dataToSave));
+        dirtyStore.set(false);
+        if (forceSaveToCloud) forceSaveToCloud();
+        toast.success("Pressure Vessel Sizing saved to project successfully!");
+      }
     } catch (e) {
       toast.error("Failed to save calculation.");
     }

@@ -23,7 +23,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   try {
-    const authServerPath = path.join(__dirname, '../server/authServer.js');
+    const authServerPath = path.join(__dirname, '../backend/authServer.js');
     const authProc = fork(authServerPath);
     authProc.on('error', (err) => console.log('Auth server error:', err.message));
   } catch (e) {
