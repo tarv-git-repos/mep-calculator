@@ -721,6 +721,44 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     setPendingUnitToggle(null);
   };
 
+  const filteredNav = useMemo(() => {
+    const rawNav = import.meta.env.VITE_APP_MODE === 'kfactor'
+      ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
+      : [...NAV, ...(profile?.role === 'ADMIN' ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])];
+      
+    if (profile?.role === 'ADMIN') return rawNav;
+    
+    return rawNav.map(item => {
+      if (item.kind === 'item') {
+        return isFeatureLocked(item.to, profile) ? null : item;
+      }
+      
+      const newChildren = item.children.filter(child => {
+        if (child.isHeader) return true;
+        return !isFeatureLocked(child.to, profile);
+      });
+      
+      const cleanedChildren = [];
+      for (let i = 0; i < newChildren.length; i++) {
+         const current = newChildren[i];
+         if (current.isHeader) {
+            let hasItem = false;
+            for (let j = i + 1; j < newChildren.length; j++) {
+               if (newChildren[j].isHeader) break;
+               if (!newChildren[j].isHeader) { hasItem = true; break; }
+            }
+            if (hasItem) cleanedChildren.push(current);
+         } else {
+            cleanedChildren.push(current);
+         }
+      }
+      
+      if (cleanedChildren.length === 0) return null;
+      
+      return { ...item, children: cleanedChildren } as NavItem;
+    }).filter(Boolean) as NavItem[];
+  }, [profile]);
+
   const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";
   const brandName = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K-Factor Calc" : "MEP Calculator";
   return (
@@ -1081,12 +1119,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
           {/* Navigation Items */}
           <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
-            {(import.meta.env.VITE_APP_MODE === 'kfactor'
-              ? [
-                  { kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }
-                ]
-              : [...NAV, ...(profile?.role === 'ADMIN' ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])]
-            ).map((n) =>
+            {filteredNav.map((n) =>
               n.kind === "item" ? (
                 <NavLink
                   key={n.label}
