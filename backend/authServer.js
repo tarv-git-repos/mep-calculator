@@ -761,6 +761,45 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ==========================================
+  // ADMIN USER MANAGEMENT
+  // ==========================================
+  
+  if (req.method === 'POST' && url === '/api/admin/toggle-role') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || adminUser.role !== 'ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { profileId, newRole } = await getRequestBody(req);
+    if (!profileId || !newRole) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
+    if (adminUser.id === profileId) return sendJSON(res, 400, { success: false, message: 'Cannot change your own role' });
+    
+    const users = await readUsers();
+    const targetUserIndex = users.findIndex(u => u.id === profileId);
+    if (targetUserIndex === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
+    
+    users[targetUserIndex].role = newRole;
+    await writeUsers(users);
+    return sendJSON(res, 200, { success: true, message: 'Role updated successfully' });
+  }
+
+  if (req.method === 'POST' && url === '/api/admin/delete-user') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || adminUser.role !== 'ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { profileId } = await getRequestBody(req);
+    if (!profileId) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
+    if (adminUser.id === profileId) return sendJSON(res, 400, { success: false, message: 'Cannot delete your own account' });
+    
+    let users = await readUsers();
+    users = users.filter(u => u.id !== profileId);
+    await writeUsers(users);
+    
+    // Attempt to delete from Supabase Auth if possible, though custom_users is our source of truth now
+    return sendJSON(res, 200, { success: true, message: 'User deleted successfully' });
+  }
+
+  // ==========================================
   // HARDWARE FINGERPRINTED TRIAL & UNIQUE LICENSING
   // ==========================================
 
