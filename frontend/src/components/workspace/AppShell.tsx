@@ -575,9 +575,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const btn = target.closest("button, [role='button'], a, [role='tab']");
       if (!btn) return false;
 
+      const role = btn.getAttribute("role");
+      // Explicitly block checkboxes and switches
+      if (role === "checkbox" || role === "switch") return false;
+
       // Tab buttons, tab triggers, view mode toggles, accordion headers, search filter inputs are allowed
       const btnText = (btn.textContent || "").trim().toLowerCase();
-      const isTab = btn.getAttribute("role") === "tab" || 
+      const isTab = role === "tab" || 
                     btn.classList.contains("tab-btn") || 
                     btn.hasAttribute("data-state") ||
                     ["spaces", "zones", "equipment", "report", "schedule", "sld", "calculator", "summary"].includes(btnText);
@@ -612,6 +616,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const handleReadOnlyKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (!target) return;
+      
+      // Allow key events in header (e.g. search bar), sidebar, and modals
+      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content")) return;
+      
       const tagName = target.tagName.toLowerCase();
       const isEditable = target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
       
@@ -623,6 +631,22 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         e.preventDefault();
         e.stopPropagation();
         toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        return;
+      }
+      
+      // Block global mutation shortcuts like Delete, Backspace, or Enter on non-allowed targets
+      if (['Delete', 'Backspace'].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        return;
+      }
+      
+      if (e.key === 'Enter' && !isAllowedInteractive(target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        return;
       }
     };
 
