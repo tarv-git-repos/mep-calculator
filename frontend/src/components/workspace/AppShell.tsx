@@ -569,8 +569,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     if (!isEffectiveReadOnly) return;
 
     const isAllowedInteractive = (target: HTMLElement) => {
-      // Header, Sidebar, Navigation links, and Tab switching buttons are always allowed
-      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print")) return true;
+      // Header, Sidebar, Navigation links, Tab switching buttons, and Modals are always allowed
+      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content")) return true;
       
       const btn = target.closest("button, [role='button'], a, [role='tab']");
       if (!btn) return false;

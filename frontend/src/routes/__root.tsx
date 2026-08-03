@@ -225,7 +225,12 @@ function DirtyWatcher() {
     }
 
     // Mark dirty on any input/change inside the main content area, bypassing projects page
-    const onInput = () => {
+    const onInput = (e: Event) => {
+      if ((window as any).__mep_is_restoring) return;
+      const target = e.target as HTMLElement;
+      if (target && (target.closest("aside") || target.closest("header") || target.closest("[data-ignore-persist]"))) {
+        return;
+      }
       const path = window.location.pathname || "";
       if (path === "/projects" || path.endsWith("/projects")) return;
       dirtyStore.set(true);
