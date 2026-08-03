@@ -52,6 +52,9 @@ export const authService = {
         email,
         password,
       });
+      if (data.success && data.token) {
+        localStorage.setItem('auth_token', data.token);
+      }
       return data;
     } catch (error: any) {
       return {
@@ -64,8 +67,10 @@ export const authService = {
   async logout(): Promise<AuthResponse> {
     try {
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/logout`);
+      localStorage.removeItem('auth_token');
       return data;
     } catch (error: any) {
+      localStorage.removeItem('auth_token');
       return {
         success: false,
         message: error.message || 'Logout failed',

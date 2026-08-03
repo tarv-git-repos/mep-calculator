@@ -617,10 +617,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const target = e.target as HTMLElement;
       if (!target) return;
       
-      // Allow key events in header (e.g. search bar), sidebar, and modals
-      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content")) return;
+      // Safe check for closest and tagName
+      const isElement = typeof target.closest === 'function' && typeof target.tagName === 'string';
       
-      const tagName = target.tagName.toLowerCase();
+      if (isElement) {
+        // Allow key events in header (e.g. search bar), sidebar, and modals
+        if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content, [role='menu']")) return;
+      }
+      
+      const tagName = isElement ? target.tagName.toLowerCase() : '';
       const isEditable = target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
       
       // Allow navigation keys, copy (Ctrl+C / Cmd+C), select all (Ctrl+A), Tab, Escape, Arrows, PageUp/Down
@@ -642,7 +647,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         return;
       }
       
-      if (e.key === 'Enter' && !isAllowedInteractive(target)) {
+      if (e.key === 'Enter') {
+        // If it's an element and allowed interactive, let Enter pass
+        if (isElement && isAllowedInteractive(target)) return;
+        
         e.preventDefault();
         e.stopPropagation();
         toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
@@ -661,15 +669,31 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
 
-    document.addEventListener("mousedown", handleReadOnlyClick, true);
-    document.addEventListener("click", handleReadOnlyClick, true);
-    document.addEventListener("keydown", handleReadOnlyKeyDown, true);
-    document.addEventListener("change", handleReadOnlyChange, true);
+    const handleReadOnlyContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && typeof target.closest === 'function') {
+        if (target.closest("input, select, textarea, [contenteditable='true']")) {
+          // Allow default context menu for inputs (cut/copy/paste)
+          return;
+        }
+      }
+      // Block context menu on read-only areas
+      e.preventDefault();
+      e.stopPropagation();
+      toast.info("Workspace is in Read-Only mode. Context menus are disabled.", { id: "readonly-notice" });
+    };
 
+    if (isEffectiveReadOnly) {
+      document.addEventListener("mousedown", handleReadOnlyClick, true);
+      document.addEventListener("keydown", handleReadOnlyKeyDown, true);
+      document.addEventListener("contextmenu", handleReadOnlyContextMenu, true);
+      document.addEventListener("change", handleReadOnlyChange, true);
+    }
+    
     return () => {
       document.removeEventListener("mousedown", handleReadOnlyClick, true);
-      document.removeEventListener("click", handleReadOnlyClick, true);
       document.removeEventListener("keydown", handleReadOnlyKeyDown, true);
+      document.removeEventListener("contextmenu", handleReadOnlyContextMenu, true);
       document.removeEventListener("change", handleReadOnlyChange, true);
     };
   }, [isReadOnly, isLockedByOther]);
