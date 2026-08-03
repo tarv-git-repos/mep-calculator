@@ -51,6 +51,15 @@ export const api = {
     }
   },
 
+  async adminUpdateProfile(profileId: string, updates: any) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/update-profile`, { profileId, updates });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to update profile' };
+    }
+  },
+
   // ACTIVITY LOGS
   async logActivity(action_type: string, details?: any) {
     try {

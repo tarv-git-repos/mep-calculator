@@ -799,6 +799,25 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, message: 'User deleted successfully' });
   }
 
+  if (req.method === 'POST' && url === '/api/admin/update-profile') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || adminUser.role !== 'ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { profileId, updates } = await getRequestBody(req);
+    if (!profileId || !updates) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
+    
+    let users = await readUsers();
+    const targetUserIndex = users.findIndex(u => u.id === profileId);
+    if (targetUserIndex === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
+    
+    // Merge updates (e.g. features, subscription_expires)
+    users[targetUserIndex] = { ...users[targetUserIndex], ...updates };
+    await writeUsers(users);
+    
+    return sendJSON(res, 200, { success: true, message: 'Profile updated successfully' });
+  }
+
   // ==========================================
   // HARDWARE FINGERPRINTED TRIAL & UNIQUE LICENSING
   // ==========================================

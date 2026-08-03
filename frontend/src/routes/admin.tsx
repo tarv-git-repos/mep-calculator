@@ -142,9 +142,9 @@ function AdminDashboard() {
       email: u.email,
       role: u.role || 'USER',
       name: u.name,
-      subscription_expires: null,
+      subscription_expires: u.subscription_expires || null,
       status: u.isAccountVerified ? 'ACTIVE' : 'TRIAL',
-      features: {}
+      features: u.features || {}
     }))
     
     setProfiles(mappedProfiles)
@@ -311,13 +311,10 @@ function AdminDashboard() {
     if (!newExpiryDate) return;
     
     const dateStr = new Date(newExpiryDate).toISOString();
-    const { error } = await supabase
-      .from('profiles')
-      .update({ subscription_expires: dateStr })
-      .eq('id', profileId);
+    const res = await api.adminUpdateProfile(profileId, { subscription_expires: dateStr });
       
-    if (error) {
-      toast.error("Failed to update expiry: " + error.message)
+    if (!res.success) {
+      toast.error("Failed to update expiry: " + res.message)
     } else {
       toast.success("Expiry date updated successfully!")
       setEditingExpiryFor(null)
@@ -339,13 +336,10 @@ function AdminDashboard() {
     // Optimistic UI update
     setEditingPermissionsFor({ ...editingPermissionsFor, features: updatedFeatures });
     
-    const { error } = await supabase
-      .from('profiles')
-      .update({ features: updatedFeatures })
-      .eq('id', editingPermissionsFor.id);
+    const res = await api.adminUpdateProfile(editingPermissionsFor.id, { features: updatedFeatures });
       
-    if (error) {
-      toast.error("Failed to update permission: " + error.message);
+    if (!res.success) {
+      toast.error("Failed to update permission: " + res.message);
     } else {
       fetchProfiles();
     }
