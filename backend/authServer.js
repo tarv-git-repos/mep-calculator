@@ -108,10 +108,13 @@ function parseCookies(request) {
 }
 
 async function getUserFromReq(req) {
-  const cookies = parseCookies(req);
-  let token = cookies.token;
-  if (!token && req.headers.authorization) {
+  let token = null;
+  if (req.headers.authorization) {
     token = req.headers.authorization.replace('Bearer ', '').trim();
+  }
+  if (!token) {
+    const cookies = parseCookies(req);
+    token = cookies.token;
   }
   if (!token) return null;
   try {
