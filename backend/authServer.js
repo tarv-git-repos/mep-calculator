@@ -551,9 +551,16 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/users/list') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-    // Only return id, name, email
     const users = await readUsers();
-    const safeUsers = users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role }));
+    const safeUsers = users.map(u => ({ 
+      id: u.id, 
+      name: u.name, 
+      email: u.email, 
+      role: u.role,
+      features: u.features,
+      subscription_expires: u.subscription_expires,
+      isAccountVerified: u.isAccountVerified
+    }));
     return sendJSON(res, 200, { success: true, users: safeUsers });
   }
 
