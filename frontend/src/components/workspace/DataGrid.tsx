@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from "react";
+import { toast } from "sonner";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -19,8 +20,8 @@ export function DataGrid<T extends { id: string }>({
   rows,
   columns,
   selected,
-  onToggle,
-  onToggleAll,
+  onToggle: onToggleProp,
+  onToggleAll: onToggleAllProp,
   renderContextMenu,
   groupBy,
   groupOrder,
@@ -46,6 +47,21 @@ export function DataGrid<T extends { id: string }>({
   activeRowId?: string;
   rowClassName?: (row: T, index: number) => string;
 }) {
+  const onToggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    if ((window as any).__mep_is_readonly) {
+       toast.info("Workspace is in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
+       return;
+    }
+    onToggleProp(id, isShift, isCtrl);
+  };
+  const onToggleAll = () => {
+    if ((window as any).__mep_is_readonly) {
+       toast.info("Workspace is in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
+       return;
+    }
+    onToggleAllProp();
+  };
+
   const ref = useRef<HTMLDivElement>(null);
    const headerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
