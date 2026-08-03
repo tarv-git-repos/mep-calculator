@@ -12,7 +12,7 @@ const getBackendUrl = () => {
   return 'http://localhost:4000';
 };
 
-axios.defaults.withCredentials = true;
+// axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
 
 export interface AuthUserData {
   id: string;

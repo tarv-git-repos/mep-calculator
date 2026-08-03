@@ -726,37 +726,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
       : [...NAV, ...(profile?.role === 'ADMIN' ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])];
       
-    if (profile?.role === 'ADMIN') return rawNav;
-    
-    return rawNav.map(item => {
-      if (item.kind === 'item') {
-        return isFeatureLocked(item.to, profile) ? null : item;
-      }
-      
-      const newChildren = item.children.filter(child => {
-        if (child.isHeader) return true;
-        return !isFeatureLocked(child.to, profile);
-      });
-      
-      const cleanedChildren = [];
-      for (let i = 0; i < newChildren.length; i++) {
-         const current = newChildren[i];
-         if (current.isHeader) {
-            let hasItem = false;
-            for (let j = i + 1; j < newChildren.length; j++) {
-               if (newChildren[j].isHeader) break;
-               if (!newChildren[j].isHeader) { hasItem = true; break; }
-            }
-            if (hasItem) cleanedChildren.push(current);
-         } else {
-            cleanedChildren.push(current);
-         }
-      }
-      
-      if (cleanedChildren.length === 0) return null;
-      
-      return { ...item, children: cleanedChildren } as NavItem;
-    }).filter(Boolean) as NavItem[];
+    // Do not filter out locked items from the sidebar.
+    // They will remain visible but show a "Coming Soon" placeholder when clicked.
+    return rawNav;
   }, [profile]);
 
   const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";
@@ -1229,6 +1201,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
                 <span className="text-slate-500 font-medium">Syncing with workspace...</span>
               </div>
+            ) : isFeatureLocked(pathname, profile) ? (
+              <div className="flex flex-col items-center justify-center flex-1 text-center p-8 bg-surface dark:bg-[#121212]">
+                <div className="w-24 h-24 bg-slate-100 dark:bg-slate-800/50 rounded-full flex items-center justify-center mb-6 shadow-inner">
+                  <Lock className="w-10 h-10 text-slate-400 dark:text-slate-500" />
+                </div>
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-3 tracking-tight">Coming Soon...</h2>
+                <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
+                  This calculator is currently locked or under development for your account. Please contact your administrator for access.
+                </p>
+              </div>
             ) : (
               children
             )}
@@ -1367,32 +1349,25 @@ function NavLink({
   const navigate = useNavigate();
   const confirm = useConfirm();
   const router = useRouter();
-  const { profile } = useAuth();
   const pathname = router.state.location.pathname;
-  const locked = isFeatureLocked(to, profile);
-  const cls = `flex items-center gap-2 ${showDot ? "pl-2.5 pr-3" : "px-3"} py-1.5 rounded-xl text-[13px] transition-all duration-150 ${locked ? "cursor-not-allowed" : "cursor-pointer"} ${indent ? "pl-8" : ""} ${
-    locked
-      ? "text-slate-400 dark:text-slate-600 opacity-60"
-      : active
-        ? "bg-primary/10 text-primary font-semibold dark:bg-primary/20 dark:text-primary-foreground"
-        : "text-muted-foreground hover:bg-surface-2 hover:text-foreground dark:text-[#9b9b9b] dark:hover:bg-white/5 dark:hover:text-white"
+  
+  const cls = `flex items-center gap-2 ${showDot ? "pl-2.5 pr-3" : "px-3"} py-1.5 rounded-xl text-[13px] transition-all duration-150 cursor-pointer ${indent ? "pl-8" : ""} ${
+    active
+      ? "bg-primary/10 text-primary font-semibold dark:bg-primary/20 dark:text-primary-foreground"
+      : "text-muted-foreground hover:bg-surface-2 hover:text-foreground dark:text-[#9b9b9b] dark:hover:bg-white/5 dark:hover:text-white"
   }`;
+  
   const content = (
     <>
-      {Icon && <Icon className={`size-4 ${locked ? "text-slate-400 dark:text-slate-600" : active ? "text-primary" : "text-muted-foreground dark:text-[#9b9b9b]"}`} />}
+      {Icon && <Icon className={`size-4 ${active ? "text-primary" : "text-muted-foreground dark:text-[#9b9b9b]"}`} />}
       {showDot && (
         <span className={`size-1.5 rounded-full shrink-0 ${active ? "bg-primary" : "bg-slate-350 dark:bg-slate-600"}`} />
       )}
       <span className="flex-1 truncate text-left">{label}</span>
-      {locked && <Lock className="size-3.5 ml-auto text-slate-400 dark:text-slate-600" />}
     </>
   );
 
   const handleClick = useCallback(async (e: React.MouseEvent) => {
-    if (locked) {
-      toast.error("This feature is disabled by the Administrator.", { icon: "🔒" });
-      return;
-    }
     if (!to) return;
     const isFromProjectsPage = pathname === "/projects";
     const isToProjectsPage = to === "/projects" || to.startsWith("/projects");
