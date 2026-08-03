@@ -336,12 +336,16 @@ function AdminDashboard() {
     // Optimistic UI update
     setEditingPermissionsFor({ ...editingPermissionsFor, features: updatedFeatures });
     
+    // Also update the main profiles list immediately to prevent stale data when re-opening
+    setProfiles(prevProfiles => prevProfiles.map(p => 
+      p.id === editingPermissionsFor.id ? { ...p, features: updatedFeatures } : p
+    ));
+    
     const res = await api.adminUpdateProfile(editingPermissionsFor.id, { features: updatedFeatures });
       
     if (!res.success) {
       toast.error("Failed to update permission: " + res.message);
-    } else {
-      fetchProfiles();
+      // Optional: Revert state here on failure
     }
   }
 

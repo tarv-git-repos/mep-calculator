@@ -8,6 +8,8 @@ export type Profile = {
   role: 'ADMIN' | 'USER';
   subscription_status: string;
   isAccountVerified: boolean;
+  features?: Record<string, boolean>;
+  subscription_expires?: string;
 };
 
 interface AuthContextType {
@@ -132,6 +134,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     role: userData.role || 'USER',
     subscription_status: 'ACTIVE',
     isAccountVerified: userData.isAccountVerified,
+    features: userData.features || {},
+    subscription_expires: userData.subscription_expires,
   } : null;
 
   return (

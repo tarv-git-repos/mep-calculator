@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate, useRouter } from "@tanstack/react-router";
-import React, { useState, useEffect, useCallback, type ReactNode } from "react";
+import React, { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import {
   Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,

@@ -20,6 +20,8 @@ export interface AuthUserData {
   email: string;
   isAccountVerified: boolean;
   privacyPolicyAccepted?: boolean;
+  features?: Record<string, boolean>;
+  subscription_expires?: string;
 }
 
 export interface AuthResponse {

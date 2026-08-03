@@ -227,6 +227,8 @@ const server = http.createServer(async (req, res) => {
               isAccountVerified: false,
               role: existingUser.role,
               privacyPolicyAccepted: existingUser.privacyPolicyAccepted || false,
+              features: existingUser.features || {},
+              subscription_expires: existingUser.subscription_expires,
             },
           },
           cookieStr
@@ -293,6 +295,8 @@ const server = http.createServer(async (req, res) => {
           email: newUser.email,
           isAccountVerified: false,
           role: newUser.role,
+          features: newUser.features || {},
+          subscription_expires: newUser.subscription_expires,
         },
       },
       cookieStr
@@ -338,6 +342,8 @@ const server = http.createServer(async (req, res) => {
           isAccountVerified: user.isAccountVerified,
           role: user.role,
           privacyPolicyAccepted: user.privacyPolicyAccepted || false,
+          features: user.features || {},
+          subscription_expires: user.subscription_expires,
         },
       },
       cookieStr
@@ -425,6 +431,8 @@ const server = http.createServer(async (req, res) => {
         email: user.email,
         isAccountVerified: true,
         role: user.role,
+        features: user.features || {},
+        subscription_expires: user.subscription_expires,
       },
     });
   }
@@ -434,7 +442,7 @@ const server = http.createServer(async (req, res) => {
     if (user) {
       return sendJSON(res, 200, {
         success: true,
-        userData: { id: user.id, name: user.name, email: user.email, isAccountVerified: user.isAccountVerified, role: user.role, privacyPolicyAccepted: user.privacyPolicyAccepted || false },
+        userData: { id: user.id, name: user.name, email: user.email, isAccountVerified: user.isAccountVerified, role: user.role, privacyPolicyAccepted: user.privacyPolicyAccepted || false, features: user.features || {}, subscription_expires: user.subscription_expires },
       });
     }
     return sendJSON(res, 200, { success: false, message: 'Not authenticated' });
@@ -455,6 +463,8 @@ const server = http.createServer(async (req, res) => {
         isAccountVerified: user.isAccountVerified,
         role: user.role,
         privacyPolicyAccepted: user.privacyPolicyAccepted || false,
+        features: user.features || {},
+        subscription_expires: user.subscription_expires,
       },
     });
   }
