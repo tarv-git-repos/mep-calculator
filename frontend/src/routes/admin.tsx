@@ -580,11 +580,11 @@ function AdminDashboard() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <span>{new Date(p.subscription_expires).toLocaleDateString()}</span>
+                                  <span>{p.subscription_expires ? new Date(p.subscription_expires).toLocaleDateString() : 'Never'}</span>
                                   <button 
                                     onClick={() => {
                                       setEditingExpiryFor(p.id);
-                                      setNewExpiryDate(new Date(p.subscription_expires).toISOString().split('T')[0]);
+                                      setNewExpiryDate(p.subscription_expires ? new Date(p.subscription_expires).toISOString().split('T')[0] : '');
                                     }}
                                     className="text-blue-600 text-[10px] uppercase font-bold tracking-wider hover:underline opacity-60 hover:opacity-100"
                                   >

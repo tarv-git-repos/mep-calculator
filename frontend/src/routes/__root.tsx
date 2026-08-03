@@ -50,7 +50,7 @@ function AuthGuard({ children }: { children: ReactNode }) {
 
   // Subscription Enforcement
   if (session && profile && !isLoginPage) {
-    if (profile.role !== 'ADMIN') {
+    if (profile.role !== 'ADMIN' && profile.subscription_expires) {
       const expiryDate = new Date(profile.subscription_expires);
       if (new Date() > expiryDate) {
         return (
