@@ -14,12 +14,57 @@ const getBackendUrl = () => {
 
 axios.defaults.withCredentials = true;
 
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token');
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 export const api = {
   // USERS
   async getUsers() {
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/users/list`);
       return data.success ? data.users : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  // ADMIN USER MANAGEMENT
+  async adminToggleRole(profileId: string, newRole: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/toggle-role`, { profileId, newRole });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to toggle role' };
+    }
+  },
+  
+  async adminDeleteUser(profileId: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/delete-user`, { profileId });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to delete user' };
+    }
+  },
+
+  // ACTIVITY LOGS
+  async logActivity(action_type: string, details?: any) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/activity/log`, { action_type, details });
+      return data;
+    } catch (e) {
+      return { success: false };
+    }
+  },
+  
+  async getAdminActivityLogs() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/activity-logs`);
+      return data.success ? data.logs : [];
     } catch (e) {
       return [];
     }

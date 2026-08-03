@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { open, confirm } from '@tauri-apps/plugin-dialog'
 import { authService } from '@/services/authService'
+import { api } from '@/services/api'
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -124,32 +125,44 @@ function AdminDashboard() {
   useEffect(() => {
     if (!isAdmin && session) {
       // Fetch debug info
-      supabase.from('profiles').select('*').eq('id', session.user.id).single().then(({data, error}) => {
-        setDebugInfo({ data, error, userId: session.user.id })
+      api.getUsers().then(users => {
+        const myUser = users.find((u: any) => u.id === session.user.id)
+        setDebugInfo({ data: myUser, error: null, userId: session.user.id })
       })
     }
   }, [isAdmin, session])
 
   const fetchProfiles = async () => {
     setLoadingProfiles(true)
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('email')
+    const users = await api.getUsers()
     
-    if (data) setProfiles(data)
+    // Map custom_users to the expected profiles shape
+    const mappedProfiles = users.map((u: any) => ({
+      id: u.id,
+      email: u.email,
+      role: u.role || 'USER',
+      name: u.name,
+      subscription_expires: null,
+      status: u.isAccountVerified ? 'ACTIVE' : 'TRIAL',
+      features: {}
+    }))
+    
+    setProfiles(mappedProfiles)
     setLoadingProfiles(false)
   }
 
   const fetchActivityLogs = async () => {
     setLoadingLogs(true)
-    const { data, error } = await supabase
-      .from('activity_logs')
-      .select('*, profiles(email)')
-      .order('created_at', { ascending: false })
-      .limit(100)
+    const logs = await api.getAdminActivityLogs()
     
-    if (data) setActivityLogs(data)
+    // The previous format used 'profiles(email)' but our new API provides the email directly as 'email'
+    // Let's ensure the UI gets the expected structure
+    const mappedLogs = logs.map((log: any) => ({
+      ...log,
+      profiles: { email: log.email }
+    }))
+    
+    setActivityLogs(mappedLogs)
     setLoadingLogs(false)
   }
 
@@ -251,13 +264,11 @@ function AdminDashboard() {
       return
     }
     const newRole = currentRole === 'ADMIN' ? 'USER' : 'ADMIN'
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role: newRole })
-      .eq('id', profileId)
     
-    if (error) {
-      toast.error(error.message)
+    const res = await api.adminToggleRole(profileId, newRole)
+    
+    if (!res.success) {
+      toast.error(res.message)
     } else {
       toast.success("Role updated successfully")
       fetchProfiles()
@@ -272,9 +283,10 @@ function AdminDashboard() {
     const choice = await confirm(`Are you sure you want to delete ${email}?\n\nThey will permanently lose access to the application.`, { title: "Delete User", confirmText: "Delete", cancelText: "Cancel" })
     if (!choice) return
 
-    const { error } = await supabase.from('profiles').delete().eq('id', profileId)
-    if (error) {
-      toast.error(error.message)
+    const res = await api.adminDeleteUser(profileId)
+    
+    if (!res.success) {
+      toast.error(res.message)
     } else {
       toast.success("User deleted successfully")
       fetchProfiles()
@@ -289,51 +301,8 @@ function AdminDashboard() {
     setSignUpErrorDetails(null)
     setIsAddingUser(true)
     
-    try {
-      const { data, error } = await adminAuthClient.auth.signUp({
-        email: newEmail,
-        password: newPassword
-      })
-
-      if (error) {
-        if (error.message.includes('rate limit')) {
-          toast.error('Supabase Rate Limit Reached!')
-          setSignUpErrorDetails('Supabase free tier limits emails to 3 per hour. Wait an hour or add them in the Supabase Dashboard.')
-        } else {
-          toast.error(error.message)
-          setSignUpErrorDetails(JSON.stringify(error, null, 2))
-        }
-      } else {
-        if (data?.user) {
-          // Explicitly create the profile record in case the database trigger is missing
-          const { error: profileError } = await supabase.from('profiles').upsert({
-            id: data.user.id,
-            email: newEmail,
-            role: 'USER',
-            subscription_expires: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-            status: 'TRIAL',
-            features: {}
-          });
-          
-          if (profileError) {
-            console.error("Profile creation error:", profileError);
-            toast.error("User auth created, but profile failed!");
-            setSignUpErrorDetails('Profile Database Error: ' + JSON.stringify(profileError, null, 2));
-            setIsAddingUser(false)
-            return;
-          }
-        }
-        
-        toast.success("User added successfully!")
-        setShowAddUser(false)
-        setNewEmail('')
-        setNewPassword('')
-        fetchProfiles()
-      }
-    } catch (err: any) {
-      toast.error("Unexpected error occurred")
-      setSignUpErrorDetails(err.message || JSON.stringify(err))
-    }
+    // Disabled during custom auth migration
+    toast.error("User creation via Admin panel temporarily disabled during backend migration")
     
     setIsAddingUser(false)
   }

@@ -805,9 +805,51 @@ const server = http.createServer(async (req, res) => {
 
   const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
   const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
+  const ACTIVITY_LOGS_FILE = path.join(DATA_DIR, 'activity_logs.json');
 
   if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8');
   if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8');
+  if (!fs.existsSync(ACTIVITY_LOGS_FILE)) fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify([]), 'utf8');
+  
+  function readActivityLogs() {
+    try { return JSON.parse(fs.readFileSync(ACTIVITY_LOGS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+  }
+  function writeActivityLogs(logs) {
+    try { fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8'); } catch (e) {}
+  }
+  
+  // POST log activity
+  if (req.method === 'POST' && url === '/api/activity/log') {
+    const user = await getUserFromReq(req);
+    // Ignore if not logged in
+    if (!user) return sendJSON(res, 200, { success: true }); 
+    const { action_type, details } = await getRequestBody(req);
+    
+    const logs = readActivityLogs();
+    logs.unshift({
+      id: `log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+      created_at: new Date().toISOString(),
+      user_id: user.id,
+      email: user.email,
+      action_type,
+      details
+    });
+    // Keep only last 1000 logs to prevent file bloat
+    if (logs.length > 1000) logs.length = 1000;
+    writeActivityLogs(logs);
+    
+    return sendJSON(res, 200, { success: true });
+  }
+  
+  // GET admin activity logs
+  if (req.method === 'GET' && url === '/api/admin/activity-logs') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || adminUser.role !== 'ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+    const logs = readActivityLogs();
+    return sendJSON(res, 200, { success: true, logs });
+  }
 
   function readLicenses() {
     try { return JSON.parse(fs.readFileSync(LICENSES_FILE, 'utf8') || '[]'); } catch (e) { return []; }
