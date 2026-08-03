@@ -24,9 +24,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "YOUR_UPDATER_PUBLIC_KEY_HERE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJEM0FGOTdCRjJGMDRGQ0QKUldUTlQvRHllL2s2dmNQdmkyQWxrMkMvSEhnYWtCZ3IxNEp0VzhrblVzNndnNlRkTjZleGtYK1EK",
       "endpoints": [
-        "https://api.yourserver.com/releases/{{target}}/{{current_version}}"
+        "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/{{target}}/{{current_version}}"
       ]
     }
   },

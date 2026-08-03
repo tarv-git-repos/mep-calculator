@@ -1,6 +1,9 @@
 import axios from 'axios';
 
 const getBackendUrl = () => {
+  if (import.meta.env && import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;

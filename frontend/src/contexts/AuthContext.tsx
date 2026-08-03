@@ -57,6 +57,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState<boolean>(true);
 
   const setUserData = (data: AuthUserData | null) => {
+    if (data && typeof window !== 'undefined' && localStorage.getItem('privacy_policy_accepted') === 'true') {
+      data = { ...data, privacyPolicyAccepted: true };
+    }
     setUserDataState(data);
     if (typeof window !== 'undefined') {
       if (data) {
@@ -102,14 +105,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const acceptPrivacy = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('privacy_policy_accepted', 'true');
+    }
+    if (userData) {
+      setUserData({ ...userData, privacyPolicyAccepted: true });
+    }
     try {
       const { api } = await import('@/services/api');
-      const res = await api.acceptPrivacyPolicy();
-      if (res.success && userData) {
-        setUserData({ ...userData, privacyPolicyAccepted: true });
-      }
+      await api.acceptPrivacyPolicy();
     } catch (e) {
-      console.error("Failed to accept privacy policy", e);
+      console.error("Failed to sync privacy policy acceptance with cloud backend", e);
     }
   };
 

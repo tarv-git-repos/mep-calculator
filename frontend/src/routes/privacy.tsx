@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { FileText, CheckCircle2 } from 'lucide-react'
 
@@ -10,8 +11,10 @@ export const Route = createFileRoute('/privacy')({
 function PrivacyPolicy() {
   const navigate = useNavigate()
   const { acceptPrivacy } = useAuth()
+  const [agreed, setAgreed] = useState(false)
 
   const handleAccept = async () => {
+    if (!agreed) return
     await acceptPrivacy()
     navigate({ to: '/' })
   }
@@ -32,7 +35,7 @@ function PrivacyPolicy() {
           </p>
         </div>
 
-        <div className="p-8 prose prose-slate dark:prose-invert max-w-none h-[400px] overflow-y-auto custom-scrollbar">
+        <div className="p-8 prose prose-slate dark:prose-invert max-w-none h-[380px] overflow-y-auto custom-scrollbar">
           <h3>1. Acceptance of Terms</h3>
           <p>By accessing and using this application, you accept and agree to be bound by the terms and provision of this agreement.</p>
           
@@ -40,32 +43,45 @@ function PrivacyPolicy() {
           <p>This application operates both locally on your device and via our secure cloud servers. Project calculations are auto-saved to your local AppData folder to prevent data loss. If you are signed in, your projects are synced securely to our cloud database to enable Real-Time Collaboration and Auto-Locking features.</p>
           
           <h3>3. Licensing</h3>
-          <p>Your license is bound strictly to your registered email address. Sharing accounts or bypassing the license verification mechanisms is strictly prohibited and will result in permanent account suspension.</p>
+          <p>Your license is bound strictly to your registered email address. Sharing accounts or bypassing the license verification mechanisms is strictly prohibited and result in permanent account suspension.</p>
           
           <h3>4. Auto-Updates</h3>
           <p>The desktop version of this application periodically checks for updates to ensure you have the latest calculators, bug fixes, and security patches. By accepting these terms, you consent to these automatic background checks.</p>
           
           <h3>5. Disclaimer of Liability</h3>
           <p>The calculations provided by this software are for preliminary design and estimation purposes only. The authors and developers of this software are not liable for any structural, mechanical, or electrical failures that may occur based on these estimations. Always verify critical engineering data with certified local codes and professional engineers.</p>
-          
-          <br/>
-          <br/>
-          <br/>
-          <br/>
-          <br/>
         </div>
 
-        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-sm text-slate-500 dark:text-slate-400 text-center sm:text-left">
-            By clicking "I Accept", you acknowledge that you have read, understood, and agree to our terms.
-          </p>
-          <button
-            onClick={handleAccept}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 shrink-0"
-          >
-            <CheckCircle2 className="w-5 h-5" />
-            I Accept & Continue
-          </button>
+        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-4">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              className="size-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-600"
+            />
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              I have read, understood, and agree to the Privacy Policy & Terms of Service.
+            </span>
+          </label>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-3 border-t border-slate-200/80 dark:border-slate-700/80">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              By checking the box above and clicking "I Accept", you agree to our terms.
+            </p>
+            <button
+              onClick={handleAccept}
+              disabled={!agreed}
+              className={`w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 font-bold rounded-xl transition-all shadow-md shrink-0 ${
+                agreed
+                  ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer hover:shadow-lg"
+                  : "bg-slate-300 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed opacity-60"
+              }`}
+            >
+              <CheckCircle2 className="w-5 h-5" />
+              I Accept & Continue
+            </button>
+          </div>
         </div>
       </div>
     </div>

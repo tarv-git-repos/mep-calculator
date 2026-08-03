@@ -364,6 +364,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }, [pathname, profile?.id]);
 
+  useEffect(() => {
+    if (project?.id && typeof localStorage !== "undefined") {
+      localStorage.setItem("mep_active_project_id", project.id);
+      localStorage.setItem("mep_last_worked_project_id", project.id);
+    }
+  }, [project?.id]);
+
   // Init Collaboration
   useEffect(() => {
     const initCollab = async () => {
@@ -390,7 +397,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
 
     // Force privacy policy acceptance
-    const acceptedPrivacy = userData?.privacyPolicyAccepted === true;
+    const acceptedPrivacy = userData?.privacyPolicyAccepted === true || (typeof window !== 'undefined' && localStorage.getItem('privacy_policy_accepted') === 'true');
     if (!acceptedPrivacy && pathname !== '/login' && pathname !== '/privacy') {
       navigate({ to: '/privacy' });
     }
@@ -555,6 +562,93 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       document.removeEventListener("click", handleCaptureClick, true);
     };
   }, []);
+
+  // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
+  useEffect(() => {
+    const isEffectiveReadOnly = isReadOnly || isLockedByOther;
+    if (!isEffectiveReadOnly) return;
+
+    const isAllowedInteractive = (target: HTMLElement) => {
+      // Header, Sidebar, Navigation links, and Tab switching buttons are always allowed
+      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print")) return true;
+      
+      const btn = target.closest("button, [role='button'], a, [role='tab']");
+      if (!btn) return false;
+
+      // Tab buttons, tab triggers, view mode toggles, accordion headers, search filter inputs are allowed
+      const btnText = (btn.textContent || "").trim().toLowerCase();
+      const isTab = btn.getAttribute("role") === "tab" || 
+                    btn.classList.contains("tab-btn") || 
+                    btn.hasAttribute("data-state") ||
+                    ["spaces", "zones", "equipment", "report", "schedule", "sld", "calculator", "summary"].includes(btnText);
+
+      return isTab;
+    };
+
+    const handleReadOnlyClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+
+      const isEditableInput = target.closest("input, select, textarea, [contenteditable='true']");
+      const isMutationBtn = target.closest("button, [role='button']");
+
+      if (isEditableInput) {
+        // Prevent focusing/editing input fields
+        e.preventDefault();
+        e.stopPropagation();
+        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        return;
+      }
+
+      if (isMutationBtn && !isAllowedInteractive(target)) {
+        // Prevent clicking data-mutation buttons (like + New Space, Import, Auto-Zone, Delete)
+        e.preventDefault();
+        e.stopPropagation();
+        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        return;
+      }
+    };
+
+    const handleReadOnlyKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+      const tagName = target.tagName.toLowerCase();
+      const isEditable = target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+      
+      // Allow navigation keys, copy (Ctrl+C / Cmd+C), select all (Ctrl+A), Tab, Escape, Arrows, PageUp/Down
+      const isCopyCombo = (e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C' || e.key === 'a' || e.key === 'A');
+      const isNavKey = ['Tab', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key);
+
+      if (isEditable && !isCopyCombo && !isNavKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      }
+    };
+
+    const handleReadOnlyChange = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+      const tagName = target.tagName.toLowerCase();
+      if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      }
+    };
+
+    document.addEventListener("mousedown", handleReadOnlyClick, true);
+    document.addEventListener("click", handleReadOnlyClick, true);
+    document.addEventListener("keydown", handleReadOnlyKeyDown, true);
+    document.addEventListener("change", handleReadOnlyChange, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handleReadOnlyClick, true);
+      document.removeEventListener("click", handleReadOnlyClick, true);
+      document.removeEventListener("keydown", handleReadOnlyKeyDown, true);
+      document.removeEventListener("change", handleReadOnlyChange, true);
+    };
+  }, [isReadOnly, isLockedByOther]);
 
   const handleKeepValuesAsIs = () => {
     if (!pendingUnitToggle) return;
@@ -1046,7 +1140,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </span>
             </div>
           )}
-          <div className={`flex-1 min-h-0 overflow-hidden flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'pointer-events-none opacity-80 mt-10' : ''}`}>
+          <div className={`flex-1 min-h-0 overflow-hidden flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''}`}>
             {isInitializing ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-slate-50/50">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />

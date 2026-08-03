@@ -12,5 +12,19 @@
     "firstSeenAt": 1785568882399,
     "expiresAt": 1786778482399,
     "status": "FREE_TRIAL"
+  },
+  {
+    "hwid": "HWID-3E4BD18D9ACF9-E6BDDD35DBFE3",
+    "email": "admin@tarv.ai",
+    "firstSeenAt": 1785577488252,
+    "expiresAt": 1786787088252,
+    "status": "FREE_TRIAL"
+  },
+  {
+    "hwid": "HWID-1C2B8B21EAA59F-BE4032C309C",
+    "email": "karwakirtan@gmail.com",
+    "firstSeenAt": 1785731339777,
+    "expiresAt": 1786940939777,
+    "status": "FREE_TRIAL"
   }
 ]

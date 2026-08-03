@@ -195,8 +195,6 @@ interface InlineInputProps {
 function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder }: InlineInputProps) {
   const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
 
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
-
   useEffect(() => {
     setLocalVal(value === "" ? "" : String(value));
   }, [value]);
@@ -209,15 +207,6 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       e.currentTarget.blur();
     }
   };
-
-  
-  useEffect(() => {
-    if (true) {
-      const dataToSave = { localVal, projectInfo, rows, activeTab, showFormulaPanel, selected, lastClickedIndex, query, selectedFloor, selectedType, clipboard, floorOrder, draggingIndex, bulkEditOpen, bulkEditValues, bulkEditFields, importOpen, pendingRecords, selectedPending, lastClickedPendingIndex, importBulkValues };
-      localStorage.setItem(`pcl_rows`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [localVal, projectInfo, rows, activeTab, showFormulaPanel, selected, lastClickedIndex, query, selectedFloor, selectedType, clipboard, floorOrder, draggingIndex, bulkEditOpen, bulkEditValues, bulkEditFields, importOpen, pendingRecords, selectedPending, lastClickedPendingIndex, importBulkValues]);
 
   return (
     <input
@@ -327,8 +316,7 @@ function PreliminaryCoolingLoadPage() {
         setProjectInfo(JSON.parse(savedInfo));
       }
     } catch (e) {
-      console.error(e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+      console.error("Failed to load preliminary cooling load data", e);
     }
   }, []);
 

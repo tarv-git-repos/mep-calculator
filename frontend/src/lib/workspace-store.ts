@@ -139,6 +139,11 @@ function saveState() {
   if (IS_SERVER) return;
   currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
   
+  if (typeof localStorage !== "undefined" && activeProjectId) {
+    localStorage.setItem("mep_active_project_id", activeProjectId);
+    localStorage.setItem("mep_last_worked_project_id", activeProjectId);
+  }
+
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
     if (activeProjectId) {
@@ -188,9 +193,16 @@ export const workspaceStore = {
     const cloudProjects = await api.getProjects();
     if (cloudProjects && cloudProjects.length > 0) {
       projects = cloudProjects;
-      let target = projects.find(p => p.id === activeProjectId) || projects[0];
+      const lastActive = typeof localStorage !== "undefined"
+        ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id") || activeProjectId)
+        : activeProjectId;
+      let target = projects.find(p => p.id === lastActive || p.id === activeProjectId) || projects[0];
       activeProjectId = target.id;
       currentProject = target;
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("mep_active_project_id", target.id);
+        localStorage.setItem("mep_last_worked_project_id", target.id);
+      }
       const wdata = currentProject.workspace_data || {};
       injectLocalStorageCache(wdata);
       currentWorkspaceState = sanitizeWorkspaceState({
@@ -211,16 +223,20 @@ export const workspaceStore = {
     projects = cloudProjects || [];
     
     if (projects.length > 0) {
+       let lastActive = typeof localStorage !== "undefined"
+         ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id"))
+         : null;
        let target = projects[0];
-       if (typeof localStorage !== "undefined") {
-         const lastActive = localStorage.getItem("mep_active_project_id");
-         if (lastActive) {
-           const found = projects.find(p => p.id === lastActive);
-           if (found) target = found;
-         }
+       if (lastActive) {
+         const found = projects.find(p => p.id === lastActive || p.code === lastActive);
+         if (found) target = found;
        }
        activeProjectId = target.id;
        currentProject = target;
+       if (typeof localStorage !== "undefined") {
+         localStorage.setItem("mep_active_project_id", target.id);
+         localStorage.setItem("mep_last_worked_project_id", target.id);
+       }
        const wdata = currentProject.workspace_data || {};
        injectLocalStorageCache(wdata);
        currentWorkspaceState = sanitizeWorkspaceState({
@@ -326,6 +342,10 @@ export const workspaceStore = {
       
       currentProject = newProj;
       activeProjectId = newProj.id;
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("mep_active_project_id", newProj.id);
+        localStorage.setItem("mep_last_worked_project_id", newProj.id);
+      }
       currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
       
       notify();

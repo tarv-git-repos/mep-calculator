@@ -18,5 +18,25 @@
     "expiresAt": 1817107052112,
     "status": "ACTIVE",
     "paymentStatus": "PAID_MOCK"
+  },
+  {
+    "key": "MEP-ENTERPRISE-PBEQ-N64M-YMMX",
+    "tier": "ENTERPRISE",
+    "boundEmail": "admin@tarv.ai",
+    "boundHwid": "HWID-1F3D927BAA0F00-113EF9FEE45FA",
+    "createdAt": 1785579481958,
+    "expiresAt": 1817115481958,
+    "status": "ACTIVE",
+    "paymentStatus": "PAID_MOCK"
+  },
+  {
+    "key": "MEP-ENTERPRISE-AJXX-24ZC-ATZ6",
+    "tier": "ENTERPRISE",
+    "boundEmail": "admin@tarv.ai",
+    "boundHwid": "HWID-1F3D927BAA0F00-113EF9FEE45FA",
+    "createdAt": 1785579526955,
+    "expiresAt": 1817115526955,
+    "status": "ACTIVE",
+    "paymentStatus": "PAID_MOCK"
   }
 ]

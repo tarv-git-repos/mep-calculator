@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import { Settings, Save, CheckCircle2, RotateCcw } from "lucide-react";
+import { Settings, Save, CheckCircle2, RotateCcw, DownloadCloud, Loader2 } from "lucide-react";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -21,10 +23,64 @@ function SettingsPage() {
   const [tempUnit, setTempUnit] = useState("C");
   const [chwDeltaT, setChwDeltaT] = useState(5.5);
   const [safetyMargin, setSafetyMargin] = useState(10);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+  const [hasUpdate, setHasUpdate] = useState<any>(null);
 
   const handleSave = () => {
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
+  };
+
+  const checkForUpdates = async () => {
+    try {
+      setIsCheckingUpdate(true);
+      setUpdateStatus("Checking for updates...");
+      const update = await check();
+      if (update) {
+        setHasUpdate(update);
+        setUpdateStatus(`Version ${update.version} available! Release notes: ${update.body}`);
+      } else {
+        setUpdateStatus("You are on the latest version.");
+      }
+    } catch (e: any) {
+      setUpdateStatus(`Error checking for updates: ${e.message}`);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const installUpdate = async () => {
+    if (!hasUpdate) return;
+    try {
+      setIsCheckingUpdate(true);
+      setUpdateStatus("Downloading and installing update... Please do not close the app.");
+      let downloaded = 0;
+      let contentLength = 0;
+      
+      await hasUpdate.downloadAndInstall((event: any) => {
+        switch (event.event) {
+          case 'Started':
+            contentLength = event.data.contentLength;
+            setUpdateStatus(`Downloading update: 0%`);
+            break;
+          case 'Progress':
+            downloaded += event.data.chunkLength;
+            if (contentLength) {
+               setUpdateStatus(`Downloading update: ${Math.round((downloaded / contentLength) * 100)}%`);
+            }
+            break;
+          case 'Finished':
+            setUpdateStatus("Update installed successfully. Restarting...");
+            break;
+        }
+      });
+      await relaunch();
+    } catch (e: any) {
+      setUpdateStatus(`Error installing update: ${e.message}`);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
   };
 
   return (
@@ -113,6 +169,47 @@ function SettingsPage() {
               />
               <span className="text-[11px] text-muted-foreground">Applies general capacity markup.</span>
             </div>
+          </div>
+          
+          {/* Application Updates Section */}
+          <div className="flex items-center gap-2 border-b border-border pb-3 mt-4">
+            <DownloadCloud className="size-4.5 text-primary" />
+            <h3 className="text-[14px] font-bold uppercase tracking-wider text-foreground">Application Updates</h3>
+          </div>
+          <div className="flex flex-col gap-4">
+            <p className="text-[13px] text-muted-foreground">
+              Check for new versions of the MEP Calculator to get the latest features and bug fixes.
+            </p>
+            
+            <div className="flex items-center gap-4">
+              <TBtn 
+                primary={!hasUpdate} 
+                onClick={checkForUpdates} 
+                disabled={isCheckingUpdate}
+                className="px-4"
+              >
+                {isCheckingUpdate && !hasUpdate ? <Loader2 className="size-3.5 animate-spin" /> : <DownloadCloud className="size-3.5" />} 
+                {isCheckingUpdate && !hasUpdate ? "Checking..." : "Check for Updates"}
+              </TBtn>
+
+              {hasUpdate && (
+                <TBtn 
+                  primary 
+                  onClick={installUpdate} 
+                  disabled={isCheckingUpdate}
+                  className="px-4 bg-success hover:bg-success/90"
+                >
+                  {isCheckingUpdate ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />} 
+                  {isCheckingUpdate ? "Installing..." : "Install & Restart"}
+                </TBtn>
+              )}
+            </div>
+
+            {updateStatus && (
+              <div className="text-[12.5px] font-medium p-3 bg-surface/50 rounded border border-border">
+                {updateStatus}
+              </div>
+            )}
           </div>
 
           {savedSuccess && (
