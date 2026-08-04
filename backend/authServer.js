@@ -225,8 +225,13 @@ const server = http.createServer(async (req, res) => {
             .replace(/\{\{name\}\}/g, name),
         };
 
-        transporter.sendMail(welcomeMailOptions).catch((err) => console.error('Welcome mail error:', err));
-        transporter.sendMail(verifyMailOptions).catch((err) => console.error('OTP mail error:', err));
+        try {
+          await transporter.sendMail(welcomeMailOptions);
+          await transporter.sendMail(verifyMailOptions);
+        } catch (err) {
+          console.error('Email error:', err);
+          return sendJSON(res, 200, { success: false, message: 'Failed to send OTP email.' });
+        }
 
         return sendJSON(
           res,
@@ -294,8 +299,13 @@ const server = http.createServer(async (req, res) => {
         .replace(/\{\{name\}\}/g, name),
     };
 
-    transporter.sendMail(welcomeMailOptions).catch((err) => console.error('Welcome mail error:', err));
-    transporter.sendMail(verifyMailOptions).catch((err) => console.error('OTP mail error:', err));
+    try {
+      await transporter.sendMail(welcomeMailOptions);
+      await transporter.sendMail(verifyMailOptions);
+    } catch (err) {
+      console.error('Email error:', err);
+      return sendJSON(res, 200, { success: false, message: 'Failed to send OTP email.' });
+    }
 
     return sendJSON(
       res,
