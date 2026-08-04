@@ -463,7 +463,7 @@ function ProjectsPage() {
                           return (
                             <span key={`t-${pt.team_id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
                               <Users className="size-3" /> {team?.name || 'Team'}
-                              {(profile?.role === 'ADMIN' || p.created_by === profile?.id) && (
+                              {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
                                 <button onClick={() => handleRemoveTeamFromProject(p.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
                                   <X className="size-2.5" />
                                 </button>
@@ -476,7 +476,7 @@ function ProjectsPage() {
                           return (
                             <span key={`u-${pu.user_id}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
                               <User className="size-3 text-muted-foreground" /> {user?.name || 'User'}
-                              {(profile?.role === 'ADMIN' || p.created_by === profile?.id) && (
+                              {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
                                 <button onClick={() => handleRemoveUserFromProject(p.id, pu.user_id)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
                                   <X className="size-2.5" />
                                 </button>
@@ -752,7 +752,7 @@ function ProjectsPage() {
                   </div>
                 </div>
 
-                {profile?.role === 'ADMIN' && (
+                {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') && (
                   <div className="flex flex-col gap-4 mt-2 p-4 bg-primary/5 rounded-2xl border border-primary/10">
                      <div className="flex flex-col gap-1.5">
                         <label className="text-primary font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Assign Users to Project</label>

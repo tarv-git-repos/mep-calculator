@@ -1,15 +1,7 @@
 import axios from 'axios';
 
 const getBackendUrl = () => {
-  if (import.meta.env && import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol;
-    return `${protocol}//${hostname}:4000`;
-  }
-  return 'http://localhost:4000';
+  return import.meta.env.VITE_API_URL || 'https://universal-mep-calculator.onrender.com';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -194,5 +186,44 @@ export const api = {
     } catch (error: any) {
       return { success: false, message: error.response?.data?.message || 'Failed to accept privacy policy' };
     }
-  }
+  },
+
+  // ================= ORG API ENDPOINTS ================= //
+  async getOrganizations() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/organizations`);
+      return data.organizations || [];
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  },
+  async createOrganization(orgData: { name: string; subscription_plan: string; max_users: number }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/organizations`, orgData);
+      return data;
+    } catch (e) {
+      console.error(e);
+      return { success: false };
+    }
+  },
+  async getOrgUsers() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/org/users`);
+      return data.users || [];
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  },
+  async inviteOrgUser(inviteData: { name: string; email: string; role: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/invite`, inviteData);
+      return data;
+    } catch (e: any) {
+      console.error(e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+
 };

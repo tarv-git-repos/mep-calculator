@@ -21,9 +21,13 @@ import { Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isFeatureLocked } from "@/utils/featureFlags";
 
+import { PricingModal } from "@/components/workspace/PricingModal";
+import { useState } from "react";
+
 function AuthGuard({ children }: { children: ReactNode }) {
-  const { session, profile, loading, isLoggedin } = useAuth();
+  const { session, profile, loading, isLoggedin, logout } = useAuth();
   const routerState = useRouterState();
+  const [showPricing, setShowPricing] = useState(false);
   
   if (loading) return (
     <div className="flex h-screen w-screen items-center justify-center bg-slate-950">
@@ -40,17 +44,14 @@ function AuthGuard({ children }: { children: ReactNode }) {
 
   // Security & Smart Routing
   if (session && profile && !isLoginPage) {
-    if (profile.role !== 'ADMIN' && isAdminPage) {
-      return <Navigate to="/" replace />;
-    }
-    if (profile.role !== 'ADMIN' && isFeatureLocked(routerState.location.pathname, profile)) {
+    if (profile.role !== 'SUPER_ADMIN' && profile.role !== 'ORG_ADMIN' && isAdminPage) {
       return <Navigate to="/" replace />;
     }
   }
 
   // Subscription Enforcement
   if (session && profile && !isLoginPage) {
-    if (profile.role !== 'ADMIN' && profile.subscription_expires) {
+    if (profile.role !== 'SUPER_ADMIN' && profile.subscription_expires) {
       const expiryDate = new Date(profile.subscription_expires);
       if (new Date() > expiryDate) {
         return (
@@ -58,17 +59,36 @@ function AuthGuard({ children }: { children: ReactNode }) {
             <Clock className="w-16 h-16 text-amber-500 mb-4" />
             <h2 className="text-2xl font-bold">Subscription Expired</h2>
             <p className="text-muted-foreground mt-2 max-w-md">
-              Your access to the MEP Calculator has expired. Please contact your administrator to renew your subscription.
+              Your access to the MEP Calculator has expired. Please renew your subscription or contact your administrator to continue.
             </p>
             <div className="mt-8 p-4 bg-slate-200 dark:bg-slate-800 rounded-lg">
               <p className="text-sm">Expired on: {expiryDate.toLocaleDateString()}</p>
             </div>
-            <button 
-              onClick={() => supabase.auth.signOut()}
-              className="mt-6 px-4 py-2 bg-slate-200 dark:bg-slate-800 rounded-lg font-medium hover:bg-slate-300 dark:hover:bg-slate-700"
-            >
-              Sign out
-            </button>
+            
+            <div className="mt-8 flex flex-col sm:flex-row gap-4 items-center justify-center w-full max-w-sm">
+              <button 
+                onClick={() => setShowPricing(true)}
+                className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 text-white rounded-lg font-bold shadow-md shadow-blue-500/20 hover:bg-blue-700 transition-all"
+              >
+                Renew Subscription
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    await logout();
+                    // We can also force a reload if context doesn't clear immediately
+                    window.location.href = "/login";
+                  } catch (e) {
+                    console.error("Logout failed", e);
+                  }
+                }}
+                className="w-full sm:w-auto px-6 py-2.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg font-medium hover:bg-slate-300 dark:hover:bg-slate-700 transition-all"
+              >
+                Sign out
+              </button>
+            </div>
+            
+            {showPricing && <PricingModal isOpen={showPricing} onClose={() => setShowPricing(false)} />}
           </div>
         );
       }

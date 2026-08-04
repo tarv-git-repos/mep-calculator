@@ -67,7 +67,7 @@ async function readUsers() {
         verifyOtp: '',
         verifyOtpExpireAt: 0,
         isAccountVerified: true,
-        role: 'ADMIN',
+        role: 'SUPER_ADMIN',
         resetOtp: '',
         resetOtpExpireAt: 0,
         createdAt: new Date().toISOString()
@@ -93,6 +93,21 @@ async function writeUsers(users) {
   } catch (e) {
     console.error('Error writing users:', e);
   }
+}
+
+function formatUser(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    isAccountVerified: user.isAccountVerified,
+    role: user.role,
+    privacyPolicyAccepted: user.privacyPolicyAccepted || false,
+    features: user.features || {},
+    subscription_expires: user.subscription_expires,
+    organization_id: user.organization_id,
+    status: user.status
+  };
 }
 
 function parseCookies(request) {
@@ -445,7 +460,7 @@ const server = http.createServer(async (req, res) => {
     if (user) {
       return sendJSON(res, 200, {
         success: true,
-        userData: { id: user.id, name: user.name, email: user.email, isAccountVerified: user.isAccountVerified, role: user.role, privacyPolicyAccepted: user.privacyPolicyAccepted || false, features: user.features || {}, subscription_expires: user.subscription_expires },
+        userData: formatUser(user),
       });
     }
     return sendJSON(res, 200, { success: false, message: 'Not authenticated' });
@@ -572,7 +587,8 @@ const server = http.createServer(async (req, res) => {
       role: u.role,
       features: u.features,
       subscription_expires: u.subscription_expires,
-      isAccountVerified: u.isAccountVerified
+      isAccountVerified: u.isAccountVerified,
+      organization_id: u.organization_id
     }));
     return sendJSON(res, 200, { success: true, users: safeUsers });
   }
@@ -580,7 +596,7 @@ const server = http.createServer(async (req, res) => {
   // B. CREATE TEAM
   if (req.method === 'POST' && url === '/api/teams/create') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can create teams' });
+    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can create teams' });
     const { name } = await getRequestBody(req);
     if (!name) return sendJSON(res, 400, { success: false, message: 'Team name required' });
     
@@ -602,7 +618,7 @@ const server = http.createServer(async (req, res) => {
   // D. ADD USER TO TEAM
   if (req.method === 'POST' && url === '/api/teams/add-user') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
     const { team_id, user_id } = await getRequestBody(req);
     const { error } = await supabase.from('team_members').upsert({ team_id, user_id });
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
@@ -612,7 +628,7 @@ const server = http.createServer(async (req, res) => {
   // D2. REMOVE USER FROM TEAM
   if (req.method === 'POST' && url === '/api/teams/remove-user') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
     const { team_id, user_id } = await getRequestBody(req);
     const { error } = await supabase.from('team_members').delete().match({ team_id, user_id });
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
@@ -668,7 +684,7 @@ const server = http.createServer(async (req, res) => {
 
     // Filter projects the user is allowed to see
     let visibleProjects = projects;
-    if (user.role !== 'ADMIN') {
+    if (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
       // Find what teams the user is in
       const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
       const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
@@ -706,7 +722,7 @@ const server = http.createServer(async (req, res) => {
     const { project_id, user_id } = await getRequestBody(req);
 
     const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
-    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+    if (!proj || (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
 
@@ -722,7 +738,7 @@ const server = http.createServer(async (req, res) => {
     const { project_id, user_id } = await getRequestBody(req);
 
     const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
-    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+    if (!proj || (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
 
@@ -738,7 +754,7 @@ const server = http.createServer(async (req, res) => {
     const { project_id, team_id } = await getRequestBody(req);
 
     const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
-    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+    if (!proj || (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
 
@@ -754,7 +770,7 @@ const server = http.createServer(async (req, res) => {
     const { project_id, team_id } = await getRequestBody(req);
 
     const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
-    if (!proj || (proj.created_by !== user.id && user.role !== 'ADMIN')) {
+    if (!proj || (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
 
@@ -773,7 +789,7 @@ const server = http.createServer(async (req, res) => {
     const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
     if (!proj) return sendJSON(res, 404, { success: false, message: 'Project not found' });
     
-    if (proj.created_by !== user.id && user.role !== 'ADMIN') {
+    if (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
 
@@ -788,7 +804,7 @@ const server = http.createServer(async (req, res) => {
   
   if (req.method === 'POST' && url === '/api/admin/toggle-role') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || adminUser.role !== 'ADMIN') {
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN') {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
     }
     const { profileId, newRole } = await getRequestBody(req);
@@ -806,7 +822,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && url === '/api/admin/delete-user') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || adminUser.role !== 'ADMIN') {
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN') {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
     }
     const { profileId } = await getRequestBody(req);
@@ -823,7 +839,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && url === '/api/admin/update-profile') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || adminUser.role !== 'ADMIN') {
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN') {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
     }
     const { profileId, updates } = await getRequestBody(req);
@@ -885,7 +901,7 @@ const server = http.createServer(async (req, res) => {
   // GET admin activity logs
   if (req.method === 'GET' && url === '/api/admin/activity-logs') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || adminUser.role !== 'ADMIN') {
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN') {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
     const logs = readActivityLogs();
@@ -1127,7 +1143,7 @@ const server = http.createServer(async (req, res) => {
   // 5. ADMIN: LIST ALL LICENSES
   if (req.method === 'GET' && url === '/api/admin/licenses/list') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
 
     const licenses = readLicenses();
     const trials = readTrials();
@@ -1137,7 +1153,7 @@ const server = http.createServer(async (req, res) => {
   // 6. ADMIN: GENERATE CUSTOM UNIQUE KEY
   if (req.method === 'POST' && url === '/api/admin/licenses/generate') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
 
     const { tier = 'PRO', durationDays = 365, targetEmail = '' } = await getRequestBody(req);
     const uniqueKey = generateUniqueLicenseKey(tier);
@@ -1165,7 +1181,7 @@ const server = http.createServer(async (req, res) => {
   // 7. ADMIN: REVOKE LICENSE KEY
   if (req.method === 'POST' && url === '/api/admin/licenses/revoke') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
 
     const { key } = await getRequestBody(req);
     const licenses = readLicenses();
@@ -1176,6 +1192,98 @@ const server = http.createServer(async (req, res) => {
     writeLicenses(licenses.map(l => l.key === key ? lic : l));
 
     return sendJSON(res, 200, { success: true, message: `License ${key} revoked` });
+  }
+
+  
+  // ================= MULTI-TENANT ORG ENDPOINTS ================= //
+
+  if (req.method === 'GET' && url === '/api/admin/organizations') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    const { data } = await supabase.from('organizations').select('*');
+    return sendJSON(res, 200, { success: true, organizations: data || [] });
+  }
+
+  if (req.method === 'POST' && url === '/api/admin/organizations') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    const { name, subscription_plan, max_users } = await getRequestBody(req);
+    const { data, error } = await supabase.from('organizations').insert([{ name, subscription_plan, max_users: parseInt(max_users) || 10 }]).select();
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, organization: data[0] });
+  }
+
+  if (req.method === 'GET' && url === '/api/org/users') {
+    const user = await getUserFromReq(req);
+    if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    
+    // For SUPER_ADMIN, they might pass ?org_id=... to view a specific org's users
+    let orgId = user.organization_id;
+    if (user.role === 'SUPER_ADMIN') {
+      const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
+      if (qOrgId) orgId = qOrgId;
+    }
+    
+    if (!orgId && user.role !== 'SUPER_ADMIN') return sendJSON(res, 400, { success: false, message: 'Organization ID missing' });
+    
+    let query = supabase.from('custom_users').select('*');
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data } = await query;
+    return sendJSON(res, 200, { success: true, users: (data || []).map(formatUser) });
+  }
+
+  if (req.method === 'POST' && url === '/api/org/invite') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    if (!user.organization_id) return sendJSON(res, 400, { success: false, message: 'Admin does not belong to an organization' });
+    
+    const { data: orgData } = await supabase.from('organizations').select('*').eq('id', user.organization_id).single();
+    if (!orgData) return sendJSON(res, 404, { success: false, message: 'Organization not found' });
+    if (orgData.used_users >= orgData.max_users) return sendJSON(res, 400, { success: false, message: 'Maximum seat limit reached for organization. Please upgrade your subscription.' });
+
+    const { name, email, role } = await getRequestBody(req);
+    if (!name || !email) return sendJSON(res, 400, { success: false, message: 'Name and email required' });
+
+    const cleanEmail = email.trim().toLowerCase();
+    const users = await readUsers();
+    if (users.find(u => u.email === cleanEmail)) {
+      return sendJSON(res, 400, { success: false, message: 'Email already exists in the system' });
+    }
+
+    const tempPassword = Math.random().toString(36).slice(-8);
+    const hashedPassword = bcrypt.hashSync(tempPassword, 10);
+    const userId = 'usr_' + Date.now();
+    
+    const newUser = {
+      id: userId,
+      name: name.trim(),
+      email: cleanEmail,
+      password: hashedPassword,
+      isAccountVerified: false,
+      role: role || 'ENGINEER',
+      organization_id: user.organization_id,
+      status: 'invited',
+      verifyOtp: String(Math.floor(100000 + Math.random() * 900000)),
+      verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000,
+      createdAt: new Date().toISOString()
+    };
+    
+    users.push(newUser);
+    await writeUsers(users);
+
+    await supabase.from('organizations').update({ used_users: orgData.used_users + 1 }).eq('id', user.organization_id);
+
+    const inviteMailOptions = {
+      from: `"MEP Calculator" <${SENDER_EMAIL}>`,
+      to: cleanEmail,
+      subject: 'You have been invited to MEP Calculator',
+      html: WELCOME_EMAIL_TEMPLATE.replace('{{name}}', newUser.name).replace('{{otp}}', newUser.verifyOtp) + `<p>Your temporary password is: <b>${tempPassword}</b></p>`
+    };
+    transporter.sendMail(inviteMailOptions).catch(console.error);
+
+    return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: formatUser(newUser) });
   }
 
   // 404 Fallback

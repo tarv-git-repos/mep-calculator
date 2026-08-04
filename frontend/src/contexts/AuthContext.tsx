@@ -1,15 +1,32 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { authService, AuthUserData } from '@/services/authService';
 
+export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  organization_id?: string;
+  isAccountVerified: boolean;
+  privacyPolicyAccepted: boolean;
+  features?: Record<string, boolean>;
+  subscription_expires?: string;
+  status?: string;
+};
+
 export type Profile = {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'USER';
+  role: Role;
+  organization_id?: string;
   subscription_status: string;
   isAccountVerified: boolean;
   features?: Record<string, boolean>;
   subscription_expires?: string;
+  status?: string;
 };
 
 interface AuthContextType {

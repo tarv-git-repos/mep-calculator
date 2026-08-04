@@ -724,7 +724,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const filteredNav = useMemo(() => {
     const rawNav = import.meta.env.VITE_APP_MODE === 'kfactor'
       ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
-      : [...NAV, ...(profile?.role === 'ADMIN' ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])];
+      : [...NAV, ...(['SUPER_ADMIN', 'ORG_ADMIN'].includes(profile?.role || '') ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])];
       
     // Do not filter out locked items from the sidebar.
     // They will remain visible but show a "Coming Soon" placeholder when clicked.

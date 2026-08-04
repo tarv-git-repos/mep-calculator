@@ -1,15 +1,7 @@
 import axios from 'axios';
 
 const getBackendUrl = () => {
-  if (import.meta.env && import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol;
-    return `${protocol}//${hostname}:4000`;
-  }
-  return 'http://localhost:4000';
+  return import.meta.env.VITE_API_URL || 'https://universal-mep-calculator.onrender.com';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -18,6 +10,9 @@ export interface AuthUserData {
   id: string;
   name: string;
   email: string;
+  role: 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
+  organization_id?: string;
+  status?: string;
   isAccountVerified: boolean;
   privacyPolicyAccepted?: boolean;
   features?: Record<string, boolean>;

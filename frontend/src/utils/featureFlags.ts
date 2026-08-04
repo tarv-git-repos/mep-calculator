@@ -4,8 +4,8 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   if (!path) return false;
   
   // If the profile features are not loaded, or the user is not logged in, fallback to locked
-  // But wait, if they are an admin, they should never be locked out
-  if (profile?.role === 'ADMIN') return false;
+  // SUPER_ADMIN should never be locked out
+  if (profile?.role === 'SUPER_ADMIN') return false;
 
   const features = profile?.features || {};
   

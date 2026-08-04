@@ -25,7 +25,7 @@ function TeamsPage() {
   const [selectedTeam, setSelectedTeam] = useState("");
 
   const loadData = async () => {
-    if (profile?.role === 'ADMIN') {
+    if (profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') {
        const u = await api.getUsers();
        setUsers(u);
        const t = await api.getTeams();
@@ -37,7 +37,7 @@ function TeamsPage() {
     loadData();
   }, [profile]);
 
-  if (profile?.role !== 'ADMIN') {
+  if (profile?.role !== 'SUPER_ADMIN' && profile?.role !== 'ORG_ADMIN') {
     return (
       <AppShell title="Teams" subtitle="Manage Organization Teams">
         <div className="flex h-[calc(100vh-80px)] items-center justify-center bg-background">

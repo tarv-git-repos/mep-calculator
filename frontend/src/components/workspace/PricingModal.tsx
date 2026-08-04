@@ -26,6 +26,27 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
   const [inputKey, setInputKey] = useState("");
   const [activating, setActivating] = useState(false);
 
+  // Promo Code
+  const [promoInput, setPromoInput] = useState("");
+  const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; percent: number } | null>(null);
+
+  const PROMO_CODES: Record<string, number> = {
+    "MEP50": 0.5, // 50% off
+    "WELCOME20": 0.2, // 20% off
+    "FREE100": 1.0, // 100% off
+  };
+
+  const handleApplyPromo = () => {
+    const code = promoInput.trim().toUpperCase();
+    if (PROMO_CODES[code]) {
+      setAppliedDiscount({ code, percent: PROMO_CODES[code] });
+      toast.success(`Promo code ${code} applied! ${PROMO_CODES[code] * 100}% off.`);
+    } else {
+      toast.error("Invalid or expired promo code.");
+      setAppliedDiscount(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   const plans = [
@@ -80,6 +101,14 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
   ];
 
   const targetPlan = plans.find((p) => p.id === selectedPlan) || plans[1];
+  
+  const getFinalPrice = () => {
+    const originalPrice = parseFloat(targetPlan.price.replace("$", ""));
+    if (appliedDiscount) {
+      return `$${(originalPrice * (1 - appliedDiscount.percent)).toFixed(2)}`;
+    }
+    return targetPlan.price;
+  };
 
   const handleMockPayment = async () => {
     if (!userEmail) {
@@ -309,6 +338,22 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
                   </div>
                 </div>
 
+                <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2">
+                  <input
+                    type="text"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value)}
+                    placeholder="Promo Code (e.g. MEP50)"
+                    className="flex-1 h-9 px-3 bg-black/40 border border-white/15 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-primary uppercase"
+                  />
+                  <button
+                    onClick={handleApplyPromo}
+                    className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white font-medium text-xs rounded-xl transition cursor-pointer"
+                  >
+                    Apply
+                  </button>
+                </div>
+
                 <div className="pt-3 border-t border-white/10 flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
                     <Lock className="size-3.5" />
@@ -318,9 +363,23 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
                   <button
                     onClick={handleMockPayment}
                     disabled={loading}
-                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs rounded-xl transition cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs rounded-xl transition cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center gap-2"
                   >
-                    {loading ? "Processing Payment..." : `Complete Payment (${targetPlan.price})`}
+                    {loading ? "Processing Payment..." : (
+                      <>
+                        Complete Payment 
+                        <span className="bg-black/20 px-2 py-0.5 rounded text-[10px]">
+                          {appliedDiscount ? (
+                            <>
+                              <span className="line-through text-black/50 mr-1">{targetPlan.price}</span>
+                              {getFinalPrice()}
+                            </>
+                          ) : (
+                            getFinalPrice()
+                          )}
+                        </span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
