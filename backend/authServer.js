@@ -142,11 +142,9 @@ async function getUserFromReq(req) {
 }
 
 function sendJSON(res, statusCode, body, setCookieStr = null) {
-  const requestOrigin = res.req?.headers?.origin || '*';
   const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': requestOrigin,
-    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
@@ -177,8 +175,7 @@ const server = http.createServer(async (req, res) => {
   // CORS Preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': req.headers.origin || '*',
-      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     });
