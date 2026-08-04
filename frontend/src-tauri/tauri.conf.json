@@ -5,8 +5,7 @@
   "identifier": "com.vikram.mepcalculator",
   "build": {
     "frontendDist": "../.output/public",
-    "devUrl": "http://localhost:8080",
-    "beforeBuildCommand": ""
+    "devUrl": "http://localhost:8080"
   },
   "app": {
     "windows": [

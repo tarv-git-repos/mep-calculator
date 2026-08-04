@@ -121,6 +121,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = async () => {
     await authService.logout();
     setUserData(null);
+    try {
+      const { workspaceStore } = await import('@/lib/workspace-store');
+      workspaceStore.clearWorkspace();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const acceptPrivacy = async () => {

@@ -690,9 +690,9 @@ const server = http.createServer(async (req, res) => {
       const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
 
         visibleProjects = projects.filter(p => {
-          if (p.created_by === user.id) return true;
-          if (p.project_users.some(pu => pu.user_id === user.id)) return true;
-          if (p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
+          if (p.created_by && p.created_by === user.id) return true;
+          if (Array.isArray(p.project_users) && p.project_users.some(pu => pu.user_id === user.id)) return true;
+          if (Array.isArray(p.project_teams) && p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
           return false;
         });
     }
