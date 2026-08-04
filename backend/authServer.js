@@ -423,11 +423,11 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'User not found' });
     }
 
-    if ((!user.verifyOtp || String(user.verifyOtp).trim() !== String(otp).trim()) && String(otp).trim() !== '123456') {
+    if (!user.verifyOtp || String(user.verifyOtp).trim() !== String(otp).trim()) {
       return sendJSON(res, 200, { success: false, message: 'Invalid OTP code' });
     }
 
-    if (String(otp).trim() !== '123456' && user.verifyOtpExpireAt < Date.now()) {
+    if (user.verifyOtpExpireAt < Date.now()) {
       return sendJSON(res, 200, { success: false, message: 'OTP Expired. Please click Resend OTP.' });
     }
 
@@ -550,11 +550,11 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'User not found' });
     }
 
-    if ((!user.resetOtp || String(user.resetOtp).trim() !== String(otp).trim()) && String(otp).trim() !== '123456') {
+    if (!user.resetOtp || String(user.resetOtp).trim() !== String(otp).trim()) {
       return sendJSON(res, 200, { success: false, message: 'Invalid OTP' });
     }
 
-    if (String(otp).trim() !== '123456' && user.resetOtpExpireAt < Date.now()) {
+    if (user.resetOtpExpireAt < Date.now()) {
       return sendJSON(res, 200, { success: false, message: 'OTP Expired' });
     }
 
