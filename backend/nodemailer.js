@@ -1,39 +1,43 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
+import * as dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// Use the key provided by the user, or fallback to env
-const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_LUWFAqij_2VzyLC26eaSur3726xSq4oQS';
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-const resend = new Resend(RESEND_API_KEY);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+    }
+});
 
 const multiProviderTransporter = {
     sendMail: async (options) => {
         try {
             console.log(`\n==================================================`);
-            console.log(`🚀 Attempting to send email via Resend HTTP API...`);
+            console.log(`Attempting to send email via Gmail SMTP...`);
             
-            const { data, error } = await resend.emails.send({
-                from: RESEND_FROM_EMAIL, // Must use this unless a custom domain is verified
-                to: Array.isArray(options.to) ? options.to : [options.to],
+            const info = await transporter.sendMail({
+                from: options.from || process.env.SENDER_EMAIL,
+                to: options.to,
                 subject: options.subject,
                 html: options.html,
             });
 
-            if (error) {
-                console.error(`❌ Resend API Error:`, error);
-                throw error;
-            }
-
-            console.log(`✅ EMAIL DELIVERED via Resend HTTP API to ${options.to}`);
-            console.log(`🆔 Message ID: ${data.id}`);
+            console.log(`EMAIL DELIVERED via Gmail SMTP to ${options.to}`);
+            console.log(`Message ID: ${info.messageId}`);
             console.log(`==================================================\n`);
-            return data;
+            return info;
         } catch (error) {
             console.error('\n==================================================');
-            console.error(`🚨 FATAL ERROR: Email failed to send via Resend!`);
+            console.error(`FATAL ERROR: Email failed to send via Gmail SMTP!`);
             console.error(`Error details: ${error.message}`);
             console.error('==================================================\n');
-            // We return a mock success so the backend process doesn't crash
-            return { messageId: 'fallback-id-' + Date.now() };
+            throw error;
         }
     }
 };
