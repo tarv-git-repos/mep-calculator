@@ -595,7 +595,13 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     const users = await readUsers();
-    const safeUsers = users.map(u => ({ 
+    
+    let filteredUsers = users;
+    if (user.role !== 'SUPER_ADMIN') {
+      filteredUsers = users.filter(u => u.organization_id && u.organization_id === user.organization_id);
+    }
+    
+    const safeUsers = filteredUsers.map(u => ({ 
       id: u.id, 
       name: u.name, 
       email: u.email, 
@@ -627,7 +633,15 @@ const server = http.createServer(async (req, res) => {
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     const { data: teams, error } = await supabase.from('teams').select('*, team_members(user_id)');
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
-    return sendJSON(res, 200, { success: true, teams });
+    
+    let visibleTeams = teams;
+    if (user.role !== 'SUPER_ADMIN') {
+      const users = await readUsers();
+      const orgUsers = users.filter(u => u.organization_id === user.organization_id).map(u => u.id);
+      visibleTeams = teams.filter(t => orgUsers.includes(t.created_by));
+    }
+    
+    return sendJSON(res, 200, { success: true, teams: visibleTeams });
   }
 
   // D. ADD USER TO TEAM
@@ -710,6 +724,10 @@ const server = http.createServer(async (req, res) => {
           if (Array.isArray(p.project_teams) && p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
           return false;
         });
+    } else if (user.role === 'ORG_ADMIN') {
+        const users = await readUsers();
+        const orgUsers = users.filter(u => u.organization_id === user.organization_id).map(u => u.id);
+        visibleProjects = projects.filter(p => orgUsers.includes(p.created_by));
     }
 
     return sendJSON(res, 200, { success: true, projects: visibleProjects });
