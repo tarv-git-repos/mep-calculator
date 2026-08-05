@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 
 // Use the key provided by the user, or fallback to env
 const RESEND_API_KEY = process.env.RESEND_API_KEY || 're_LUWFAqij_2VzyLC26eaSur3726xSq4oQS';
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 const resend = new Resend(RESEND_API_KEY);
 
 const multiProviderTransporter = {
@@ -11,7 +12,7 @@ const multiProviderTransporter = {
             console.log(`🚀 Attempting to send email via Resend HTTP API...`);
             
             const { data, error } = await resend.emails.send({
-                from: 'onboarding@resend.dev', // Must use this unless a custom domain is verified
+                from: RESEND_FROM_EMAIL, // Must use this unless a custom domain is verified
                 to: Array.isArray(options.to) ? options.to : [options.to],
                 subject: options.subject,
                 html: options.html,
