@@ -50,6 +50,9 @@ function Login() {
     if (isLoggedin && userData) {
       if (userData.isAccountVerified !== false) {
         navigate({ to: '/' });
+      } else {
+        setMode('Email Verify');
+        if (userData.email) setEmail(userData.email);
       }
     }
   }, [isLoggedin, userData, navigate]);

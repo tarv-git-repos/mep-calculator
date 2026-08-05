@@ -42,6 +42,13 @@ function AuthGuard({ children }: { children: ReactNode }) {
     return <Navigate to="/login" replace />;
   }
 
+  // Unverified user guard
+  if (session && profile && !isLoginPage) {
+    if (profile.isAccountVerified === false) {
+      return <Navigate to="/login" replace />;
+    }
+  }
+
   // Security & Smart Routing
   if (session && profile && !isLoginPage) {
     if (profile.role !== 'SUPER_ADMIN' && profile.role !== 'ORG_ADMIN' && isAdminPage) {

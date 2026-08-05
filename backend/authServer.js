@@ -411,7 +411,11 @@ const server = http.createServer(async (req, res) => {
         .replace(/\{\{name\}\}/g, user.name),
     };
 
-    transporter.sendMail(mailOption).catch((err) => console.error('OTP resend mail error:', err));
+      try {
+        await transporter.sendMail(mailOption);
+      } catch (err) {
+        console.error('OTP resend mail error:', err);
+      }
 
     return sendJSON(res, 200, { success: true, message: 'Verification OTP Sent to Email' });
   }
@@ -539,7 +543,11 @@ const server = http.createServer(async (req, res) => {
         .replace(/\{\{name\}\}/g, user.name),
     };
 
-    transporter.sendMail(mailOption).catch((err) => console.error('Reset mail error:', err));
+      try {
+        await transporter.sendMail(mailOption);
+      } catch (err) {
+        console.error('Reset mail error:', err);
+      }
 
     return sendJSON(res, 200, { success: true, message: 'Password reset OTP sent to your email' });
   }
