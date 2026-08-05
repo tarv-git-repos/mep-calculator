@@ -862,11 +862,12 @@ const server = http.createServer(async (req, res) => {
     if (!profileId) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
     if (adminUser.id === profileId) return sendJSON(res, 400, { success: false, message: 'Cannot delete your own account' });
     
-    let users = await readUsers();
-    users = users.filter(u => u.id !== profileId);
-    await writeUsers(users);
+    // Actually delete the user from the Supabase table
+    const { error } = await supabase.from('custom_users').delete().eq('id', profileId);
+    if (error) {
+      return sendJSON(res, 500, { success: false, message: 'Failed to delete user' });
+    }
     
-    // Attempt to delete from Supabase Auth if possible, though custom_users is our source of truth now
     return sendJSON(res, 200, { success: true, message: 'User deleted successfully' });
   }
 
