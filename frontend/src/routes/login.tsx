@@ -89,14 +89,6 @@ function Login() {
     }
   };
 
-  // One-click Auto-fill Admin credentials for quick testing
-  const handleFillAdmin = () => {
-    setMode('Login');
-    setEmail('admin@tarv.ai');
-    setPassword('admin@tarv.ai');
-    toast.info('Admin credentials auto-filled!');
-  };
-
   // Submit Handler for Login & Sign Up
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -301,23 +293,6 @@ function Login() {
                 }`}
               >
                 Create Account
-              </button>
-            </div>
-          )}
-
-          {/* Quick Demo / Admin Auto-Fill Banner */}
-          {mode === 'Login' && (
-            <div className="mb-6 p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className="text-xs text-slate-300 font-medium">Quick Admin Login:</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleFillAdmin}
-                className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 border border-amber-400/30 transition-all cursor-pointer"
-              >
-                Auto-fill Admin
               </button>
             </div>
           )}
