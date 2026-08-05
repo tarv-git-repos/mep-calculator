@@ -22,6 +22,7 @@ import { PricingModal } from "./PricingModal";
 import { fetchLicenseStatus, type LicenseStatusInfo } from "@/lib/license";
 import { getHardwareFingerprint } from "@/lib/hardwareFingerprint";
 import { authService } from "@/services/authService";
+import { api } from "@/services/api";
 
 import {
   DropdownMenu,
@@ -345,14 +346,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   useEffect(() => {
     const fetchActiveAnnouncement = async () => {
-      const { data } = await supabase
-        .from('announcements')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (data && data.length > 0) {
-        setAnnouncement(data[0]);
+      const announcements = await api.getAnnouncements();
+      const activeAnnouncements = announcements.filter((a: any) => a.is_active);
+      if (activeAnnouncements && activeAnnouncements.length > 0) {
+        setAnnouncement(activeAnnouncements[0]);
       }
     };
     fetchActiveAnnouncement();
@@ -726,9 +723,42 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
       : [...NAV, ...(['SUPER_ADMIN', 'ORG_ADMIN'].includes(profile?.role || '') ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])];
       
-    // Do not filter out locked items from the sidebar.
-    // They will remain visible but show a "Coming Soon" placeholder when clicked.
-    return rawNav;
+    const filterNavItems = (items: typeof rawNav): typeof rawNav => {
+      return items.map(item => {
+        if (item.kind === 'item') {
+          if (item.to && isFeatureLocked(item.to, profile)) return null;
+          return item;
+        } else if (item.kind === 'group') {
+          const filteredChildren = item.children.filter(child => {
+            if (child.isHeader) return true;
+            if (child.to && isFeatureLocked(child.to, profile)) return false;
+            return true;
+          });
+          
+          const cleanChildren: NavLeaf[] = [];
+          for (let i = 0; i < filteredChildren.length; i++) {
+            const current = filteredChildren[i];
+            if (current.isHeader) {
+              let hasItem = false;
+              for (let j = i + 1; j < filteredChildren.length; j++) {
+                if (filteredChildren[j].isHeader) break;
+                hasItem = true;
+                break;
+              }
+              if (hasItem) cleanChildren.push(current);
+            } else {
+              cleanChildren.push(current);
+            }
+          }
+          
+          if (cleanChildren.length === 0) return null;
+          return { ...item, children: cleanChildren };
+        }
+        return item;
+      }).filter(Boolean) as typeof rawNav;
+    };
+    
+    return filterNavItems(rawNav);
   }, [profile]);
 
   const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";

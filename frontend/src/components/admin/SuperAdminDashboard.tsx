@@ -200,11 +200,7 @@ export function SuperAdminDashboard() {
 
   const fetchAnnouncements = async () => {
     setLoadingAnnouncements(true)
-    const { data, error } = await supabase
-      .from('announcements')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
+    const data = await api.getAnnouncements()
     if (data) setAnnouncements(data)
     setLoadingAnnouncements(false)
   }
@@ -259,12 +255,10 @@ export function SuperAdminDashboard() {
     e.preventDefault()
     if (!newAnnouncementMsg.trim()) return
 
-    const { error } = await supabase
-      .from('announcements')
-      .insert([{ message: newAnnouncementMsg, type: newAnnouncementType }])
+    const res = await api.createAnnouncement(newAnnouncementMsg, true)
     
-    if (error) {
-      toast.error(error.message)
+    if (!res.success) {
+      toast.error(res.message)
     } else {
       toast.success("Broadcast created successfully!")
       setNewAnnouncementMsg('')
@@ -273,12 +267,9 @@ export function SuperAdminDashboard() {
   }
 
   const toggleAnnouncement = async (id: string, currentStatus: boolean) => {
-    const { error } = await supabase
-      .from('announcements')
-      .update({ is_active: !currentStatus })
-      .eq('id', id)
+    const res = await api.toggleAnnouncement(id, !currentStatus)
     
-    if (error) toast.error(error.message)
+    if (!res.success) toast.error(res.message)
     else fetchAnnouncements()
   }
 
@@ -286,8 +277,8 @@ export function SuperAdminDashboard() {
     const choice = await confirm("Delete this broadcast permanently?", { title: "Delete Broadcast", confirmText: "Delete", cancelText: "Cancel" })
     if (!choice) return
 
-    const { error } = await supabase.from('announcements').delete().eq('id', id)
-    if (error) toast.error(error.message)
+    const res = await api.deleteAnnouncement(id)
+    if (!res.success) toast.error(res.message)
     else fetchAnnouncements()
   }
 

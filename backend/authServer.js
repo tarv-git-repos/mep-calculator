@@ -1320,6 +1320,97 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: formatUser(newUser) });
   }
 
+  // --- ANNOUNCEMENTS ROUTES ---
+  
+  // GET /api/announcements (Public/Authenticated)
+  if (req.method === 'GET' && url === '/api/announcements') {
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return sendJSON(res, 200, { success: true, announcements: data || [] });
+    } catch (err) {
+      console.error('Error fetching announcements:', err);
+      return sendJSON(res, 500, { success: false, message: 'Server error fetching announcements' });
+    }
+  }
+
+  // POST /api/admin/announcements (Admins only)
+  if (req.method === 'POST' && url === '/api/admin/announcements') {
+    const user = await getUserFromReq(req);
+    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+      return sendJSON(res, 403, { success: false, message: 'Access Denied: Admins only' });
+    }
+
+    try {
+      const { message, is_active } = await getRequestBody(req);
+      if (!message) {
+        return sendJSON(res, 400, { success: false, message: 'Message is required' });
+      }
+
+      const { data, error } = await supabase
+        .from('announcements')
+        .insert([{ message, is_active: is_active !== undefined ? is_active : true }])
+        .select();
+
+      if (error) throw error;
+      return sendJSON(res, 200, { success: true, announcement: data[0] });
+    } catch (err) {
+      console.error('Error creating announcement:', err);
+      return sendJSON(res, 500, { success: false, message: 'Server error creating announcement' });
+    }
+  }
+
+  // PUT /api/admin/announcements/:id (Toggle active status)
+  if (req.method === 'PUT' && url.startsWith('/api/admin/announcements/')) {
+    const user = await getUserFromReq(req);
+    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+      return sendJSON(res, 403, { success: false, message: 'Access Denied: Admins only' });
+    }
+
+    try {
+      const id = url.split('/').pop();
+      const { is_active } = await getRequestBody(req);
+
+      const { data, error } = await supabase
+        .from('announcements')
+        .update({ is_active })
+        .eq('id', id)
+        .select();
+
+      if (error) throw error;
+      return sendJSON(res, 200, { success: true, announcement: data[0] });
+    } catch (err) {
+      console.error('Error updating announcement:', err);
+      return sendJSON(res, 500, { success: false, message: 'Server error updating announcement' });
+    }
+  }
+
+  // DELETE /api/admin/announcements/:id (Admins only)
+  if (req.method === 'DELETE' && url.startsWith('/api/admin/announcements/')) {
+    const user = await getUserFromReq(req);
+    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+      return sendJSON(res, 403, { success: false, message: 'Access Denied: Admins only' });
+    }
+
+    try {
+      const id = url.split('/').pop();
+      const { error } = await supabase
+        .from('announcements')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      return sendJSON(res, 200, { success: true, message: 'Announcement deleted successfully' });
+    } catch (err) {
+      console.error('Error deleting announcement:', err);
+      return sendJSON(res, 500, { success: false, message: 'Server error deleting announcement' });
+    }
+  }
+
   // 404 Fallback
   return sendJSON(res, 404, { success: false, message: 'Endpoint not found' });
 });

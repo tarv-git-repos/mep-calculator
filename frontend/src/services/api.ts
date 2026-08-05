@@ -226,4 +226,38 @@ export const api = {
     }
   },
 
+  // ================= ANNOUNCEMENTS ENDPOINTS ================= //
+  async getAnnouncements() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/announcements`);
+      return data.success ? data.announcements : [];
+    } catch (e) {
+      console.error('Error fetching announcements:', e);
+      return [];
+    }
+  },
+  async createAnnouncement(message: string, is_active: boolean = true) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/announcements`, { message, is_active });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to create announcement' };
+    }
+  },
+  async toggleAnnouncement(id: string, is_active: boolean) {
+    try {
+      const { data } = await axios.put(`${getBackendUrl()}/api/admin/announcements/${id}`, { is_active });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to toggle announcement' };
+    }
+  },
+  async deleteAnnouncement(id: string) {
+    try {
+      const { data } = await axios.delete(`${getBackendUrl()}/api/admin/announcements/${id}`);
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to delete announcement' };
+    }
+  }
 };
