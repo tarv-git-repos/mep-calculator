@@ -1325,10 +1325,22 @@ const server = http.createServer(async (req, res) => {
   // GET /api/announcements (Public/Authenticated)
   if (req.method === 'GET' && url === '/api/announcements') {
     try {
-      const { data, error } = await supabase
+      const user = await getUserFromReq(req);
+      
+      let query = supabase
         .from('announcements')
         .select('*')
         .order('created_at', { ascending: false });
+
+      if (user && user.role !== 'super_admin') {
+        // Normal users or Org Admins see global broadcasts (org_id is null) OR their own org's broadcasts
+        query = query.or(`organization_id.is.null,organization_id.eq.${user.organization_id}`);
+      } else if (!user) {
+        // Unauthenticated users ONLY see global broadcasts
+        query = query.is('organization_id', null);
+      }
+      
+      const { data, error } = await query;
       
       if (error) throw error;
       return sendJSON(res, 200, { success: true, announcements: data || [] });
@@ -1351,9 +1363,13 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 400, { success: false, message: 'Message is required' });
       }
 
+      // If they are an Org Admin, bind the announcement to their organization
+      // If Super Admin, they broadcast globally (null)
+      const orgId = user.role === 'admin' ? user.organization_id : null;
+
       const { data, error } = await supabase
         .from('announcements')
-        .insert([{ message, is_active: is_active !== undefined ? is_active : true }])
+        .insert([{ message, is_active: is_active !== undefined ? is_active : true, organization_id: orgId }])
         .select();
 
       if (error) throw error;

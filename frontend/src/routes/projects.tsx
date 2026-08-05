@@ -46,6 +46,7 @@ function ProjectsPage() {
   });
 
   const { profile } = useAuth();
+  const isAdmin = ["SUPER_ADMIN", "ORG_ADMIN"].includes(profile?.role || "");
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [allTeams, setAllTeams] = useState<any[]>([]);
 

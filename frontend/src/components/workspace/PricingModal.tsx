@@ -233,8 +233,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedPlan(plan.id as any);
-                          setCheckoutStep("PAYMENT");
+                          window.location.href = `mailto:support@tarv.ai?subject=Purchase ${plan.name} License`;
                         }}
                         className={`mt-6 w-full py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm ${
                           isSelected
@@ -242,7 +241,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
                             : "bg-white/10 text-white hover:bg-white/20"
                         }`}
                       >
-                        Purchase {plan.name}
+                        Contact Sales
                       </button>
                     </div>
                   );

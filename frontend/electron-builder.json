@@ -10,6 +10,7 @@
     "package.json"
   ],
   "win": {
-    "target": "portable"
+    "target": "portable",
+    "icon": "src-tauri/icons/icon.ico"
   }
 }
