@@ -275,6 +275,7 @@ const server = http.createServer(async (req, res) => {
       resetOtpExpireAt: 0,
       createdAt: new Date().toISOString(),
       privacyPolicyAccepted: false,
+      subscription_expires: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
     };
 
     users.push(newUser);
