@@ -427,19 +427,23 @@ export function SuperAdminDashboard() {
 
   const handlePickFolder = async (type: 'local' | 'server') => {
     try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-      })
-      if (selected && typeof selected === 'string') {
-        if (type === 'local') {
-          setLocalBackupPath(selected)
-          localStorage.setItem('localBackupPath', selected)
-          toast.success("Local backup path updated!")
-        } else {
-          setServerBackupPath(selected)
-          localStorage.setItem('serverBackupPath', selected)
-          toast.success("Server backup path updated!")
+      if (typeof window !== 'undefined') {
+        const { open: openFileDialog } = await import('@tauri-apps/plugin-dialog');
+        const selected = await openFileDialog({
+          directory: true,
+          multiple: false,
+          title: type === 'local' ? 'Select Local Backup Folder' : 'Select Server Backup Folder',
+        });
+        if (selected && typeof selected === 'string') {
+          if (type === 'local') {
+            setLocalBackupPath(selected)
+            localStorage.setItem('localBackupPath', selected)
+            toast.success("Local backup path updated!")
+          } else {
+            setServerBackupPath(selected)
+            localStorage.setItem('serverBackupPath', selected)
+            toast.success("Server backup path updated!")
+          }
         }
       }
     } catch (e) {

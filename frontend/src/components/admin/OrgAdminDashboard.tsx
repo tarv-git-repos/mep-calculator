@@ -128,7 +128,7 @@ export function OrgAdminDashboard() {
   }
 
   const handleChangeRole = async (user: Profile, newRole: string) => {
-    if (user.id === profile?.id) {
+    if (user.id === currentUserProfile?.id) {
       toast.error("You cannot change your own role.")
       return
     }
@@ -155,18 +155,23 @@ export function OrgAdminDashboard() {
   // --- Storage Handlers ---
   const handlePickFolder = async (type: 'local' | 'server') => {
     try {
-      const selected = await open({
-        directory: true,
-      })
-      if (selected && typeof selected === 'string') {
-        if (type === 'local') {
-          setLocalBackupPath(selected)
-          localStorage.setItem('localBackupPath', selected)
-          toast.success("Local backup path updated!")
-        } else {
-          setServerBackupPath(selected)
-          localStorage.setItem('serverBackupPath', selected)
-          toast.success("Server backup path updated!")
+      if (typeof window !== 'undefined') {
+        const { open: openFileDialog } = await import('@tauri-apps/plugin-dialog');
+        const selected = await openFileDialog({
+          directory: true,
+          multiple: false,
+          title: type === 'local' ? 'Select Local Backup Folder' : 'Select Server Backup Folder',
+        });
+        if (selected && typeof selected === 'string') {
+          if (type === 'local') {
+            setLocalBackupPath(selected)
+            localStorage.setItem('localBackupPath', selected)
+            toast.success("Local backup path updated!")
+          } else {
+            setServerBackupPath(selected)
+            localStorage.setItem('serverBackupPath', selected)
+            toast.success("Server backup path updated!")
+          }
         }
       }
     } catch (e) {
@@ -408,7 +413,7 @@ export function OrgAdminDashboard() {
                               <div className="text-slate-500 text-xs mt-0.5">{u.email}</div>
                             </td>
                             <td className="px-6 py-4">
-                              {u.id === profile?.id ? (
+                              {u.id === currentUserProfile?.id ? (
                                 <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 rounded-md text-[11px] font-bold border border-amber-300">
                                   ORG ADMIN (You)
                                 </span>
@@ -439,7 +444,7 @@ export function OrgAdminDashboard() {
                               )}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              {u.id !== profile?.id && (
+                              {u.id !== currentUserProfile?.id && (
                                 <button
                                   onClick={() => handleRemoveUser(u)}
                                   className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition"
