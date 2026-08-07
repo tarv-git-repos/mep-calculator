@@ -523,37 +523,35 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return pathname === to;
   };
 
-  // Flyout mega-menu hover state
+  // Flyout mega-menu state (opens on click)
   const [hoveredGroup, setHoveredGroup] = useState<{
     item: Extract<NavItem, { kind: "group" }>;
     top: number;
   } | null>(null);
-  const [closeTimeoutId, setCloseTimeoutId] = useState<any>(null);
 
-  const handleMouseEnterGroup = (e: React.MouseEvent, item: Extract<NavItem, { kind: "group" }>) => {
-    if (closeTimeoutId) {
-      clearTimeout(closeTimeoutId);
-      setCloseTimeoutId(null);
-    }
-    setHoveredGroup({
-      item,
-      top: e.currentTarget.getBoundingClientRect().top,
-    });
-  };
-
-  const handleMouseLeaveGroup = () => {
-    const timeoutId = setTimeout(() => {
+  const handleGroupClick = (e: React.MouseEvent, item: Extract<NavItem, { kind: "group" }>) => {
+    e.stopPropagation();
+    if (hoveredGroup && hoveredGroup.item.label === item.label) {
       setHoveredGroup(null);
-    }, 200);
-    setCloseTimeoutId(timeoutId);
-  };
-
-  const handleFlyoutMouseEnter = () => {
-    if (closeTimeoutId) {
-      clearTimeout(closeTimeoutId);
-      setCloseTimeoutId(null);
+    } else {
+      setHoveredGroup({
+        item,
+        top: e.currentTarget.getBoundingClientRect().top,
+      });
     }
   };
+
+  useEffect(() => {
+    if (!hoveredGroup) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.fixed') && !target.closest('.nav-group-btn')) {
+        setHoveredGroup(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [hoveredGroup]);
 
   // Unit System Transition modal states & capture listener
   const [unitModalOpen, setUnitModalOpen] = useState(false);
@@ -1188,8 +1186,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   pathname={pathname}
                   activeName={activeName}
                   sidebarOpen={sidebarOpen}
-                  onMouseEnter={(e) => handleMouseEnterGroup(e, n)}
-                  onMouseLeave={handleMouseLeaveGroup}
+                  onClick={(e) => handleGroupClick(e, n)}
                 />
               )
             )}
@@ -1242,32 +1239,34 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         </AnimatePresence>
 
         {!hideSubHeader && (
-          <div className="flex items-center justify-between border-b border-border px-4 h-12 shrink-0 bg-surface-1 no-print print:hidden">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0 bg-surface-1/90 backdrop-blur-md no-print print:hidden transition-all duration-200">
             <div className="flex items-center gap-3">
-              <div className="flex items-baseline gap-2">
-                <h1 className="text-[17px] font-semibold tracking-tight">{title}</h1>
-                {subtitle && <span className="text-[13px] text-muted-foreground">{subtitle}</span>}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-[18px] font-bold tracking-tight text-foreground">{title}</h1>
+                  {onIntelClick && (
+                    <button 
+                      onClick={onIntelClick}
+                      className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full transition-colors text-[11.5px] font-medium border cursor-pointer shrink-0 ${
+                        intelOpen
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                      }`}
+                    >
+                      <Sparkles className="size-3" />
+                      {intelLabel || "Intelligence"}
+                    </button>
+                  )}
+                </div>
+                {subtitle && <span className="text-[12.5px] text-muted-foreground font-medium leading-snug">{subtitle}</span>}
               </div>
-              {onIntelClick && (
-                <button 
-                  onClick={onIntelClick}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12px] font-medium border cursor-pointer shrink-0 ${
-                    intelOpen
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                  }`}
-                >
-                  <Sparkles className="size-3.5" />
-                  {intelLabel || "Intelligence"}
-                </button>
-              )}
             </div>
             <div className="flex items-center gap-2">
               {actions}
             </div>
           </div>
         )}
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col relative">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative custom-scrollbar">
           {isLockedByOther && (
             <div className="absolute top-0 left-0 right-0 z-[100] bg-transparent text-amber-500 px-4 py-2 flex items-center justify-center gap-2 shrink-0">
               <ShieldAlert className="w-4 h-4" />
@@ -1276,7 +1275,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </span>
             </div>
           )}
-          <div className={`flex-1 min-h-0 overflow-hidden flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''}`}>
+          <div className={`flex-1 min-h-0 flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''}`}>
             {isInitializing ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-slate-50/50">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
@@ -1301,10 +1300,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       {/* FLOATING FLYOUT MEGA-MENU */}
       {hoveredGroup && (
         <div
-          onMouseEnter={handleFlyoutMouseEnter}
-          onMouseLeave={handleMouseLeaveGroup}
           onClick={() => setHoveredGroup(null)}
-          className="fixed z-[9999] bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar before:absolute before:content-[''] before:top-0 before:bottom-0 before:-left-6 before:w-6 before:bg-transparent"
+          className="fixed z-[9999] bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar"
           style={{
             left: `${sidebarOpen ? 272 : 72}px`,
             top: `${Math.max(88, hoveredGroup.top - 60)}px`,
@@ -1518,15 +1515,13 @@ function NavGroup({
   pathname, 
   activeName,
   sidebarOpen,
-  onMouseEnter,
-  onMouseLeave
+  onClick
 }: { 
   item: Extract<NavItem, { kind: "group" }>; 
   pathname: string; 
   activeName?: string;
   sidebarOpen: boolean;
-  onMouseEnter: (e: React.MouseEvent) => void;
-  onMouseLeave: () => void;
+  onClick: (e: React.MouseEvent) => void;
 }) {
   const isLinkActive = (to?: string) => {
     if (!to) return false;
@@ -1543,13 +1538,10 @@ function NavGroup({
   const Icon = item.icon;
 
   return (
-    <div
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className="relative"
-    >
+    <div className="relative">
       <button
-        className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13.5px] transition-all duration-150 cursor-pointer ${
+        onClick={onClick}
+        className={`nav-group-btn flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-[13.5px] transition-all duration-150 cursor-pointer ${
           hasActiveChild
             ? "bg-surface-2 text-foreground font-semibold dark:bg-white/10 dark:text-white"
             : "text-muted-foreground hover:bg-surface-2 hover:text-foreground dark:text-[#9b9b9b] dark:hover:bg-white/5 dark:hover:text-white"
