@@ -1060,18 +1060,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 {isReadOnly ? <Lock className="size-4" /> : <Edit3 className="size-4" />}
               </button>
 
-              {userData?.is_founding_pioneer && userData?.pioneer_number && (
-                <button
-                  type="button"
-                  onClick={() => setShowPioneerModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-extrabold bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-yellow-500/20 text-amber-500 dark:text-amber-300 border border-amber-500/40 hover:from-amber-500/30 hover:to-orange-500/30 transition shadow-sm cursor-pointer"
-                  title="View Founding Pioneer Badge"
-                >
-                  <Trophy className="size-3.5 text-amber-400" />
-                  <span>PIONEER #{userData.pioneer_number}</span>
-                </button>
-              )}
-
               <button
                 type="button"
                 onClick={() => setPricingModalOpen(true)}

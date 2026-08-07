@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useAuth } from "@/contexts/AuthContext";
+import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { 
   Settings, 
   Save, 
@@ -28,7 +29,8 @@ import {
   AlertTriangle,
   Flame,
   Globe,
-  Upload
+  Upload,
+  Trophy
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
@@ -53,6 +55,7 @@ export function SettingsPage() {
   // Modals
   const [showClearModal, setShowClearModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showPioneerModal, setShowPioneerModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -523,9 +526,22 @@ export function SettingsPage() {
                 <User className="size-4.5 text-primary" />
                 <h3 className="text-[14px] font-bold uppercase tracking-wider text-foreground">User Profile & Identity</h3>
               </div>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-surface border border-border text-muted-foreground">
-                ID: {userData?.id?.slice(0, 8) || "LOCAL_USER"}
-              </span>
+              <div className="flex items-center gap-2">
+                {userData?.is_founding_pioneer && userData?.pioneer_number && (
+                  <button
+                    type="button"
+                    onClick={() => setShowPioneerModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-yellow-500/20 text-amber-500 dark:text-amber-300 border border-amber-500/40 hover:from-amber-500/30 hover:to-orange-500/30 transition shadow-sm cursor-pointer"
+                    title="View Founding Pioneer Badge"
+                  >
+                    <Trophy className="size-3 text-amber-400" />
+                    <span>PIONEER #{userData.pioneer_number}</span>
+                  </button>
+                )}
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-surface border border-border text-muted-foreground">
+                  ID: {userData?.id?.slice(0, 8) || "LOCAL_USER"}
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-5">
@@ -1119,6 +1135,12 @@ export function SettingsPage() {
         </div>
       )}
 
+      <WelcomeToTarvModal
+        isOpen={showPioneerModal}
+        onClose={() => setShowPioneerModal(false)}
+        userName={userData?.name || profile?.name || 'Engineer'}
+        pioneerNumber={userData?.pioneer_number || 1}
+      />
       </div>
     </AppShell>
   );
