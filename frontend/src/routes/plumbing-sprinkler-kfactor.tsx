@@ -208,6 +208,7 @@ function computeRowOutputs(row: SprinklerRow): SprinklerRow {
 function SprinklerKFactorPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Tabs
   const [tab, setTab] = useState<"solver" | "schedule" | "report">("solver");
@@ -286,6 +287,25 @@ function SprinklerKFactorPage() {
       return DEFAULT_ROWS;
     }
   });
+
+  // Load data when active project changes
+  useEffect(() => {
+    if (project?.id) {
+      const stored = localStorage.getItem(`mep_sprinklers_${project.id}`);
+      if (stored) {
+        try {
+          setRows(JSON.parse(stored));
+        } catch {
+          setRows(DEFAULT_ROWS);
+        }
+      } else {
+        setRows(DEFAULT_ROWS);
+      }
+      setUndoStack([]);
+      setRedoStack([]);
+      setLoadedProjectId(project.id);
+    }
+  }, [project?.id]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -448,7 +468,6 @@ function SprinklerKFactorPage() {
         formula: `P = (Q / K)\u00b2 = (${knownValNum} / ${kFactorNum || 1})\u00b2 = ${press.toFixed(2)} ${isSI ? "bar" : "psi"}`,
         pressure: press
       };
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, [solverK, solverSolveFor, solverKnownVal, unitSystem]);
 
@@ -893,7 +912,6 @@ function SprinklerKFactorPage() {
 
   function InlineInput({ value, onCommit, className = "", type = "text", step, min, disabled = false }: InlineInputProps) {
     const [localVal, setLocalVal] = useState(String(value));
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
     useEffect(() => {
       setLocalVal(String(value));
