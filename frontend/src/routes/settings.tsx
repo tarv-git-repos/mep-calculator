@@ -150,23 +150,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     localStorage.setItem('mep_theme', theme);
-
-    const applyThemeClass = (isDark: boolean) => {
-      if (isDark) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    };
-
-    if (theme === 'dark') {
-      applyThemeClass(true);
-    } else if (theme === 'light') {
-      applyThemeClass(false);
-    } else {
-      const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      applyThemeClass(systemPrefersDark);
-    }
+    window.dispatchEvent(new Event('mep-theme-change'));
   }, [theme]);
 
   // Handle Unit System Change
@@ -656,6 +640,12 @@ export function SettingsPage() {
                 </select>
               </div>
             </div>
+
+            <div className="flex justify-end border-t border-border/60 pt-4 mt-2">
+              <TBtn primary onClick={handleSaveToCloud} disabled={cloudSaveLoading} className="px-4 py-1.5">
+                {cloudSaveLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save Profile
+              </TBtn>
+            </div>
           </div>
 
           {/* 2. SUBSCRIPTION & LICENSE EXPIRY (Requirement 11) */}
@@ -737,6 +727,12 @@ export function SettingsPage() {
                   <span className="text-[12.5px]">System Default</span>
                 </button>
               </div>
+            </div>
+
+            <div className="flex justify-end border-t border-border/60 pt-4 mt-2">
+              <TBtn primary onClick={handleSaveToCloud} disabled={cloudSaveLoading} className="px-4 py-1.5">
+                {cloudSaveLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save Appearance
+              </TBtn>
             </div>
           </div>
 
@@ -844,6 +840,12 @@ export function SettingsPage() {
                 />
               </div>
             </div>
+
+            <div className="flex justify-end border-t border-border/60 pt-4 mt-2">
+              <TBtn primary onClick={handleSaveToCloud} disabled={cloudSaveLoading} className="px-4 py-1.5">
+                {cloudSaveLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save Calculations & Units
+              </TBtn>
+            </div>
           </div>
 
           {/* 5. AUTO SAVE & BACKUP CONFIGURATION (Requirements 12, 13, 14) */}
@@ -913,6 +915,12 @@ export function SettingsPage() {
                   <option value={60}>Every 60 Minutes</option>
                 </select>
               </div>
+            </div>
+
+            <div className="flex justify-end border-t border-border/60 pt-4 mt-2">
+              <TBtn primary onClick={handleSaveToCloud} disabled={cloudSaveLoading} className="px-4 py-1.5">
+                {cloudSaveLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />} Save Backup Settings
+              </TBtn>
             </div>
           </div>
 
