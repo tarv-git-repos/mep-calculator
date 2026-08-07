@@ -12,11 +12,15 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 export function DashboardPage() {
-  const { spaces, zones, equipment, activeProjectId } = useWorkspace();
+  const { spaces, zones, equipment, activeProjectId, refreshProjects } = useWorkspace();
   const { profile } = useAuth();
   
   const [recentCalcs, setRecentCalcs] = useState<string[]>([]);
   
+  useEffect(() => {
+    refreshProjects();
+  }, []);
+
   useEffect(() => {
     if (profile?.id && activeProjectId) {
       try {

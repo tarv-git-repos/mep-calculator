@@ -232,6 +232,23 @@ export const workspaceStore = {
       notify();
     }
   },
+  async refreshProjects() {
+    try {
+      const cloudProjects = await api.getProjects();
+      if (cloudProjects) {
+        projects = cloudProjects;
+        if (activeProjectId) {
+          const updatedActive = projects.find(p => p.id === activeProjectId);
+          if (updatedActive) {
+            currentProject = updatedActive;
+          }
+        }
+        notify();
+      }
+    } catch (err) {
+      console.error("Failed to refresh projects list:", err);
+    }
+  },
   async initCloud() {
     if (cloudInitDone) return;
     cloudInitDone = true;
@@ -1236,6 +1253,7 @@ export function useWorkspace() {
     deleteProject: (id: string) => workspaceStore.deleteProject(id),
     forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
     syncFromCloud: () => workspaceStore.syncFromCloud(),
+    refreshProjects: () => workspaceStore.refreshProjects(),
     clearWorkspace: () => workspaceStore.clearWorkspace(),
     updateProject: (project: Project) => workspaceStore.updateProject(project),
     updateSpaces: (spaces: Space[]) => workspaceStore.updateSpaces(spaces),

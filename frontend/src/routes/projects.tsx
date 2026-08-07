@@ -49,7 +49,8 @@ function ProjectsPage() {
     createNewProject,
     duplicateProject,
     deleteProject,
-    updateProject
+    updateProject,
+    refreshProjects
   } = useWorkspace();
 
   const [search, setSearch] = useState("");
@@ -140,6 +141,7 @@ function ProjectsPage() {
 
   useEffect(() => {
     loadUsersAndTeams();
+    refreshProjects();
   }, []);
 
   useEffect(() => {
