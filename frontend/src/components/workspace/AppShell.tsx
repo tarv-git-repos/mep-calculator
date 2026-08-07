@@ -604,6 +604,36 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
   }, []);
 
+  // Global Ctrl + S / Cmd + S keyboard shortcut to save calculations to cloud
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      
+      if (isCmdOrCtrl && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        
+        const isEffectiveReadOnly = isReadOnly || isLockedByOther;
+        if (isEffectiveReadOnly) {
+          toast.error("Cannot save. Workspace is in Read-Only mode.");
+          return;
+        }
+        
+        if (project?.id) {
+          savePageInputs(project.id, pathname);
+          triggerSave();
+          forceSaveToCloud();
+          toast.success("Calculations synced to cloud successfully!");
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [project?.id, pathname, isReadOnly, isLockedByOther]);
+
   // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
   useEffect(() => {
     const isEffectiveReadOnly = isReadOnly || isLockedByOther;
