@@ -370,8 +370,10 @@ export function SuperAdminDashboard() {
   const toggleFeature = async (featureKey: string) => {
     if (!editingPermissionsFor) return;
     
-    // Check if currently unlocked (true or undefined). If unlocked, new value is false.
-    const isCurrentlyUnlocked = editingPermissionsFor.features?.[featureKey] !== false;
+    // Check if currently unlocked (ventilation defaults to true, others default to false)
+    const isCurrentlyUnlocked = featureKey === 'ventilation'
+      ? editingPermissionsFor.features?.[featureKey] !== false
+      : editingPermissionsFor.features?.[featureKey] === true;
     
     const updatedFeatures = {
       ...editingPermissionsFor.features,
@@ -397,8 +399,13 @@ export function SuperAdminDashboard() {
   const toggleSection = async (items: any[]) => {
     if (!editingPermissionsFor) return;
 
-    // Check if ALL items in this section are currently unlocked. If so, new value is false. Else, true.
-    const allUnlocked = items.every(item => editingPermissionsFor.features?.[item.to!.replace('/', '')] !== false);
+    // Check if ALL items in this section are currently unlocked
+    const allUnlocked = items.every(item => {
+      const routeKey = item.to!.replace('/', '');
+      return routeKey === 'ventilation'
+        ? editingPermissionsFor.features?.[routeKey] !== false
+        : editingPermissionsFor.features?.[routeKey] === true;
+    });
     const newValue = !allUnlocked;
 
     const updatedFeatures = { ...editingPermissionsFor.features };
@@ -1525,7 +1532,12 @@ export function SuperAdminDashboard() {
                 if (navItem.kind !== 'group') return null;
                 const items = navItem.children.filter(c => !c.isHeader && c.to);
                 if (items.length === 0) return null;
-                const isSectionUnlocked = items.every(item => editingPermissionsFor.features?.[item.to!.replace('/', '')] !== false);
+                const isSectionUnlocked = items.every(item => {
+                  const routeKey = item.to!.replace('/', '');
+                  return routeKey === 'ventilation'
+                    ? editingPermissionsFor.features?.[routeKey] !== false
+                    : editingPermissionsFor.features?.[routeKey] === true;
+                });
                 
                 return (
                   <div key={i} className="border-b border-slate-100 dark:border-slate-800 last:border-0 p-6 space-y-4">
@@ -1543,7 +1555,9 @@ export function SuperAdminDashboard() {
                     </div>
                     {items.map((item, j) => {
                       const routeKey = item.to!.replace('/', '');
-                      const isUnlocked = editingPermissionsFor.features?.[routeKey] !== false;
+                      const isUnlocked = routeKey === 'ventilation'
+                        ? editingPermissionsFor.features?.[routeKey] !== false
+                        : editingPermissionsFor.features?.[routeKey] === true;
                       
                       return (
                         <div key={j} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
