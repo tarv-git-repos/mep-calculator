@@ -8,6 +8,7 @@ import {
   Eye, EyeOff, Sparkles, CheckCircle2, ArrowRight, ShieldAlert, Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useConfirm } from '@/hooks/use-confirm';
 
 export const Route = createFileRoute('/login')({
   component: Login,
@@ -18,6 +19,7 @@ type AuthMode = 'Login' | 'Sign Up' | 'Email Verify' | 'Forgot Password';
 function Login() {
   const navigate = useNavigate();
   const { isLoggedin, userData, setUserData } = useAuth();
+  const confirm = useConfirm();
 
   const [mode, setMode] = useState<AuthMode>('Login');
   const [name, setName] = useState('');
@@ -141,7 +143,10 @@ function Login() {
         let res = await authService.login(email, password);
         
         if (res.requireForceLogout) {
-          const confirmForce = window.confirm(res.message + "\n\nClick OK to log out the other device and log in here.");
+          const confirmForce = await confirm(
+            res.message + "\n\nDo you want to log out the other device and log in here?",
+            { title: "Multiple Sessions Detected", confirmText: "Yes, Log In Here", cancelText: "Cancel" }
+          );
           if (confirmForce) {
             res = await authService.login(email, password, true);
           } else {
