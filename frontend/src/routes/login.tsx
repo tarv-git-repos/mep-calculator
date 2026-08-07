@@ -23,6 +23,24 @@ function Login() {
 
   const [mode, setMode] = useState<AuthMode>('Login');
   const [name, setName] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  const handleNameChange = (val: string) => {
+    setName(val);
+    if (!val) {
+      setNameError(null);
+      return;
+    }
+    const nameRegex = /^[a-zA-Z\s'\-]+$/;
+    if (!nameRegex.test(val.trim())) {
+      setNameError('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).');
+    } else if (val.trim().length < 2) {
+      setNameError('Full Name must be at least 2 characters long.');
+    } else {
+      setNameError(null);
+    }
+  };
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -372,11 +390,21 @@ function Login() {
                         type="text"
                         required
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="block w-full pl-10 pr-4 py-3 bg-slate-50/70 dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-sky-500/40 focus:border-blue-600 dark:focus:border-sky-500 focus:bg-white dark:focus:bg-slate-950 text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-all font-medium"
+                        onChange={(e) => handleNameChange(e.target.value)}
+                        className={`block w-full pl-10 pr-4 py-3 bg-slate-50/70 dark:bg-slate-950/90 border text-slate-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:bg-white dark:focus:bg-slate-950 text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-all font-medium ${
+                          nameError 
+                            ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' 
+                            : 'border-slate-200 dark:border-slate-800 focus:ring-blue-500/20 dark:focus:ring-sky-500/40 focus:border-blue-600 dark:focus:border-sky-500'
+                        }`}
                         placeholder="John Doe"
                       />
                     </div>
+                    {nameError && (
+                      <p className="text-red-500 dark:text-red-400 text-xs font-semibold mt-1.5 flex items-center gap-1">
+                        <span className="size-1 rounded-full bg-red-500 dark:bg-red-400"></span>
+                        {nameError}
+                      </p>
+                    )}
                   </div>
                 )}
 

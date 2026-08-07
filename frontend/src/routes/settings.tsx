@@ -51,6 +51,7 @@ export function SettingsPage() {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [cloudSaveLoading, setCloudSaveLoading] = useState(false);
   const [cloudSaveMessage, setCloudSaveMessage] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
   
   // Modals
   const [showClearModal, setShowClearModal] = useState(false);
@@ -88,6 +89,20 @@ export function SettingsPage() {
   const [fullName, setFullName] = useState<string>(() => {
     return profile?.name || userData?.name || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_name_${uId}`) || '' : '');
   });
+
+  const handleNameChange = (val: string) => {
+    setFullName(val);
+    const nameRegex = /^[a-zA-Z\s'\-]+$/;
+    if (!val.trim()) {
+      setNameError("Full Name is required.");
+    } else if (!nameRegex.test(val.trim())) {
+      setNameError("Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).");
+    } else if (val.trim().length < 2) {
+      setNameError("Full Name must be at least 2 characters long.");
+    } else {
+      setNameError(null);
+    }
+  };
 
   // Requirement 7: Company/Organization Name
   const [company, setCompany] = useState<string>(() => {
@@ -258,18 +273,22 @@ export function SettingsPage() {
   // Save Settings Locally
   const handleSaveLocal = (): boolean => {
     if (!fullName || !fullName.trim()) {
-      toast.error('Full Name is required.');
+      setNameError('Full Name is required.');
+      toast.error('Full Name is required.', { style: { border: '1px solid #ef4444', color: '#ef4444' } });
       return false;
     }
     const nameRegex = /^[a-zA-Z\s'\-]+$/;
     if (!nameRegex.test(fullName.trim())) {
-      toast.error('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).');
+      setNameError('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).');
+      toast.error('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).', { style: { border: '1px solid #ef4444', color: '#ef4444' } });
       return false;
     }
     if (fullName.trim().length < 2) {
-      toast.error('Full Name must be at least 2 characters long.');
+      setNameError('Full Name must be at least 2 characters long.');
+      toast.error('Full Name must be at least 2 characters long.', { style: { border: '1px solid #ef4444', color: '#ef4444' } });
       return false;
     }
+    setNameError(null);
 
     if (typeof window !== 'undefined') {
       if (uId) {
@@ -603,10 +622,18 @@ export function SettingsPage() {
                 <input
                   type="text"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => handleNameChange(e.target.value)}
                   placeholder="e.g. Vikram Kadam"
-                  className="bg-surface border border-border focus:border-primary rounded-md px-3 py-1.5 text-[13px] outline-none"
+                  className={`bg-surface border focus:border-primary rounded-md px-3 py-1.5 text-[13px] outline-none ${
+                    nameError ? 'border-red-500 focus:ring-red-500/20' : 'border-border'
+                  }`}
                 />
+                {nameError && (
+                  <p className="text-red-500 dark:text-red-400 text-xs font-semibold mt-1.5 flex items-center gap-1">
+                    <span className="size-1 rounded-full bg-red-500 dark:bg-red-400"></span>
+                    {nameError}
+                  </p>
+                )}
               </div>
 
               {/* Email Address (Read-only) */}
