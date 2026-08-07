@@ -132,8 +132,10 @@ function BusbarVoltageDropPage() {
       if (stored) {
         setCustomRatings(JSON.parse(stored));
       }
-    } catch (e) {  if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+    } catch (e) {
+      console.error(e);
     }
+    if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
   }, []);
 
   const allRatings = useMemo(() => [...DEFAULT_RATINGS, ...customRatings], [customRatings]);
@@ -370,16 +372,7 @@ function BusbarVoltageDropPage() {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    
-  useEffect(() => {
-    if (true) {
-      const dataToSave = { rows, selected, activeRowId, history, redoStack, globalRating, globalR, globalX, customRatings };
-      localStorage.setItem(`customBusbarRatings`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [rows, selected, activeRowId, history, redoStack, globalRating, globalR, globalX, customRatings]);
-
-  return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [rows, selected, history, redoStack, activeRowId]);
 
   const handleImportRatings = (e: React.ChangeEvent<HTMLInputElement>) => {

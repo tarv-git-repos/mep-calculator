@@ -316,14 +316,15 @@ function LPDCalculationPage() {
         const parsed = JSON.parse(savedMapping);
         setAuthorityMapping(prev => ({ ...prev, ...parsed }));
       } catch(e) {}
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
   }, []);
 
   // Save to local storage
   useEffect(() => {
     localStorage.setItem("mep-lpd-calc-v2", JSON.stringify({ projects, currentProjectId }));
-  }, [projects, currentProjectId]);
+    localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(authorityMapping));
+    dirtyStore.set(true);
+  }, [projects, currentProjectId, authorityMapping]);
 
   const currentProject = projects.find(p => p.id === currentProjectId) || projects[0];
 
@@ -452,23 +453,7 @@ function LPDCalculationPage() {
 
   let globalSrNo = 1;
 
-  
-  useEffect(() => {
-    if (true) {
-      const dataToSave = { projects, currentProjectId, authorityMapping };
-      localStorage.setItem(`mep-lpd-calc-v2`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [projects, currentProjectId, authorityMapping]);
 
-  
-  useEffect(() => {
-    if (loadedProjectId) {
-      const dataToSave = { projects, currentProjectId, authorityMapping };
-      localStorage.setItem(`mep-lpd-calc-v2`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [loadedProjectId, projects, currentProjectId, authorityMapping]);
 
   return (
     <AppShell title="LPD Calculation" hideSubHeader={true}>

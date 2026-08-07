@@ -14,6 +14,7 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 
 export const Route = createFileRoute("/chw-pipe-sizer")({
   head: () => ({
@@ -59,15 +60,6 @@ function waterVisc(tC: number): number {
 }
 
 function fToC(f: number): number {
-  
-  useEffect(() => {
-    if (true) {
-      const dataToSave = { projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel, hasCalculated, inputError };
-      localStorage.setItem(`chw_pipe_sizer_params`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel, hasCalculated, inputError]);
-
   return (f - 32) * 5 / 9;
 }
 
@@ -136,6 +128,7 @@ function ChwPipeSizerPage() {
   useEffect(() => {
     try {
       localStorage.setItem("chw_pipe_sizer_params", JSON.stringify({ sizingParams, unitSystem, projectInfo }));
+      dirtyStore.set(true);
     } catch (e) {
       console.error(e);
     }

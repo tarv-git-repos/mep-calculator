@@ -1,5 +1,7 @@
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
+import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -8,7 +10,6 @@ import {
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/basement-smoke-calc")({
   head: () => ({
@@ -43,6 +44,7 @@ interface FanSystem {
 
 function BasementSmokeCalcPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
   // Schedule state
@@ -111,17 +113,20 @@ function BasementSmokeCalcPage() {
   useEffect(() => {
     if (floors.length > 0) {
       localStorage.setItem("bs_rows", JSON.stringify(floors));
+      dirtyStore.set(true);
     }
   }, [floors]);
 
   useEffect(() => {
     if (fanSystems.length > 0) {
       localStorage.setItem("bs_fan_systems", JSON.stringify(fanSystems));
+      dirtyStore.set(true);
     }
   }, [fanSystems]);
 
   useEffect(() => {
     localStorage.setItem("bs_total_fans", totalFans.toString());
+    dirtyStore.set(true);
   }, [totalFans]);
 
   const handleUnitSystemChange = (unit: "si" | "ip") => {
@@ -338,23 +343,7 @@ function BasementSmokeCalcPage() {
     downloadFile(new Uint8Array(xlsxBuffer), "Basement_Smoke_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
 
-  
-  useEffect(() => {
-    if (true) {
-      const dataToSave = { unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError };
-      localStorage.setItem(`bs_rows`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError]);
 
-  
-  useEffect(() => {
-    if (loadedProjectId) {
-      const dataToSave = { unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError };
-      localStorage.setItem(`bs_rows`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [loadedProjectId, unitSystem, floors, newFloor, fanSystems, totalFans, showFSModal, modalFSId, modalFSName, modalFSType, modalSelectedFloorIds, modalError]);
 
   return (
     <AppShell title="Basement Smoke Calc" hideSubHeader={true}>

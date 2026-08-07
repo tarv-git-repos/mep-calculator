@@ -14,6 +14,7 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 
 export const Route = createFileRoute("/chw-pump-head")({
   head: () => ({
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/chw-pump-head")({
 
 function ChwPumpHeadPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [projectInfo, setProjectInfo] = useState({
     projectName: "Commercial Tower CHW Pumping Study",
     projectNumber: "MEP-CHW-02",
@@ -59,7 +61,6 @@ function ChwPumpHeadPage() {
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
 
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Load from local storage
   useEffect(() => {
@@ -87,6 +88,7 @@ function ChwPumpHeadPage() {
   useEffect(() => {
     try {
       localStorage.setItem("chw_pump_sizer_v2_params", JSON.stringify({ sizingParams, unitSystem, projectInfo }));
+      dirtyStore.set(true);
     } catch (e) {
       console.error(e);
     }
@@ -408,14 +410,7 @@ function ChwPumpHeadPage() {
     downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };
 
-  
-  useEffect(() => {
-    if (true) {
-      const dataToSave = { projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel };
-      localStorage.setItem(`chw_pump_sizer_v2_params`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [projectInfo, unitSystem, sizingParams, activeTab, showFormulaPanel]);
+
 
   return (
     <AppShell title="CHW Pump Head" hideSubHeader={true}>

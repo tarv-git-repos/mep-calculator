@@ -39,6 +39,7 @@ const PIPE_SIZES: PipeSize[] = [
 
 function SupplyPipeSizerPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
   // Inputs state
@@ -78,8 +79,8 @@ function SupplyPipeSizerPage() {
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
       console.error("Failed to load supply pipe sizer calculation", e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
+    if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
   }, [project.id]);
 
   const handleSaveCurrent = () => {
