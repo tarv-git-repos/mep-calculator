@@ -936,7 +936,6 @@ const server = http.createServer(async (req, res) => {
       notes: projectData.notes || '',
       created_by: user.id,
       created_at: nowIso,
-      updated_at: nowIso,
       last_modified: nowIso,
       workspace_data: projectData.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
     };
