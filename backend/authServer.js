@@ -206,7 +206,7 @@ async function formatUser(user, allUsers = null) {
     settings: user.settings || {},
     status: user.status,
     is_founding_pioneer,
-    pioneer_number: pioneer_number || 1
+    pioneer_number: is_founding_pioneer ? (pioneer_number || 1) : null
   };
 }
 
