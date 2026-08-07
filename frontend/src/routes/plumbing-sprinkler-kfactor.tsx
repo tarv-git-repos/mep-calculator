@@ -16,6 +16,7 @@ import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useConfirm } from "@/hooks/use-confirm";
+import { dirtyStore } from "@/lib/dirty-store";
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -344,8 +345,11 @@ function SprinklerKFactorPage() {
 
   // Sync to localstorage
   useEffect(() => {
-    localStorage.setItem(`mep_sprinklers_${project.id}`, JSON.stringify(rows));
-  }, [rows, project.id]);
+    if (project?.id && loadedProjectId === project.id) {
+      localStorage.setItem(`mep_sprinklers_${project.id}`, JSON.stringify(rows));
+      dirtyStore.set(true);
+    }
+  }, [rows, project?.id, loadedProjectId]);
 
   // Keyboard shortcuts handling
   useEffect(() => {
@@ -433,16 +437,7 @@ function SprinklerKFactorPage() {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    
-  useEffect(() => {
-    if (loadedProjectId) {
-      const dataToSave = { tab, intelOpen, unitSystem, solverK, solverSolveFor, solverKnownVal, isCustomK, selectedBulbColor, rows, selected, lastSelectedId, searchQuery, hazardFilter, kFilter, undoStack, redoStack, localVal };
-      localStorage.setItem(`mep_clipboard_sprinklers`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [loadedProjectId, tab, intelOpen, unitSystem, solverK, solverSolveFor, solverKnownVal, isCustomK, selectedBulbColor, rows, selected, lastSelectedId, searchQuery, hazardFilter, kFilter, undoStack, redoStack, localVal]);
-
-  return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [rows, selected, tab, undoStack, redoStack]);
 
   // Quick Solver Math
