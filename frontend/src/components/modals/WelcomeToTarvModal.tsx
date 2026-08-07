@@ -110,7 +110,7 @@ export function WelcomeToTarvModal({ isOpen, onClose, userName, pioneerNumber }:
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-yellow-500/20 border border-amber-500/40 text-amber-300 text-xs font-extrabold uppercase tracking-widest shadow-lg shadow-amber-500/10 mb-4 animate-bounce">
             <Trophy className="w-4 h-4 text-amber-400" />
-            Founding Pioneer #{pioneerNumber} of 15
+            Founding Pioneer #{pioneerNumber} of 50
           </div>
 
           {/* Hero Icon */}
@@ -137,7 +137,7 @@ export function WelcomeToTarvModal({ isOpen, onClose, userName, pioneerNumber }:
               Hello <strong className="text-amber-300 font-bold">{userName || 'Engineer'}</strong>!
             </p>
             <p className="mt-2">
-              You are officially one of our first <span className="text-amber-400 font-bold underline decoration-amber-500/40 underline-offset-4">15 Founding Pioneers</span> starting the journey with <strong className="text-white">TARV MEP Engine</strong>! Your early trust and leadership power the future of our engineering platform. We are thrilled to have you lead the way!
+              You are officially one of our first <span className="text-amber-400 font-bold underline decoration-amber-500/40 underline-offset-4">50 Founding Pioneers</span> starting the journey with <strong className="text-white">TARV MEP Engine</strong>! Your early trust and leadership power the future of our engineering platform. We are thrilled to have you lead the way!
             </p>
           </div>
 

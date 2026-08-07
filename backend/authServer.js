@@ -161,24 +161,30 @@ async function formatUser(user, allUsers = null) {
   try {
     const list = allUsers || (await readUsers());
     const validUsers = (list || []).filter(u => u && u.id);
+    const nonAdminUsers = validUsers.filter(u => u.role !== 'SUPER_ADMIN');
     
-    const sorted = [...validUsers].sort((a, b) => {
-      const idxA = validUsers.indexOf(a);
-      const idxB = validUsers.indexOf(b);
+    const sorted = [...nonAdminUsers].sort((a, b) => {
+      const idxA = nonAdminUsers.indexOf(a);
+      const idxB = nonAdminUsers.indexOf(b);
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : (idxA * 1000);
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : (idxB * 1000);
       return timeA - timeB;
     });
 
-    const userEmailLower = user.email ? user.email.toLowerCase() : '';
-    const idx = sorted.findIndex(u => u.id === user.id || (u.email && u.email.toLowerCase() === userEmailLower));
-    
-    if (idx !== -1 && (idx < 15 || validUsers.length <= 15)) {
-      is_founding_pioneer = true;
-      pioneer_number = (idx >= 0 && idx < 15) ? idx + 1 : 1;
-    } else if (validUsers.length === 0) {
-      is_founding_pioneer = true;
-      pioneer_number = 1;
+    if (user.role === 'SUPER_ADMIN') {
+      is_founding_pioneer = false;
+      pioneer_number = null;
+    } else {
+      const userEmailLower = user.email ? user.email.toLowerCase() : '';
+      const idx = sorted.findIndex(u => u.id === user.id || (u.email && u.email.toLowerCase() === userEmailLower));
+      
+      if (idx !== -1 && idx < 50) {
+        is_founding_pioneer = true;
+        pioneer_number = idx + 1;
+      } else if (sorted.length === 0) {
+        is_founding_pioneer = true;
+        pioneer_number = 1;
+      }
     }
   } catch (e) {
     console.error('Error formatting pioneer user:', e);
