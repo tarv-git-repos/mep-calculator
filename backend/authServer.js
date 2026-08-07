@@ -98,7 +98,14 @@ async function readUsers() {
     const { data, error } = await supabase.from('custom_users').select('*');
     let users = [];
     if (!error && Array.isArray(data)) {
-      users = data.map(u => ({ ...u, active_hwid: u.features?.active_hwid || null }));
+      users = data.map(u => ({
+        ...u,
+        company: u.company || u.features?.company || '',
+        designation: u.designation || u.features?.designation || '',
+        profile_photo: u.profile_photo || u.features?.profile_photo || '',
+        settings: u.settings || u.features?.settings || {},
+        active_hwid: u.features?.active_hwid || null
+      }));
       saveLocalUsers(users);
     } else {
       users = readLocalUsers();
@@ -136,9 +143,13 @@ async function readUsers() {
 async function writeUsers(users) {
   saveLocalUsers(users);
   try {
-    const safeUsers = users.map(({ privacyPolicyAccepted, active_hwid, ...user }) => {
+    const safeUsers = users.map(({ privacyPolicyAccepted, active_hwid, company, designation, profile_photo, settings, ...user }) => {
       const features = {
         ...(user.features || {}),
+        company: company || user.features?.company || '',
+        designation: designation || user.features?.designation || '',
+        profile_photo: profile_photo || user.features?.profile_photo || '',
+        settings: settings || user.features?.settings || {}
       };
       if (active_hwid !== undefined) {
         features.active_hwid = active_hwid;
