@@ -256,7 +256,21 @@ export function SettingsPage() {
   };
 
   // Save Settings Locally
-  const handleSaveLocal = () => {
+  const handleSaveLocal = (): boolean => {
+    if (!fullName || !fullName.trim()) {
+      toast.error('Full Name is required.');
+      return false;
+    }
+    const nameRegex = /^[a-zA-Z\s'\-]+$/;
+    if (!nameRegex.test(fullName.trim())) {
+      toast.error('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).');
+      return false;
+    }
+    if (fullName.trim().length < 2) {
+      toast.error('Full Name must be at least 2 characters long.');
+      return false;
+    }
+
     if (typeof window !== 'undefined') {
       if (uId) {
         localStorage.setItem(`mep_profile_photo_${uId}`, profilePhoto);
@@ -304,6 +318,7 @@ export function SettingsPage() {
     });
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
+    return true;
   };
 
   // Requirement 2: Save to Cloud
@@ -311,7 +326,10 @@ export function SettingsPage() {
     try {
       setCloudSaveLoading(true);
       setCloudSaveMessage(null);
-      handleSaveLocal();
+      if (!handleSaveLocal()) {
+        setCloudSaveLoading(false);
+        return;
+      }
 
       const updates = {
         name: fullName,

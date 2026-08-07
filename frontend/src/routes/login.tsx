@@ -115,6 +115,19 @@ function Login() {
           return;
         }
 
+        const nameRegex = /^[a-zA-Z\s'\-]+$/;
+        if (!nameRegex.test(name.trim())) {
+          toast.error('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).');
+          setLoading(false);
+          return;
+        }
+
+        if (name.trim().length < 2) {
+          toast.error('Full Name must be at least 2 characters long.');
+          setLoading(false);
+          return;
+        }
+
         const pwdErrors = getPasswordErrors(password);
         if (pwdErrors.length > 0) {
           toast.error('Please ensure your password meets all requirements.');
