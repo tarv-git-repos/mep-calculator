@@ -1120,7 +1120,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64 bg-popover border border-border rounded-lg shadow-lg font-sans">
-                  <DropdownMenuLabel className="py-2.5 px-3 flex items-center gap-3">
+                  <DropdownMenuItem 
+                    onSelect={() => navigate({ to: "/settings" })}
+                    className="py-2.5 px-3 flex items-center gap-3 cursor-pointer hover:bg-accent/40 rounded-md transition-all focus:bg-accent/40 outline-none w-full"
+                  >
                     {userPhoto ? (
                       <img src={userPhoto} alt="Profile Avatar" className="size-9 rounded-full object-cover border border-primary/40 shrink-0" />
                     ) : (
@@ -1136,7 +1139,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                         Verified License Active
                       </div>
                     </div>
-                  </DropdownMenuLabel>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     className="py-2 px-3 text-red-500 cursor-pointer focus:bg-red-50 dark:focus:bg-red-950 focus:text-red-600 font-semibold"
