@@ -308,6 +308,8 @@ const triggerSave = () => {
 
 import { useAuth } from "@/contexts/AuthContext";
 
+let globalLicenseCache: LicenseStatusInfo | null = null;
+
 export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader }: {
   children: ReactNode;
   title: string;
@@ -331,7 +333,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
   const [myEmail, setMyEmail] = useState<string>("unknown");
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
-  const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(null);
+  const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(globalLicenseCache);
   const [showPioneerModal, setShowPioneerModal] = useState(false);
 
   useEffect(() => {
@@ -374,6 +376,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       navigate({ to: '/login' });
       return;
     }
+    globalLicenseCache = status;
     setLicenseInfo(status);
   }, [userData?.email, userData?.role, myEmail, loading, logout, navigate]);
 
