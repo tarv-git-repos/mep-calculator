@@ -100,7 +100,7 @@ export function WelcomeToTarvModal({ isOpen, onClose, userName, pioneerNumber }:
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 p-2 text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 rounded-full transition cursor-pointer"
+          className="absolute top-4 right-4 z-30 p-2 text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 rounded-full transition cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
