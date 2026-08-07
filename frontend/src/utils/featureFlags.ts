@@ -6,6 +6,12 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   // SUPER_ADMIN should never be locked out
   if (profile?.role === 'SUPER_ADMIN') return false;
 
+  // System pages should never be locked
+  const systemPaths = ["", "/", "/projects", "/reports", "/teams", "/settings", "/admin", "/login", "/register"];
+  if (systemPaths.includes(path)) {
+    return false;
+  }
+
   const routeKey = path.startsWith('/') ? path.substring(1) : path;
   const features = profile?.features || {};
 
