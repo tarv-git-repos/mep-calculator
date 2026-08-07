@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, FileCode,
   MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search,
@@ -10,6 +11,7 @@ import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace, type Project } from "@/lib/workspace-store";
 import { api } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useConfirm } from "@/hooks/use-confirm";
 
 export const Route = createFileRoute("/projects")({
   head: () => ({
@@ -38,6 +40,7 @@ const formatRelativeTime = (dateStr?: string) => {
 };
 
 function ProjectsPage() {
+  const confirm = useConfirm();
   const {
     project: activeProject,
     projects,
@@ -187,49 +190,66 @@ function ProjectsPage() {
     });
   }, [projects, search, pinnedProjects, workspaceHistory]);
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProject.name.trim()) {
-      alert("Project Name is required!");
+      toast.error("Project Name is required!");
       return;
     }
     if (!newProject.code.trim()) {
-      alert("Project Code is required!");
+      toast.error("Project Code is required!");
       return;
     }
-    createNewProject({
-      name: newProject.name.trim(),
-      code: newProject.code.trim().toUpperCase(),
-      client: newProject.client.trim() || "N/A",
-      location: newProject.location.trim(),
-      description: newProject.description.trim(),
-      notes: newProject.notes.trim(),
-    }, newProject.assigned_users, newProject.assigned_teams);
-    setNewProject({
-      name: "",
-      code: "",
-      client: "",
-      location: "",
-      description: "",
-      notes: "",
-      assigned_users: [],
-      assigned_teams: [],
-    });
+
+    try {
+      const res = await createNewProject({
+        name: newProject.name.trim(),
+        code: newProject.code.trim().toUpperCase(),
+        client: newProject.client.trim() || "N/A",
+        location: newProject.location.trim(),
+        description: newProject.description.trim(),
+        notes: newProject.notes.trim(),
+      }, newProject.assigned_users, newProject.assigned_teams);
+
+      if (res && res.success) {
+        toast.success("Project created successfully!");
+        setNewProject({
+          name: "",
+          code: "",
+          client: "",
+          location: "",
+          description: "",
+          notes: "",
+          assigned_users: [],
+          assigned_teams: [],
+        });
+      } else {
+        toast.error(res?.message || "Failed to create project");
+      }
+    } catch (err: any) {
+      toast.error("Error creating project: " + err.message);
+    }
   };
 
   const handleSaveEdit = () => {
     if (editingProj) {
       if (!editingProj.name.trim()) {
-        alert("Project Name is required!");
+        toast.error("Project Name is required!");
         return;
       }
       updateProject(editingProj);
       setEditingProj(null);
+      toast.success("Project updated successfully!");
     }
   };
 
   const handleRemoveUserFromProject = async (projectId: string, userId: string) => {
-    if (!confirm("Remove user from this project?")) return;
+    const isConfirmed = await confirm("Are you sure you want to remove this user from the project?", {
+      title: "Remove User",
+      confirmText: "Remove",
+      cancelText: "Cancel"
+    });
+    if (!isConfirmed) return;
     const res = await api.removeUserFromProject(projectId, userId);
     if (res.success) {
       const proj = projects.find(p => p.id === projectId);
@@ -238,8 +258,9 @@ function ProjectsPage() {
         updateProject({...proj});
         if (editingProj?.id === projectId) setEditingProj({...proj} as any);
       }
+      toast.success("User removed from project successfully.");
     } else {
-      alert(res.message);
+      toast.error(res.message || "Failed to remove user");
     }
   };
 
@@ -256,11 +277,19 @@ function ProjectsPage() {
           if (editingProj?.id === projectId) setEditingProj({...proj} as any);
         }
       }
-    } else alert(res.message);
+      toast.success("User added to project successfully!");
+    } else {
+      toast.error(res.message || "Failed to add user");
+    }
   };
 
   const handleRemoveTeamFromProject = async (projectId: string, teamId: string) => {
-    if (!confirm("Remove team from this project?")) return;
+    const isConfirmed = await confirm("Are you sure you want to remove this team from the project?", {
+      title: "Remove Team",
+      confirmText: "Remove",
+      cancelText: "Cancel"
+    });
+    if (!isConfirmed) return;
     const res = await api.removeTeamFromProject(projectId, teamId);
     if (res.success) {
       const proj = projects.find(p => p.id === projectId);
@@ -269,8 +298,9 @@ function ProjectsPage() {
         updateProject({...proj});
         if (editingProj?.id === projectId) setEditingProj({...proj} as any);
       }
+      toast.success("Team removed from project successfully.");
     } else {
-      alert(res.message);
+      toast.error(res.message || "Failed to remove team");
     }
   };
 
@@ -287,7 +317,10 @@ function ProjectsPage() {
           if (editingProj?.id === projectId) setEditingProj({...proj} as any);
         }
       }
-    } else alert(res.message);
+      toast.success("Team added to project successfully!");
+    } else {
+      toast.error(res.message || "Failed to add team");
+    }
   };
 
   const statsMap = useMemo(() => {

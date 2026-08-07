@@ -365,9 +365,8 @@ export const workspaceStore = {
       currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
       
       notify();
-      return newProj;
     }
-    return null;
+    return res;
   },
 
   async duplicateProject(id: string) {
