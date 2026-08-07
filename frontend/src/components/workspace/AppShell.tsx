@@ -1218,10 +1218,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         </div>
       </aside>
 
-      {/* Main Content (Column 2, Row 2) */}
-      <main className={`col-start-2 row-start-2 min-w-0 flex flex-col overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300 ${
-        sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "px-3.5 pb-3.5"
-      }`}>
+      <main className="col-start-2 row-start-2 min-w-0 flex flex-col overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300">
         <AnimatePresence>
           {announcement && (
             <motion.div 
@@ -1293,7 +1290,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </span>
             </div>
           )}
-          <div className={`flex-1 min-h-0 flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''}`}>
+          <div className={`flex-1 min-h-0 flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''} ${
+            sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5"
+          }`}>
             {isInitializing ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-slate-50/50">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
