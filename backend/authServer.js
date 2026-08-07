@@ -926,7 +926,7 @@ const server = http.createServer(async (req, res) => {
     
     const projectId = `proj_${Date.now()}`;
     const nowIso = new Date().toISOString();
-    const newProject = {
+    const dbProject = {
       id: projectId,
       name: projectData.name,
       code: projectData.code,
@@ -937,12 +937,11 @@ const server = http.createServer(async (req, res) => {
       created_by: user.id,
       created_at: nowIso,
       updated_at: nowIso,
-      createdDate: nowIso,
-      lastModified: nowIso,
+      last_modified: nowIso,
       workspace_data: projectData.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
     };
 
-    const { error } = await supabase.from('projects').insert(newProject);
+    const { error } = await supabase.from('projects').insert(dbProject);
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
     // Always assign creator
@@ -956,7 +955,14 @@ const server = http.createServer(async (req, res) => {
       await supabase.from('project_teams').insert(assigned_teams.map(tid => ({ project_id: projectId, team_id: tid })));
     }
 
-    return sendJSON(res, 200, { success: true, project: newProject });
+    return sendJSON(res, 200, { 
+      success: true, 
+      project: { 
+        ...dbProject, 
+        createdDate: nowIso, 
+        lastModified: nowIso 
+      } 
+    });
   }
 
   // F. LIST PROJECTS
