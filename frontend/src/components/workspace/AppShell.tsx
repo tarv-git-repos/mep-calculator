@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, type ReactNode } from
 import {
   Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
-  Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Wrench, FileText,
+  Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Sun, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
   Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy
 } from "lucide-react";
@@ -391,7 +391,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const announcements = await api.getAnnouncements();
       const activeAnnouncements = announcements.filter((a: any) => a.is_active);
       if (activeAnnouncements && activeAnnouncements.length > 0) {
-        setAnnouncement(activeAnnouncements[0]);
+        const target = activeAnnouncements[0];
+        const isDismissed = typeof localStorage !== 'undefined' ? localStorage.getItem(`tarv_dismissed_announcement_${target.id}`) : null;
+        if (!isDismissed) {
+          setAnnouncement(target);
+        }
       }
     };
     fetchActiveAnnouncement();
@@ -1086,12 +1090,21 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               <button
                 onClick={() => {
                   dirtyStore.set(false);
-                  document.documentElement.classList.toggle("dark");
+                  const isDarkNow = document.documentElement.classList.contains("dark");
+                  const nextTheme = isDarkNow ? "light" : "dark";
+                  localStorage.setItem("mep_theme", nextTheme);
+                  if (nextTheme === "dark") {
+                    document.documentElement.classList.add("dark");
+                  } else {
+                    document.documentElement.classList.remove("dark");
+                  }
+                  window.dispatchEvent(new Event("mep-theme-change"));
                 }}
                 className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                title="Toggle Dark Mode"
+                title="Toggle Dark / Light Mode"
               >
-                <Moon className="size-5" />
+                <Moon className="size-5 dark:hidden" />
+                <Sun className="size-5 hidden dark:block" />
               </button>
               <button className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
                 <Bell className="size-5" />
@@ -1228,7 +1241,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   {announcement.message}
                 </div>
                 <button 
-                  onClick={() => setAnnouncement(null)}
+                  onClick={() => {
+                    if (announcement?.id && typeof localStorage !== 'undefined') {
+                      localStorage.setItem(`tarv_dismissed_announcement_${announcement.id}`, 'true');
+                    }
+                    setAnnouncement(null);
+                  }}
                   className="p-1 hover:bg-white/20 rounded-md transition-colors"
                 >
                   <XIcon className="w-4 h-4" />
