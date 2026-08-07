@@ -11,6 +11,7 @@ export default defineConfig({
   vite: {
     clearScreen: false,
     server: {
+      host: true,
       port: 8080,
       strictPort: true,
       proxy: {
@@ -34,7 +35,7 @@ export default defineConfig({
       tsconfigPaths: true,
     },
     ssr: {
-      external: ['xlsx', 'jspdf', 'file-saver', 'jspdf-autotable', 'exceljs', 'iobuffer', 'dompurify', 'pako'],
+      external: ['xlsx', 'jspdf', 'file-saver', 'jspdf-autotable', 'exceljs', 'iobuffer', 'dompurify', 'pako', '@tauri-apps/plugin-dialog', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process', '@tauri-apps/api'],
     },
     optimizeDeps: {
       include: ['iobuffer', 'setimmediate', 'dompurify', 'pako'],
@@ -42,6 +43,7 @@ export default defineConfig({
   },
   nitro: {
     preset: 'node-server',
+    prerender: { routes: ['/'] },
   },
   tanstackStart: {
     ssr: false,

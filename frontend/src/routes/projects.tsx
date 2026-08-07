@@ -21,6 +21,22 @@ export const Route = createFileRoute("/projects")({
   component: ProjectsPage,
 });
 
+const formatRelativeTime = (dateStr?: string) => {
+  if (!dateStr) return 'Just now';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return 'Just now';
+  const now = new Date();
+  const diffSec = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
+  if (diffSec < 60) return 'Just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} minutes ago`;
+  if (diffSec < 86400) {
+    const hrs = Math.floor(diffSec / 3600);
+    return `${hrs} ${hrs === 1 ? 'hour' : 'hours'} ago`;
+  }
+  const days = Math.floor(diffSec / 86400);
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+};
+
 function ProjectsPage() {
   const {
     project: activeProject,
@@ -428,7 +444,7 @@ function ProjectsPage() {
                         )}
                         <div className="flex items-center gap-2">
                           <Calendar className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
-                          <span>Modified: <span className="text-foreground/75 font-mono">2 hours ago</span></span>
+                          <span>Modified: <span className="text-foreground/75 font-mono">{formatRelativeTime((p as any).updated_at || (p as any).last_modified || p.lastModified || (p as any).created_at || p.createdDate)}</span></span>
                         </div>
                       </div>
                     </div>

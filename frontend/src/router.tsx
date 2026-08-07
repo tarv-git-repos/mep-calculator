@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef } from "react";
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
+import { createRoot } from "react-dom/client";
+
+// Prevent Vite from treeshaking createRoot so it is available for our Tauri CSR patch
+if (typeof window !== "undefined" && (window as any).__never_eval_createroot__) {
+  createRoot(document.getElementById("tauri-app-root")!);
+}
 
 // Global patch to allow backspacing "0" in controlled <input type="number"> elements
 const originalCreateElement = React.createElement;

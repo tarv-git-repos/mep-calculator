@@ -1,7 +1,7 @@
 import { downloadFile } from "@/lib/download";
 import ExcelJS from 'exceljs';
 import pkg from 'file-saver';
-const { saveAs } = pkg;
+const saveAs = (pkg as any)?.saveAs || pkg;
 import { Tray, Cable, getCableTraySize } from './cableTrayHelpers';
 import { getLicenseWatermark } from './license';
 

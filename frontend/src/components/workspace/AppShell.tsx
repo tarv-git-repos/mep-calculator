@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2
+  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -23,6 +23,7 @@ import { fetchLicenseStatus, type LicenseStatusInfo } from "@/lib/license";
 import { getHardwareFingerprint } from "@/lib/hardwareFingerprint";
 import { authService } from "@/services/authService";
 import { api } from "@/services/api";
+import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 
 import {
   DropdownMenu,
@@ -317,7 +318,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   intelLabel?: string;
   hideSubHeader?: boolean;
 }) {
-  const { profile, userData, logout } = useAuth();
+  const { profile, userData, logout, loading } = useAuth();
+  const userId = userData?.id || profile?.id;
+  const userPhoto = userData?.profile_photo || profile?.profile_photo || (userId && typeof window !== 'undefined' ? localStorage.getItem(`mep_profile_photo_${userId}`) || '' : '');
   const confirm = useConfirm();
   const prompt = usePrompt();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -329,14 +332,50 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const [myEmail, setMyEmail] = useState<string>("unknown");
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(null);
+  const [showPioneerModal, setShowPioneerModal] = useState(false);
+
+  useEffect(() => {
+    if (userData?.is_founding_pioneer && userId) {
+      const shown = localStorage.getItem(`tarv_pioneer_welcome_shown_${userId}`);
+      if (!shown) {
+        setShowPioneerModal(true);
+      }
+    }
+  }, [userData?.is_founding_pioneer, userData?.pioneer_number, userId]);
+
+  // Periodic session heartbeat to instantly log out accounts deleted by Super Admin / Org Admin
+  useEffect(() => {
+    if (!userId) return;
+    const interval = setInterval(async () => {
+      const res = await authService.getUserData();
+      if (res && res.success === false && res.message && !res.message.includes('Network Error')) {
+        toast.error("Your account has been deleted or deactivated by an administrator.");
+        logout();
+        navigate({ to: '/login' });
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [userId, logout, navigate]);
 
   const refreshLicenseStatus = useCallback(async () => {
+    if (loading) return;
     const hwid = getHardwareFingerprint();
     const userEmail = userData?.email || myEmail;
-    await authService.initHardwareTrial(hwid, userEmail);
+    
+    // Only init hardware trial if we don't have a premium user active
+    if (!userData || (userData.role !== 'ORG_USER' && userData.role !== 'ORG_ADMIN' && userData.role !== 'SUPER_ADMIN')) {
+      await authService.initHardwareTrial(hwid, userEmail);
+    }
+    
     const status = await fetchLicenseStatus(userEmail);
+    if (status.sessionInvalidated) {
+      toast.error("Your session has been transferred to another device. You are now logged out.");
+      logout();
+      navigate({ to: '/login' });
+      return;
+    }
     setLicenseInfo(status);
-  }, [userData?.email, myEmail]);
+  }, [userData?.email, userData?.role, myEmail, loading, logout, navigate]);
 
   useEffect(() => {
     refreshLicenseStatus();
@@ -726,14 +765,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const filterNavItems = (items: typeof rawNav): typeof rawNav => {
       return items.map(item => {
         if (item.kind === 'item') {
-          if (item.to && isFeatureLocked(item.to, profile)) return null;
           return item;
         } else if (item.kind === 'group') {
-          const filteredChildren = item.children.filter(child => {
-            if (child.isHeader) return true;
-            if (child.to && isFeatureLocked(child.to, profile)) return false;
-            return true;
-          });
+          const filteredChildren = item.children; // We no longer filter out locked children here so they appear as Coming Soon
           
           const cleanChildren: NavLeaf[] = [];
           for (let i = 0; i < filteredChildren.length; i++) {
@@ -1026,6 +1060,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 {isReadOnly ? <Lock className="size-4" /> : <Edit3 className="size-4" />}
               </button>
 
+              {userData?.is_founding_pioneer && userData?.pioneer_number && (
+                <button
+                  type="button"
+                  onClick={() => setShowPioneerModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-extrabold bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-yellow-500/20 text-amber-500 dark:text-amber-300 border border-amber-500/40 hover:from-amber-500/30 hover:to-orange-500/30 transition shadow-sm cursor-pointer"
+                  title="View Founding Pioneer Badge"
+                >
+                  <Trophy className="size-3.5 text-amber-400" />
+                  <span>PIONEER #{userData.pioneer_number}</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setPricingModalOpen(true)}
@@ -1040,10 +1086,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               >
                 <Zap className="size-3.5" />
                 <span>
-                  {licenseInfo?.plan === 'PRO' ? 'PRO ACTIVE' :
-                   licenseInfo?.plan === 'ENTERPRISE' ? 'ENTERPRISE' :
-                   licenseInfo?.status === 'EXPIRED_TRIAL' ? 'TRIAL EXPIRED - UPGRADE' :
-                   `TRIAL: ${licenseInfo?.remainingDays ?? 14} DAYS LEFT`}
+                  {!licenseInfo ? 'CHECKING LICENSE...' :
+                   licenseInfo.plan === 'PRO' ? 'PRO ACTIVE' :
+                   licenseInfo.plan === 'ENTERPRISE' ? 'ENTERPRISE' :
+                   licenseInfo.status === 'EXPIRED_TRIAL' ? 'TRIAL EXPIRED - UPGRADE' :
+                   `TRIAL: ${licenseInfo.remainingDays ?? 14} DAYS LEFT`}
                 </span>
               </button>
 
@@ -1062,17 +1109,30 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626] cursor-pointer hover:ring-2 ring-primary transition-all">
-                    {userData?.name ? userData.name.substring(0, 2).toUpperCase() : (myEmail.substring(0, 2).toUpperCase() !== 'UN' ? myEmail.substring(0, 2).toUpperCase() : 'ME')}
+                  <button className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626] cursor-pointer hover:ring-2 ring-primary transition-all overflow-hidden">
+                    {userPhoto ? (
+                      <img src={userPhoto} alt="Profile" className="size-full object-cover" />
+                    ) : (
+                      userData?.name ? userData.name.substring(0, 2).toUpperCase() : (myEmail.substring(0, 2).toUpperCase() !== 'UN' ? myEmail.substring(0, 2).toUpperCase() : 'ME')
+                    )}
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64 bg-popover border border-border rounded-lg shadow-lg font-sans">
-                  <DropdownMenuLabel className="py-2 px-3">
-                    <div className="text-sm font-semibold text-foreground truncate">{userData?.name || 'MEP User'}</div>
-                    <div className="text-xs text-muted-foreground truncate">{userData?.email || myEmail}</div>
-                    <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-1">
-                      <div className="size-1.5 rounded-full bg-green-500"></div>
-                      Verified License Active
+                  <DropdownMenuLabel className="py-2.5 px-3 flex items-center gap-3">
+                    {userPhoto ? (
+                      <img src={userPhoto} alt="Profile Avatar" className="size-9 rounded-full object-cover border border-primary/40 shrink-0" />
+                    ) : (
+                      <div className="size-9 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                        {userData?.name ? userData.name.substring(0, 2).toUpperCase() : 'ME'}
+                      </div>
+                    )}
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-foreground truncate">{userData?.name || profile?.name || 'MEP User'}</div>
+                      <div className="text-xs text-muted-foreground truncate">{userData?.email || myEmail}</div>
+                      <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                        <div className="size-1.5 rounded-full bg-green-500"></div>
+                        Verified License Active
+                      </div>
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
@@ -1356,6 +1416,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         onClose={() => setPricingModalOpen(false)}
         onSuccess={refreshLicenseStatus}
         currentStatus={licenseInfo}
+      />
+
+      <WelcomeToTarvModal
+        isOpen={showPioneerModal}
+        onClose={() => {
+          setShowPioneerModal(false);
+          if (userId) {
+            localStorage.setItem(`tarv_pioneer_welcome_shown_${userId}`, 'true');
+          }
+        }}
+        userName={userData?.name || profile?.name || 'Engineer'}
+        pioneerNumber={userData?.pioneer_number || 1}
       />
     </div>
   );

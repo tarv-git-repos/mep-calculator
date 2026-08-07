@@ -1,10 +1,24 @@
 import axios from 'axios';
+import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
-  return import.meta.env.VITE_API_URL || 'https://universal-mep-calculator.onrender.com';
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.'))) {
+    return `http://${window.location.hostname}:4000`;
+  }
+  return 'https://universal-mep-calculator.onrender.com';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
+
+export interface UserSettings {
+  theme?: 'light' | 'dark' | 'system';
+  default_units?: 'IP' | 'SI';
+  auto_save?: boolean;
+  autosave_path?: string;
+  autosave_interval?: number;
+  [key: string]: any;
+}
 
 export interface AuthUserData {
   id: string;
@@ -13,10 +27,16 @@ export interface AuthUserData {
   role: 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
   organization_id?: string;
   status?: string;
+  company?: string;
+  designation?: string;
+  profile_photo?: string;
+  settings?: UserSettings;
   isAccountVerified: boolean;
   privacyPolicyAccepted?: boolean;
   features?: Record<string, boolean>;
   subscription_expires?: string;
+  is_founding_pioneer?: boolean;
+  pioneer_number?: number | null;
 }
 
 export interface AuthResponse {
@@ -24,11 +44,22 @@ export interface AuthResponse {
   message?: string;
   token?: string;
   userData?: AuthUserData;
+  requireForceLogout?: boolean;
 }
+
+export const clearAllAuthStorage = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('mep_user_data');
+    localStorage.removeItem('mep_profile');
+    localStorage.removeItem('mep_auth_token');
+  }
+};
 
 export const authService = {
   async register(name: string, email: string, password: string): Promise<AuthResponse> {
     try {
+      clearAllAuthStorage();
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/register`, {
         name,
         email,
@@ -43,11 +74,15 @@ export const authService = {
     }
   },
 
-  async login(email: string, password: string): Promise<AuthResponse> {
+  async login(email: string, password: string, force: boolean = false): Promise<AuthResponse> {
     try {
+      clearAllAuthStorage();
+      const hwid = getHardwareFingerprint();
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/login`, {
         email,
         password,
+        hwid,
+        force,
       });
       if (data.success && data.token) {
         localStorage.setItem('auth_token', data.token);
@@ -64,13 +99,64 @@ export const authService = {
   async logout(): Promise<AuthResponse> {
     try {
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/logout`);
-      localStorage.removeItem('auth_token');
+      clearAllAuthStorage();
       return data;
     } catch (error: any) {
-      localStorage.removeItem('auth_token');
+      clearAllAuthStorage();
       return {
         success: false,
         message: error.message || 'Logout failed',
+      };
+    }
+  },
+
+  async logoutOthers(): Promise<AuthResponse> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/user/logout-others`, {}, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Logout others failed',
+      };
+    }
+  },
+
+  async deleteAccount(password?: string, confirmed: boolean = true): Promise<AuthResponse> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/user/delete-account`, {
+        password,
+        confirmed
+      }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (data.success) {
+        localStorage.removeItem('auth_token');
+      }
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Delete account failed',
+      };
+    }
+  },
+
+  async updateProfile(updates: Record<string, any>): Promise<AuthResponse> {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/user/update-profile`, updates, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      return data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.message || 'Profile update failed',
       };
     }
   },

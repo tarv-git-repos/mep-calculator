@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { authService, AuthUserData } from '@/services/authService';
+import { authService, clearAllAuthStorage, AuthUserData } from '@/services/authService';
 
 export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
 
@@ -26,7 +26,13 @@ export type Profile = {
   isAccountVerified: boolean;
   features?: Record<string, boolean>;
   subscription_expires?: string;
+  company?: string;
+  designation?: string;
+  profile_photo?: string;
+  settings?: Record<string, any>;
   status?: string;
+  is_founding_pioneer?: boolean;
+  pioneer_number?: number | null;
 };
 
 interface AuthContextType {
@@ -40,6 +46,9 @@ interface AuthContextType {
   setUserData: (data: AuthUserData | null) => void;
   getUserData: () => Promise<void>;
   logout: () => Promise<void>;
+  logoutAllDevices: () => Promise<void>;
+  deleteAccount: (password?: string) => Promise<{ success: boolean; message?: string }>;
+  updateProfileDetails: (updates: Record<string, any>) => Promise<{ success: boolean; message?: string }>;
   acceptPrivacy: () => Promise<void>;
 }
 
@@ -54,6 +63,9 @@ const AuthContext = createContext<AuthContextType>({
   setUserData: () => {},
   getUserData: async () => {},
   logout: async () => {},
+  logoutAllDevices: async () => {},
+  deleteAccount: async () => ({ success: false }),
+  updateProfileDetails: async () => ({ success: false }),
   acceptPrivacy: async () => {},
 });
 
@@ -76,8 +88,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState<boolean>(true);
 
   const setUserData = (data: AuthUserData | null) => {
-    if (data && typeof window !== 'undefined' && localStorage.getItem('privacy_policy_accepted') === 'true') {
-      data = { ...data, privacyPolicyAccepted: true };
+    if (data && typeof window !== 'undefined') {
+      if (localStorage.getItem('privacy_policy_accepted') === 'true') {
+        data = { ...data, privacyPolicyAccepted: true };
+      }
+      if (data.id) {
+        const savedPhoto = localStorage.getItem(`mep_profile_photo_${data.id}`);
+        if (savedPhoto && !data.profile_photo) {
+          data = { ...data, profile_photo: savedPhoto };
+        }
+      }
+      // Remove legacy un-scoped photo key if it exists
+      localStorage.removeItem('mep_profile_photo');
     }
     setUserDataState(data);
     if (typeof window !== 'undefined') {
@@ -95,9 +117,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const res = await authService.getUserData();
     if (res.success && res.userData) {
       setUserData(res.userData);
-    } else if (res.success === false) {
-      // Keep existing local state if offline or standalone
+      return res;
+    } else if (res.success === false && res.message && !res.message.includes('Network Error')) {
+      if (isLoggedin && userData) {
+        toast.error("Your account has been deleted or deactivated by an administrator.");
+      }
+      clearAllAuthStorage();
+      setUserDataState(null);
+      setIsLoggedin(false);
     }
+    return res;
   };
 
   const checkAuth = async () => {
@@ -105,10 +134,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const authState = await authService.getAuthState();
       if (authState.success && authState.userData) {
         setUserData(authState.userData);
+      } else if (authState.success === false && authState.message && !authState.message.includes('Network Error')) {
+        if (isLoggedin && userData) {
+          toast.error("Your account has been deleted or deactivated by an administrator.");
+        }
+        clearAllAuthStorage();
+        setUserDataState(null);
+        setIsLoggedin(false);
       } else {
         const res = await authService.getUserData();
         if (res.success && res.userData) {
           setUserData(res.userData);
+        } else if (res.success === false && res.message && !res.message.includes('Network Error')) {
+          if (isLoggedin && userData) {
+            toast.error("Your account has been deleted or deactivated by an administrator.");
+          }
+          clearAllAuthStorage();
+          setUserDataState(null);
+          setIsLoggedin(false);
         }
       }
     } catch (e) {
@@ -119,6 +162,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logout = async () => {
+    clearAllAuthStorage();
     await authService.logout();
     setUserData(null);
     try {
@@ -127,6 +171,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const logoutAllDevices = async () => {
+    await authService.logoutOthers();
+    await logout();
+  };
+
+  const deleteAccount = async (password?: string) => {
+    const res = await authService.deleteAccount(password, true);
+    if (res.success) {
+      setUserData(null);
+      try {
+        const { workspaceStore } = await import('@/lib/workspace-store');
+        workspaceStore.clearWorkspace();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return res;
+  };
+
+  const updateProfileDetails = async (updates: Record<string, any>) => {
+    const res = await authService.updateProfile(updates);
+    if (res.success && res.userData) {
+      setUserData(res.userData);
+    }
+    return res;
   };
 
   const acceptPrivacy = async () => {
@@ -159,6 +230,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     isAccountVerified: userData.isAccountVerified,
     features: userData.features || {},
     subscription_expires: userData.subscription_expires,
+    company: userData.company || '',
+    designation: userData.designation || '',
+    profile_photo: userData.profile_photo || '',
+    settings: userData.settings || {},
+    status: userData.status
   } : null;
 
   return (
@@ -173,6 +249,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUserData,
       getUserData,
       logout,
+      logoutAllDevices,
+      deleteAccount,
+      updateProfileDetails,
       acceptPrivacy
     }}>
       {children}

@@ -1,7 +1,9 @@
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile } from '@tauri-apps/plugin-fs';
-import { saveAs } from 'file-saver';
+import * as fileSaver from 'file-saver';
 import { toast } from 'sonner';
+
+const saveAs = (fileSaver as any)?.default?.saveAs || (fileSaver as any)?.saveAs || fileSaver;
 
 /**
  * Universally handles downloading files on both the Web (Browser) and Tauri Desktop App.
@@ -41,7 +43,7 @@ export async function downloadFile(
       if (blob instanceof Blob) {
         saveAs(blob, filename);
       } else {
-        saveAs(new Blob([blob]), filename);
+        saveAs(new Blob([blob as any]), filename);
       }
     }
   } else {
@@ -50,7 +52,7 @@ export async function downloadFile(
     if (blob instanceof Blob) {
       saveAs(blob, filename);
     } else {
-      saveAs(new Blob([blob]), filename);
+      saveAs(new Blob([blob as any]), filename);
     }
   }
 }

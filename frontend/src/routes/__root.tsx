@@ -223,6 +223,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  if (typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+    return <>{children}</>;
+  }
+
   return (
     <html lang="en">
       <head>

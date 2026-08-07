@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import fileSaver from 'file-saver';
+const saveAs = (fileSaver as any)?.saveAs || fileSaver;
 import { LpdProject } from '../routes/lpd-calculation';
 import { getLicenseWatermark } from './license';
 

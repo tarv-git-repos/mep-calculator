@@ -13,6 +13,7 @@ import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace, workspaceStore, checkIfSpaceMissingData, type Space, type SpaceStatus, type Zone, type Equipment, type ZoneInstanceAssignment } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
+import { exportVentilationExcel } from "@/lib/exportVentilationExcel";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { CategorySelect } from "@/components/workspace/CategorySelect";
@@ -2556,6 +2557,7 @@ addSpace(newSpace);
           
           <div className="ml-auto flex items-center gap-1">
             <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
+            <TBtn onClick={() => exportVentilationExcel(spaces)}><Download className="size-3.5" /> Export Excel</TBtn>
             <TBtn onClick={triggerAutoZoning}><Sparkles className="size-3.5 text-primary" /> Auto-Zone</TBtn>
             <TBtn primary onClick={handleNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
           </div>
@@ -6040,9 +6042,9 @@ function ReportView() {
       <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50">
         <span className="text-[12px] text-muted-foreground font-semibold">Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString()}</span></span>
         <div className="ml-auto flex items-center gap-1.5">
-          <TBtn><Printer className="size-3.5" /> Print</TBtn>
-          <TBtn><FileSpreadsheet className="size-3.5" /> Excel</TBtn>
-          <TBtn primary><FileText className="size-3.5" /> Export PDF</TBtn>
+          <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
+          <TBtn onClick={() => exportVentilationExcel(spaces)}><FileSpreadsheet className="size-3.5" /> Excel</TBtn>
+          <TBtn primary onClick={() => exportVentilationExcel(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
         </div>
       </div>
       <div className="flex-1 overflow-auto p-6 bg-slate-50/30 dark:bg-zinc-950/20">

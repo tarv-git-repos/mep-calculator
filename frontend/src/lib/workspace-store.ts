@@ -156,12 +156,28 @@ function saveState() {
         }
       }
       
+      const nowIso = new Date().toISOString();
       const payload = {
         ...currentWorkspaceState,
         localStorageCache: lsState
       };
       
+      if (currentProject) {
+        currentProject.workspace_data = payload;
+        (currentProject as any).updated_at = nowIso;
+        (currentProject as any).last_modified = nowIso;
+        currentProject.lastModified = nowIso;
+      }
+      const targetProj = projects.find(proj => proj.id === activeProjectId);
+      if (targetProj) {
+        targetProj.workspace_data = payload;
+        (targetProj as any).updated_at = nowIso;
+        (targetProj as any).last_modified = nowIso;
+        targetProj.lastModified = nowIso;
+      }
+      
       api.saveWorkspace(activeProjectId, payload);
+      notify();
     }
   }, 1000);
 }

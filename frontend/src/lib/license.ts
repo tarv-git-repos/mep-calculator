@@ -8,12 +8,24 @@ export interface LicenseStatusInfo {
   expiresAt?: number;
   remainingDays: number;
   watermark: string;
+  sessionInvalidated?: boolean;
 }
 
 export async function fetchLicenseStatus(email?: string): Promise<LicenseStatusInfo> {
   try {
     const hwid = getHardwareFingerprint();
     const res = await authService.getLicenseStatus(hwid, email);
+    
+    if (res && res.sessionInvalidated) {
+      return {
+        plan: "FREE",
+        status: "UNLICENSED",
+        remainingDays: 0,
+        watermark: "SESSION_INVALIDATED",
+        sessionInvalidated: true,
+      };
+    }
+
     if (res && res.success) {
       return {
         plan: res.plan || "FREE",

@@ -15,6 +15,55 @@ const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
+
+const ACTIVITY_LOGS_FILE = path.join(DATA_DIR, 'activity_logs.json');
+if (!fs.existsSync(ACTIVITY_LOGS_FILE)) fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify([]), 'utf8');
+
+function readActivityLogs() {
+  try { return JSON.parse(fs.readFileSync(ACTIVITY_LOGS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+}
+
+function writeActivityLogs(logs) {
+  try { fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8'); } catch (e) {}
+}
+
+const ORG_SETTINGS_FILE = path.join(DATA_DIR, 'org_settings.json');
+if (!fs.existsSync(ORG_SETTINGS_FILE)) fs.writeFileSync(ORG_SETTINGS_FILE, JSON.stringify({}), 'utf8');
+
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([]), 'utf8');
+
+function readLocalUsers() {
+  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+}
+
+function saveLocalUsers(users) {
+  try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8'); } catch (e) {}
+}
+
+function readOrgSettings() {
+  try { return JSON.parse(fs.readFileSync(ORG_SETTINGS_FILE, 'utf8') || '{}'); } catch (e) { return {}; }
+}
+
+function writeOrgSettings(settings) {
+  try { fs.writeFileSync(ORG_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8'); } catch (e) {}
+}
+
+function logActivity(user, action_type, details) {
+  if (!user) return;
+  const logs = readActivityLogs();
+  logs.unshift({
+    id: `log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+    created_at: new Date().toISOString(),
+    user_id: user.id || 'system',
+    email: user.email || 'system',
+    action_type,
+    details: typeof details === 'string' ? details : JSON.stringify(details)
+  });
+  if (logs.length > 1000) logs.length = 1000;
+  writeActivityLogs(logs);
+}
+
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const PORT = process.env.PORT || 4000;
@@ -47,14 +96,14 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 async function readUsers() {
   try {
     const { data, error } = await supabase.from('custom_users').select('*');
-    if (error) {
-      if (error.code === '42P01') {
-        console.warn("Table custom_users does not exist yet! Please create it in Supabase.");
-        return [];
-      }
-      throw error;
+    let users = [];
+    if (!error && Array.isArray(data)) {
+      users = data.map(u => ({ ...u, active_hwid: u.features?.active_hwid || null }));
+      saveLocalUsers(users);
+    } else {
+      users = readLocalUsers();
     }
-    const users = data || [];
+    
     const adminEmail = 'admin@tarv.ai';
     let adminUser = users.find(u => u.email === adminEmail);
     if (!adminUser) {
@@ -70,32 +119,71 @@ async function readUsers() {
         role: 'SUPER_ADMIN',
         resetOtp: '',
         resetOtpExpireAt: 0,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        active_hwid: null
       };
-      await supabase.from('custom_users').insert([adminUser]);
       users.push(adminUser);
+      saveLocalUsers(users);
+      try { await supabase.from('custom_users').insert([adminUser]); } catch (e) {}
     }
     return users;
   } catch (e) {
     console.error("Error reading users:", e);
-    return [];
+    return readLocalUsers();
   }
 }
 
 async function writeUsers(users) {
+  saveLocalUsers(users);
   try {
-    // Strip privacyPolicyAccepted before saving to Supabase since the column doesn't exist yet
-    const safeUsers = users.map(({ privacyPolicyAccepted, ...user }) => user);
-    const { error } = await supabase.from('custom_users').upsert(safeUsers);
-    if (error) {
-      console.error('Error writing users to Supabase:', error);
-    }
+    const safeUsers = users.map(({ privacyPolicyAccepted, active_hwid, ...user }) => {
+      const features = {
+        ...(user.features || {}),
+      };
+      if (active_hwid !== undefined) {
+        features.active_hwid = active_hwid;
+      }
+      return {
+        ...user,
+        features
+      };
+    });
+    await supabase.from('custom_users').upsert(safeUsers);
   } catch (e) {
-    console.error('Error writing users:', e);
+    console.error('Error writing users to Supabase:', e);
   }
 }
 
-function formatUser(user) {
+async function formatUser(user, allUsers = null) {
+  let is_founding_pioneer = false;
+  let pioneer_number = null;
+
+  try {
+    const list = allUsers || (await readUsers());
+    const validUsers = (list || []).filter(u => u && u.id);
+    
+    const sorted = [...validUsers].sort((a, b) => {
+      const idxA = validUsers.indexOf(a);
+      const idxB = validUsers.indexOf(b);
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : (idxA * 1000);
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : (idxB * 1000);
+      return timeA - timeB;
+    });
+
+    const userEmailLower = user.email ? user.email.toLowerCase() : '';
+    const idx = sorted.findIndex(u => u.id === user.id || (u.email && u.email.toLowerCase() === userEmailLower));
+    
+    if (idx !== -1 && (idx < 15 || validUsers.length <= 15)) {
+      is_founding_pioneer = true;
+      pioneer_number = (idx >= 0 && idx < 15) ? idx + 1 : 1;
+    } else if (validUsers.length === 0) {
+      is_founding_pioneer = true;
+      pioneer_number = 1;
+    }
+  } catch (e) {
+    console.error('Error formatting pioneer user:', e);
+  }
+
   return {
     id: user.id,
     name: user.name,
@@ -106,7 +194,13 @@ function formatUser(user) {
     features: user.features || {},
     subscription_expires: user.subscription_expires,
     organization_id: user.organization_id,
-    status: user.status
+    company: user.company || '',
+    designation: user.designation || '',
+    profile_photo: user.profile_photo || '',
+    settings: user.settings || {},
+    status: user.status,
+    is_founding_pioneer,
+    pioneer_number: pioneer_number || 1
   };
 }
 
@@ -135,7 +229,19 @@ async function getUserFromReq(req) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     const users = await readUsers();
-    return users.find((u) => u.id === decoded.id) || null;
+    const userIndex = users.findIndex((u) => u.id === decoded.id);
+    if (userIndex === -1) return null;
+    let user = users[userIndex];
+    if (user.status === 'invited') {
+      user.status = 'active';
+      user.isAccountVerified = true;
+      users[userIndex] = user;
+      await writeUsers(users);
+      try {
+        await supabase.from('custom_users').update({ status: 'active', isAccountVerified: true }).eq('id', user.id);
+      } catch (e) {}
+    }
+    return user;
   } catch (e) {
     return null;
   }
@@ -308,6 +414,8 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Failed to send OTP email.' });
     }
 
+    logActivity(newUser, 'REGISTER', 'User registered directly');
+
     return sendJSON(
       res,
       200,
@@ -331,7 +439,7 @@ const server = http.createServer(async (req, res) => {
 
   // 2. LOGIN
   if (req.method === 'POST' && url === '/api/auth/login') {
-    const { email, password } = await getRequestBody(req);
+    const { email, password, hwid, force } = await getRequestBody(req);
 
     if (!email || !password) {
       return sendJSON(res, 200, { success: false, message: 'Email and password are required' });
@@ -339,7 +447,8 @@ const server = http.createServer(async (req, res) => {
 
     const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
-    const user = users.find((u) => u.email === cleanEmail);
+    const userIndex = users.findIndex((u) => u.email === cleanEmail);
+    const user = userIndex !== -1 ? users[userIndex] : null;
 
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'Invalid email' });
@@ -351,8 +460,34 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Invalid password' });
     }
 
+    // Automatically transition invited users to active status upon successful login
+    if (user.status === 'invited' || !user.isAccountVerified) {
+      user.status = 'active';
+      user.isAccountVerified = true;
+      users[userIndex] = user;
+      await writeUsers(users);
+      try {
+        await supabase.from('custom_users').update({ status: 'active', isAccountVerified: true }).eq('id', user.id);
+      } catch (e) {}
+    }
+
+    if (hwid && user.active_hwid && user.active_hwid !== hwid && !force) {
+      return sendJSON(res, 200, { 
+        success: false, 
+        requireForceLogout: true, 
+        message: 'This email is already logged in on another device. Do you want to remove it from that device?' 
+      });
+    }
+
+    if (hwid) {
+      user.active_hwid = hwid;
+      users[userIndex] = user;
+      await writeUsers(users);
+    }
+
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
     const cookieStr = `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`;
+    logActivity(user, 'LOGIN', 'User logged in');
 
     return sendJSON(
       res,
@@ -361,16 +496,7 @@ const server = http.createServer(async (req, res) => {
         success: true,
         token,
         message: 'Logged In Successfully',
-        userData: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          isAccountVerified: user.isAccountVerified,
-          role: user.role,
-          privacyPolicyAccepted: user.privacyPolicyAccepted || false,
-          features: user.features || {},
-          subscription_expires: user.subscription_expires,
-        },
+        userData: await formatUser(user),
       },
       cookieStr
     );
@@ -472,7 +598,7 @@ const server = http.createServer(async (req, res) => {
     if (user) {
       return sendJSON(res, 200, {
         success: true,
-        userData: formatUser(user),
+        userData: await formatUser(user),
       });
     }
     return sendJSON(res, 200, { success: false, message: 'Not authenticated' });
@@ -486,17 +612,125 @@ const server = http.createServer(async (req, res) => {
     }
     return sendJSON(res, 200, {
       success: true,
-      userData: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        isAccountVerified: user.isAccountVerified,
-        role: user.role,
-        privacyPolicyAccepted: user.privacyPolicyAccepted || false,
-        features: user.features || {},
-        subscription_expires: user.subscription_expires,
-      },
+      userData: await formatUser(user)
     });
+  }
+
+  // 7.1 UPDATE PROFILE
+  if (req.method === 'POST' && url === '/api/user/update-profile') {
+    const user = await getUserFromReq(req);
+    if (!user) {
+      return sendJSON(res, 401, { success: false, message: 'Not authenticated' });
+    }
+    const { name, company, designation, profile_photo, settings, currentPassword, newPassword } = await getRequestBody(req);
+    const users = await readUsers();
+    const userIndex = users.findIndex(u => u.id === user.id);
+    if (userIndex === -1) {
+      return sendJSON(res, 200, { success: false, message: 'User not found' });
+    }
+
+    const dbUser = users[userIndex];
+
+    if (name !== undefined && name.trim()) dbUser.name = name.trim();
+    if (company !== undefined) dbUser.company = company.trim();
+    if (designation !== undefined) dbUser.designation = designation.trim();
+    if (profile_photo !== undefined) dbUser.profile_photo = profile_photo;
+    if (settings !== undefined) dbUser.settings = { ...(dbUser.settings || {}), ...settings };
+
+    if (newPassword) {
+      if (!currentPassword) {
+        return sendJSON(res, 200, { success: false, message: 'Current password is required to set a new password.' });
+      }
+      const isMatch = await bcrypt.compare(currentPassword, dbUser.password);
+      if (!isMatch) {
+        return sendJSON(res, 200, { success: false, message: 'Current password is incorrect.' });
+      }
+      // Validate password requirements
+      const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
+      const hasNumber = /[0-9]/.test(newPassword);
+      const hasCapital = /[A-Z]/.test(newPassword);
+      const hasSmall = /[a-z]/.test(newPassword);
+      const isLongEnough = newPassword.length >= 8;
+      
+      if (!hasSpecial || !hasNumber || !hasCapital || !hasSmall || !isLongEnough) {
+        return sendJSON(res, 200, { success: false, message: 'New password does not meet complexity requirements.' });
+      }
+
+      dbUser.password = await bcrypt.hash(newPassword, 10);
+    }
+
+    users[userIndex] = dbUser;
+    await writeUsers(users);
+    logActivity(dbUser, 'UPDATE_PROFILE', 'User updated profile details/settings');
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: 'Profile updated successfully',
+      userData: await formatUser(dbUser)
+    });
+  }
+
+  // 7.2 DELETE ACCOUNT
+  if (req.method === 'POST' && url === '/api/user/delete-account') {
+    const user = await getUserFromReq(req);
+    if (!user) {
+      return sendJSON(res, 401, { success: false, message: 'Not authenticated' });
+    }
+    const { password, confirmed } = await getRequestBody(req);
+    if (password) {
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return sendJSON(res, 200, { success: false, message: 'Incorrect password.' });
+      }
+    } else if (!confirmed) {
+      return sendJSON(res, 200, { success: false, message: 'Confirmation required to delete account.' });
+    }
+
+    logActivity(user, 'DELETE_ACCOUNT', 'User deleted their account');
+
+    // Delete from local user store if present
+    const users = await readUsers();
+    const filteredUsers = users.filter(u => u.id !== user.id);
+    await writeUsers(filteredUsers);
+
+    // Delete from Supabase custom_users table
+    const { error } = await supabase.from('custom_users').delete().eq('id', user.id);
+    if (error) {
+      console.error('Supabase delete user error:', error);
+    }
+
+    // Set cookie expire to clear session
+    const cookieStr = `token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`;
+    return sendJSON(res, 200, { success: true, message: 'Account deleted successfully' }, cookieStr);
+  }
+
+  // 7.3 LOGOUT OTHERS
+  if (req.method === 'POST' && url === '/api/user/logout-others') {
+    const user = await getUserFromReq(req);
+    if (!user) {
+      return sendJSON(res, 401, { success: false, message: 'Not authenticated' });
+    }
+    const users = await readUsers();
+    const userIndex = users.findIndex(u => u.id === user.id);
+    if (userIndex === -1) {
+      return sendJSON(res, 200, { success: false, message: 'User not found' });
+    }
+
+    users[userIndex].active_hwid = null;
+    await writeUsers(users);
+    logActivity(users[userIndex], 'LOGOUT_OTHERS', 'Logged out all other sessions');
+
+    return sendJSON(res, 200, { success: true, message: 'Other sessions logged out successfully' });
+  }
+
+  // 7.4 GET ACTIVITY LOGS
+  if (req.method === 'GET' && url === '/api/user/activity-logs') {
+    const user = await getUserFromReq(req);
+    if (!user) {
+      return sendJSON(res, 401, { success: false, message: 'Not authenticated' });
+    }
+    const logs = readActivityLogs().filter(log => log.user_id === user.id || log.email === user.email);
+    return sendJSON(res, 200, { success: true, logs });
   }
 
   // 7.5 ACCEPT PRIVACY
@@ -674,6 +908,7 @@ const server = http.createServer(async (req, res) => {
     if (!projectData.name || !projectData.code) return sendJSON(res, 400, { success: false, message: 'Name and Code required' });
     
     const projectId = `proj_${Date.now()}`;
+    const nowIso = new Date().toISOString();
     const newProject = {
       id: projectId,
       name: projectData.name,
@@ -683,7 +918,11 @@ const server = http.createServer(async (req, res) => {
       description: projectData.description || '',
       notes: projectData.notes || '',
       created_by: user.id,
-      workspace_data: projectData.workspace_data || {}
+      created_at: nowIso,
+      updated_at: nowIso,
+      createdDate: nowIso,
+      lastModified: nowIso,
+      workspace_data: projectData.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
     };
 
     const { error } = await supabase.from('projects').insert(newProject);
@@ -851,24 +1090,53 @@ const server = http.createServer(async (req, res) => {
     
     users[targetUserIndex].role = newRole;
     await writeUsers(users);
+    logActivity(adminUser, 'ADMIN_TOGGLE_ROLE', { targetUser: profileId, newRole });
     return sendJSON(res, 200, { success: true, message: 'Role updated successfully' });
   }
 
   if (req.method === 'POST' && url === '/api/admin/delete-user') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN') {
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
     }
     const { profileId } = await getRequestBody(req);
     if (!profileId) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
-    if (adminUser.id === profileId) return sendJSON(res, 400, { success: false, message: 'Cannot delete your own account' });
-    
-    // Actually delete the user from the Supabase table
-    const { error } = await supabase.from('custom_users').delete().eq('id', profileId);
-    if (error) {
-      return sendJSON(res, 500, { success: false, message: 'Failed to delete user' });
+    if (adminUser.id === profileId || adminUser.email.toLowerCase() === profileId.toLowerCase()) {
+      return sendJSON(res, 400, { success: false, message: 'Cannot delete your own account' });
     }
     
+    let users = readLocalUsers();
+    if (users.length === 0) users = await readUsers();
+
+    const targetUser = users.find(u => u.id === profileId || u.email.toLowerCase() === profileId.toLowerCase());
+    
+    const updatedUsers = users.filter(u => u.id !== profileId && u.email.toLowerCase() !== profileId.toLowerCase());
+    saveLocalUsers(updatedUsers);
+
+    if (targetUser) {
+      try {
+        await supabase.from('custom_users').delete().eq('id', targetUser.id);
+        await supabase.from('custom_users').delete().eq('email', targetUser.email);
+      } catch (e) {
+        console.error('Supabase delete user error:', e);
+      }
+    } else {
+      try {
+        await supabase.from('custom_users').delete().eq('id', profileId);
+        await supabase.from('custom_users').delete().eq('email', profileId);
+      } catch (e) {}
+    }
+
+    if (targetUser && targetUser.organization_id) {
+      try {
+        const { data: orgData } = await supabase.from('organizations').select('*').eq('id', targetUser.organization_id).single();
+        if (orgData && orgData.used_users > 0) {
+          await supabase.from('organizations').update({ used_users: orgData.used_users - 1 }).eq('id', targetUser.organization_id);
+        }
+      } catch (e) {}
+    }
+
+    logActivity(adminUser, 'ADMIN_DELETE_USER', { targetUser: profileId });
     return sendJSON(res, 200, { success: true, message: 'User deleted successfully' });
   }
 
@@ -888,6 +1156,7 @@ const server = http.createServer(async (req, res) => {
     users[targetUserIndex] = { ...users[targetUserIndex], ...updates };
     await writeUsers(users);
     
+    logActivity(adminUser, 'ADMIN_UPDATE_PROFILE', { targetUser: profileId, updates });
     return sendJSON(res, 200, { success: true, message: 'Profile updated successfully' });
   }
 
@@ -897,18 +1166,9 @@ const server = http.createServer(async (req, res) => {
 
   const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
   const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
-  const ACTIVITY_LOGS_FILE = path.join(DATA_DIR, 'activity_logs.json');
 
   if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8');
   if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8');
-  if (!fs.existsSync(ACTIVITY_LOGS_FILE)) fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify([]), 'utf8');
-  
-  function readActivityLogs() {
-    try { return JSON.parse(fs.readFileSync(ACTIVITY_LOGS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
-  }
-  function writeActivityLogs(logs) {
-    try { fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8'); } catch (e) {}
-  }
   
   // POST log activity
   if (req.method === 'POST' && url === '/api/activity/log') {
@@ -941,6 +1201,37 @@ const server = http.createServer(async (req, res) => {
     }
     const logs = readActivityLogs();
     return sendJSON(res, 200, { success: true, logs });
+  }
+
+  // GET org activity logs
+  if (req.method === 'GET' && (url === '/api/org/activity-logs' || req.url.startsWith('/api/org/activity-logs'))) {
+    const user = await getUserFromReq(req);
+    if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+    
+    let targetOrgId = user.organization_id;
+    if (user.role === 'SUPER_ADMIN') {
+      const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
+      if (qOrgId) targetOrgId = qOrgId;
+    }
+
+    const allUsers = await readUsers();
+    const orgUsers = targetOrgId 
+      ? allUsers.filter(u => u.organization_id === targetOrgId) 
+      : allUsers;
+    const orgUserEmails = new Set(orgUsers.map(u => u.email ? u.email.toLowerCase() : ''));
+    const orgUserIds = new Set(orgUsers.map(u => u.id));
+
+    const logs = readActivityLogs();
+    const filteredLogs = logs.filter(log => {
+      if (!targetOrgId) return true;
+      if (log.user_id && orgUserIds.has(log.user_id)) return true;
+      if (log.email && orgUserEmails.has(log.email.toLowerCase())) return true;
+      return false;
+    });
+
+    return sendJSON(res, 200, { success: true, logs: filteredLogs });
   }
 
   function readLicenses() {
@@ -1049,6 +1340,49 @@ const server = http.createServer(async (req, res) => {
         remainingDays,
         watermark: `Licensed to: ${activeLicense.boundEmail || 'Verified Device'} | Key: ${activeLicense.key}`
       });
+    }
+
+    // Check User Account Subscription/Role
+    if (cleanEmail) {
+      const users = await readUsers();
+      const dbUser = users.find(u => u.email === cleanEmail);
+      if (dbUser) {
+        if (dbUser.active_hwid && dbUser.active_hwid !== hwid) {
+          return sendJSON(res, 200, {
+            success: false,
+            sessionInvalidated: true,
+            message: 'Session transferred to another device. You have been logged out.'
+          });
+        }
+
+        if (dbUser.role === 'ORG_USER' || dbUser.role === 'ORG_ADMIN' || dbUser.role === 'SUPER_ADMIN') {
+          return sendJSON(res, 200, {
+            success: true,
+            plan: 'ENTERPRISE',
+            status: 'ACTIVE',
+            expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+            remainingDays: 365,
+            watermark: 'ENTERPRISE LICENSE'
+          });
+        }
+
+        if (dbUser.subscription_status && dbUser.subscription_expires && (dbUser.subscription_status === 'PRO' || dbUser.subscription_status === 'ENTERPRISE')) {
+          const expDate = new Date(dbUser.subscription_expires).getTime();
+          const isExpired = Date.now() > expDate;
+          const remainingDays = Math.ceil(Math.max(0, expDate - Date.now()) / (1000 * 60 * 60 * 24));
+          
+          if (!isExpired) {
+            return sendJSON(res, 200, {
+              success: true,
+              plan: dbUser.subscription_status,
+              status: 'ACTIVE',
+              expiresAt: expDate,
+              remainingDays,
+              watermark: `${dbUser.subscription_status} ACTIVE`
+            });
+          }
+        }
+      }
     }
 
     // Check Hardware Trial
@@ -1245,6 +1579,7 @@ const server = http.createServer(async (req, res) => {
     const { name, subscription_plan, max_users } = await getRequestBody(req);
     const { data, error } = await supabase.from('organizations').insert([{ name, subscription_plan, max_users: parseInt(max_users) || 10 }]).select();
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    logActivity(user, 'CREATE_ORGANIZATION', { orgName: name });
     return sendJSON(res, 200, { success: true, organization: data[0] });
   }
 
@@ -1266,7 +1601,8 @@ const server = http.createServer(async (req, res) => {
       query = query.eq('organization_id', orgId);
     }
     const { data } = await query;
-    return sendJSON(res, 200, { success: true, users: (data || []).map(formatUser) });
+    const formattedUsers = await Promise.all((data || []).map(u => formatUser(u)));
+    return sendJSON(res, 200, { success: true, users: formattedUsers });
   }
 
   if (req.method === 'POST' && url === '/api/org/invite') {
@@ -1318,7 +1654,83 @@ const server = http.createServer(async (req, res) => {
     };
     transporter.sendMail(inviteMailOptions).catch(console.error);
 
-    return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: formatUser(newUser) });
+    logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
+    return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: await formatUser(newUser) });
+  }
+
+  // --- ORGANIZATION BACKUP SETTINGS ROUTES ---
+  if (req.method === 'GET' && req.url.startsWith('/api/org/backup-settings')) {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    let orgId = user.organization_id;
+    if (user.role === 'SUPER_ADMIN') {
+      const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
+      if (qOrgId) orgId = qOrgId;
+    }
+
+    if (!orgId) {
+      return sendJSON(res, 200, { success: true, local_backup_path: '', server_backup_path: '' });
+    }
+
+    let localPath = '';
+    let serverPath = '';
+    try {
+      const { data } = await supabase.from('organizations').select('local_backup_path, server_backup_path').eq('id', orgId).single();
+      if (data) {
+        localPath = data.local_backup_path || '';
+        serverPath = data.server_backup_path || '';
+      }
+    } catch (e) {}
+
+    const fileSettings = readOrgSettings();
+    if (fileSettings[orgId]) {
+      if (!localPath) localPath = fileSettings[orgId].local_backup_path || '';
+      if (!serverPath) serverPath = fileSettings[orgId].server_backup_path || '';
+    }
+
+    return sendJSON(res, 200, {
+      success: true,
+      org_id: orgId,
+      local_backup_path: localPath,
+      server_backup_path: serverPath
+    });
+  }
+
+  if (req.method === 'POST' && url === '/api/org/backup-settings') {
+    const user = await getUserFromReq(req);
+    if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+
+    const { local_backup_path, server_backup_path, org_id } = await getRequestBody(req);
+    const targetOrgId = org_id || user.organization_id;
+    if (!targetOrgId) return sendJSON(res, 400, { success: false, message: 'Target organization required' });
+
+    try {
+      await supabase.from('organizations').update({
+        local_backup_path: local_backup_path || '',
+        server_backup_path: server_backup_path || ''
+      }).eq('id', targetOrgId);
+    } catch (e) {}
+
+    const fileSettings = readOrgSettings();
+    fileSettings[targetOrgId] = {
+      local_backup_path: local_backup_path || '',
+      server_backup_path: server_backup_path || '',
+      updated_at: new Date().toISOString(),
+      updated_by: user.email
+    };
+    writeOrgSettings(fileSettings);
+
+    logActivity(user, 'UPDATE_ORG_BACKUP_SETTINGS', { org_id: targetOrgId, local_backup_path, server_backup_path });
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: 'Organization backup settings saved successfully to backend!',
+      local_backup_path,
+      server_backup_path
+    });
   }
 
   // --- ANNOUNCEMENTS ROUTES ---
@@ -1333,7 +1745,7 @@ const server = http.createServer(async (req, res) => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (user && user.role !== 'super_admin') {
+      if (user && user.role !== 'SUPER_ADMIN') {
         // Normal users or Org Admins see global broadcasts (org_id is null) OR their own org's broadcasts
         query = query.or(`organization_id.is.null,organization_id.eq.${user.organization_id}`);
       } else if (!user) {
@@ -1354,7 +1766,7 @@ const server = http.createServer(async (req, res) => {
   // POST /api/admin/announcements (Admins only)
   if (req.method === 'POST' && url === '/api/admin/announcements') {
     const user = await getUserFromReq(req);
-    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+    if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Access Denied: Admins only' });
     }
 
@@ -1366,7 +1778,7 @@ const server = http.createServer(async (req, res) => {
 
       // If they are an Org Admin, bind the announcement to their organization
       // If Super Admin, they broadcast globally (null)
-      const orgId = user.role === 'admin' ? user.organization_id : null;
+      const orgId = user.role === 'ORG_ADMIN' ? user.organization_id : null;
 
       const { data, error } = await supabase
         .from('announcements')
@@ -1374,6 +1786,7 @@ const server = http.createServer(async (req, res) => {
         .select();
 
       if (error) throw error;
+      logActivity(user, 'CREATE_ANNOUNCEMENT', { message, orgId });
       return sendJSON(res, 200, { success: true, announcement: data[0] });
     } catch (err) {
       console.error('Error creating announcement:', err);
@@ -1384,7 +1797,7 @@ const server = http.createServer(async (req, res) => {
   // PUT /api/admin/announcements/:id (Toggle active status)
   if (req.method === 'PUT' && url.startsWith('/api/admin/announcements/')) {
     const user = await getUserFromReq(req);
-    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+    if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Access Denied: Admins only' });
     }
 
@@ -1399,6 +1812,7 @@ const server = http.createServer(async (req, res) => {
         .select();
 
       if (error) throw error;
+      logActivity(user, 'UPDATE_ANNOUNCEMENT', { id, is_active });
       return sendJSON(res, 200, { success: true, announcement: data[0] });
     } catch (err) {
       console.error('Error updating announcement:', err);
@@ -1409,7 +1823,7 @@ const server = http.createServer(async (req, res) => {
   // DELETE /api/admin/announcements/:id (Admins only)
   if (req.method === 'DELETE' && url.startsWith('/api/admin/announcements/')) {
     const user = await getUserFromReq(req);
-    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+    if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Access Denied: Admins only' });
     }
 
@@ -1421,6 +1835,7 @@ const server = http.createServer(async (req, res) => {
         .eq('id', id);
 
       if (error) throw error;
+      logActivity(user, 'DELETE_ANNOUNCEMENT', { id });
       return sendJSON(res, 200, { success: true, message: 'Announcement deleted successfully' });
     } catch (err) {
       console.error('Error deleting announcement:', err);

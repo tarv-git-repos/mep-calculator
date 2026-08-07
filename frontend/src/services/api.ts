@@ -1,7 +1,11 @@
 import axios from 'axios';
 
 const getBackendUrl = () => {
-  return import.meta.env.VITE_API_URL || 'https://universal-mep-calculator.onrender.com';
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.'))) {
+    return `http://${window.location.hostname}:4000`;
+  }
+  return 'https://universal-mep-calculator.onrender.com';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -223,6 +227,39 @@ export const api = {
     } catch (e: any) {
       console.error(e);
       return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async getOrgBackupSettings(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/backup-settings?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/backup-settings`;
+      const { data } = await axios.get(url);
+      return data;
+    } catch (e: any) {
+      console.error(e);
+      return { success: false, local_backup_path: '', server_backup_path: '' };
+    }
+  },
+  async saveOrgBackupSettings(local_backup_path: string, server_backup_path: string, orgId?: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/backup-settings`, {
+        local_backup_path,
+        server_backup_path,
+        org_id: orgId
+      });
+      return data;
+    } catch (e: any) {
+      console.error(e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async getOrgActivityLogs(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/activity-logs?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/activity-logs`;
+      const { data } = await axios.get(url);
+      return data.success ? data.logs : [];
+    } catch (e) {
+      console.error('Error fetching org activity logs:', e);
+      return [];
     }
   },
 

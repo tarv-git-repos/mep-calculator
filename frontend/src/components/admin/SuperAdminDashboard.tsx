@@ -1,13 +1,13 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy } from "lucide-react"
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { open, confirm } from '@tauri-apps/plugin-dialog'
 import { authService } from '@/services/authService'
 import { api } from '@/services/api'
+import { useConfirm } from '@/hooks/use-confirm'
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -56,7 +56,8 @@ type Announcement = {
 }
 
 export function SuperAdminDashboard() {
-  const { session, user } = useAuth()
+  const { session, profile, userData, user } = useAuth()
+  const confirm = useConfirm()
   const navigate = useNavigate()
   
   const [isAdmin, setIsAdmin] = useState(false)
@@ -74,9 +75,13 @@ export function SuperAdminDashboard() {
   
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loadingProfiles, setLoadingProfiles] = useState(false)
+  const [selectedOrgFilter, setSelectedOrgFilter] = useState<string>('ALL')
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
+  const [logCategoryFilter, setLogCategoryFilter] = useState<string>('ALL')
+  const [logSearchQuery, setLogSearchQuery] = useState<string>('')
+  const [logOrgFilter, setLogOrgFilter] = useState<string>('ALL')
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [loadingAnnouncements, setLoadingAnnouncements] = useState(false)
@@ -215,11 +220,21 @@ export function SuperAdminDashboard() {
     setLoadingLicenses(false)
   }
 
+  const fetchOrgBackupSettings = async (orgId?: string) => {
+    const targetId = orgId || (selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED' ? selectedOrgFilter : '');
+    const res = await api.getOrgBackupSettings(targetId);
+    if (res && res.success) {
+      setLocalBackupPath(res.local_backup_path || '');
+      setServerBackupPath(res.server_backup_path || '');
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'activity') fetchActivityLogs()
     if (activeTab === 'broadcasts') fetchAnnouncements()
     if (activeTab === 'licenses') fetchAdminLicenses()
     if (activeTab === 'organizations') fetchOrganizations()
+    if (activeTab === 'storage') fetchOrgBackupSettings()
   }, [activeTab])
 
   const handleAdminGenerateKey = async (e: React.FormEvent) => {
@@ -304,22 +319,24 @@ export function SuperAdminDashboard() {
   }
 
   const deleteUser = async (profileId: string, email: string) => {
-    if (profileId === session?.user?.id) {
-      toast.error("You cannot delete your own account.")
-      return
+    const currentId = userData?.id || profile?.id;
+    const currentEmail = userData?.email || profile?.email;
+    if (profileId === currentId || email === currentEmail) {
+      toast.error("You cannot delete your own account.");
+      return;
     }
-    const choice = await confirm(`Are you sure you want to delete ${email}?\n\nThey will permanently lose access to the application.`, { title: "Delete User", confirmText: "Delete", cancelText: "Cancel" })
-    if (!choice) return
+    const choice = await confirm(`Are you sure you want to delete ${email}?\n\nThey will permanently lose access to the application.`, { title: "Delete User", confirmText: "Delete", cancelText: "Cancel" });
+    if (!choice) return;
 
-    const res = await api.adminDeleteUser(profileId)
+    const res = await api.adminDeleteUser(profileId);
     
     if (!res.success) {
-      toast.error(res.message)
+      toast.error(res.message);
     } else {
-      toast.success("User deleted successfully")
-      fetchProfiles()
+      toast.success("User deleted successfully");
+      fetchProfiles();
     }
-  }
+  };
 
   const [signUpErrorDetails, setSignUpErrorDetails] = useState<string | null>(null)
 
@@ -374,6 +391,30 @@ export function SuperAdminDashboard() {
     if (!res.success) {
       toast.error("Failed to update permission: " + res.message);
       // Optional: Revert state here on failure
+    }
+  }
+
+  const toggleSection = async (items: any[]) => {
+    if (!editingPermissionsFor) return;
+
+    // Check if ALL items in this section are currently unlocked. If so, new value is false. Else, true.
+    const allUnlocked = items.every(item => editingPermissionsFor.features?.[item.to!.replace('/', '')] !== false);
+    const newValue = !allUnlocked;
+
+    const updatedFeatures = { ...editingPermissionsFor.features };
+    items.forEach(item => {
+      const routeKey = item.to!.replace('/', '');
+      updatedFeatures[routeKey] = newValue;
+    });
+
+    setEditingPermissionsFor({ ...editingPermissionsFor, features: updatedFeatures });
+    setProfiles(prevProfiles => prevProfiles.map(p => 
+      p.id === editingPermissionsFor.id ? { ...p, features: updatedFeatures } : p
+    ));
+
+    const res = await api.adminUpdateProfile(editingPermissionsFor.id, { features: updatedFeatures });
+    if (!res.success) {
+      toast.error("Failed to update section permissions: " + res.message);
     }
   }
 
@@ -524,10 +565,15 @@ export function SuperAdminDashboard() {
           <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden min-h-[600px]">
             {activeTab === 'users' && (
               <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold">Manage Users</h2>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Manage Users by Organization</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Select an organization from the dropdown to view its members, organization admin representative, and seat usage.
+                    </p>
+                  </div>
                   <div className="flex items-center gap-3">
-                    <button onClick={fetchProfiles} className="text-sm text-blue-600 hover:underline">Refresh</button>
+                    <button onClick={fetchProfiles} className="text-sm text-blue-600 hover:underline font-medium">Refresh</button>
                     <button 
                       onClick={() => setShowAddUser(true)}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors"
@@ -536,6 +582,85 @@ export function SuperAdminDashboard() {
                     </button>
                   </div>
                 </div>
+
+                {/* Requirement: Organization Selector Dropdown */}
+                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+                  <div className="flex items-center gap-3 flex-1">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
+                      <Building size={16} className="text-blue-600" />
+                      Select Organization:
+                    </label>
+                    <select
+                      value={selectedOrgFilter}
+                      onChange={(e) => setSelectedOrgFilter(e.target.value)}
+                      className="text-sm p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 max-w-md w-full shadow-xs cursor-pointer"
+                    >
+                      <option value="ALL">🏢 All Organizations & Members ({profiles.length} total users)</option>
+                      <option value="UNASSIGNED">👤 Unassigned Users (No Organization) ({profiles.filter(p => !p.organization_id && p.role !== 'SUPER_ADMIN').length})</option>
+                      {organizations.map(org => {
+                        const count = profiles.filter(p => p.organization_id === org.id).length;
+                        const orgAdmin = profiles.find(p => p.organization_id === org.id && p.role === 'ORG_ADMIN');
+                        const adminStr = orgAdmin ? ` — Admin: ${orgAdmin.email}` : '';
+                        return (
+                          <option key={org.id} value={org.id}>
+                            🏢 {org.name} ({count} users{adminStr})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div className="text-xs font-semibold text-slate-500">
+                    Showing {profiles.filter(p => {
+                      if (selectedOrgFilter === 'ALL') return true;
+                      if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+                      return p.organization_id === selectedOrgFilter;
+                    }).length} Users
+                  </div>
+                </div>
+
+                {/* Requirement: Organization Admin Representative Card */}
+                {selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED' && (() => {
+                  const currentOrg = organizations.find(o => o.id === selectedOrgFilter);
+                  if (!currentOrg) return null;
+                  const currentOrgAdmin = profiles.find(p => p.organization_id === currentOrg.id && p.role === 'ORG_ADMIN');
+                  const currentOrgUsers = profiles.filter(p => p.organization_id === currentOrg.id);
+
+                  return (
+                    <div className="mb-6 p-4 rounded-xl border border-purple-200 dark:border-purple-900/40 bg-purple-50/60 dark:bg-purple-900/10 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+                      <div className="flex items-center gap-3">
+                        <div className="size-11 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
+                          {currentOrg.name.substring(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-base font-bold text-slate-900 dark:text-white">{currentOrg.name}</h3>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                              {currentOrg.subscription_plan || 'PRO PLAN'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 flex items-center gap-2">
+                            <span className="font-semibold text-purple-700 dark:text-purple-400">Organization Representative / Admin:</span>
+                            {currentOrgAdmin ? (
+                              <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                                <Crown size={14} className="text-amber-500" /> {currentOrgAdmin.email}
+                              </span>
+                            ) : (
+                              <span className="italic text-slate-400">No Org Admin assigned yet</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-xs">
+                        <div className="bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-purple-100 dark:border-purple-900/40 font-medium">
+                          <span className="text-slate-500">Seats Used: </span>
+                          <span className="font-bold text-purple-700 dark:text-purple-300">{currentOrgUsers.length}</span> / {currentOrg.max_users || 5} Max Seats
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {showAddUser && (
                   <div className="mb-6 p-5 border border-blue-100 dark:border-blue-900/30 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl">
@@ -600,15 +725,28 @@ export function SuperAdminDashboard() {
                     <tbody className="text-sm">
                       {loadingProfiles ? (
                         <tr><td colSpan={6} className="py-8 text-center text-slate-500">Loading...</td></tr>
-                      ) : profiles.length === 0 ? (
-                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">No users found.</td></tr>
+                      ) : profiles.filter(p => {
+                        if (selectedOrgFilter === 'ALL') return true;
+                        if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+                        return p.organization_id === selectedOrgFilter;
+                      }).length === 0 ? (
+                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">No users found for this organization selection.</td></tr>
                       ) : (
-                        profiles.map((p) => (
+                        profiles
+                          .filter(p => {
+                            if (selectedOrgFilter === 'ALL') return true;
+                            if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+                            return p.organization_id === selectedOrgFilter;
+                          })
+                          .map((p) => (
                           <tr key={p.id} className="border-b border-slate-100 dark:border-slate-800/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                            <td className="py-4 font-medium">{p.email}</td>
+                            <td className="py-4 font-medium flex items-center gap-2">
+                              {p.role === 'ORG_ADMIN' && <Crown size={15} className="text-amber-500 shrink-0" title="Organization Admin Representative" />}
+                              <span>{p.email}</span>
+                            </td>
                             <td className="py-4">
-                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.role === 'SUPER_ADMIN' || p.role === 'ORG_ADMIN' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
-                                {p.role}
+                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : p.role === 'ORG_ADMIN' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
+                                {p.role === 'ORG_ADMIN' ? 'ORG ADMIN (Rep)' : p.role}
                               </span>
                             </td>
                             <td className="py-4">
@@ -618,7 +756,7 @@ export function SuperAdminDashboard() {
                                 <select 
                                   value={p.organization_id || ''}
                                   onChange={(e) => assignOrganization(p.id, e.target.value)}
-                                  className="text-xs p-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 max-w-[150px] truncate"
+                                  className="text-xs p-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 max-w-[150px] truncate cursor-pointer font-medium"
                                 >
                                   <option value="">No Organization</option>
                                   {organizations.map(org => (
@@ -798,59 +936,202 @@ export function SuperAdminDashboard() {
 
             {activeTab === 'activity' && (
               <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold">Activity Logs</h2>
-                  <button onClick={fetchActivityLogs} className="text-sm text-blue-600 hover:underline">Refresh</button>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Organization & System Activity Audit Logs</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Monitor team actions across organizations (calculations run, reports generated, login history, and admin actions).
+                    </p>
+                  </div>
+                  <button onClick={fetchActivityLogs} className="text-sm text-blue-600 hover:underline font-medium self-start md:self-auto">
+                    Refresh Logs
+                  </button>
                 </div>
                 
-                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                {/* Controls Bar: Organization Selector & Action Categories */}
+                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
+                      <Building size={16} className="text-blue-600" />
+                      Filter Organization:
+                    </label>
+                    <select
+                      value={logOrgFilter}
+                      onChange={(e) => setLogOrgFilter(e.target.value)}
+                      className="text-xs p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold cursor-pointer max-w-xs text-slate-800 dark:text-slate-200 shadow-xs"
+                    >
+                      <option value="ALL">🏢 All Organizations & System Logs</option>
+                      <option value="UNASSIGNED">👤 Unassigned Users</option>
+                      {organizations.map(org => (
+                        <option key={org.id} value={org.id}>🏢 {org.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="relative flex-1 max-w-xs">
+                    <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={logSearchQuery}
+                      onChange={e => setLogSearchQuery(e.target.value)}
+                      placeholder="Search by user or action..."
+                      className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Category Pills */}
+                <div className="flex items-center gap-2 flex-wrap mb-6">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-1 flex items-center gap-1">
+                    <Activity size={14} className="text-blue-600" /> Category:
+                  </span>
+                  {[
+                    { id: 'ALL', label: 'All Actions' },
+                    { id: 'LOGIN', label: '🔑 Logins' },
+                    { id: 'CALCULATION_RUN', label: '🧮 Calculations' },
+                    { id: 'REPORT_GENERATED', label: '📄 Reports' },
+                    { id: 'ADMIN_ACTION', label: '🛡️ Admin Actions' }
+                  ].map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setLogCategoryFilter(cat.id)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition ${
+                        logCategoryFilter === cat.id
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500">
+                      <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-slate-500 uppercase">
                         <tr>
                           <th className="px-6 py-4 font-medium">Timestamp</th>
-                          <th className="px-6 py-4 font-medium">User</th>
+                          <th className="px-6 py-4 font-medium">User Email</th>
+                          <th className="px-6 py-4 font-medium">Organization</th>
                           <th className="px-6 py-4 font-medium">Action</th>
                           <th className="px-6 py-4 font-medium">Details</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
                         {loadingLogs ? (
                           <tr>
-                            <td colSpan={4} className="px-6 py-8 text-center text-slate-500">
-                              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                              Loading logs...
+                            <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
+                              Loading audit logs...
                             </td>
                           </tr>
-                        ) : activityLogs.length === 0 ? (
+                        ) : activityLogs.filter(log => {
+                          const userEmail = (log.profiles?.email || log.email || '').toLowerCase();
+                          const userProfile = profiles.find(p => p.email.toLowerCase() === userEmail);
+                          const userOrgId = userProfile?.organization_id;
+
+                          // Org filter
+                          if (logOrgFilter !== 'ALL') {
+                            if (logOrgFilter === 'UNASSIGNED') {
+                              if (userOrgId) return false;
+                            } else if (userOrgId !== logOrgFilter) {
+                              return false;
+                            }
+                          }
+
+                          // Category filter
+                          if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
+                          if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
+                          if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
+                          if (logCategoryFilter === 'ADMIN_ACTION' && (log.action_type === 'LOGIN' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
+
+                          // Search filter
+                          if (logSearchQuery.trim()) {
+                            const q = logSearchQuery.toLowerCase();
+                            const action = (log.action_type || '').toLowerCase();
+                            const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
+                            return userEmail.includes(q) || action.includes(q) || detailsStr.includes(q);
+                          }
+
+                          return true;
+                        }).length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="px-6 py-8 text-center text-slate-500">
-                              No activity logs found.
+                            <td colSpan={5} className="px-6 py-8 text-center text-slate-500 font-medium">
+                              No activity logs found for this organization and filter.
                             </td>
                           </tr>
                         ) : (
-                          activityLogs.map((log) => (
-                            <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
-                              <td className="px-6 py-4 text-slate-500">
-                                {new Date(log.created_at).toLocaleString()}
-                              </td>
-                              <td className="px-6 py-4 font-medium">
-                                {log.profiles?.email || 'Unknown User'}
-                              </td>
-                              <td className="px-6 py-4">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                  log.action_type === 'LOGIN' ? 'bg-green-100 text-green-800' :
-                                  log.action_type === 'VIEW_CALCULATOR' ? 'bg-blue-100 text-blue-800' :
-                                  'bg-slate-100 text-slate-800'
-                                }`}>
-                                  {log.action_type}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-slate-500">
-                                {log.details?.path || JSON.stringify(log.details)}
-                              </td>
-                            </tr>
-                          ))
+                          activityLogs
+                            .filter(log => {
+                              const userEmail = (log.profiles?.email || log.email || '').toLowerCase();
+                              const userProfile = profiles.find(p => p.email.toLowerCase() === userEmail);
+                              const userOrgId = userProfile?.organization_id;
+
+                              if (logOrgFilter !== 'ALL') {
+                                if (logOrgFilter === 'UNASSIGNED') {
+                                  if (userOrgId) return false;
+                                } else if (userOrgId !== logOrgFilter) {
+                                  return false;
+                                }
+                              }
+
+                              if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
+                              if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
+                              if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
+                              if (logCategoryFilter === 'ADMIN_ACTION' && (log.action_type === 'LOGIN' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
+
+                              if (logSearchQuery.trim()) {
+                                const q = logSearchQuery.toLowerCase();
+                                const action = (log.action_type || '').toLowerCase();
+                                const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
+                                return userEmail.includes(q) || action.includes(q) || detailsStr.includes(q);
+                              }
+
+                              return true;
+                            })
+                            .map((log) => {
+                              const userEmail = log.profiles?.email || log.email || 'System User';
+                              const userProfile = profiles.find(p => p.email.toLowerCase() === userEmail.toLowerCase());
+                              const userOrg = userProfile?.organization_id ? organizations.find(o => o.id === userProfile.organization_id) : null;
+
+                              const isLogin = log.action_type === 'LOGIN';
+                              const isCalc = log.action_type?.includes('CALCULATION');
+                              const isReport = log.action_type?.includes('REPORT');
+
+                              return (
+                                <tr key={log.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition">
+                                  <td className="px-6 py-4 text-xs font-mono text-slate-500 whitespace-nowrap">
+                                    {new Date(log.created_at).toLocaleString()}
+                                  </td>
+                                  <td className="px-6 py-4 font-semibold text-slate-900 dark:text-slate-100">
+                                    {userEmail}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    {userOrg ? (
+                                      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200">
+                                        🏢 {userOrg.name}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 text-xs italic">Unassigned</span>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-extrabold tracking-wider uppercase ${
+                                      isLogin ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
+                                      isCalc ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' :
+                                      isReport ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                                      'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                                    }`}>
+                                      {log.action_type}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-xs text-slate-600 dark:text-slate-400 font-mono">
+                                    {typeof log.details === 'string' ? log.details : JSON.stringify(log.details || {})}
+                                  </td>
+                                </tr>
+                              );
+                            })
                         )}
                       </tbody>
                     </table>
@@ -945,7 +1226,30 @@ export function SuperAdminDashboard() {
             
             {activeTab === 'storage' && (
               <div className="p-6">
-                <h2 className="text-xl font-bold mb-6">Server & Sync Settings</h2>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Server & Sync Settings</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Configure organization-specific backup directories saved on the backend server.</p>
+                  </div>
+                  
+                  {/* Select Organization for Backup Settings */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 shrink-0">Organization:</label>
+                    <select
+                      value={selectedOrgFilter}
+                      onChange={(e) => {
+                        setSelectedOrgFilter(e.target.value);
+                        fetchOrgBackupSettings(e.target.value);
+                      }}
+                      className="text-xs p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold cursor-pointer max-w-xs"
+                    >
+                      <option value="ALL">🏢 Global Default Settings</option>
+                      {organizations.map(org => (
+                        <option key={org.id} value={org.id}>🏢 {org.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
                 
                 <div className="space-y-8 max-w-2xl">
                   {/* Local Backup */}
@@ -1010,10 +1314,17 @@ export function SuperAdminDashboard() {
                   
                   <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
                     <button 
-                      onClick={() => {
+                      onClick={async () => {
                         localStorage.setItem('localBackupPath', localBackupPath);
                         localStorage.setItem('serverBackupPath', serverBackupPath);
-                        toast.success("Backup paths saved successfully!");
+                        toast.info("Saving backup settings to backend server...");
+                        const targetId = selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED' ? selectedOrgFilter : undefined;
+                        const res = await api.saveOrgBackupSettings(localBackupPath, serverBackupPath, targetId);
+                        if (res && res.success) {
+                          toast.success("Organization backup settings saved to backend successfully!");
+                        } else {
+                          toast.error(res.message || "Failed to save backup settings to backend");
+                        }
                       }}
                       className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
                     >
@@ -1214,10 +1525,22 @@ export function SuperAdminDashboard() {
                 if (navItem.kind !== 'group') return null;
                 const items = navItem.children.filter(c => !c.isHeader && c.to);
                 if (items.length === 0) return null;
+                const isSectionUnlocked = items.every(item => editingPermissionsFor.features?.[item.to!.replace('/', '')] !== false);
                 
                 return (
                   <div key={i} className="border-b border-slate-100 dark:border-slate-800 last:border-0 p-6 space-y-4">
-                    <h4 className="font-bold text-sm uppercase tracking-wider text-slate-500 mb-2">{navItem.label}</h4>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-bold text-sm uppercase tracking-wider text-slate-500">{navItem.label}</h4>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Toggle All</span>
+                        <button 
+                          onClick={() => toggleSection(items)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${isSectionUnlocked ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'}`}
+                        >
+                          <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isSectionUnlocked ? 'translate-x-5' : 'translate-x-1'}`} />
+                        </button>
+                      </div>
+                    </div>
                     {items.map((item, j) => {
                       const routeKey = item.to!.replace('/', '');
                       const isUnlocked = editingPermissionsFor.features?.[routeKey] !== false;
