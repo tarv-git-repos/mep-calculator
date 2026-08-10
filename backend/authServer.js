@@ -308,7 +308,7 @@ const server = http.createServer(async (req, res) => {
   const url = req.url.split('?')[0];
 
   // HEALTH CHECK ROUTE FOR UPTIMEROBOT
-  if (req.method === 'GET' && url === '/health') {
+  if ((req.method === 'GET' || req.method === 'HEAD') && url === '/health') {
     return sendJSON(res, 200, {
       success: true,
       message: "Server is healthy",
