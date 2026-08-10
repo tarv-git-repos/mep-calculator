@@ -1,10 +1,10 @@
 {
     "$schema":  "../node_modules/@tauri-apps/cli/config.schema.json",
     "productName":  "MEP Calculator",
-    "version":  "2.0.0",
+    "version":  "2.0.9",
     "identifier":  "com.vikram.mepcalculator",
     "build":  {
-                  "frontendDist":  "../.output/public",
+                  "frontendDist":  "../dist-nitro-2/public",
                   "devUrl":  "http://localhost:8080"
               },
     "app":  {
@@ -24,14 +24,15 @@
             },
     "plugins":  {
                     "updater":  {
-                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJEM0FGOTdCRjJGMDRGQ0QKUldUTlQvRHllL2s2dmNQdmkyQWxrMkMvSEhnYWtCZ3IxNEp0VzhrblVzNndnNlRkTjZleGtYK1EK",
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0MEFGMEMwRkY2QzEyMDMKUldRREVtei93UEFLUkJIN3NicTYzM1ZrRGY1bjRORjFscVo2MEhON2RSMGNsZFg0VFBtTXJ1dUEK",
                                     "endpoints":  [
-                                                      "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/{{target}}/{{current_version}}"
+                                                      "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/{{target}}/{{current_version}}.json"
                                                   ]
                                 }
                 },
     "bundle":  {
                    "active":  true,
+                   "createUpdaterArtifacts": true,
                    "targets":  [
                                    "nsis"
                                ],
