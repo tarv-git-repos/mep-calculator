@@ -307,6 +307,15 @@ const server = http.createServer(async (req, res) => {
 
   const url = req.url.split('?')[0];
 
+  // HEALTH CHECK ROUTE FOR UPTIMEROBOT
+  if (req.method === 'GET' && url === '/health') {
+    return sendJSON(res, 200, {
+      success: true,
+      message: "Server is healthy",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   // 1. REGISTER
   if (req.method === 'POST' && url === '/api/auth/register') {
     const { name, email, password } = await getRequestBody(req);
