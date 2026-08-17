@@ -1,6 +1,6 @@
 {
   "name": "mep-backend",
-  "version": "1.0.0",
+  "version": "2.0.10",
   "description": "Backend server for MEP Calculator",
   "main": "authServer.js",
   "type": "module",
