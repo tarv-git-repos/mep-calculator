@@ -30,7 +30,8 @@ import {
   Flame,
   Globe,
   Upload,
-  Trophy
+  Trophy,
+  Lock
 } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
@@ -45,6 +46,7 @@ export const Route = createFileRoute("/settings")({
 
 export function SettingsPage() {
   const { userData, profile, logout, logoutAllDevices, deleteAccount, updateProfileDetails, setUserData } = useAuth();
+  const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || userData?.role === 'SUPER_ADMIN' || userData?.role === 'ORG_ADMIN';
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Status & Feedback States
@@ -65,7 +67,7 @@ export function SettingsPage() {
   // Requirement 1: Dark / Light Mode (light | dark | system)
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(() => {
     if (typeof window !== 'undefined') {
-      return (localStorage.getItem('mep_theme') as any) || 'system';
+      return (localStorage.getItem('mep_theme') as any) || 'dark';
     }
     return 'system';
   });
@@ -91,13 +93,14 @@ export function SettingsPage() {
   });
 
   const handleNameChange = (val: string) => {
-    setFullName(val);
+    const strippedVal = val.replace(/[0-9]/g, '');
+    setFullName(strippedVal);
     const nameRegex = /^[a-zA-Z\s'\-]+$/;
-    if (!val.trim()) {
+    if (!strippedVal.trim()) {
       setNameError("Full Name is required.");
-    } else if (!nameRegex.test(val.trim())) {
+    } else if (!nameRegex.test(strippedVal.trim())) {
       setNameError("Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).");
-    } else if (val.trim().length < 2) {
+    } else if (strippedVal.trim().length < 2) {
       setNameError("Full Name must be at least 2 characters long.");
     } else {
       setNameError(null);
@@ -105,14 +108,94 @@ export function SettingsPage() {
   };
 
   // Requirement 7: Company/Organization Name
+  const isSuperAdminUser = userData?.email === 'admin@tarv.ai' || profile?.email === 'admin@tarv.ai' || profile?.role === 'SUPER_ADMIN' || userData?.role === 'SUPER_ADMIN';
+
   const [company, setCompany] = useState<string>(() => {
+    if (isSuperAdminUser) return 'TARV AI System (Super Admin)';
     return profile?.company || userData?.company || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_company_${uId}`) || '' : '');
   });
-
-  // Requirement 8: Designation
-  const [designation, setDesignation] = useState<string>(() => {
-    return profile?.designation || userData?.designation || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_designation_${uId}`) || 'MEP Engineer' : 'MEP Engineer');
+  const [assignedOrgName, setAssignedOrgName] = useState<string>(() => {
+    if (isSuperAdminUser) return 'TARV AI System (Super Admin)';
+    return '';
   });
+
+  useEffect(() => {
+    async function resolveUserOrg() {
+      const currentEmail = userData?.email || profile?.email;
+      const currentId = profile?.id || userData?.id;
+
+      if (currentEmail === 'admin@tarv.ai' || profile?.role === 'SUPER_ADMIN' || userData?.role === 'SUPER_ADMIN') {
+        setAssignedOrgName('TARV AI System (Super Admin)');
+        setCompany('TARV AI System (Super Admin)');
+        return;
+      }
+
+      try {
+        const orgs = await api.getOrganizations();
+        const allUsers = await api.getUsers();
+
+        const myRecord = Array.isArray(allUsers) ? allUsers.find((u: any) => 
+          (currentEmail && u.email?.toLowerCase() === currentEmail.toLowerCase()) || 
+          (currentId && u.id === currentId)
+        ) : null;
+
+        const userOrgId = myRecord?.organization_id || profile?.organization_id || userData?.organization_id;
+        
+        // 1. Match orgId in organizations list
+        if (userOrgId && Array.isArray(orgs)) {
+          const match = orgs.find((o: any) => o.id === userOrgId);
+          if (match && match.name) {
+            setAssignedOrgName(match.name);
+            setCompany(match.name);
+            return;
+          }
+        }
+
+        // 2. Direct organization/company field assigned by Admin
+        const directOrg = myRecord?.organization || myRecord?.company || profile?.organization || profile?.company || userData?.organization || userData?.company;
+        if (directOrg && directOrg.trim()) {
+          setAssignedOrgName(directOrg.trim());
+          setCompany(directOrg.trim());
+          return;
+        }
+
+        // 3. Fallback check for local storage cached company
+        if (typeof window !== 'undefined' && currentId) {
+          const cachedUserCompany = localStorage.getItem(`mep_user_company_${currentId}`);
+          if (cachedUserCompany && cachedUserCompany.trim()) {
+            setAssignedOrgName(cachedUserCompany.trim());
+            setCompany(cachedUserCompany.trim());
+            return;
+          }
+        }
+      } catch (e) {}
+    }
+    resolveUserOrg();
+  }, [userData?.email, profile?.email, profile?.organization_id, userData?.organization_id, profile?.id, userData?.id, profile?.company, userData?.company]);
+
+  // Requirement 8: Designation / Role
+  const [designation, setDesignation] = useState<string>(() => {
+    if (isSuperAdminUser) return 'Super Admin';
+    return profile?.role || profile?.designation || userData?.role || userData?.designation || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_designation_${uId}`) || 'Design Engineer' : 'Design Engineer');
+  });
+
+  useEffect(() => {
+    async function resolveUserRole() {
+      const currentEmail = userData?.email || profile?.email;
+      if (currentEmail === 'admin@tarv.ai' || profile?.role === 'SUPER_ADMIN' || userData?.role === 'SUPER_ADMIN') {
+        setDesignation('Super Admin');
+        return;
+      }
+      try {
+        const allUsers = await api.getUsers();
+        const myRecord = Array.isArray(allUsers) ? allUsers.find((u: any) => u.email?.toLowerCase() === currentEmail?.toLowerCase()) : null;
+        if (myRecord?.role) {
+          setDesignation(myRecord.role);
+        }
+      } catch (e) {}
+    }
+    resolveUserRole();
+  }, [userData?.email, profile?.email, profile?.role, userData?.role]);
 
   // Requirement 12: Auto save
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {
@@ -156,17 +239,19 @@ export function SettingsPage() {
     if (profile || userData) {
       if (profile?.name || userData?.name) setFullName(profile?.name || userData?.name || '');
       if (profile?.company || userData?.company) setCompany(profile?.company || userData?.company || '');
-      if (profile?.designation || userData?.designation) setDesignation(profile?.designation || userData?.designation || 'MEP Engineer');
+      const activeRole = profile?.role || profile?.designation || userData?.role || userData?.designation;
+      if (activeRole) setDesignation(activeRole);
       if (profile?.profile_photo || userData?.profile_photo) setProfilePhoto(profile?.profile_photo || userData?.profile_photo || '');
     }
   }, [profile, userData]);
 
-  // Apply Theme Dynamic Effect
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem('mep_theme', theme);
-    window.dispatchEvent(new Event('mep-theme-change'));
-  }, [theme]);
+  const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
+    setTheme(newTheme);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mep_theme', newTheme);
+      window.dispatchEvent(new Event('mep-theme-change'));
+    }
+  };
 
   // Handle Unit System Change
   const handleUnitSystemChange = (system: 'IP' | 'SI') => {
@@ -473,7 +558,8 @@ export function SettingsPage() {
         setUpdateStatus("You are on the latest version.");
       }
     } catch (e: any) {
-      setUpdateStatus(`Error checking for updates: ${e.message}`);
+      console.error("Update error:", e);
+      setUpdateStatus(`Error checking for updates: ${e.message || String(e)}`);
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -651,38 +737,53 @@ export function SettingsPage() {
 
               {/* Requirement 7: Company/Organization Name */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5">
-                  <Building className="size-3.5 text-muted-foreground" /> Company / Organization
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5">
+                    <Building className="size-3.5 text-muted-foreground" /> Company / Organization
+                  </label>
+                  {(assignedOrgName || company || profile?.company || userData?.company || profile?.organization_id || userData?.organization_id) && (
+                    <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <Lock className="size-3" /> Admin Managed
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
-                  value={company}
+                  value={assignedOrgName || company || profile?.company || userData?.company || ((profile?.organization_id || userData?.organization_id) ? "Consitent" : "")}
+                  disabled={Boolean(assignedOrgName || company || profile?.company || userData?.company || profile?.organization_id || userData?.organization_id)}
                   onChange={(e) => setCompany(e.target.value)}
-                  placeholder="e.g. Acme MEP Consultants"
-                  className="bg-surface border border-border focus:border-primary rounded-md px-3 py-1.5 text-[13px] outline-none"
+                  placeholder="No Organization Assigned"
+                  className={`bg-surface border border-border rounded-md px-3 py-1.5 text-[13px] outline-none ${
+                    (assignedOrgName || company || profile?.company || userData?.company || profile?.organization_id || userData?.organization_id)
+                      ? 'bg-surface/50 text-muted-foreground cursor-not-allowed font-semibold'
+                      : 'focus:border-primary'
+                  }`}
                 />
               </div>
 
               {/* Requirement 8: Designation */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5">
-                  <Briefcase className="size-3.5 text-muted-foreground" /> Designation / Role
-                </label>
-                <select
-                  value={designation}
-                  onChange={(e) => setDesignation(e.target.value)}
-                  className="bg-surface border border-border focus:border-primary rounded-md px-3 py-1.5 text-[13px] outline-none"
-                >
-                  <option value="MEP Engineer">MEP Engineer</option>
-                  <option value="HVAC Design Engineer">HVAC Design Engineer</option>
-                  <option value="Electrical Design Engineer">Electrical Design Engineer</option>
-                  <option value="Plumbing Engineer">Plumbing Engineer</option>
-                  <option value="BIM Modeler">BIM Modeler</option>
-                  <option value="Project Manager">Project Manager</option>
-                  <option value="Draftsman">Draftsman</option>
-                  <option value="Viewer">Viewer</option>
-                  <option value="Consultant">Consultant</option>
-                </select>
+                <div className="flex items-center justify-between">
+                  <label className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5">
+                    <Briefcase className="size-3.5 text-muted-foreground" /> Designation / Role
+                  </label>
+                  <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <Lock className="size-3" /> Admin Managed
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={
+                    designation === 'SUPER_ADMIN' ? 'Super Admin' :
+                    designation === 'ORG_ADMIN' ? 'Organization Admin' :
+                    designation
+                  }
+                  disabled
+                  className="bg-surface/50 border border-border/70 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground outline-none cursor-not-allowed font-semibold"
+                />
+                <p className="text-[11px] text-muted-foreground italic">
+                  Your role is managed in the Admin Control Panel and cannot be self-edited.
+                </p>
               </div>
             </div>
 
@@ -708,7 +809,9 @@ export function SettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-surface/50 p-4 rounded-md border border-border">
               <div className="flex flex-col gap-1">
                 <span className="text-[11px] text-muted-foreground uppercase tracking-wider">Current Tier</span>
-                <span className="text-[14px] font-bold text-foreground">{userData?.role || profile?.role || "PROFESSIONAL_TIER"}</span>
+                <span className="text-[14px] font-bold text-foreground">
+                  {profile?.role === "SUPER_ADMIN" ? "ENTERPRISE (SUPER ADMIN)" : profile?.role === "ORG_ADMIN" ? "ENTERPRISE (ORG ADMIN)" : "ENTERPRISE PRO"}
+                </span>
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[11px] text-muted-foreground uppercase tracking-wider">License Expiry Date</span>
@@ -735,7 +838,7 @@ export function SettingsPage() {
               <div className="grid grid-cols-3 gap-3">
                 <button
                   type="button"
-                  onClick={() => setTheme('light')}
+                  onClick={() => handleThemeChange('light')}
                   className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-lg border transition-all cursor-pointer ${
                     theme === 'light'
                       ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
@@ -748,7 +851,7 @@ export function SettingsPage() {
 
                 <button
                   type="button"
-                  onClick={() => setTheme('dark')}
+                  onClick={() => handleThemeChange('dark')}
                   className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-lg border transition-all cursor-pointer ${
                     theme === 'dark'
                       ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
@@ -761,7 +864,7 @@ export function SettingsPage() {
 
                 <button
                   type="button"
-                  onClick={() => setTheme('system')}
+                  onClick={() => handleThemeChange('system')}
                   className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-lg border transition-all cursor-pointer ${
                     theme === 'system'
                       ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'

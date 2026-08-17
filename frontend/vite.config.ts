@@ -12,7 +12,7 @@ export default defineConfig({
     clearScreen: false,
     server: {
       host: true,
-      port: 8080,
+      port: 8081,
       strictPort: true,
       proxy: {
         '/api': {
@@ -44,6 +44,11 @@ export default defineConfig({
   nitro: {
     preset: 'node-server',
     prerender: { routes: ['/'] },
+    output: {
+      dir: './dist-nitro-2',
+      serverDir: './dist-nitro-2/server',
+      publicDir: './dist-nitro-2/public'
+    }
   },
   tanstackStart: {
     ssr: false,

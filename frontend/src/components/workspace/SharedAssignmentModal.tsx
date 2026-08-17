@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { X, Search, ChevronDown, ChevronRight, Plus, Fan, Check, Edit3 } from "lucide-react";
+import { X, Search, ChevronDown, ChevronUp, ChevronRight, Plus, Fan, Check, Edit3 } from "lucide-react";
 import { useWorkspace, type Equipment, type Zone } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
 import { usePrompt } from "@/hooks/use-confirm";
@@ -41,7 +41,7 @@ export function SharedAssignmentModal({
   const [searchEquip, setSearchEquip] = useState("");
   const [searchZone, setSearchZone] = useState("");
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
-  const [showAddEquip, setShowAddEquip] = useState(true);
+  const [showAddEquip, setShowAddEquip] = useState(false);
 
   // Add Equipment Form State
   const [newTag, setNewTag] = useState("");
@@ -53,7 +53,7 @@ export function SharedAssignmentModal({
   useEffect(() => {
     if (isOpen) {
       console.log("SharedAssignmentModal: isOpen=true, initialZoneId=", initialZoneId, "initialZoneIds=", initialZoneIds);
-      setShowAddEquip(true);
+      setShowAddEquip(false);
       if (initialEquipmentId) {
         setSelectedEquipId(initialEquipmentId);
         const eq = equipment.find((e) => e.id === initialEquipmentId);
@@ -383,9 +383,9 @@ export function SharedAssignmentModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-      <div className="bg-background border border-border/80 rounded-[28px] shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden animate-scale-in text-xs">
+      <div className="bg-background border border-border/80 rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] max-h-[830px] flex flex-col overflow-hidden animate-scale-in text-xs">
         {/* Header */}
-        <header className="px-6 py-5 border-b border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
+        <header className="px-5 py-4 border-b border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
           <div className="flex flex-col gap-1">
             <h3 className="font-bold text-[16.5px] text-foreground tracking-tight">Equipment Assignment Sizer</h3>
             <p className="text-[11.5px] text-muted-foreground font-medium">
@@ -403,8 +403,8 @@ export function SharedAssignmentModal({
         {/* Modal Body */}
         <div className="flex-1 min-h-0 flex divide-x divide-border/50">
           {/* Left Panel: Equipment List */}
-          <div className="w-[32%] flex flex-col bg-slate-50/50 dark:bg-zinc-950/20 min-h-0 p-5 gap-4">
-            <div className="flex flex-col gap-3.5 flex-1 min-h-0">
+          <div className="w-[32%] flex flex-col bg-slate-50/50 dark:bg-zinc-950/20 min-h-0 p-4 gap-3">
+            <div className="flex flex-col gap-2.5 flex-1 min-h-0">
               <span className="text-[9.5px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-widest block">
                 Equipment ({filteredEquipment.length})
               </span>
@@ -415,12 +415,12 @@ export function SharedAssignmentModal({
                   placeholder="Search Equipment..."
                   value={searchEquip}
                   onChange={(e) => setSearchEquip(e.target.value)}
-                  className="w-full bg-background border border-border/70 rounded-2xl pl-9.5 pr-3.5 py-2.5 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground transition-all font-sans"
+                  className="w-full bg-background border border-border/70 rounded-xl pl-9 pr-3 py-2 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground transition-all font-sans"
                 />
               </div>
 
               {/* Equipment Items */}
-              <div className="flex-1 overflow-y-auto space-y-2.5 pr-1.5 custom-scrollbar">
+              <div className="flex-1 overflow-y-auto pr-1.5 custom-scrollbar bg-card border border-border/60 rounded-xl divide-y divide-border/50 shadow-xs">
                 {filteredEquipment.map((eq) => {
                   const mode = getEquipVentMode(eq);
                   const isSelected = selectedEquipId === eq.id;
@@ -435,20 +435,20 @@ export function SharedAssignmentModal({
                     <div
                       key={eq.id}
                       onClick={() => handleEquipSelect(eq.id)}
-                      className={`flex items-center gap-3.5 p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
+                      className={`flex items-center gap-3 px-3 py-2.5 transition-all cursor-pointer select-none ${
                         isSelected
-                          ? "bg-primary/5 border-primary shadow-[0_2px_8px_rgba(10,123,199,0.08)]"
-                          : "bg-card border-border/70 hover:bg-surface-2"
+                          ? "bg-primary/5 shadow-inner border-l-2 border-l-primary"
+                          : "hover:bg-surface-2/60 border-l-2 border-l-transparent"
                       }`}
                     >
                       <div
-                        className={`size-4.5 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                        className={`size-4 rounded-full border flex items-center justify-center shrink-0 transition-all ${
                           isSelected ? "border-primary bg-primary/10" : "border-muted-foreground/30"
                         }`}
                       >
                         {isSelected && <div className="size-2 rounded-full bg-primary" />}
                       </div>
-                      <div className={`p-2 rounded-xl bg-surface-2 dark:bg-zinc-800/40 shrink-0 ${iconColor}`}>
+                      <div className={`p-1.5 rounded-lg bg-surface-2 dark:bg-zinc-800/40 shrink-0 ${iconColor}`}>
                         <Fan className="size-4 animate-spin-slow" />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -465,18 +465,21 @@ export function SharedAssignmentModal({
                 )}
               </div>
 
-              {/* Add New Equipment block (always opened) */}
+              {/* Add New Equipment block */}
               <div className="pt-3 border-t border-border/50 mt-1 shrink-0">
                 <div
-                  className="flex items-center justify-between py-1.5 px-1 select-none font-extrabold text-[9.5px] uppercase tracking-widest text-slate-500 dark:text-zinc-400"
+                  onClick={() => setShowAddEquip(!showAddEquip)}
+                  className="flex items-center justify-between py-1.5 px-1 select-none font-extrabold text-[9.5px] uppercase tracking-widest text-slate-500 dark:text-zinc-400 cursor-pointer hover:text-slate-700 dark:hover:text-zinc-200 transition-colors"
                 >
                   <span className="flex items-center gap-1.5 text-primary">
                     <Plus className="size-3.5" /> Add New Equipment
                   </span>
+                  {showAddEquip ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
                 </div>
 
-                <div className="border border-border/80 bg-card p-4.5 rounded-[22px] space-y-4 shrink-0 select-none shadow-[0_1px_3px_rgba(0,0,0,0.02)] mt-1 animate-scale-in">
-                  <div className="space-y-3.5 text-[11px]">
+                {showAddEquip && (
+                  <div className="border border-border/80 bg-card p-3.5 rounded-xl space-y-3 shrink-0 select-none shadow-[0_1px_3px_rgba(0,0,0,0.02)] mt-1 animate-scale-in">
+                    <div className="space-y-2.5 text-[11px]">
                     <div>
                       <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
                         Equipment Tag
@@ -499,7 +502,7 @@ export function SharedAssignmentModal({
                             setNewType("FAHU");
                           }
                         }}
-                        className="w-full bg-background border border-border/70 rounded-2xl px-3 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
+                        className="w-full bg-background border border-border/70 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                       />
                     </div>
                     <div>
@@ -514,7 +517,7 @@ export function SharedAssignmentModal({
                           if (val === "MAHU") setNewMode("Fresh Air Only");
                           else if (val === "EAHU") setNewMode("Extract Air Only");
                         }}
-                        className="w-full bg-background border border-border/70 rounded-2xl px-2.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
+                        className="w-full bg-background border border-border/70 rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
                       >
                         <option value="FAHU">FAHU (Fresh / Extract)</option>
                         <option value="MAHU">MAHU (Fresh Air Only)</option>
@@ -531,7 +534,7 @@ export function SharedAssignmentModal({
                           onChange={(e) =>
                             setNewMode(e.target.value as "Fresh Air Only" | "Extract Air Only" | "Fresh Air + Extract Air")
                           }
-                          className="w-full bg-background border border-border/70 rounded-2xl px-2.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
+                          className="w-full bg-background border border-border/70 rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
                         >
                           <option value="Fresh Air Only">Fresh Air Only</option>
                           <option value="Extract Air Only">Extract Air Only</option>
@@ -544,26 +547,28 @@ export function SharedAssignmentModal({
                     <button
                       onClick={() => {
                         setNewTag("");
+                        setShowAddEquip(false);
                       }}
-                      className="px-4 py-2 border border-border/80 hover:bg-surface-2 rounded-2xl text-muted-foreground hover:text-foreground text-[11.5px] font-semibold transition-all duration-150 cursor-pointer"
+                      className="px-4 py-1.5 border border-border/80 hover:bg-surface-2 rounded-lg text-muted-foreground hover:text-foreground text-[11.5px] font-semibold transition-all duration-150 cursor-pointer"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleAddEquipment}
-                      className="px-5.5 py-2 bg-primary text-primary-foreground font-bold rounded-2xl hover:bg-primary/95 text-[11.5px] transition-all duration-150 cursor-pointer shadow-md shadow-primary/10"
+                      className="px-5 py-1.5 bg-primary text-primary-foreground font-bold rounded-lg hover:bg-primary/95 text-[11.5px] transition-all duration-150 cursor-pointer shadow-md shadow-primary/10"
                     >
                       Add
                     </button>
                   </div>
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* Right Panel: Zone / Instances List */}
-          <div className="w-[68%] flex flex-col min-h-0 p-5 bg-background gap-4">
-            <div className="flex flex-col gap-3.5 flex-1 min-h-0">
+          <div className="w-[68%] flex flex-col min-h-0 p-4 bg-background gap-3">
+            <div className="flex flex-col gap-2.5 flex-1 min-h-0">
               <div className="flex items-center justify-between">
                 <span className="text-[9.5px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-widest">
                   Zone / Instances ({filteredZonesList.length})
@@ -592,11 +597,11 @@ export function SharedAssignmentModal({
                   placeholder="Search Zone by name or floor..."
                   value={searchZone}
                   onChange={(e) => setSearchZone(e.target.value)}
-                  className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-9.5 pr-3.5 py-2.5 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground transition-all font-sans"
+                  className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl pl-9 pr-3 py-2 text-[12px] outline-none focus:ring-1 focus:ring-primary focus:border-primary text-foreground transition-all font-sans"
                 />
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-3 pr-1.5 select-none custom-scrollbar">
+              <div className="flex-1 overflow-y-auto pr-1.5 select-none custom-scrollbar bg-card border border-border/60 rounded-xl divide-y divide-border/50 shadow-xs">
                 {filteredZonesList.map((zone) => {
                   const mult = zone.multiplier || 1;
                   const isMulti = mult > 1;
@@ -623,14 +628,14 @@ export function SharedAssignmentModal({
                   return (
                     <div
                       key={zone.id}
-                      className="border border-border/75 rounded-[20px] overflow-hidden bg-card shadow-[0_1px_3px_rgba(0,0,0,0.01)] transition-all hover:border-border/100"
+                      className="overflow-hidden transition-all hover:bg-surface-2/10"
                     >
                       {/* Zone Header Row */}
                       <div
                         onClick={() => toggleZoneAll(zone, !allSelected)}
-                        className="flex items-center justify-between px-4 py-3 hover:bg-surface-2/40 transition-colors cursor-pointer"
+                        className="flex items-center justify-between px-3 py-2.5 hover:bg-surface-2/40 transition-colors cursor-pointer"
                       >
-                        <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
                           {isMulti ? (
                             <button
                               onClick={(e) => {
@@ -652,7 +657,7 @@ export function SharedAssignmentModal({
                             }}
                             onChange={(e) => toggleZoneAll(zone, e.target.checked)}
                             onClick={(e) => e.stopPropagation()}
-                            className="size-4.5 rounded-md border-border/80 text-primary cursor-pointer transition-all"
+                            className="size-4 rounded-md border-border/80 text-primary cursor-pointer transition-all"
                           />
                           <div className="flex flex-col min-w-0">
                             <div className="font-bold text-[13.5px] text-foreground flex items-center gap-2">
@@ -701,7 +706,8 @@ export function SharedAssignmentModal({
 
                       {/* Expandable sub-rows for instances */}
                       {isMulti && isExpanded && (
-                        <div className="border-t border-border/50 bg-background divide-y divide-border/40">
+                        <div className="border-t border-border/50 bg-slate-50/50 dark:bg-zinc-950/30 divide-y divide-border/40 relative shadow-inner">
+                          <div className="absolute left-6 top-0 bottom-0 w-px bg-border/80" />
                           {Array.from({ length: mult }).map((_, o) => {
                             const instIdx = o + 1;
                             const instKey = `${zone.id}_${instIdx}`;
@@ -728,12 +734,13 @@ export function SharedAssignmentModal({
                             }
 
                             return (
-                              <div
-                                key={instKey}
-                                onClick={() => toggleInstance(zone.id, instIdx, !isInstSelected)}
-                                className="flex items-center justify-between pl-11 pr-4 py-2 hover:bg-surface-2/30 transition-colors cursor-pointer text-[12px]"
-                              >
-                                <div className="flex items-center gap-3.5 select-none">
+                                <div
+                                  key={instKey}
+                                  onClick={() => toggleInstance(zone.id, instIdx, !isInstSelected)}
+                                  className="relative flex items-center justify-between pl-11 pr-3 py-1.5 hover:bg-surface-2/80 transition-colors cursor-pointer text-[12px]"
+                                >
+                                <div className="absolute left-6 top-1/2 w-3.5 h-px bg-border/80 -translate-y-1/2" />
+                                <div className="flex items-center gap-3.5 select-none z-10">
                                   <input
                                     type="checkbox"
                                     checked={isInstSelected}
@@ -741,8 +748,8 @@ export function SharedAssignmentModal({
                                     onClick={(e) => e.stopPropagation()}
                                     className="size-4 rounded border-border/80 text-primary cursor-pointer transition-all"
                                   />
-                                  <span className="font-semibold text-foreground text-[12.5px]">
-                                    {zone.name}-{instIdx}
+                                  <span className="font-semibold text-[12.5px] text-muted-foreground">
+                                    {zone.name}<span className="text-foreground">-{instIdx}</span>
                                   </span>
                                 </div>
 
@@ -787,7 +794,7 @@ export function SharedAssignmentModal({
         </div>
 
         {/* Footer */}
-        <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
+        <footer className="px-5 py-4 border-t border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
           <div className="flex items-center gap-6 text-[12.5px] text-foreground font-medium">
             <div>
               <span className="text-muted-foreground font-medium">Selected Equipment: </span>
@@ -814,14 +821,14 @@ export function SharedAssignmentModal({
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
-              className="border border-border/80 text-xs px-5 py-2.5 rounded-2xl hover:bg-surface-2 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all duration-150"
+              className="border border-border/80 text-xs px-4 py-2 rounded-xl hover:bg-surface-2 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all duration-150"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={isDoneDisabled}
-              className={`text-xs font-bold px-7 py-2.5 rounded-2xl transition-all cursor-pointer shadow-sm ${
+              className={`text-xs font-bold px-6 py-2 rounded-xl transition-all cursor-pointer shadow-sm ${
                 isDoneDisabled
                   ? "bg-surface-3 text-muted-foreground border border-border cursor-not-allowed"
                   : "bg-primary text-primary-foreground hover:bg-primary/95 shadow-md shadow-primary/10"

@@ -3,7 +3,9 @@ import { calculateVentilation, setGlobalRoundOffPreset, type Space, type Zone, t
 export type { ZoneInstanceAssignment };
 import { predictOccupancyCategory, predictSpacePressure } from "./ai-occupancy";
 import { api } from "../services/api";
+import { supabase } from "./supabase";
 import { getOccupancyData } from "./ashrae-data";
+import { logCalculatorUpdate, getCalculatorTitleFromPath } from "@/utils/logger";
 export type { Space, Zone, Equipment };
 export type { SpaceStatus } from "./mock-data";
 export function checkIfSpaceMissingData(s: Space): boolean {
@@ -144,6 +146,15 @@ function saveState() {
     localStorage.setItem("mep_last_worked_project_id", activeProjectId);
   }
 
+  // Immediately log calculator update action on any workspace state change
+  if (typeof window !== 'undefined' && window.location.pathname) {
+    const path = window.location.pathname;
+    const calcTitle = getCalculatorTitleFromPath(path);
+    if (calcTitle) {
+      logCalculatorUpdate(calcTitle, `Changes occurred in ${calcTitle}`);
+    }
+  }
+
   if (saveTimeout) clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {
     if (activeProjectId) {
@@ -252,6 +263,14 @@ export const workspaceStore = {
   async initCloud() {
     if (cloudInitDone) return;
     cloudInitDone = true;
+    
+    supabase
+      .channel('public:projects')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        workspaceStore.refreshProjects();
+      })
+      .subscribe();
+
     const cloudProjects = await api.getProjects();
     projects = cloudProjects || [];
     
@@ -454,9 +473,8 @@ export const workspaceStore = {
         }
       }
       notify();
-    } else {
-      alert("Failed to delete: " + res.message);
     }
+    return res;
   },
 
   clearWorkspace() {
@@ -505,6 +523,7 @@ export const workspaceStore = {
     );
     currentWorkspaceState = balanced;
     saveState();
+    logCalculatorUpdate('Ventilation', 'Updated spaces in Ventilation');
     notify();
   },
 
@@ -531,6 +550,7 @@ export const workspaceStore = {
     );
     currentWorkspaceState = balanced;
     saveState();
+    logCalculatorUpdate('Ventilation', 'Updated zones in Ventilation');
     notify();
   },
 
@@ -544,6 +564,7 @@ export const workspaceStore = {
     );
     currentWorkspaceState = balanced;
     saveState();
+    logCalculatorUpdate('Ventilation', 'Updated equipment in Ventilation');
     notify();
   },
 
@@ -707,30 +728,33 @@ export const workspaceStore = {
         // If the name is being updated, perform automatic classification!
         if (updates.name !== undefined) {
           const nameVal = updates.name.trim();
-          const pred = predictOccupancyCategory(nameVal);
+          
+          if (!s.category || s.aiDetected) {
+            const pred = predictOccupancyCategory(nameVal);
 
-          if (pred && pred.category) {
-            next.category = pred.category;
-            next.aiDetected = true;
+            if (pred && pred.category) {
+              next.category = pred.category;
+              next.aiDetected = true;
 
-            const data = getOccupancyData(pred.category);
-            if (data) {
-              const density = data.defaultDensity || 0;
-              const hasFixtures = next.fixtures !== "" && next.fixtures !== undefined;
-              if (!s.isOccupancyCustomized) {
-                next.occupancy = hasFixtures ? parseFloat(String(next.fixtures)) || 0 : Math.ceil((next.area * density) / 100);
-                next.isOccupancyCustomized = false;
+              const data = getOccupancyData(pred.category);
+              if (data) {
+                const density = data.defaultDensity || 0;
+                const hasFixtures = next.fixtures !== "" && next.fixtures !== undefined;
+                if (!s.isOccupancyCustomized) {
+                  next.occupancy = hasFixtures ? parseFloat(String(next.fixtures)) || 0 : Math.ceil((next.area * density) / 100);
+                  next.isOccupancyCustomized = false;
+                }
+                if (data.exhaustPerUnit > 0) {
+                  next.fixtures = next.occupancy.toString();
+                } else if (!hasFixtures) {
+                  next.fixtures = "";
+                }
               }
-              if (data.exhaustPerUnit > 0) {
-                next.fixtures = next.occupancy.toString();
-              } else if (!hasFixtures) {
-                next.fixtures = "";
-              }
+            } else if (s.aiDetected) {
+              // Clear auto-detected category if the name is now unrecognized
+              next.category = "";
+              next.aiDetected = false;
             }
-          } else if (s.aiDetected) {
-            // Clear auto-detected category if the name is now unrecognized
-            next.category = "";
-            next.aiDetected = false;
           }
 
           const predPress = predictSpacePressure(next.category);
@@ -1244,6 +1268,7 @@ export function useWorkspace() {
     project: state.project,
     projects: state.projects,
     activeProjectId: state.activeProjectId,
+    isInitializing: state.isInitializing,
     spaces: state.spaces,
     zones: state.zones,
     equipment: state.equipment,

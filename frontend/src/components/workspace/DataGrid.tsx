@@ -31,6 +31,8 @@ export function DataGrid<T extends { id: string }>({
   onRowDoubleClick,
   activeRowId,
   rowClassName,
+  stickyHeaderTop,
+  gridId,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -46,6 +48,8 @@ export function DataGrid<T extends { id: string }>({
   onRowDoubleClick?: (row: T) => void;
   activeRowId?: string;
   rowClassName?: (row: T, index: number) => string;
+  stickyHeaderTop?: number | string;
+  gridId?: string;
 }) {
   const onToggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
     if ((window as any).__mep_is_readonly) {
@@ -67,10 +71,10 @@ export function DataGrid<T extends { id: string }>({
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
 
-  const [containerWidth, setContainerWidth] = useState(1000);
   const [colRatios, setColRatios] = useState<Record<string, number>>({});
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
+  const containerWidthRef = useRef(1000);
 
   // Initialize and synchronize ratios when columns prop changes
   useEffect(() => {
@@ -79,36 +83,23 @@ export function DataGrid<T extends { id: string }>({
     columns.forEach((c) => {
       initialRatios[String(c.key)] = c.width / totalDefault;
     });
-    setColRatios(initialRatios);
-  }, [columns]);
 
-
-
-  // Calculate pixel widths dynamically based on containerWidth and ratios
-  const colWidthsCalculated = useMemo(() => {
-    const widths: Record<string, number> = {};
-    const availableWidth = containerWidth - 36;
-    if (availableWidth <= 0) return widths;
-
-    let allocated = 0;
-    columns.forEach((c, idx) => {
-      const ratio = colRatios[String(c.key)];
-      if (ratio !== undefined) {
-        if (idx === columns.length - 1) {
-          // Last column gets the remainder to fit the screen exactly
-          widths[String(c.key)] = Math.max(50, availableWidth - allocated);
-        } else {
-          const w = Math.max(50, Math.floor(ratio * availableWidth));
-          widths[String(c.key)] = w;
-          allocated += w;
+    if (gridId) {
+      try {
+        const saved = localStorage.getItem(`mep_grid_${gridId}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const hasAllKeys = columns.every((c) => typeof parsed[String(c.key)] === "number");
+          if (hasAllKeys) {
+            setColRatios(parsed);
+            return;
+          }
         }
-      } else {
-        widths[String(c.key)] = c.width;
-        allocated += c.width;
-      }
-    });
-    return widths;
-  }, [columns, colRatios, containerWidth]);
+      } catch (e) {}
+    }
+
+    setColRatios(initialRatios);
+  }, [columns, gridId]);
 
   const handleMouseDown = (key: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -125,7 +116,7 @@ export function DataGrid<T extends { id: string }>({
     const r2 = colRatios[key2] ?? (columns[colIndex + 1].width / totalDefault);
     const rSum = r1 + r2;
 
-    const availableWidth = containerWidth - 36;
+    const availableWidth = containerWidthRef.current - 36;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaPx = moveEvent.clientX - startX;
@@ -134,14 +125,17 @@ export function DataGrid<T extends { id: string }>({
       let nextR1 = r1 + deltaRatio;
       let nextR2 = r2 - deltaRatio;
 
-      const minRatio = 50 / availableWidth;
+      const minW1 = Math.min(columns[colIndex].width, 50);
+      const minW2 = Math.min(columns[colIndex + 1].width, 50);
+      const minRatio1 = minW1 / availableWidth;
+      const minRatio2 = minW2 / availableWidth;
 
-      if (nextR1 < minRatio) {
-        nextR1 = minRatio;
-        nextR2 = rSum - minRatio;
-      } else if (nextR2 < minRatio) {
-        nextR2 = minRatio;
-        nextR1 = rSum - minRatio;
+      if (nextR1 < minRatio1) {
+        nextR1 = minRatio1;
+        nextR2 = rSum - minRatio1;
+      } else if (nextR2 < minRatio2) {
+        nextR2 = minRatio2;
+        nextR1 = rSum - minRatio2;
       }
 
       setColRatios((prev) => ({
@@ -156,6 +150,13 @@ export function DataGrid<T extends { id: string }>({
       document.removeEventListener("mouseup", handleMouseUp);
       document.body.style.cursor = "";
       document.body.classList.remove("select-none");
+
+      if (gridId) {
+        setColRatios((prev) => {
+          localStorage.setItem(`mep_grid_${gridId}`, JSON.stringify(prev));
+          return prev;
+        });
+      }
     };
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -167,14 +168,22 @@ export function DataGrid<T extends { id: string }>({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    let timeoutId: any;
     const update = () => {
-      setHeight(el.clientHeight);
-      setContainerWidth(el.clientWidth);
+      containerWidthRef.current = el.clientWidth;
+      if (timeoutId) return;
+      timeoutId = setTimeout(() => {
+        setHeight(el.clientHeight);
+        timeoutId = null;
+      }, 100);
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   // Pre-process items if grouping is enabled
@@ -222,47 +231,64 @@ export function DataGrid<T extends { id: string }>({
     return result;
   }, [rows, groupBy, groupOrder, collapsedGroups]);
 
+  const isSticky = stickyHeaderTop !== undefined;
   const total = items.length;
-  const start = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
-  const visible = Math.ceil(height / ROW_H) + OVERSCAN * 2;
-  const end = Math.min(total, start + visible);
-  const slice = items.slice(start, end);
+  const start = isSticky ? 0 : Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const visible = isSticky ? total : Math.ceil(height / ROW_H) + OVERSCAN * 2;
+  const end = isSticky ? total : Math.min(total, start + visible);
+  const slice = isSticky ? items : items.slice(start, end);
+
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const heightRef = useRef(height);
+  heightRef.current = height;
+  const highlightTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
-    let timeoutId: any;
     const handleScrollToItem = (e: Event) => {
       const customEvent = e as CustomEvent<{ id: string }>;
       if (!customEvent || !customEvent.detail || !customEvent.detail.id) return;
       const itemId = customEvent.detail.id;
+      const currentItems = itemsRef.current;
+      const currentHeight = heightRef.current;
       
-      const itemIndex = items.findIndex((item) => item.id === itemId || (item.data && item.data.id === itemId));
+      const itemIndex = currentItems.findIndex((item) => item.id === itemId || (item.data && item.data.id === itemId));
       if (itemIndex !== -1 && ref.current) {
         const topOffset = itemIndex * ROW_H;
-        ref.current.scrollTop = Math.max(0, topOffset - (height / 2) + (ROW_H / 2));
+        ref.current.scrollTop = Math.max(0, topOffset - (currentHeight / 2) + (ROW_H / 2));
         
         setHighlightedRowId(itemId);
-        if (timeoutId) clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => {
           setHighlightedRowId(null);
-        }, 1200);
+          highlightTimeoutRef.current = null;
+        }, 2500);
       }
     };
     
     window.addEventListener("mep-scroll-to-item", handleScrollToItem);
     return () => {
       window.removeEventListener("mep-scroll-to-item", handleScrollToItem);
-      if (timeoutId) clearTimeout(timeoutId);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     };
-  }, [items, height]);
+  }, []);
 
-  const gridTemplate = `36px ${columns.map((c) => `${colWidthsCalculated[String(c.key)] ?? c.width}px`).join(" ")}`;
-  const allSelected = selected.size === rows.length && rows.length > 0;
+  const gridTemplate = `36px ${columns.map((c) => {
+    const ratio = colRatios[String(c.key)];
+    if (ratio !== undefined) {
+      const minW = Math.min(c.width, 50);
+      return `minmax(${minW}px, ${ratio}fr)`;
+    }
+    return `${c.width}px`;
+  }).join(" ")}`;
+  const allSelected = (selected?.size ?? 0) === rows.length && rows.length > 0;
 
   return (
-    <div className="flex flex-col h-full bg-background w-full overflow-hidden">
+    <div className={`flex flex-col bg-background w-full ${isSticky ? "h-auto" : "h-full overflow-hidden"}`}>
       <div 
         ref={headerRef} 
-        className={`bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong overflow-x-hidden w-full transition-all duration-300 ${
+        style={isSticky ? { position: "sticky", top: stickyHeaderTop, zIndex: 25 } : undefined}
+        className={`bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong overflow-hidden w-full transition-all duration-300 shadow-2xs ${
           activeRowId ? "blur-[1px] opacity-35 pointer-events-none" : ""
         }`}
       >
@@ -302,14 +328,14 @@ export function DataGrid<T extends { id: string }>({
 
       <div
         ref={ref}
-        onScroll={(e) => {
+        onScroll={!isSticky ? (e) => {
           const target = e.currentTarget;
           setScrollTop(target.scrollTop);
           if (headerRef.current) {
             headerRef.current.scrollLeft = target.scrollLeft;
           }
-        }}
-        className="flex-1 overflow-y-auto overflow-x-hidden w-full"
+        } : undefined}
+        className={isSticky ? "w-full relative z-10" : "flex-1 overflow-y-auto overflow-x-hidden w-full relative z-10"}
       >
         <div style={{ height: total * ROW_H, position: "relative" }} className="w-full">
           <div style={{ transform: `translateY(${start * ROW_H}px)` }} className="w-full">
@@ -343,7 +369,7 @@ export function DataGrid<T extends { id: string }>({
                 const groupContent = (
                   <div
                     onClick={handleGroupClick}
-                    className={`col-span-full h-full bg-primary/5 hover:bg-primary/10 border-b border-border flex items-center border-l-4 border-l-primary pl-1.5 text-[12.5px] font-semibold text-primary select-none cursor-pointer transition-colors duration-150 gap-1.5 w-full transition-all duration-300 ${
+                    className={`col-span-full h-full bg-primary/5 hover:bg-primary/10 border-b border-border flex items-center border-l-4 border-l-primary pl-1.5 text-[12.5px] font-semibold text-primary select-none cursor-pointer gap-1.5 w-full transition-colors duration-150 ${
                       isGroupBlurred ? "blur-[1px] opacity-30 pointer-events-none scale-[0.99]" : ""
                     }`}
                   >
@@ -467,7 +493,7 @@ export function DataGrid<T extends { id: string }>({
                             onToggle(row.id, false, false);
                           }
                         }}
-                        className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-all duration-300 ${
+                        className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${
                           rowClassName && !sel ? rowClassName(row, rowIndex) : ""
                         } ${
                           sel ? "bg-row-selected" : ""
@@ -516,7 +542,7 @@ export function DataGrid<T extends { id: string }>({
                     }
                     onRowDoubleClick?.(row);
                   }}
-                  className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-all duration-300 ${
+                  className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${
                     rowClassName && !sel ? rowClassName(row, rowIndex) : ""
                   } ${
                     sel ? "bg-row-selected" : ""

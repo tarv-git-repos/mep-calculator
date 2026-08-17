@@ -3,7 +3,17 @@ import { writeFile } from '@tauri-apps/plugin-fs';
 import * as fileSaver from 'file-saver';
 import { toast } from 'sonner';
 
-const saveAs = (fileSaver as any)?.default?.saveAs || (fileSaver as any)?.saveAs || fileSaver;
+function getSaveAsFunction() {
+  try {
+    if (typeof (fileSaver as any)?.saveAs === 'function') return (fileSaver as any).saveAs;
+    if (typeof (fileSaver as any)?.default?.saveAs === 'function') return (fileSaver as any).default.saveAs;
+    if (typeof (fileSaver as any)?.default === 'function') return (fileSaver as any).default;
+    if (typeof fileSaver === 'function') return fileSaver;
+  } catch (e) {
+    console.warn("Failed to resolve fileSaver:", e);
+  }
+  return null;
+}
 
 /**
  * Universally handles downloading files on both the Web (Browser) and Tauri Desktop App.
@@ -36,23 +46,32 @@ export async function downloadFile(
         
       await writeFile(path, buffer);
       toast.success("File saved successfully!");
+      return;
     } catch (e: any) {
-      console.error('Tauri save failed:', e);
-      toast.error(`Desktop Save Error: ${e.message || String(e)}`);
-      // Fallback
-      if (blob instanceof Blob) {
-        saveAs(blob, filename);
-      } else {
-        saveAs(new Blob([blob as any]), filename);
-      }
-    }
-  } else {
-    // Web version
-    toast.info("Browser Download Triggered");
-    if (blob instanceof Blob) {
-      saveAs(blob, filename);
-    } else {
-      saveAs(new Blob([blob as any]), filename);
+      console.error('Tauri save failed, falling back to browser download:', e);
     }
   }
+
+  // Web / Fallback version
+  try {
+    const mimeType = filename.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream';
+    const blobObj = blob instanceof Blob ? blob : new Blob([blob as any], { type: mimeType });
+    const saveAsFn = getSaveAsFunction();
+    if (saveAsFn) {
+      saveAsFn(blobObj, filename);
+    } else {
+      const url = URL.createObjectURL(blobObj);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+  } catch (err: any) {
+    console.error('Download failed:', err);
+    toast.error(`Download Error: ${err.message || String(err)}`);
+  }
 }
+

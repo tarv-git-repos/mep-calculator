@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
-import { Plus, Search, Edit3 } from "lucide-react";
+import { Plus, Search, Edit3, Flag } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace, type Zone, type Space } from "@/lib/workspace-store";
@@ -132,7 +132,12 @@ function ZonesPage() {
                   className={`w-full text-left px-3 py-2 border-b border-border/60 ${active ? "bg-row-selected border-l-2 border-l-primary" : "hover:bg-row-hover"}`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="font-mono font-medium text-[12.5px]">{z.name}</span>
+                    <span className="font-mono font-medium text-[12.5px] flex items-center gap-1.5">
+                      {z.name}
+                      {!spaces.some(s => s.zone === z.name && s.pressure === "Positive") && (
+                        <Flag className="size-3.5 text-warning" title="There is no positive space in this zone (at least 1 positive space is required)." />
+                      )}
+                    </span>
                     <span className={`font-mono text-[11px] tabular ${tone}`}>{z.pressure > 0 ? "+" : ""}{z.pressure} L/s</span>
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
@@ -156,7 +161,12 @@ function ZonesPage() {
                 <div className="flex items-baseline justify-between">
                   <div>
                     <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">Zone</div>
-                    <h2 className="text-[18px] font-semibold tracking-tight font-mono">{zone.name}</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[18px] font-semibold tracking-tight font-mono">{zone.name}</h2>
+                      {!spaces.some(s => s.zone === zone.name && s.pressure === "Positive") && (
+                        <Flag className="size-4 text-warning cursor-help" title="There is no positive space in this zone (at least 1 positive space is required)." />
+                      )}
+                    </div>
                     <div className="text-[12px] text-muted-foreground mt-0.5">{zone.building} · {zone.floor}</div>
                   </div>
                   <span className={`px-2 py-0.5 rounded text-[10.5px] font-semibold uppercase tracking-wider ${

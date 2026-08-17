@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { authService, clearAllAuthStorage, AuthUserData } from '@/services/authService';
+import { api } from '@/services/api';
+import { toast } from 'sonner';
 
 export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
 
@@ -154,6 +156,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsLoggedin(false);
         }
       }
+
+      // Sync latest profile updates (e.g. organization_id assigned by admin)
+      try {
+        const currentEmail = authState.userData?.email || userData?.email;
+        if (currentEmail) {
+          const allUsers = await api.getUsers();
+          const match = allUsers.find((u: any) => u.email?.toLowerCase() === currentEmail.toLowerCase());
+          if (match) {
+            setUserDataState(prev => prev ? { ...prev, ...match } : match);
+          }
+        }
+      } catch (e) {}
     } catch (e) {
       console.warn('Auth check error:', e);
     } finally {

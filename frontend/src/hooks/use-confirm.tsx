@@ -35,7 +35,9 @@ interface ConfirmContextType {
   prompt: (message: string, defaultValue?: string, options?: ConfirmOptions) => Promise<string | null>;
 }
 
-const ConfirmContext = createContext<ConfirmContextType | null>(null);
+const ConfirmContext = typeof window !== "undefined" 
+  ? ((window as any).__ConfirmContext = (window as any).__ConfirmContext || createContext<ConfirmContextType | null>(null))
+  : createContext<ConfirmContextType | null>(null);
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<{

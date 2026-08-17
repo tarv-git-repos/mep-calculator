@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
-import { useEffect, useState } from 'react'
-import { Loader2, Plus, Users, HardDrive, LogOut, FolderOpen, Save, ArrowLeft, Megaphone, Trash2, Filter, Crown, ShieldCheck, Activity, Search, FileText } from "lucide-react"
+import { useEffect, useState, useMemo } from 'react'
+import { Loader2, Plus, Users, HardDrive, LogOut, FolderOpen, Save, ArrowLeft, Megaphone, Trash2, Filter, Crown, ShieldCheck, Activity, Search, FileText, UserCheck, Eye, Edit3, Key, Clock, BarChart3, ChevronRight } from "lucide-react"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { api } from '@/services/api'
@@ -24,6 +24,19 @@ type Announcement = {
   created_at: string
 }
 
+const PLATFORM_ROLES = [
+  'Jr. Design Engineer',
+  'Design Engineer',
+  'Sr. Design Engineer',
+  'Discipline Coordinator',
+  'BIM Modeler',
+  'BIM Coordinator',
+  'Team Leader',
+  '2D Draftsman',
+  'Viewer',
+  'Client'
+]
+
 export function OrgAdminDashboard() {
   const { session, profile: currentUserProfile, userData, logout } = useAuth()
   const confirm = useConfirm()
@@ -39,7 +52,7 @@ export function OrgAdminDashboard() {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteName, setInviteName] = useState('')
-  const [inviteRole, setInviteRole] = useState('ENGINEER')
+  const [inviteRole, setInviteRole] = useState('Design Engineer')
   const [isInviting, setIsInviting] = useState(false)
 
   // Activity Logs State
@@ -61,14 +74,14 @@ export function OrgAdminDashboard() {
   const fetchUsers = async () => {
     setLoading(true)
     const fetchedUsers = await api.getOrgUsers()
-    setUsers(fetchedUsers)
+    setUsers(fetchedUsers || [])
     setLoading(false)
   }
 
   const fetchOrgActivityLogs = async () => {
     setLoadingLogs(true)
     const logs = await api.getOrgActivityLogs()
-    setActivityLogs(logs)
+    setActivityLogs(logs || [])
     setLoadingLogs(false)
   }
 
@@ -88,11 +101,37 @@ export function OrgAdminDashboard() {
   }
 
   useEffect(() => {
-    if (activeTab === 'users') fetchUsers()
-    if (activeTab === 'activity') fetchOrgActivityLogs()
+    fetchUsers()
+    fetchOrgActivityLogs()
     if (activeTab === 'storage') fetchBackupSettings()
     if (activeTab === 'broadcasts') fetchAnnouncements()
   }, [activeTab])
+
+  // Compute KPI Statistics for top metrics bar
+  const stats = useMemo(() => {
+    const totalMembers = users.length
+    const activeMembers = users.filter(u => u.status === 'active' || u.status === 'ACTIVE').length
+    const loginsCount = activityLogs.filter(l => l.action_type === 'LOGIN').length
+    const viewsCount = activityLogs.filter(l => l.action_type === 'VIEWED' || l.action_type === 'VIEW_CALCULATOR').length
+    const updatesCount = activityLogs.filter(l => l.action_type === 'UPDATED' || l.action_type?.includes('UPDATE')).length
+    
+    // Calculate unique active user count from logs today
+    const todayStr = new Date().toISOString().split('T')[0]
+    const activeTodaySet = new Set(
+      activityLogs
+        .filter(l => l.created_at && l.created_at.startsWith(todayStr))
+        .map(l => l.name || l.email || l.user_id)
+    )
+
+    return {
+      totalMembers,
+      activeMembers,
+      loginsCount,
+      viewsCount,
+      updatesCount,
+      activeToday: activeTodaySet.size || Math.min(activeMembers, totalMembers)
+    }
+  }, [users, activityLogs])
 
   // --- Users Handlers ---
   const handleInviteUser = async (e: React.FormEvent) => {
@@ -105,7 +144,7 @@ export function OrgAdminDashboard() {
       setShowInviteModal(false)
       setInviteEmail('')
       setInviteName('')
-      setInviteRole('ENGINEER')
+      setInviteRole('Design Engineer')
       fetchUsers()
     } else {
       toast.error(res.message || "Failed to invite user")
@@ -132,10 +171,10 @@ export function OrgAdminDashboard() {
       toast.error("You cannot change your own role.")
       return
     }
-    toast.info(`Updating role for ${user.email}...`)
+    toast.info(`Updating role for ${user.email} to ${newRole}...`)
     const res = await api.adminToggleRole(user.id, newRole)
     if (res && res.success) {
-      toast.success(`Role updated to ${newRole}`)
+      toast.success(`Role for ${user.name || user.email} updated to ${newRole}`)
       fetchUsers()
     } else {
       toast.error(res.message || "Failed to update role")
@@ -144,12 +183,16 @@ export function OrgAdminDashboard() {
 
   const ROLE_ORDER: Record<string, number> = {
     'ORG_ADMIN': 1,
-    'PROJECT_MANAGER': 2,
-    'TEAM_LEADER': 3,
-    'ENGINEER': 4,
-    'MODELLER': 5,
-    'VIEWER': 6,
-    'USER': 7
+    'jr. Design Engineer': 2,
+    'Design Engineer': 3,
+    'Sr. Design Engineer': 4,
+    'Discipline Coordinator': 5,
+    'BIM Modeler': 6,
+    'BIM Coordinator': 7,
+    'Team Leader': 8,
+    '2D Draftsman': 9,
+    'Viewer': 10,
+    'Client': 11
   }
 
   // --- Storage Handlers ---
@@ -211,166 +254,248 @@ export function OrgAdminDashboard() {
     else fetchAnnouncements()
   }
 
+  // Format log details cleanly into human readable sentences
+  const formatLogDetail = (log: any) => {
+    const d = log.details || {}
+    const isObj = typeof d === 'object' && d !== null
+
+    if (log.action_type === 'LOGIN') {
+      return 'User logged into platform'
+    }
+
+    if (log.action_type === 'VIEWED' || log.action_type === 'VIEW_CALCULATOR') {
+      const calcName = isObj ? (d.calculator_name || d.calculator || d.path || 'Calculator') : d
+      return `Viewed ${calcName}`
+    }
+
+    if (log.action_type === 'UPDATED') {
+      const calcName = isObj ? (d.calculator_name || d.calculator || 'calculator') : 'calculator'
+      const summary = isObj ? (d.summary || d.message || '') : String(d)
+      return `Changes occurred / updated values in ${calcName}${summary ? ` (${summary})` : ''}`
+    }
+
+    if (isObj) {
+      if (d.message) return d.message
+      if (d.summary) return d.summary
+      return Object.entries(d)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(' | ')
+    }
+
+    return String(d || 'No details provided')
+  }
+
   return (
-    <div className="flex h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans">
       
       {/* Sidebar */}
-      <div className="w-64 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex flex-col">
-        <div className="p-6">
+      <div className="w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col shrink-0">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800/80">
           <button 
             onClick={() => navigate({ to: '/' })}
-            className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors mb-6"
+            className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors mb-4"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to App
           </button>
           
-          <h1 className="text-xl font-bold tracking-tight">Organization Admin</h1>
-          <p className="text-xs text-slate-500 mt-1">Manage your team settings</p>
+          <h1 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-slate-700 dark:text-slate-300 shrink-0" />
+            Org Admin
+          </h1>
+          <p className="text-xs text-slate-500 mt-1 font-medium">Control Panel & Team Analytics</p>
         </div>
 
-        <nav className="p-4 space-y-1">
+        <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto">
           <button 
             onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'users' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'users' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
           >
-            <Users className="w-5 h-5" />
-            Users
+            <div className="flex items-center gap-3">
+              <Users className="w-4 h-4" />
+              Team Members
+            </div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${activeTab === 'users' ? 'bg-white/20 dark:bg-slate-900/20' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
+              {users.length}
+            </span>
           </button>
+
           <button 
             onClick={() => setActiveTab('activity')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'activity' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'activity' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
           >
-            <Activity className="w-5 h-5" />
-            Team Activity Logs
+            <div className="flex items-center gap-3">
+              <Activity className="w-4 h-4" />
+              Activity Audit Logs
+            </div>
+            {activityLogs.length > 0 && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${activeTab === 'activity' ? 'bg-white/20 dark:bg-slate-900/20' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
+                {activityLogs.length}
+              </span>
+            )}
           </button>
+
           <button 
             onClick={() => setActiveTab('storage')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'storage' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'storage' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
           >
-            <HardDrive className="w-5 h-5" />
+            <HardDrive className="w-4 h-4" />
             Server & Sync Settings
           </button>
+
           <button 
             onClick={() => setActiveTab('broadcasts')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'broadcasts' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${activeTab === 'broadcasts' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
           >
-            <Megaphone className="w-5 h-5" />
+            <Megaphone className="w-4 h-4" />
             Global Broadcasts
           </button>
         </nav>
+
+        {/* Current User Card */}
+        <div className="p-4 m-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-slate-800 text-white font-bold flex items-center justify-center text-xs shrink-0 border border-slate-700">
+              {(currentUserProfile?.name || currentUserProfile?.email || 'A')[0].toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold truncate text-slate-900 dark:text-slate-100">{currentUserProfile?.name || 'Org Admin'}</div>
+              <div className="text-[11px] text-slate-500 truncate">{currentUserProfile?.email}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-auto bg-white dark:bg-slate-950">
-        <div className="max-w-6xl mx-auto">
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950">
+        <div className="w-full px-6 py-6 lg:px-8 space-y-6">
           
+          {/* TOP METRICS & STATS BAR - Clean Executive Style */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Members</span>
+                <Users className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{stats.totalMembers}</div>
+              <div className="text-[11px] text-slate-500 font-semibold mt-0.5">{stats.activeMembers} Active Users</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active Today</span>
+                <UserCheck className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{stats.activeToday}</div>
+              <div className="text-[11px] text-slate-500 font-medium mt-0.5">Logged in today</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Logins</span>
+                <Key className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{stats.loginsCount}</div>
+              <div className="text-[11px] text-slate-500 font-medium mt-0.5">Login events logged</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Calculator Views</span>
+                <Eye className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{stats.viewsCount}</div>
+              <div className="text-[11px] text-slate-500 font-medium mt-0.5">Page views recorded</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Updates / Changes</span>
+                <Edit3 className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+              </div>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{stats.updatesCount}</div>
+              <div className="text-[11px] text-slate-500 font-medium mt-0.5">Changes occurred</div>
+            </div>
+          </div>
+
           {/* Users Tab */}
           {activeTab === 'users' && (
-            <div className="p-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xs space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold">Team Members</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Manage and sort your organization members by role (Engg, Modeller, Team Leader, Viewer, etc.)</p>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white">Organization Team Members</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Manage user access and assign platform roles to organization members.</p>
                 </div>
                 <button
                   onClick={() => setShowInviteModal(true)}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shrink-0"
+                  className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 shadow-2xs"
                 >
                   <Plus className="w-4 h-4" />
-                  Invite User
+                  Invite Team Member
                 </button>
               </div>
 
-              {/* Role Counters Summary */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-6">
-                <div 
-                  onClick={() => setSelectedRoleFilter('ENGINEER')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedRoleFilter === 'ENGINEER' ? 'bg-blue-50 border-blue-400 dark:bg-blue-900/30' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 hover:border-slate-300'}`}
-                >
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Engineers</div>
-                  <div className="text-lg font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                    {users.filter(u => u.role === 'ENGINEER' || u.role === 'USER').length}
+              {/* Role Counters Summary - Clean Slate Styling */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {[
+                  { key: 'Design Engineer', label: 'Design Engineers' },
+                  { key: 'BIM Modeler', label: 'BIM Modelers' },
+                  { key: 'Team Leader', label: 'Team Leaders' },
+                  { key: 'Viewer', label: 'Viewers' },
+                  { key: 'Client', label: 'Clients' }
+                ].map(item => (
+                  <div 
+                    key={item.key}
+                    onClick={() => setSelectedRoleFilter(item.key)}
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      selectedRoleFilter === item.key 
+                        ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-transparent shadow-xs' 
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <div className="text-[11px] font-bold uppercase tracking-wider opacity-75">{item.label}</div>
+                    <div className="text-xl font-extrabold mt-0.5">
+                      {users.filter(u => u.role === item.key || (item.key === 'Design Engineer' && (u.role === 'ENGINEER' || u.role === 'USER'))).length}
+                    </div>
                   </div>
-                </div>
-
-                <div 
-                  onClick={() => setSelectedRoleFilter('MODELLER')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedRoleFilter === 'MODELLER' ? 'bg-cyan-50 border-cyan-400 dark:bg-cyan-900/30' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 hover:border-slate-300'}`}
-                >
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Modellers</div>
-                  <div className="text-lg font-extrabold text-cyan-600 dark:text-cyan-400 mt-0.5">
-                    {users.filter(u => u.role === 'MODELLER').length}
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setSelectedRoleFilter('TEAM_LEADER')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedRoleFilter === 'TEAM_LEADER' ? 'bg-indigo-50 border-indigo-400 dark:bg-indigo-900/30' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 hover:border-slate-300'}`}
-                >
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Team Leaders</div>
-                  <div className="text-lg font-extrabold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                    {users.filter(u => u.role === 'TEAM_LEADER').length}
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setSelectedRoleFilter('VIEWER')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedRoleFilter === 'VIEWER' ? 'bg-slate-200 border-slate-400 dark:bg-slate-800' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 hover:border-slate-300'}`}
-                >
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Viewers</div>
-                  <div className="text-lg font-extrabold text-slate-700 dark:text-slate-300 mt-0.5">
-                    {users.filter(u => u.role === 'VIEWER').length}
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setSelectedRoleFilter('PROJECT_MANAGER')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer ${selectedRoleFilter === 'PROJECT_MANAGER' ? 'bg-purple-50 border-purple-400 dark:bg-purple-900/30' : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 hover:border-slate-300'}`}
-                >
-                  <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Project Managers</div>
-                  <div className="text-lg font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
-                    {users.filter(u => u.role === 'PROJECT_MANAGER').length}
-                  </div>
-                </div>
+                ))}
               </div>
 
-              {/* Requirement: Filter & Sort Controls */}
-              <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Filter & Sort Controls */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 shrink-0">
-                    <Filter size={15} className="text-blue-600" />
+                    <Filter size={14} className="text-slate-700 dark:text-slate-300" />
                     Filter by Role:
                   </label>
                   <select
                     value={selectedRoleFilter}
                     onChange={(e) => setSelectedRoleFilter(e.target.value)}
-                    className="text-xs p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs min-w-[200px]"
+                    className="text-xs p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-400 cursor-pointer min-w-[220px]"
                   >
-                    <option value="ALL">👥 All Roles ({users.length})</option>
-                    <option value="ENGINEER">👷 Engineer (Engg)</option>
-                    <option value="MODELLER">📐 Modeller</option>
-                    <option value="TEAM_LEADER">👑 Team Leader</option>
-                    <option value="VIEWER">👁️ Viewer</option>
-                    <option value="PROJECT_MANAGER">📁 Project Manager</option>
-                    <option value="ORG_ADMIN">🛡️ Org Admin</option>
+                    <option value="ALL">All Roles ({users.length})</option>
+                    {PLATFORM_ROLES.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                    <option value="ORG_ADMIN">Org Admin</option>
                   </select>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setSortByRole(!sortByRole)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition ${sortByRole ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600'}`}
+                    className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition ${sortByRole ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-transparent' : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400'}`}
                   >
                     {sortByRole ? 'Sorted by Role Hierarchy' : 'Sorted Alphabetically'}
                   </button>
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+              {/* Members Table - Clean Corporate Style */}
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-2xs">
                 {loading ? (
                   <div className="flex items-center justify-center p-12">
-                    <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                    <Loader2 className="w-8 h-8 animate-spin text-slate-600 dark:text-slate-400" />
                   </div>
                 ) : users.length === 0 ? (
                   <div className="p-12 text-center text-slate-500">
@@ -380,19 +505,19 @@ export function OrgAdminDashboard() {
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800">
                         <tr>
-                          <th className="px-6 py-4 font-medium">Name / Email</th>
-                          <th className="px-6 py-4 font-medium">Role</th>
-                          <th className="px-6 py-4 font-medium">Status</th>
-                          <th className="px-6 py-4 font-medium text-right">Actions</th>
+                          <th className="px-6 py-4 font-bold">Team Member</th>
+                          <th className="px-6 py-4 font-bold">Assigned Platform Role</th>
+                          <th className="px-6 py-4 font-bold">Account Status</th>
+                          <th className="px-6 py-4 font-bold text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {users
                           .filter(u => {
                             if (selectedRoleFilter === 'ALL') return true;
-                            if (selectedRoleFilter === 'ENGINEER') return u.role === 'ENGINEER' || u.role === 'USER';
+                            if (selectedRoleFilter === 'Design Engineer') return u.role === 'Design Engineer' || u.role === 'ENGINEER' || u.role === 'USER';
                             return u.role === selectedRoleFilter;
                           })
                           .sort((a, b) => {
@@ -404,41 +529,46 @@ export function OrgAdminDashboard() {
                             return (a.name || a.email).localeCompare(b.name || b.email);
                           })
                           .map((u) => (
-                          <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                          <tr key={u.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
                             <td className="px-6 py-4">
-                              <div className="font-medium flex items-center gap-2">
-                                {u.role === 'ORG_ADMIN' && <Crown size={14} className="text-amber-500 shrink-0" title="Org Admin" />}
-                                <span>{u.name}</span>
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 border border-slate-200 dark:border-slate-700">
+                                  {(u.name || u.email || 'U')[0].toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                                    {u.role === 'ORG_ADMIN' && <Crown size={14} className="text-amber-500 shrink-0" title="Org Admin" />}
+                                    <span>{u.name || u.email}</span>
+                                  </div>
+                                  <div className="text-slate-500 text-xs mt-0.5">{u.email}</div>
+                                </div>
                               </div>
-                              <div className="text-slate-500 text-xs mt-0.5">{u.email}</div>
                             </td>
                             <td className="px-6 py-4">
                               {u.id === currentUserProfile?.id ? (
-                                <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 rounded-md text-[11px] font-bold border border-amber-300">
-                                  ORG ADMIN (You)
+                                <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-md text-xs font-bold border border-slate-300 dark:border-slate-700">
+                                  Org Admin (You)
                                 </span>
                               ) : (
                                 <select
-                                  value={u.role || 'ENGINEER'}
+                                  value={u.role || 'Design Engineer'}
                                   onChange={(e) => handleChangeRole(u, e.target.value)}
-                                  className="text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold cursor-pointer text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500"
+                                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-slate-400 cursor-pointer shadow-2xs"
                                 >
-                                  <option value="ENGINEER">Engineer (Engg)</option>
-                                  <option value="MODELLER">Modeller</option>
-                                  <option value="TEAM_LEADER">Team Leader</option>
-                                  <option value="VIEWER">Viewer</option>
-                                  <option value="PROJECT_MANAGER">Project Manager</option>
-                                  {u.role === 'ORG_ADMIN' && <option value="ORG_ADMIN">Org Admin</option>}
+                                  {PLATFORM_ROLES.map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                  <option value="ORG_ADMIN">Org Admin</option>
                                 </select>
                               )}
                             </td>
                             <td className="px-6 py-4">
                               {u.status === 'invited' ? (
-                                <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded text-[11px] font-medium">
+                                <span className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 rounded-full text-[11px] font-bold">
                                   Pending Invite
                                 </span>
                               ) : (
-                                <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded text-[11px] font-medium">
+                                <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-full text-[11px] font-bold">
                                   Active
                                 </span>
                               )}
@@ -447,7 +577,7 @@ export function OrgAdminDashboard() {
                               {u.id !== currentUserProfile?.id && (
                                 <button
                                   onClick={() => handleRemoveUser(u)}
-                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition"
+                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
                                   title="Remove User"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -464,31 +594,37 @@ export function OrgAdminDashboard() {
             </div>
           )}
 
-          {/* Team Activity Logs Tab */}
+          {/* Team Activity Audit Logs Tab */}
           {activeTab === 'activity' && (
-            <div className="p-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xs space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold">Team Activity Audit Logs</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Track calculations run, reports generated, login history, and management actions across your team.</p>
+                  <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-slate-700 dark:text-slate-300" />
+                    Team Activity Audit Logs
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Real-time audit log tracking Logins, Calculator Views, and Parameter Updates ("Changes Occurred") across your team.</p>
                 </div>
                 <button
                   onClick={fetchOrgActivityLogs}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition self-start md:self-auto"
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition self-start md:self-auto"
                 >
-                  Refresh Logs
+                  <Clock className="w-3.5 h-3.5" />
+                  Refresh Activity Logs
                 </button>
               </div>
 
-              {/* Filter Controls */}
-              <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              {/* Filter Controls Bar */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-1 flex items-center gap-1">
-                    <Filter size={14} className="text-blue-600" /> Category:
+                    <Filter size={14} className="text-slate-700 dark:text-slate-300" /> Filter:
                   </span>
                   {[
                     { id: 'ALL', label: 'All Actions' },
                     { id: 'LOGIN', label: '🔑 Logins' },
+                    { id: 'VIEWED', label: '👁️ Views' },
+                    { id: 'UPDATED', label: '✏️ Changes / Updates' },
                     { id: 'CALCULATION_RUN', label: '🧮 Calculations' },
                     { id: 'REPORT_GENERATED', label: '📄 Reports' },
                     { id: 'USER_MGMT', label: '👥 Team Mgmt' }
@@ -496,10 +632,10 @@ export function OrgAdminDashboard() {
                     <button
                       key={cat.id}
                       onClick={() => setLogCategoryFilter(cat.id)}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition ${
+                      className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${
                         logCategoryFilter === cat.id
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                          ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
+                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
                       }`}
                     >
                       {cat.label}
@@ -507,97 +643,114 @@ export function OrgAdminDashboard() {
                   ))}
                 </div>
 
-                <div className="relative flex-1 max-w-xs">
+                <div className="relative min-w-[240px]">
                   <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
                   <input
                     type="text"
                     value={logSearchQuery}
                     onChange={e => setLogSearchQuery(e.target.value)}
-                    placeholder="Search by user or action..."
-                    className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                    placeholder="Search by user name, email, or action..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
                   />
                 </div>
               </div>
 
               {/* Logs Table */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-2xs">
                 {loadingLogs ? (
                   <div className="flex items-center justify-center p-12">
-                    <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                    <Loader2 className="w-8 h-8 animate-spin text-slate-600 dark:text-slate-400" />
                   </div>
                 ) : activityLogs.filter(log => {
                   if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
+                  if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
+                  if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED' && !log.action_type?.includes('UPDATE')) return false;
                   if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
-                  if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
-                  if (logCategoryFilter === 'USER_MGMT' && (log.action_type === 'LOGIN' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
+                  if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT') && log.action_type !== 'EXPORT') return false;
+                  if (logCategoryFilter === 'USER_MGMT' && (log.action_type === 'LOGIN' || log.action_type === 'VIEWED' || log.action_type === 'UPDATED' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
 
                   if (logSearchQuery.trim()) {
                     const q = logSearchQuery.toLowerCase();
+                    const name = (log.name || log.profiles?.name || '').toLowerCase();
                     const email = (log.profiles?.email || log.email || '').toLowerCase();
                     const action = (log.action_type || '').toLowerCase();
                     const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
-                    return email.includes(q) || action.includes(q) || detailsStr.includes(q);
+                    return name.includes(q) || email.includes(q) || action.includes(q) || detailsStr.includes(q);
                   }
                   return true;
                 }).length === 0 ? (
                   <div className="p-12 text-center text-slate-500">
                     <Activity className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                    <p>No activity logs found for this filter.</p>
+                    <p className="font-semibold text-sm">No activity logs found for this filter.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
+                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800">
                         <tr>
-                          <th className="px-6 py-4 font-medium">Timestamp</th>
-                          <th className="px-6 py-4 font-medium">Team Member</th>
-                          <th className="px-6 py-4 font-medium">Action</th>
-                          <th className="px-6 py-4 font-medium">Details</th>
+                          <th className="px-6 py-4 font-bold">Timestamp</th>
+                          <th className="px-6 py-4 font-bold">Team Member (Name & Email)</th>
+                          <th className="px-6 py-4 font-bold">Action Type</th>
+                          <th className="px-6 py-4 font-bold">Activity Summary & Details</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                         {activityLogs
                           .filter(log => {
                             if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
+                            if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
+                            if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED' && !log.action_type?.includes('UPDATE')) return false;
                             if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
-                            if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
-                            if (logCategoryFilter === 'USER_MGMT' && (log.action_type === 'LOGIN' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
+                            if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT') && log.action_type !== 'EXPORT') return false;
+                            if (logCategoryFilter === 'USER_MGMT' && (log.action_type === 'LOGIN' || log.action_type === 'VIEWED' || log.action_type === 'UPDATED' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
 
                             if (logSearchQuery.trim()) {
                               const q = logSearchQuery.toLowerCase();
+                              const name = (log.name || log.profiles?.name || '').toLowerCase();
                               const email = (log.profiles?.email || log.email || '').toLowerCase();
                               const action = (log.action_type || '').toLowerCase();
                               const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
-                              return email.includes(q) || action.includes(q) || detailsStr.includes(q);
+                              return name.includes(q) || email.includes(q) || action.includes(q) || detailsStr.includes(q);
                             }
                             return true;
                           })
                           .map((log) => {
-                            const userEmail = log.profiles?.email || log.email || 'Team User';
+                            const userName = log.name || log.profiles?.name || log.user_name || log.email || 'Team User';
+                            const userEmail = log.profiles?.email || log.email || '';
                             const isLogin = log.action_type === 'LOGIN';
-                            const isCalc = log.action_type?.includes('CALCULATION');
-                            const isReport = log.action_type?.includes('REPORT');
+                            const isView = log.action_type === 'VIEWED' || log.action_type === 'VIEW_CALCULATOR';
+                            const isUpdate = log.action_type === 'UPDATED' || log.action_type?.includes('UPDATE');
+                            const isReport = log.action_type?.includes('REPORT') || log.action_type === 'EXPORT';
 
                             return (
-                              <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
+                              <tr key={log.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
                                 <td className="px-6 py-4 text-xs font-mono text-slate-500 whitespace-nowrap">
                                   {new Date(log.created_at).toLocaleString()}
                                 </td>
                                 <td className="px-6 py-4">
-                                  <div className="font-semibold text-slate-900 dark:text-slate-100">{userEmail}</div>
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 border border-slate-200 dark:border-slate-700">
+                                      {(userName || 'U')[0].toUpperCase()}
+                                    </div>
+                                    <div>
+                                      <div className="font-extrabold text-slate-900 dark:text-slate-100 text-xs">
+                                        {userName}
+                                      </div>
+                                      {userEmail && <div className="text-[11px] text-slate-500">{userEmail}</div>}
+                                    </div>
+                                  </div>
                                 </td>
                                 <td className="px-6 py-4">
-                                  <span className={`px-2.5 py-1 rounded text-[11px] font-extrabold uppercase tracking-wider ${
-                                    isLogin ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
-                                    isCalc ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' :
-                                    isReport ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
-                                    'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-                                  }`}>
-                                    {log.action_type}
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                                    {isLogin && <Key size={12} />}
+                                    {isView && <Eye size={12} />}
+                                    {isUpdate && <Edit3 size={12} />}
+                                    {isReport && <FileText size={12} />}
+                                    {isUpdate ? 'UPDATED / CHANGES' : log.action_type}
                                   </span>
                                 </td>
-                                <td className="px-6 py-4 text-xs text-slate-600 dark:text-slate-400 font-mono">
-                                  {typeof log.details === 'string' ? log.details : JSON.stringify(log.details || {})}
+                                <td className="px-6 py-4 text-xs font-medium text-slate-700 dark:text-slate-300">
+                                  {formatLogDetail(log)}
                                 </td>
                               </tr>
                             );
@@ -609,14 +762,16 @@ export function OrgAdminDashboard() {
               </div>
             </div>
           )}
+
+          {/* Storage & Backup Tab */}
           {activeTab === 'storage' && (
-            <div className="p-6">
-              <h2 className="text-xl font-bold mb-6">Server & Sync Settings</h2>
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xs space-y-6">
+              <h2 className="text-xl font-bold">Server & Sync Settings</h2>
               
-              <div className="space-y-8 max-w-2xl">
-                <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="space-y-8 max-w-3xl">
+                <div className="bg-slate-50 dark:bg-slate-950/60 p-6 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="flex items-start gap-4">
-                    <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg">
+                    <div className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg">
                       <HardDrive className="w-6 h-6" />
                     </div>
                     <div className="flex-1">
@@ -629,11 +784,11 @@ export function OrgAdminDashboard() {
                           value={localBackupPath} 
                           onChange={(e) => setLocalBackupPath(e.target.value)}
                           placeholder="C:\Users\Admin\AppData\Local\MEPCalc\Backups"
-                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm"
+                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm"
                         />
                         <button 
                           onClick={() => handlePickFolder('local')}
-                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors"
                         >
                           <FolderOpen className="w-4 h-4" />
                           Browse
@@ -643,9 +798,9 @@ export function OrgAdminDashboard() {
                   </div>
                 </div>
 
-                <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="bg-slate-50 dark:bg-slate-950/60 p-6 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="flex items-start gap-4">
-                    <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg">
+                    <div className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg">
                       <Save className="w-6 h-6" />
                     </div>
                     <div className="flex-1">
@@ -658,11 +813,11 @@ export function OrgAdminDashboard() {
                           value={serverBackupPath} 
                           onChange={(e) => setServerBackupPath(e.target.value)}
                           placeholder="Z:/00 R&D Server/Backups"
-                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm"
+                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm"
                         />
                         <button 
                           onClick={() => handlePickFolder('server')}
-                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors"
                         >
                           <FolderOpen className="w-4 h-4" />
                           Browse
@@ -685,7 +840,7 @@ export function OrgAdminDashboard() {
                         toast.error(res.message || "Failed to save backup settings");
                       }
                     }}
-                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                    className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 text-white font-bold text-xs rounded-xl transition-colors shadow-2xs"
                   >
                     Save Backup Settings
                   </button>
@@ -696,13 +851,13 @@ export function OrgAdminDashboard() {
 
           {/* Broadcasts Tab */}
           {activeTab === 'broadcasts' && (
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xs space-y-6">
+              <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold">Global Broadcasts</h2>
-                <button onClick={fetchAnnouncements} className="text-sm text-blue-600 hover:underline">Refresh</button>
+                <button onClick={fetchAnnouncements} className="text-xs font-bold text-slate-700 hover:underline dark:text-slate-300">Refresh</button>
               </div>
 
-              <div className="mb-8 p-5 border border-blue-100 dark:border-blue-900/30 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl">
+              <div className="p-5 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 rounded-xl">
                 <h3 className="text-sm font-semibold mb-3">Create New Broadcast</h3>
                 <form onSubmit={handleCreateAnnouncement} className="flex gap-3">
                   <div className="flex-1">
@@ -712,13 +867,13 @@ export function OrgAdminDashboard() {
                       required
                       value={newAnnouncementMsg}
                       onChange={(e) => setNewAnnouncementMsg(e.target.value)}
-                      className="w-full text-sm p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                      className="w-full text-sm p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
                     />
                   </div>
                   <select
                     value={newAnnouncementType}
                     onChange={(e) => setNewAnnouncementType(e.target.value as any)}
-                    className="text-sm p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 w-32"
+                    className="text-sm p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 w-32 font-bold"
                   >
                     <option value="info">Info</option>
                     <option value="warning">Warning</option>
@@ -727,7 +882,7 @@ export function OrgAdminDashboard() {
                   </select>
                   <button 
                     type="submit"
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition-colors"
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white font-bold rounded-lg text-xs transition-colors shadow-2xs"
                   >
                     Broadcast
                   </button>
@@ -744,17 +899,12 @@ export function OrgAdminDashboard() {
                   announcements.map((ann) => (
                     <div key={ann.id} className={`p-4 rounded-xl border flex items-center justify-between ${
                       ann.is_active 
-                        ? 'border-blue-200 bg-blue-50 dark:border-blue-800/30 dark:bg-blue-900/20' 
+                        ? 'border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/40' 
                         : 'border-slate-200 bg-slate-50 opacity-60 dark:border-slate-800 dark:bg-slate-900/30'
                     }`}>
                       <div>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${
-                            ann.type === 'info' ? 'bg-blue-100 text-blue-700' :
-                            ann.type === 'warning' ? 'bg-amber-100 text-amber-700' :
-                            ann.type === 'error' ? 'bg-red-100 text-red-700' :
-                            'bg-emerald-100 text-emerald-700'
-                          }`}>
+                          <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-600">
                             {ann.type}
                           </span>
                           <span className="text-xs text-slate-500">{new Date(ann.created_at).toLocaleString()}</span>
@@ -766,17 +916,13 @@ export function OrgAdminDashboard() {
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => toggleAnnouncement(ann.id, ann.is_active)}
-                          className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
-                            ann.is_active 
-                              ? 'bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300' 
-                              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30'
-                          }`}
+                          className="text-xs px-3 py-1.5 rounded-md font-bold transition-colors bg-slate-200 text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200"
                         >
                           {ann.is_active ? 'Deactivate' : 'Reactivate'}
                         </button>
                         <button
                           onClick={() => deleteAnnouncement(ann.id)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -791,46 +937,47 @@ export function OrgAdminDashboard() {
         </div>
       </div>
 
+      {/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl">
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-              <h3 className="font-bold">Invite Team Member</h3>
-              <button onClick={() => setShowInviteModal(false)} className="text-slate-400 hover:text-white">✕</button>
+              <h3 className="font-bold text-slate-900 dark:text-white">Invite Team Member</h3>
+              <button onClick={() => setShowInviteModal(false)} className="text-slate-400 hover:text-slate-700 dark:hover:text-white font-bold">✕</button>
             </div>
             <form onSubmit={handleInviteUser} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Full Name</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Full Name</label>
                 <input
                   type="text"
                   value={inviteName}
                   onChange={e => setInviteName(e.target.value)}
-                  className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm"
+                  className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-semibold"
+                  placeholder="e.g. John Doe"
                   required
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Email Address</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Email Address</label>
                 <input
                   type="email"
                   value={inviteEmail}
                   onChange={e => setInviteEmail(e.target.value)}
-                  className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm"
+                  className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-semibold"
+                  placeholder="john@example.com"
                   required
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Role</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Platform Role</label>
                 <select
                   value={inviteRole}
                   onChange={e => setInviteRole(e.target.value)}
-                  className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-medium"
+                  className="w-full h-10 px-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm font-bold text-slate-800 dark:text-slate-200"
                 >
-                  <option value="ENGINEER">Engineer (Engg)</option>
-                  <option value="MODELLER">Modeller</option>
-                  <option value="TEAM_LEADER">Team Leader</option>
-                  <option value="VIEWER">Viewer</option>
-                  <option value="PROJECT_MANAGER">Project Manager</option>
+                  {PLATFORM_ROLES.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
                 </select>
               </div>
               
@@ -838,14 +985,14 @@ export function OrgAdminDashboard() {
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-medium transition"
+                  className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isInviting}
-                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition disabled:opacity-50"
+                  className="flex-1 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 shadow-2xs"
                 >
                   {isInviting ? 'Inviting...' : 'Send Invite'}
                 </button>
@@ -855,5 +1002,5 @@ export function OrgAdminDashboard() {
         </div>
       )}
     </div>
-  )
+  );
 }

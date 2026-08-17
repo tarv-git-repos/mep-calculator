@@ -953,9 +953,6 @@ function CableVoltageDropPage() {
             onImport={handleImportExcelRows}
             className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors"
           />
-          <button onClick={exportExcel} className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors">
-            <Download className="size-3.5" /> Export Excel
-          </button>
         </div>
       }
     >

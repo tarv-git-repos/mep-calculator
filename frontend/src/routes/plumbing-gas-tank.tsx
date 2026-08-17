@@ -144,7 +144,6 @@ function GasTankPage() {
         <div className="flex gap-2">
           <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
             <Download className="w-4 h-4" />
-            Export Excel
           </button>
           <button onClick={saveCalc} className="flex items-center gap-2 px-4 py-2 bg-[#06456F] text-white rounded-lg hover:bg-orange-700 transition-colors font-medium">
             <Save className="w-4 h-4" />

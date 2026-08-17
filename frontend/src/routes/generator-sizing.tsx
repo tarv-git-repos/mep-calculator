@@ -110,7 +110,6 @@ function GeneratorSizingPage() {
     onNewRow: () => addRow(),
     onSave: () => saveProject(),
     onPrint: () => exportPdf(),
-    onExportExcel: () => exportExcel(),
     onExportPdf: () => exportPdf(),
   });
 
@@ -141,6 +140,7 @@ function GeneratorSizingPage() {
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!project?.id) return;
     try {
       const saved = window.localStorage.getItem(`mep_gen_projects_${project.id}`);
       if (saved) {
@@ -165,12 +165,12 @@ function GeneratorSizingPage() {
         }
       }
       setTimeout(() => dirtyStore.set(false), 50);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     } catch {
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
+      console.error("Failed to load generator sizing data");
     }
+    setLoadedProjectId(project.id);
     setIsLoaded(true);
-  }, [project.id]);
+  }, [project?.id]);
 
   useEffect(() => {
     if (project?.id && loadedProjectId === project.id) {
@@ -909,7 +909,6 @@ function GeneratorSizingPage() {
                       </p>
                     </div>
                     <TBtn primary onClick={exportExcel} className="mt-2 w-full justify-center">
-                      Export Excel
                     </TBtn>
                   </div>
 

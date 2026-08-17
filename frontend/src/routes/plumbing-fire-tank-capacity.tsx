@@ -198,14 +198,6 @@ function FireTankCapacityPage() {
                 <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                   📥 Tank Parameters
                 </span>
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  className="px-3 py-1 bg-[#0A7BC7] hover:bg-[#06456F] text-white text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition-colors outline-none"
-                >
-                  <Download className="size-3" />
-                  Export
-                </button>
               </div>
 
               {/* SYSTEM TYPE */}

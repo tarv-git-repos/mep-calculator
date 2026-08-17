@@ -228,18 +228,18 @@ function CableTraySizingPage() {
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   React.useEffect(() => {
+    if (!project?.id) return;
     try {
       const saved = localStorage.getItem(`mep_cable_tray_${project.id}`);
       if (saved) {
         setTrays(JSON.parse(saved));
       }
       setTimeout(() => dirtyStore.set(false), 50);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     } catch (e) {
       console.error(e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
-  }, [project.id]);
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
 
   React.useEffect(() => {
     if (project?.id && loadedProjectId === project.id) {
@@ -722,7 +722,6 @@ function CableTraySizingPage() {
       <input type="file" ref={fileInputRef} onChange={handleImportCatalog} className="hidden" accept=".xlsx, .xls, .csv" />
       <TBtn onClick={() => fileInputRef.current?.click()}><Upload className="size-3.5" /> Import Catalog</TBtn>
       <TBtn onClick={resetCatalog}><RefreshCcw className="size-3.5" /> Reset</TBtn>
-      <TBtn onClick={exportExcel}><Download className="size-3.5" /> Excel</TBtn>
       <TBtn onClick={exportPdf}><Download className="size-3.5" /> PDF</TBtn>
       <TBtn primary onClick={addTray}><Plus className="size-3.5" /> Add Tray</TBtn>
     </>
@@ -737,7 +736,7 @@ function CableTraySizingPage() {
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
         {/* Sizer Section Header with Unit Switcher */}
-        <div className="flex items-center justify-between px-4 h-9 border-b border-border bg-background shrink-0 select-none">
+        <div className="sticky top-0 z-30 flex items-center justify-between px-4 h-9 border-b border-border bg-background/95 backdrop-blur-md shrink-0 select-none shadow-2xs">
           <div className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
             Sizer Workspace
           </div>

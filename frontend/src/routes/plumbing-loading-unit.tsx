@@ -317,7 +317,6 @@ function LoadingUnitPage() {
                 <button type="button" onClick={() => handleBuildingTypeChange("med")} className={`px-3 py-1 font-bold rounded-md transition-all duration-150 cursor-pointer ${globalBuildingType === "med" ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Medium</button>
                 <button type="button" onClick={() => handleBuildingTypeChange("high")} className={`px-3 py-1 font-bold rounded-md transition-all duration-150 cursor-pointer ${globalBuildingType === "high" ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>High</button>
               </div>
-              <TBtn onClick={handleExportExcel} className="h-8.5 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
             </div>
           </div>
 

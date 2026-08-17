@@ -14,7 +14,9 @@ import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace, workspaceStore, checkIfSpaceMissingData, type Space, type SpaceStatus, type Zone, type Equipment, type ZoneInstanceAssignment } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
 import { exportVentilationExcel } from "@/lib/exportVentilationExcel";
+import { exportVentilationPDF } from "@/lib/exportVentilationPDF";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { CategorySelect } from "@/components/workspace/CategorySelect";
 import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
@@ -89,7 +91,7 @@ export function VentilationModule() {
 
   const [tab, setTab] = useState<Tab>("spaces");
   const [intelOpen, setIntelOpen] = useState(false);
-  const { spaces, zones, equipment, roundOffPreset, setRoundOffPreset } = useWorkspace();
+  const { spaces, zones, equipment, activeProjectId, roundOffPreset, setRoundOffPreset } = useWorkspace();
 
   const totalArea = Math.round(spaces.reduce((sum, s) => sum + ((s.area || 0) * (s.multiplier || 1)), 0));
   const totalMinFresh = Math.round(spaces.reduce((sum, s) => sum + (s.minOA || 0), 0));
@@ -99,6 +101,58 @@ export function VentilationModule() {
   const actualEA = spaces.reduce((sum, s) => sum + (s.extractAir || 0), 0);
   const netFlow = actualFA - actualEA;
   const avgPressure = totalArea > 0 ? (netFlow / totalArea) * 5.6 : 0;
+
+  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
+    if (typeof window !== 'undefined' && activeProjectId) {
+      try {
+        const saved = localStorage.getItem(`mep_calc_review_${activeProjectId}_/ventilation`);
+        if (saved) return JSON.parse(saved);
+      } catch(e) {}
+    }
+    return { status: "DRAFT" };
+  });
+
+  const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (!activeProjectId) {
+        setCalcReviewState({ status: "DRAFT" });
+        (window as any).__mep_is_readonly = false;
+        return;
+      }
+      try {
+        const saved = localStorage.getItem(`mep_calc_review_${activeProjectId}_/ventilation`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setCalcReviewState(parsed);
+          (window as any).__mep_is_readonly = parsed.status === "APPROVED";
+        } else {
+          setCalcReviewState({ status: "DRAFT" });
+          (window as any).__mep_is_readonly = false;
+        }
+      } catch(e) {}
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    const handleUpdate = (e: any) => {
+      if (e.detail) {
+        setCalcReviewState(e.detail);
+        if (typeof window !== 'undefined') {
+          (window as any).__mep_is_readonly = e.detail.status === "APPROVED";
+        }
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener("mep-review-state-updated", handleUpdate);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener("mep-review-state-updated", handleUpdate);
+      }
+    };
+  }, []);
 
   return (
     <AppShell 
@@ -129,6 +183,12 @@ export function VentilationModule() {
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
+                <CalculationReviewBar
+                  projectId={activeProjectId}
+                  calculatorPath="/ventilation"
+                  calculatorTitle="Ventilation"
+                  onReviewStateChange={setCalcReviewState}
+                />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Fresh air, extract, and pressure balance for every space in the project.
@@ -137,7 +197,11 @@ export function VentilationModule() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
@@ -2366,6 +2430,10 @@ function SpacesView() {
   ]);
 
   const handleNewSpace = () => {
+    if (isApprovedLocked) {
+      toast.error("Calculation is APPROVED (Official Record). Editing is locked until the Discipline Coordinator rejects.");
+      return;
+    }
     const defaultNum = spaces.length + 1;
     const newSpace: Space = {
       id: `sp-${Date.now()}`,
@@ -6044,7 +6112,7 @@ function ReportView() {
         <div className="ml-auto flex items-center gap-1.5">
           <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
           <TBtn onClick={() => exportVentilationExcel(spaces)}><FileSpreadsheet className="size-3.5" /> Excel</TBtn>
-          <TBtn primary onClick={() => exportVentilationExcel(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
+          <TBtn primary onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
         </div>
       </div>
       <div className="flex-1 overflow-auto p-6 bg-slate-50/30 dark:bg-zinc-950/20">

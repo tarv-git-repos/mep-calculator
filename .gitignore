@@ -1,0 +1,66 @@
+# Environment / secrets
+.env
+.env.*
+frontend/.env
+frontend/src-tauri/.env
+
+
+# Tauri signing keys - NEVER commit
+*.key
+*.key.pub
+*.pem
+frontend/src-tauri/mep.key
+frontend/src-tauri/mep.key.pub
+frontend/src-tauri/mep_decoded.key
+
+
+# User / test data
+backend/users_dump.json
+backend/dump.txt
+backend/test_dump.js
+backend/test_dump2.js
+backend/data/users.json
+backend/data/hardware_trials.json
+
+
+# Build / dependencies
+node_modules/
+frontend/node
+frontend/node.zip
+frontend/dist/
+frontend/dist-electron/
+frontend/src-tauri/target/
+frontend/src-tauri/target_new/
+.vs/
+
+
+# Installer / release artifacts
+*.exe
+*.exe.sig
+
+
+# Temporary/debug files
+frontend/scratch/
+frontend/debug_browser.mjs
+frontend/dev_index.html
+frontend/dev_index2.html
+frontend/diff.txt
+frontend/patch.js
+frontend/sign.cjs
+frontend/sign2.cjs
+inject_logs.js
+replace_modal.js
+replace_modal_fixed.txt
+context_menu_fixed.txt
+correct_block.txt
+frontend/$env
+frontend/set
+
+
+# Version/update test artifacts
+2.0.0
+2.0.1
+2.0.3.json
+2.0.5.json
+2.0.7.json
+2.0.9.json

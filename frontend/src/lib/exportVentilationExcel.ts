@@ -15,6 +15,7 @@ export interface ProjectMetaData {
   client?: string;
   endUser?: string;
   date?: string;
+  userName?: string;
 }
 
 export const exportVentilationExcel = async (
@@ -235,7 +236,25 @@ export const exportVentilationExcel = async (
   let startDataRow = 11;
   let currentRow = startDataRow;
 
-  spaces.forEach((s, idx) => {
+  const sortedSpaces = [...spaces].sort((a, b) => {
+    const floorA = (a.floor || 'GF').toLowerCase();
+    const floorB = (b.floor || 'GF').toLowerCase();
+    if (floorA !== floorB) return floorA.localeCompare(floorB);
+
+    const zoneA = (a.zone || 'Default');
+    const zoneB = (b.zone || 'Default');
+    
+    if (zoneA === 'Default' && zoneB !== 'Default') return 1;
+    if (zoneA !== 'Default' && zoneB === 'Default') return -1;
+    
+    if (zoneA.toLowerCase() !== zoneB.toLowerCase()) return zoneA.localeCompare(zoneB);
+
+    const nameA = (a.name || '').toLowerCase();
+    const nameB = (b.name || '').toLowerCase();
+    return nameA.localeCompare(nameB);
+  });
+
+  sortedSpaces.forEach((s, idx) => {
     const r = currentRow;
     sheet.getRow(r).height = 24;
 
@@ -313,13 +332,41 @@ export const exportVentilationExcel = async (
 
     // Col K: Extract Air Number
     const c11 = sheet.getCell(r, 11);
-    const extNo = (s as any).extractAirNumber ?? (data && data.exhaustPerUnit > 0 ? occCount : '-');
+    let extNo: string | number = (s as any).extractAirNumber ?? (data && data.exhaustPerUnit > 0 ? occCount : '-');
+    
+    // Col L: Extract Air Strategy
+    const c12 = sheet.getCell(r, 12);
+    let extStrat: string = (s as any).extractAirStrategy ?? (data && data.exhaustPerUnit > 0 ? 'L/s/unit' : 'L/s/m²');
+
+    const catLower = (s.category || "").toLowerCase();
+    if (catLower === "rest room / changing room") {
+      const sub = s.restroomSubCategories || {};
+      const sumSub = 
+        (sub.toiletPrivateContinuous || 0) +
+        (sub.toiletPublicContinuous || 0) +
+        (sub.toiletPrivateDiscontinuous || 0) +
+        (sub.toiletPublicDiscontinuous || 0) +
+        (sub.showerContinuous || 0) +
+        (sub.showerDiscontinuous || 0) +
+        (sub.janitorCloset || 0) +
+        (sub.lockerRoom || 0);
+
+      if (sumSub > 0) {
+        const val = totalExtractCalculated / sumSub;
+        extNo = val % 1 === 0 ? val.toString() : val.toFixed(1);
+        extStrat = 'L/s/unit';
+      }
+    } else if (catLower === "kitchen - commercial" || catLower === "kitchen - residential") {
+      extNo = parseFloat(String((s as any).customAch || (data ? data.ach : 0)));
+      extStrat = 'ACH';
+    } else if (catLower === "ex. parking garages") {
+      extNo = data ? parseFloat(String(data.exhaustPerArea)) : 3.7;
+      extStrat = 'L/s/m²';
+    }
+
     c11.value = extNo;
     c11.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    // Col L: Extract Air Strategy
-    const c12 = sheet.getCell(r, 12);
-    const extStrat = (s as any).extractAirStrategy ?? (data && data.exhaustPerUnit > 0 ? 'L/s/unit' : 'L/s/m²');
     c12.value = extStrat;
     c12.alignment = { horizontal: 'center', vertical: 'middle' };
 
@@ -407,10 +454,12 @@ export const exportVentilationExcel = async (
   sheet.getCell(`C${refStartRow}`).value = '1. Architectural Drawings:';
   sheet.getCell(`C${refStartRow}`).font = baseFont;
 
+  sheet.mergeCells(`A${refStartRow + 1}:B${refStartRow + 1}`);
   sheet.mergeCells(`C${refStartRow + 1}:E${refStartRow + 1}`);
   sheet.getCell(`C${refStartRow + 1}`).value = '2. ASHRAE 62.1 2026';
   sheet.getCell(`C${refStartRow + 1}`).font = baseFont;
 
+  sheet.mergeCells(`A${refStartRow + 2}:B${refStartRow + 2}`);
   sheet.mergeCells(`C${refStartRow + 2}:E${refStartRow + 2}`);
   sheet.getCell(`C${refStartRow + 2}`).value = '3. ASHRAE 62.2 2026';
   sheet.getCell(`C${refStartRow + 2}`).font = baseFont;
@@ -428,15 +477,8 @@ export const exportVentilationExcel = async (
     }
   }
 
-  // Note below Reference box
-  const noteRow = refStartRow + 3;
-  sheet.getRow(noteRow).height = 18;
-  sheet.mergeCells(`A${noteRow}:G${noteRow}`);
-  sheet.getCell(`A${noteRow}`).value = '* - Only Applicable for Commercial Kitchen Extract';
-  sheet.getCell(`A${noteRow}`).font = { name: 'Arial', size: 9, italic: true };
-  sheet.getCell(`A${noteRow}`).alignment = { vertical: 'middle' };
-
-  currentRow = noteRow + 3; // Gap before Signatures
+  // Gap before Signatures
+  currentRow = refStartRow + 5;
 
   // Signature Block (Full width)
   const sigStartRow = currentRow;
@@ -467,6 +509,19 @@ export const exportVentilationExcel = async (
     setCellBorder(cell, 'medium', 'thin', leftStyle, rightStyle);
   }
 
+  let userName = meta.userName || (typeof window !== 'undefined' ? (window as any).currentMepUserName : undefined) || 'System Admin';
+  if (!meta.userName) {
+    try {
+      const profileStr = localStorage.getItem('mep_calculator_user_data') || localStorage.getItem('mep_profile') || localStorage.getItem('mep_user_data');
+      if (profileStr) {
+        const profile = JSON.parse(profileStr);
+        if (profile.name) userName = profile.name;
+        else if (profile.user?.name) userName = profile.user.name;
+        else if (profile.userData?.name) userName = profile.userData.name;
+      }
+    } catch (e) {}
+  }
+
   // Name Row
   const nameRow = sigStartRow + 1;
   sheet.getRow(nameRow).height = 24;
@@ -476,6 +531,10 @@ export const exportVentilationExcel = async (
   sheet.getCell(`A${nameRow}`).alignment = { horizontal: 'right', vertical: 'middle' };
 
   sheet.mergeCells(`D${nameRow}:G${nameRow}`);
+  sheet.getCell(`D${nameRow}`).value = userName;
+  sheet.getCell(`D${nameRow}`).font = baseFont;
+  sheet.getCell(`D${nameRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
   sheet.mergeCells(`H${nameRow}:K${nameRow}`);
   sheet.mergeCells(`L${nameRow}:O${nameRow}`);
 
@@ -495,6 +554,10 @@ export const exportVentilationExcel = async (
   sheet.getCell(`A${sigDateRow}`).alignment = { horizontal: 'right', vertical: 'middle' };
 
   sheet.mergeCells(`D${sigDateRow}:G${sigDateRow}`);
+  sheet.getCell(`D${sigDateRow}`).value = today;
+  sheet.getCell(`D${sigDateRow}`).font = baseFont;
+  sheet.getCell(`D${sigDateRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
   sheet.mergeCells(`H${sigDateRow}:K${sigDateRow}`);
   sheet.mergeCells(`L${sigDateRow}:O${sigDateRow}`);
 

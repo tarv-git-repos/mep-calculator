@@ -685,7 +685,6 @@ function TransformerSizingPage() {
           <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto py-6">
             <div className="flex items-center justify-end gap-3 no-print border-b border-border/80 pb-4">
               <TBtn onClick={handlePrintPDF} primary><Printer className="size-3.5" /> Print PDF</TBtn>
-              <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
             </div>
             
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-8 shadow-sm">

@@ -559,7 +559,6 @@ function UpsSizingCalculationPage() {
     },
     onNewRow: handleAddRow,
     onPrint: handleExportPDF,
-    onExportExcel: handleExportExcel,
     onExportPdf: handleExportPDF
   });
 
@@ -636,7 +635,6 @@ function UpsSizingCalculationPage() {
               {tab === "spaces" && (
                 <div className="flex items-center gap-2">
                   <TBtn onClick={handleReset}><RefreshCw className="size-3.5 mr-1" /> Reset</TBtn>
-                  <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5 mr-1 text-emerald-600 dark:text-emerald-400" /> Export Excel</TBtn>
                   <ImportExcelBtn
                     columnMapping={{
                       "Description": "description",

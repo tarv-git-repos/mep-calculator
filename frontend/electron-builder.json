@@ -10,7 +10,7 @@
     "package.json"
   ],
   "win": {
-    "target": "portable",
+    "target": "nsis",
     "icon": "src-tauri/icons/icon.ico"
   }
 }

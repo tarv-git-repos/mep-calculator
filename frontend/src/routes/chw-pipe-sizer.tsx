@@ -589,7 +589,6 @@ function ChwPipeSizerPage() {
                   <div className="relative flex items-center justify-between gap-4 px-6 h-12 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">File Actions:</span>
-                      <TBtn onClick={handleExportExcel} className="h-8.5 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                       <TBtn onClick={handleExportJSON} className="h-8.5 text-xs"><Download className="size-3.5" /> Export JSON</TBtn>
                       <label className="flex items-center gap-1.5 h-8.5 px-3 border border-border/80 hover:bg-surface-2 rounded-lg text-xs cursor-pointer font-semibold text-foreground select-none transition-all">
                         <Upload className="size-3.5" /> Import JSON
@@ -901,7 +900,6 @@ function ChwPipeSizerPage() {
                   {/* Fixed Toolbar at the top */}
                   <div className="relative flex items-center justify-end gap-3 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
                     <TBtn onClick={handlePrintPDF} primary><Printer className="size-3.5" /> Print / Export PDF</TBtn>
-                    <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export to Excel</TBtn>
                   </div>
                   
                   {/* Scrollable Report Content */}

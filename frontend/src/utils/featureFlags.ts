@@ -3,11 +3,13 @@ import { Profile } from "@/contexts/AuthContext";
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
   if (!path) return false;
   
-  // SUPER_ADMIN should never be locked out
-  if (profile?.role === 'SUPER_ADMIN') return false;
+  // SUPER_ADMIN and ORG_ADMIN should never be locked out of admin or hierarchy pages
+  if (profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') {
+    if (path === '/admin' || path === '/company-hierarchy') return false;
+  }
 
   // System pages should never be locked
-  const systemPaths = ["", "/", "/projects", "/reports", "/teams", "/settings", "/admin", "/login", "/register"];
+  const systemPaths = ["", "/", "/projects", "/reports", "/teams", "/settings", "/admin", "/company-hierarchy", "/login", "/register"];
   if (systemPaths.includes(path)) {
     return false;
   }

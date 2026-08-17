@@ -1,5 +1,15 @@
 import { getOccupancyData } from "./ashrae-data";
 
+export interface TaskComment {
+  id: string;
+  text: string;
+  assignedUsers: string[];
+  assignedTeams: string[];
+  authorId: string;
+  authorName: string;
+  timestamp: string;
+}
+
 export interface Space {
   id: string;
   code: string;
@@ -16,6 +26,7 @@ export interface Space {
   equipment: string;
   status: "complete" | "in-progress" | "warning" | "draft";
   flagged?: boolean;
+  comments?: TaskComment[];
 
   // Additional fields for calculation engine
   height?: number;
@@ -61,6 +72,7 @@ export interface Zone {
   building: string;
   floor: string;
   spaceCount: number;
+  comments?: TaskComment[];
   area: number;
   freshAir: number;
   extractAir: number;
@@ -86,10 +98,12 @@ export interface Equipment {
   type: string; // "MAHU" | "Ecology" | "FAHU" | "Air Handling Unit"
   zones: number;
   spaces: number;
+  comments?: TaskComment[];
   totalAirflow: number;
   capacity: number;
   utilization: number;
   status: "operational" | "design" | "warning";
+  flagged?: boolean;
   mode?: "Fresh Air Only" | "Extract Air Only" | "Fresh Air + Extract Air";
   zoneIds?: string[];
   totalFA?: number;
@@ -224,6 +238,10 @@ export function calculateVentilation(
           exhaustPerUnit * effectiveOcc +
           exhaustPerArea * areaVal +
           (achVal * areaVal * heightVal) / 3.6;
+
+        z.minExt = Math.ceil(minExt_base) * mult;
+        z.freshAir = z.minOA;
+        z.extractAir = z.minExt;
       }
     } else if (z.category === "Rest Room / Changing Room") {
       let totalExhaust = 0;

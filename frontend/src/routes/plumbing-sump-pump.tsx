@@ -37,6 +37,7 @@ function SumpPumpPage() {
 
   // State loading
   useEffect(() => {
+    if (!project?.id) return;
     if (project) {
       const saved = localStorage.getItem(`sumpPump_${project.id}`);
       if (saved) {
@@ -64,6 +65,7 @@ function SumpPumpPage() {
   }, [project]);
 
   const saveState = () => {
+    if (!project?.id) return;
     if (project) {
       localStorage.setItem(`sumpPump_${project.id}`, JSON.stringify({
         req, time, flow, pitFlow, pitHold, longestPipe, propSide, pipeVert, pipeHoriz,
@@ -161,13 +163,6 @@ function SumpPumpPage() {
           <p className="text-gray-500 text-sm mt-1">Calculate sump pit volume, flow, head, and motor requirements</p>
         </div>
         <div className="flex items-center gap-4">
-          <button
-            onClick={exportExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-md hover:bg-emerald-200 transition-colors shadow-sm text-sm font-medium border border-emerald-200"
-          >
-            <Download className="w-4 h-4" />
-            Export Excel
-          </button>
           <button
             onClick={handleSave}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 transition-colors shadow-sm text-sm font-medium"

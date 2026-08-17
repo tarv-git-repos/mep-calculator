@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck } from "lucide-react"
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -103,6 +103,7 @@ export function SuperAdminDashboard() {
   
   const [localBackupPath, setLocalBackupPath] = useState(localStorage.getItem('localBackupPath') || '')
   const [serverBackupPath, setServerBackupPath] = useState(localStorage.getItem('serverBackupPath') || '')
+  const [versionsPath, setVersionsPath] = useState(localStorage.getItem('versionsPath') || '')
 
   const [organizations, setOrganizations] = useState<any[]>([])
   const [loadingOrganizations, setLoadingOrganizations] = useState(false)
@@ -110,30 +111,89 @@ export function SuperAdminDashboard() {
   const [newOrgName, setNewOrgName] = useState('')
   const [newOrgPlan, setNewOrgPlan] = useState('PRO')
   const [newOrgUsers, setNewOrgUsers] = useState(5)
-  const [isAddingOrg, setIsAddingOrg] = useState(false)
+  const [selectedOrgForManagement, setSelectedOrgForManagement] = useState<any | null>(null)
+  const [selectedExistingUserToAdd, setSelectedExistingUserToAdd] = useState<string>('')
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [bulkTargetOrgId, setBulkTargetOrgId] = useState<string>('')
+  const [userSearchQuery, setUserSearchQuery] = useState<string>('')
+
+  const handleBulkAssignToOrg = async (targetOrgId: string, targetOrgName: string) => {
+    if (selectedUserIds.length === 0) {
+      toast.error("Please select at least one user first.");
+      return;
+    }
+    if (!targetOrgId) {
+      toast.error("Please select an organization.");
+      return;
+    }
+
+    const count = selectedUserIds.length;
+    const userIdsToAssign = [...selectedUserIds];
+
+    // 1. INSTANT STATE UPDATE (0ms delay)
+    setProfiles(prev => prev.map(p => userIdsToAssign.includes(p.id) ? { ...p, organization_id: targetOrgId, company: targetOrgName } : p));
+    if (typeof window !== 'undefined') {
+      userIdsToAssign.forEach(id => localStorage.setItem(`mep_user_company_${id}`, targetOrgName));
+    }
+    setSelectedUserIds([]);
+    toast.success(`Successfully assigned ${count} user(s) to ${targetOrgName}!`);
+
+    // 2. Parallel background updates
+    await Promise.all(userIdsToAssign.map(id => api.adminUpdateProfile(id, { 
+      organization_id: targetOrgId,
+      company: targetOrgName,
+      organization: targetOrgName 
+    })));
+    fetchOrganizations();
+  };
+
+  const deleteOrganization = async (orgId: string, name: string) => {
+    const choice = await confirm(`Are you sure you want to delete organization "${name}"?\n\nThis will unassign all members from this organization.`, { title: "Delete Organization", confirmText: "Delete", cancelText: "Cancel" });
+    if (!choice) return;
+
+    const res = await api.deleteOrganization(orgId);
+    if (!res.success) {
+      toast.error(res.message || "Failed to delete organization");
+    } else {
+      toast.success("Organization deleted successfully");
+      if (selectedOrgForManagement?.id === orgId) setSelectedOrgForManagement(null);
+      fetchOrganizations();
+      fetchProfiles();
+    }
+  };
 
   const fetchOrganizations = async () => {
-    setLoadingOrganizations(true)
-    const res = await api.getOrganizations()
-    setOrganizations(res)
-    setLoadingOrganizations(false)
-  }
+    setLoadingOrganizations(true);
+    try {
+      const res = await api.getOrganizations();
+      setOrganizations(Array.isArray(res) ? res : []);
+    } catch (e) {
+      setOrganizations([]);
+    } finally {
+      setLoadingOrganizations(false);
+    }
+  };
 
   const handleAddOrg = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newOrgName) return toast.error("Organization name is required")
-    setIsAddingOrg(true)
-    const res = await api.createOrganization({ name: newOrgName, subscription_plan: newOrgPlan, max_users: newOrgUsers })
-    if (res.success) {
-      toast.success("Organization created successfully!")
-      setShowAddOrg(false)
-      setNewOrgName('')
-      fetchOrganizations()
-    } else {
-      toast.error(res.message || "Failed to create organization")
+    e.preventDefault();
+    if (!newOrgName || !newOrgName.trim()) return toast.error("Organization name is required");
+    setIsAddingOrg(true);
+    try {
+      const res = await api.createOrganization({ name: newOrgName.trim(), subscription_plan: newOrgPlan, max_users: newOrgUsers });
+      if (res && res.success) {
+        toast.success("Organization created successfully!");
+        setShowAddOrg(false);
+        setNewOrgName('');
+        await fetchOrganizations();
+      } else {
+        toast.error((res && res.message) || "Failed to create organization");
+      }
+    } catch (err: any) {
+      toast.error("Error creating organization: " + (err?.message || String(err)));
+    } finally {
+      setIsAddingOrg(false);
     }
-    setIsAddingOrg(false)
-  }
+  };
 
   useEffect(() => {
     if (!session) {
@@ -142,8 +202,8 @@ export function SuperAdminDashboard() {
     }
 
     const checkAdminStatus = async () => {
-      // Hardcoded Admin logic
-      if (session.user.email === 'admin@tarv.ai') {
+      // Allow any user with role SUPER_ADMIN or email admin@tarv.ai
+      if (profile?.role === 'SUPER_ADMIN' || session?.user?.email === 'admin@tarv.ai') {
         setIsAdmin(true)
         fetchProfiles()
         fetchOrganizations()
@@ -154,7 +214,7 @@ export function SuperAdminDashboard() {
     }
 
     checkAdminStatus()
-  }, [session, navigate])
+  }, [session, profile, navigate])
 
   const [debugInfo, setDebugInfo] = useState<any>(null)
   
@@ -162,7 +222,8 @@ export function SuperAdminDashboard() {
     if (!isAdmin && session) {
       // Fetch debug info
       api.getUsers().then(users => {
-        const myUser = users.find((u: any) => u.id === session.user.id)
+        const userList = Array.isArray(users) ? users : [];
+        const myUser = userList.find((u: any) => u.id === session.user.id)
         setDebugInfo({ data: myUser, error: null, userId: session.user.id })
       })
     }
@@ -171,9 +232,10 @@ export function SuperAdminDashboard() {
   const fetchProfiles = async () => {
     setLoadingProfiles(true)
     const users = await api.getUsers()
+    const userList = Array.isArray(users) ? users : [];
     
     // Map custom_users to the expected profiles shape
-    const mappedProfiles = users.map((u: any) => ({
+    const mappedProfiles = userList.map((u: any) => ({
       id: u.id,
       email: u.email,
       role: u.role || 'USER',
@@ -189,15 +251,14 @@ export function SuperAdminDashboard() {
   }
 
   const fetchActivityLogs = async () => {
-    setLoadingLogs(true)
     const logs = await api.getAdminActivityLogs()
     
-    // The previous format used 'profiles(email)' but our new API provides the email directly as 'email'
-    // Let's ensure the UI gets the expected structure
-    const mappedLogs = logs.map((log: any) => ({
-      ...log,
-      profiles: { email: log.email }
-    }))
+    const mappedLogs = (logs || [])
+      .map((log: any) => ({
+        ...log,
+        profiles: { email: log.email }
+      }))
+      .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     
     setActivityLogs(mappedLogs)
     setLoadingLogs(false)
@@ -226,11 +287,16 @@ export function SuperAdminDashboard() {
     if (res && res.success) {
       setLocalBackupPath(res.local_backup_path || '');
       setServerBackupPath(res.server_backup_path || '');
+      setVersionsPath(res.versions_path || '');
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'activity') fetchActivityLogs()
+    if (activeTab === 'activity') {
+      fetchActivityLogs();
+      const interval = setInterval(fetchActivityLogs, 3000);
+      return () => clearInterval(interval);
+    }
     if (activeTab === 'broadcasts') fetchAnnouncements()
     if (activeTab === 'licenses') fetchAdminLicenses()
     if (activeTab === 'organizations') fetchOrganizations()
@@ -297,25 +363,19 @@ export function SuperAdminDashboard() {
     else fetchAnnouncements()
   }
 
-  const toggleRole = async (profileId: string, currentRole: string) => {
-    if (profileId === session?.user?.id) {
+  const handleRoleChange = async (profileId: string, newRole: string) => {
+    const currentId = userData?.id || profile?.id || session?.user?.id;
+    if (profileId === currentId) {
       toast.error("You cannot change your own role.")
       return
     }
     
-    let newRole = 'USER'
-    if (currentRole === 'USER') newRole = 'ORG_ADMIN'
-    else if (currentRole === 'ORG_ADMIN') newRole = 'SUPER_ADMIN'
-    else newRole = 'USER'
+    // 1. INSTANT STATE UPDATE (0ms delay)
+    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, role: newRole } : p));
+    toast.success(`Role updated to ${newRole}`);
     
-    const res = await api.adminToggleRole(profileId, newRole)
-    
-    if (!res.success) {
-      toast.error(res.message)
-    } else {
-      toast.success("Role updated successfully")
-      fetchProfiles()
-    }
+    // 2. Async API update
+    await api.adminToggleRole(profileId, newRole);
   }
 
   const deleteUser = async (profileId: string, email: string) => {
@@ -425,24 +485,28 @@ export function SuperAdminDashboard() {
     }
   }
 
-  const handlePickFolder = async (type: 'local' | 'server') => {
+  const handlePickFolder = async (type: 'local' | 'server' | 'versions') => {
     try {
       if (typeof window !== 'undefined') {
         const { open: openFileDialog } = await import('@tauri-apps/plugin-dialog');
         const selected = await openFileDialog({
           directory: true,
           multiple: false,
-          title: type === 'local' ? 'Select Local Backup Folder' : 'Select Server Backup Folder',
+          title: type === 'local' ? 'Select Local Backup Folder' : type === 'server' ? 'Select Server Backup Folder' : 'Select Versions Folder',
         });
         if (selected && typeof selected === 'string') {
           if (type === 'local') {
             setLocalBackupPath(selected)
             localStorage.setItem('localBackupPath', selected)
             toast.success("Local backup path updated!")
-          } else {
+          } else if (type === 'server') {
             setServerBackupPath(selected)
             localStorage.setItem('serverBackupPath', selected)
             toast.success("Server backup path updated!")
+          } else if (type === 'versions') {
+            setVersionsPath(selected)
+            localStorage.setItem('versionsPath', selected)
+            toast.success("Versions path updated!")
           }
         }
       }
@@ -452,14 +516,27 @@ export function SuperAdminDashboard() {
   }
 
   const assignOrganization = async (profileId: string, orgId: string) => {
-    const res = await api.adminUpdateProfile(profileId, { organization_id: orgId || null })
-    if (res.success) {
-      toast.success("Organization assigned successfully!")
-      fetchProfiles()
-    } else {
-      toast.error("Failed to assign organization")
+    const orgObj = organizations.find((o: any) => o.id === orgId);
+    const orgName = orgObj ? orgObj.name : "";
+    
+    // Update local state instantly
+    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, organization_id: orgId || undefined, company: orgName } : p));
+    if (profileId && typeof window !== 'undefined') {
+      localStorage.setItem(`mep_user_company_${profileId}`, orgName);
     }
-  }
+
+    const res = await api.adminUpdateProfile(profileId, { 
+      organization_id: orgId || null,
+      company: orgName,
+      organization: orgName 
+    });
+    if (res.success) {
+      toast.success(orgName ? `Organization "${orgName}" assigned successfully!` : "Organization unassigned!");
+      fetchProfiles();
+    } else {
+      toast.error("Failed to assign organization");
+    }
+  };
 
 
 
@@ -497,7 +574,7 @@ export function SuperAdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full px-4 md:px-8 mx-auto max-w-[1800px]">
         <div className="flex items-center justify-between mb-8 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-4">
             <Link 
@@ -632,20 +709,21 @@ export function SuperAdminDashboard() {
 
                 {/* Requirement: Organization Admin Representative Card */}
                 {selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED' && (() => {
-                  const currentOrg = organizations.find(o => o.id === selectedOrgFilter);
+                  const currentOrg = (organizations || []).find(o => o && o.id === selectedOrgFilter);
                   if (!currentOrg) return null;
-                  const currentOrgAdmin = profiles.find(p => p.organization_id === currentOrg.id && p.role === 'ORG_ADMIN');
-                  const currentOrgUsers = profiles.filter(p => p.organization_id === currentOrg.id);
+                  const currentOrgAdmin = (profiles || []).find(p => p && p.organization_id === currentOrg.id && p.role === 'ORG_ADMIN');
+                  const currentOrgUsers = (profiles || []).filter(p => p && p.organization_id === currentOrg.id);
+                  const orgName = currentOrg.name || 'Organization';
 
                   return (
                     <div className="mb-6 p-4 rounded-xl border border-purple-200 dark:border-purple-900/40 bg-purple-50/60 dark:bg-purple-900/10 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
                       <div className="flex items-center gap-3">
                         <div className="size-11 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                          {currentOrg.name.substring(0, 2).toUpperCase()}
+                          {orgName.substring(0, 2).toUpperCase()}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="text-base font-bold text-slate-900 dark:text-white">{currentOrg.name}</h3>
+                            <h3 className="text-base font-bold text-slate-900 dark:text-white">{orgName}</h3>
                             <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                               {currentOrg.subscription_plan || 'PRO PLAN'}
                             </span>
@@ -721,10 +799,67 @@ export function SuperAdminDashboard() {
                   </div>
                 )}
                 
+                {/* Floating Bulk Assignment Bar */}
+                {selectedUserIds.length > 0 && (
+                  <div className="mb-6 bg-slate-900 text-white border-2 border-indigo-500/60 p-4 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-3">
+                      <span className="px-3 py-1.5 rounded-xl bg-indigo-600 text-xs font-bold shadow-xs">
+                        {selectedUserIds.length} User(s) Selected
+                      </span>
+                      <p className="text-xs text-indigo-200 font-medium">
+                        Select target organization and click <strong className="text-emerald-400">"DONE (Confirm)"</strong> to complete.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <select
+                        value={bulkTargetOrgId}
+                        onChange={(e) => setBulkTargetOrgId(e.target.value)}
+                        className="text-xs p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold cursor-pointer min-w-[220px] focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="">-- Select Target Organization --</option>
+                        {organizations.map(org => (
+                          <option key={org.id} value={org.id}>{org.name}</option>
+                        ))}
+                      </select>
+                      
+                      <button
+                        disabled={!bulkTargetOrgId}
+                        onClick={() => {
+                          const orgObj = organizations.find(o => o.id === bulkTargetOrgId);
+                          if (orgObj) handleBulkAssignToOrg(bulkTargetOrgId, orgObj.name);
+                        }}
+                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-emerald-400/30 active:scale-95"
+                      >
+                        <CheckCircle2 size={16} /> DONE (Confirm & Add to Org)
+                      </button>
+
+                      <button
+                        onClick={() => setSelectedUserIds([])}
+                        className="text-slate-400 hover:text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                      >
+                        Cancel ✕
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-800 text-sm text-slate-500 dark:text-slate-400">
+                        <th className="pb-3 px-2 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={profiles.length > 0 && profiles.every(p => selectedUserIds.includes(p.id))}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedUserIds(profiles.map(p => p.id));
+                              else setSelectedUserIds([]);
+                            }}
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                            title="Select All Users"
+                          />
+                        </th>
                         <th className="pb-3 font-medium">Email</th>
                         <th className="pb-3 font-medium">Role</th>
                         <th className="pb-3 font-medium">Organization</th>
@@ -735,13 +870,13 @@ export function SuperAdminDashboard() {
                     </thead>
                     <tbody className="text-sm">
                       {loadingProfiles ? (
-                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">Loading...</td></tr>
+                        <tr><td colSpan={7} className="py-8 text-center text-slate-500">Loading...</td></tr>
                       ) : profiles.filter(p => {
                         if (selectedOrgFilter === 'ALL') return true;
                         if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                         return p.organization_id === selectedOrgFilter;
                       }).length === 0 ? (
-                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">No users found for this organization selection.</td></tr>
+                        <tr><td colSpan={7} className="py-8 text-center text-slate-500">No users found for this organization selection.</td></tr>
                       ) : (
                         profiles
                           .filter(p => {
@@ -750,15 +885,40 @@ export function SuperAdminDashboard() {
                             return p.organization_id === selectedOrgFilter;
                           })
                           .map((p) => (
-                          <tr key={p.id} className="border-b border-slate-100 dark:border-slate-800/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <tr key={p.id} className={`border-b border-slate-100 dark:border-slate-800/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${selectedUserIds.includes(p.id) ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''}`}>
+                            <td className="py-4 px-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedUserIds.includes(p.id)}
+                                onChange={() => {
+                                  setSelectedUserIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]);
+                                }}
+                                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                              />
+                            </td>
                             <td className="py-4 font-medium flex items-center gap-2">
                               {p.role === 'ORG_ADMIN' && <Crown size={15} className="text-amber-500 shrink-0" title="Organization Admin Representative" />}
                               <span>{p.email}</span>
                             </td>
                             <td className="py-4">
-                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : p.role === 'ORG_ADMIN' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'}`}>
-                                {p.role === 'ORG_ADMIN' ? 'ORG ADMIN (Rep)' : p.role}
-                              </span>
+                              <select
+                                value={p.role || 'Design Engineer'}
+                                onChange={(e) => handleRoleChange(p.id, e.target.value)}
+                                className="text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer shadow-xs focus:ring-2 focus:ring-blue-500 max-w-[170px]"
+                              >
+                                <option value="SUPER_ADMIN">⚡ SUPER_ADMIN</option>
+                                <option value="ORG_ADMIN">👑 ORG_ADMIN</option>
+                                <option value="Jr. Design Engineer">Jr. Design Engineer</option>
+                                <option value="Design Engineer">Design Engineer</option>
+                                <option value="Sr. Design Engineer">Sr. Design Engineer</option>
+                                <option value="Discipline Coordinator">Discipline Coordinator</option>
+                                <option value="BIM Modeler">BIM Modeler</option>
+                                <option value="BIM Coordinator">BIM Coordinator</option>
+                                <option value="Team Leader">Team Leader</option>
+                                <option value="2D Draftsman">2D Draftsman</option>
+                                <option value="Viewer">Viewer</option>
+                                <option value="Client">Client</option>
+                              </select>
                             </td>
                             <td className="py-4">
                               {p.role === 'SUPER_ADMIN' ? (
@@ -816,12 +976,6 @@ export function SuperAdminDashboard() {
                                 Permissions
                               </button>
                               <button 
-                                onClick={() => toggleRole(p.id, p.role)}
-                                className="px-3 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-xs font-medium transition-colors"
-                              >
-                                Toggle Role
-                              </button>
-                              <button 
                                 onClick={() => deleteUser(p.id, p.email)}
                                 className="px-3 py-1 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded text-xs font-medium transition-colors"
                               >
@@ -839,109 +993,374 @@ export function SuperAdminDashboard() {
 
             {activeTab === 'organizations' && (
               <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold">Manage Organizations</h2>
-                  <div className="flex items-center gap-3">
-                    <button onClick={fetchOrganizations} className="text-sm text-blue-600 hover:underline">Refresh</button>
-                    <button 
-                      onClick={() => setShowAddOrg(true)}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors"
-                    >
-                      + Create Organization
-                    </button>
-                  </div>
-                </div>
-
-                {showAddOrg && (
-                  <div className="mb-6 p-5 border border-indigo-100 dark:border-indigo-900/30 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl">
-                    <h3 className="text-sm font-semibold mb-3">Create New Organization</h3>
-                    <form onSubmit={handleAddOrg} className="flex flex-wrap items-end gap-3">
-                      <div className="flex-1 min-w-[200px]">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Org Name</label>
-                        <input 
-                          type="text" 
-                          required 
-                          value={newOrgName}
-                          onChange={(e) => setNewOrgName(e.target.value)}
-                          className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                        />
-                      </div>
-                      <div className="w-32">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Plan</label>
-                        <select 
-                          value={newOrgPlan}
-                          onChange={(e) => setNewOrgPlan(e.target.value)}
-                          className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                {selectedOrgForManagement ? (
+                  <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+                    {/* Organization Manager Header */}
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => setSelectedOrgForManagement(null)}
+                          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                          title="Back to Organizations List"
                         >
-                          <option value="PRO">PRO</option>
-                          <option value="ENTERPRISE">ENTERPRISE</option>
-                        </select>
+                          <ArrowLeft size={18} />
+                        </button>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{selectedOrgForManagement.name}</h2>
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
+                              {selectedOrgForManagement.subscription_plan}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            Manage members, assign existing users, change member roles, or delete users for this organization.
+                          </p>
+                        </div>
                       </div>
-                      <div className="w-24">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Max Users</label>
-                        <input 
-                          type="number" 
-                          min="1"
-                          required 
-                          value={newOrgUsers}
-                          onChange={(e) => setNewOrgUsers(parseInt(e.target.value))}
-                          className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                        />
+                      <div className="flex items-center gap-3">
+                        <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300">
+                          👥 {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length} / {selectedOrgForManagement.max_users} Seats Used
+                        </span>
+                        <button 
+                          onClick={() => setSelectedOrgForManagement(null)}
+                          className="text-xs font-semibold text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        >
+                          Close Manager ✕
+                        </button>
                       </div>
-                      <button 
-                        type="submit" 
-                        disabled={isAddingOrg}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-                      >
-                        {isAddingOrg ? 'Creating...' : 'Create'}
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={() => setShowAddOrg(false)}
-                        className="px-4 py-2 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-700"
-                      >
-                        Cancel
-                      </button>
-                    </form>
+                    </div>
+
+                    {/* Section: Add Existing Application Users to this Organization (Multi-Select) */}
+                    <div className="p-5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-4">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-700/60 pb-3">
+                        <div>
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                            <UserPlus size={16} className="text-indigo-600 dark:text-indigo-400" />
+                            Select Users to Add to {selectedOrgForManagement.name}
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            Check all the users you want to assign below, then click "Add Selected to Organization".
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                            <input 
+                              type="text"
+                              placeholder="Search available users..."
+                              value={userSearchQuery}
+                              onChange={(e) => setUserSearchQuery(e.target.value)}
+                              className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 w-52 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <button
+                            disabled={selectedUserIds.length === 0}
+                            onClick={() => handleBulkAssignToOrg(selectedOrgForManagement.id, selectedOrgForManagement.name)}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+                          >
+                            <UserCheck size={16} />
+                            Add ({selectedUserIds.length}) Selected to {selectedOrgForManagement.name}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Multi-Select Users Grid */}
+                      <div className="max-h-60 overflow-y-auto pr-1">
+                        {(() => {
+                          const availableUsers = profiles.filter(p => 
+                            p.organization_id !== selectedOrgForManagement.id && 
+                            p.role !== 'SUPER_ADMIN' &&
+                            (userSearchQuery ? p.email.toLowerCase().includes(userSearchQuery.toLowerCase()) || p.role?.toLowerCase().includes(userSearchQuery.toLowerCase()) : true)
+                          );
+
+                          const allAvailableSelected = availableUsers.length > 0 && availableUsers.every(u => selectedUserIds.includes(u.id));
+
+                          if (availableUsers.length === 0) {
+                            return (
+                              <p className="text-xs text-slate-500 italic py-4 text-center">
+                                {userSearchQuery ? "No matching available users found." : "All application users are already members of this organization!"}
+                              </p>
+                            );
+                          }
+
+                          return (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between px-3 py-1.5 bg-slate-200/60 dark:bg-slate-900/60 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300">
+                                <label className="flex items-center gap-2 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={allAvailableSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedUserIds(prev => Array.from(new Set([...prev, ...availableUsers.map(u => u.id)])));
+                                      } else {
+                                        const availIds = new Set(availableUsers.map(u => u.id));
+                                        setSelectedUserIds(prev => prev.filter(id => !availIds.has(id)));
+                                      }
+                                    }}
+                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                                  />
+                                  <span>Select All Available Users ({availableUsers.length})</span>
+                                </label>
+                                <span className="text-[11px] text-slate-400 font-normal">
+                                  {selectedUserIds.length} users selected
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                                {availableUsers.map(u => {
+                                  const isSelected = selectedUserIds.includes(u.id);
+                                  return (
+                                    <div
+                                      key={u.id}
+                                      onClick={() => {
+                                        setSelectedUserIds(prev => isSelected ? prev.filter(id => id !== u.id) : [...prev, u.id]);
+                                      }}
+                                      className={`p-2.5 rounded-lg border text-xs flex items-center justify-between cursor-pointer transition-all ${
+                                        isSelected 
+                                          ? 'bg-indigo-500/10 border-indigo-500/60 text-indigo-900 dark:text-indigo-200 shadow-xs font-semibold' 
+                                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:border-slate-400'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2.5 truncate">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => {}} // Handled by parent div
+                                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                                        />
+                                        <div className="truncate">
+                                          <p className="font-semibold truncate">{u.email}</p>
+                                          <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                            {u.role} • {u.organization_id ? 'In another org' : 'Unassigned'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      {isSelected && <Check size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0 ml-1" />}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Section: Organization Members Table */}
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2">
+                        <Users size={16} className="text-indigo-600 dark:text-indigo-400" />
+                        Current Organization Members ({profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length})
+                      </h3>
+
+                      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-xs font-bold tracking-wider text-slate-500 dark:text-slate-400 uppercase">
+                              <th className="py-3 px-4">User Email</th>
+                              <th className="py-3 px-4">Role</th>
+                              <th className="py-3 px-4">Status</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-800">
+                            {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="py-8 text-center text-slate-500 dark:text-slate-400 italic">
+                                  No members in this organization yet. Select an existing user above to add them!
+                                </td>
+                              </tr>
+                            ) : (
+                              profiles
+                                .filter(p => p.organization_id === selectedOrgForManagement.id)
+                                .map(user => (
+                                  <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                                    <td className="py-3 px-4 font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                      {user.role === 'ORG_ADMIN' && <Crown size={15} className="text-amber-500 shrink-0" title="Organization Admin Representative" />}
+                                      <span>{user.email}</span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <select
+                                        value={user.role || 'Design Engineer'}
+                                        onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                                        className="text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer shadow-xs focus:ring-2 focus:ring-indigo-500 max-w-[170px]"
+                                      >
+                                        <option value="SUPER_ADMIN">⚡ SUPER_ADMIN</option>
+                                        <option value="ORG_ADMIN">👑 ORG_ADMIN</option>
+                                        <option value="Jr. Design Engineer">Jr. Design Engineer</option>
+                                        <option value="Design Engineer">Design Engineer</option>
+                                        <option value="Sr. Design Engineer">Sr. Design Engineer</option>
+                                        <option value="Discipline Coordinator">Discipline Coordinator</option>
+                                        <option value="BIM Modeler">BIM Modeler</option>
+                                        <option value="BIM Coordinator">BIM Coordinator</option>
+                                        <option value="Team Leader">Team Leader</option>
+                                        <option value="2D Draftsman">2D Draftsman</option>
+                                        <option value="Viewer">Viewer</option>
+                                        <option value="Client">Client</option>
+                                      </select>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                        {user.status || 'ACTIVE'}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                                      <button
+                                        onClick={async () => {
+                                          await assignOrganization(user.id, '');
+                                          toast.info(`Removed ${user.email} from ${selectedOrgForManagement.name}`);
+                                        }}
+                                        className="px-3 py-1 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700/50 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                                        title="Remove user from this organization"
+                                      >
+                                        Remove from Org
+                                      </button>
+                                      <button
+                                        onClick={() => deleteUser(user.id, user.email)}
+                                        className="px-3 py-1 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700/50 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                                        title="Permanently delete user"
+                                      >
+                                        Delete User
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
-                )}
-                
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-800 text-sm text-slate-500 dark:text-slate-400">
-                        <th className="pb-3 font-medium">Name</th>
-                        <th className="pb-3 font-medium">Plan</th>
-                        <th className="pb-3 font-medium">Licenses</th>
-                        <th className="pb-3 font-medium">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-sm">
-                      {loadingOrganizations ? (
-                        <tr><td colSpan={4} className="py-8 text-center text-slate-500">Loading...</td></tr>
-                      ) : organizations.length === 0 ? (
-                        <tr><td colSpan={4} className="py-8 text-center text-slate-500">No organizations found.</td></tr>
-                      ) : (
-                        organizations.map((org) => (
-                          <tr key={org.id} className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                            <td className="py-4 font-medium">{org.name}</td>
-                            <td className="py-4">
-                              <span className="px-2 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
-                                {org.subscription_plan}
-                              </span>
-                            </td>
-                            <td className="py-4">
-                              {org.current_users || 0} / {org.max_users}
-                            </td>
-                            <td className="py-4">
-                              <span className="text-slate-400 text-xs italic">Management via users tab</span>
-                            </td>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-bold">Manage Organizations</h2>
+                      <div className="flex items-center gap-3">
+                        <button onClick={fetchOrganizations} className="text-sm text-blue-600 hover:underline">Refresh</button>
+                        <button 
+                          onClick={() => setShowAddOrg(true)}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-xs transition-colors"
+                        >
+                          + Create Organization
+                        </button>
+                      </div>
+                    </div>
+
+                    {showAddOrg && (
+                      <div className="mb-6 p-5 border border-indigo-100 dark:border-indigo-900/30 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl">
+                        <h3 className="text-sm font-semibold mb-3">Create New Organization</h3>
+                        <form onSubmit={handleAddOrg} className="flex flex-wrap items-end gap-3">
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Org Name</label>
+                            <input 
+                              type="text" 
+                              required 
+                              value={newOrgName}
+                              onChange={(e) => setNewOrgName(e.target.value)}
+                              className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                            />
+                          </div>
+                          <div className="w-32">
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Plan</label>
+                            <select 
+                              value={newOrgPlan}
+                              onChange={(e) => setNewOrgPlan(e.target.value)}
+                              className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                            >
+                              <option value="PRO">PRO</option>
+                              <option value="ENTERPRISE">ENTERPRISE</option>
+                            </select>
+                          </div>
+                          <div className="w-24">
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Max Users</label>
+                            <input 
+                              type="number" 
+                              min="1"
+                              required 
+                              value={newOrgUsers}
+                              onChange={(e) => setNewOrgUsers(parseInt(e.target.value))}
+                              className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                            />
+                          </div>
+                          <button 
+                            type="submit" 
+                            disabled={isAddingOrg}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {isAddingOrg ? 'Creating...' : 'Create'}
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setShowAddOrg(false)}
+                            className="px-4 py-2 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-700"
+                          >
+                            Cancel
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                    
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-slate-800 text-sm text-slate-500 dark:text-slate-400">
+                            <th className="pb-3 font-medium">Name</th>
+                            <th className="pb-3 font-medium">Plan</th>
+                            <th className="pb-3 font-medium">Licenses / Seats</th>
+                            <th className="pb-3 font-medium text-right">Actions</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody className="text-sm">
+                          {loadingOrganizations ? (
+                            <tr><td colSpan={4} className="py-8 text-center text-slate-500">Loading...</td></tr>
+                          ) : organizations.length === 0 ? (
+                            <tr><td colSpan={4} className="py-8 text-center text-slate-500">No organizations found.</td></tr>
+                          ) : (
+                            organizations.map((org) => {
+                              const memberCount = profiles.filter(p => p.organization_id === org.id).length;
+                              return (
+                                <tr key={org.id} className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                  <td 
+                                    className="py-4 font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                                    onClick={() => setSelectedOrgForManagement(org)}
+                                  >
+                                    🏢 {org.name}
+                                  </td>
+                                  <td className="py-4">
+                                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                                      {org.subscription_plan}
+                                    </span>
+                                  </td>
+                                  <td className="py-4 font-semibold text-slate-700 dark:text-slate-300">
+                                    {memberCount} / {org.max_users || 10} Members
+                                  </td>
+                                  <td className="py-4 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        onClick={() => setSelectedOrgForManagement(org)}
+                                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                      >
+                                        <Users size={14} /> Manage Members ({memberCount})
+                                      </button>
+                                      <button
+                                        onClick={() => deleteOrganization(org.id, org.name)}
+                                        className="px-3 py-1.5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                                      >
+                                        Delete Org
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -999,9 +1418,9 @@ export function SuperAdminDashboard() {
                   {[
                     { id: 'ALL', label: 'All Actions' },
                     { id: 'LOGIN', label: '🔑 Logins' },
-                    { id: 'CALCULATION_RUN', label: '🧮 Calculations' },
-                    { id: 'REPORT_GENERATED', label: '📄 Reports' },
-                    { id: 'ADMIN_ACTION', label: '🛡️ Admin Actions' }
+                    { id: 'VIEWED', label: '👀 Viewed' },
+                    { id: 'UPDATED', label: '📝 Updated' },
+                    { id: 'REPORT_GENERATED', label: '📄 Reports' }
                   ].map(cat => (
                     <button
                       key={cat.id}
@@ -1022,11 +1441,11 @@ export function SuperAdminDashboard() {
                     <table className="w-full text-left text-sm">
                       <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-slate-500 uppercase">
                         <tr>
-                          <th className="px-6 py-4 font-medium">Timestamp</th>
-                          <th className="px-6 py-4 font-medium">User Email</th>
-                          <th className="px-6 py-4 font-medium">Organization</th>
+                          <th className="px-6 py-4 font-medium">Date/Time</th>
+                          <th className="px-6 py-4 font-medium">User Name</th>
+                          <th className="px-6 py-4 font-medium">Project Name</th>
+                          <th className="px-6 py-4 font-medium">Calculator</th>
                           <th className="px-6 py-4 font-medium">Action</th>
-                          <th className="px-6 py-4 font-medium">Details</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
@@ -1052,10 +1471,10 @@ export function SuperAdminDashboard() {
                           }
 
                           // Category filter
-                          if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
-                          if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
+                          if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN' && log.action_type !== 'LOGGED_IN') return false;
+                          if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
+                          if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED') return false;
                           if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
-                          if (logCategoryFilter === 'ADMIN_ACTION' && (log.action_type === 'LOGIN' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
 
                           // Search filter
                           if (logSearchQuery.trim()) {
@@ -1069,7 +1488,7 @@ export function SuperAdminDashboard() {
                         }).length === 0 ? (
                           <tr>
                             <td colSpan={5} className="px-6 py-8 text-center text-slate-500 font-medium">
-                              No activity logs found for this organization and filter.
+                              No activity logs found for this filter.
                             </td>
                           </tr>
                         ) : (
@@ -1087,10 +1506,10 @@ export function SuperAdminDashboard() {
                                 }
                               }
 
-                              if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
-                              if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
+                              if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN' && log.action_type !== 'LOGGED_IN') return false;
+                              if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
+                              if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED') return false;
                               if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
-                              if (logCategoryFilter === 'ADMIN_ACTION' && (log.action_type === 'LOGIN' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
 
                               if (logSearchQuery.trim()) {
                                 const q = logSearchQuery.toLowerCase();
@@ -1104,11 +1523,19 @@ export function SuperAdminDashboard() {
                             .map((log) => {
                               const userEmail = log.profiles?.email || log.email || 'System User';
                               const userProfile = profiles.find(p => p.email.toLowerCase() === userEmail.toLowerCase());
-                              const userOrg = userProfile?.organization_id ? organizations.find(o => o.id === userProfile.organization_id) : null;
-
-                              const isLogin = log.action_type === 'LOGIN';
-                              const isCalc = log.action_type?.includes('CALCULATION');
+                              const userName = log.name || userProfile?.name || log.profiles?.name || userEmail;
+                              
+                              const isLogin = log.action_type === 'LOGIN' || log.action_type === 'LOGGED_IN';
+                              const isUpdated = log.action_type === 'UPDATED' || log.action_type?.includes('UPDATE');
+                              const isViewed = log.action_type === 'VIEWED' || log.action_type === 'VIEW_CALCULATOR';
                               const isReport = log.action_type?.includes('REPORT');
+
+                              let detailsObj: any = {};
+                              if (typeof log.details === 'string') {
+                                try { detailsObj = JSON.parse(log.details); } catch (e) { detailsObj = {}; }
+                              } else {
+                                detailsObj = log.details || {};
+                              }
 
                               return (
                                 <tr key={log.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition">
@@ -1116,29 +1543,27 @@ export function SuperAdminDashboard() {
                                     {new Date(log.created_at).toLocaleString()}
                                   </td>
                                   <td className="px-6 py-4 font-semibold text-slate-900 dark:text-slate-100">
-                                    {userEmail}
+                                    <div>{userName}</div>
+                                    {userEmail && userName !== userEmail && (
+                                      <div className="text-[11px] text-slate-400 font-normal">{userEmail}</div>
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">
+                                    {detailsObj.project_name || '-'}
                                   </td>
                                   <td className="px-6 py-4">
-                                    {userOrg ? (
-                                      <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200">
-                                        🏢 {userOrg.name}
-                                      </span>
-                                    ) : (
-                                      <span className="text-slate-400 text-xs italic">Unassigned</span>
-                                    )}
+                                    <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                      {detailsObj.calculator || '-'}
+                                    </span>
                                   </td>
                                   <td className="px-6 py-4">
                                     <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-extrabold tracking-wider uppercase ${
-                                      isLogin ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' :
-                                      isCalc ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' :
-                                      isReport ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
-                                      'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                                      isLogin 
+                                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' 
+                                        : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                                     }`}>
-                                      {log.action_type}
+                                      {isLogin ? 'LOGIN' : 'UPDATED'}
                                     </span>
-                                  </td>
-                                  <td className="px-6 py-4 text-xs text-slate-600 dark:text-slate-400 font-mono">
-                                    {typeof log.details === 'string' ? log.details : JSON.stringify(log.details || {})}
                                   </td>
                                 </tr>
                               );
@@ -1322,15 +1747,46 @@ export function SuperAdminDashboard() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Versions Backup */}
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg">
+                        <History className="w-6 h-6" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-lg">Versions Path</h3>
+                        <p className="text-sm text-slate-500 mb-4">Designated path where calculator versions (V0, V1, etc.) will be stored for the organization.</p>
+                        
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={versionsPath} 
+                            onChange={(e) => setVersionsPath(e.target.value)}
+                            placeholder="Z:/00 R&D Server/Versions"
+                            className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm"
+                          />
+                          <button 
+                            onClick={() => handlePickFolder('versions')}
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
+                          >
+                            <FolderOpen className="w-4 h-4" />
+                            Browse
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   
                   <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
                     <button 
                       onClick={async () => {
                         localStorage.setItem('localBackupPath', localBackupPath);
                         localStorage.setItem('serverBackupPath', serverBackupPath);
+                        localStorage.setItem('versionsPath', versionsPath);
                         toast.info("Saving backup settings to backend server...");
                         const targetId = selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED' ? selectedOrgFilter : undefined;
-                        const res = await api.saveOrgBackupSettings(localBackupPath, serverBackupPath, targetId);
+                        const res = await api.saveOrgBackupSettings(localBackupPath, serverBackupPath, targetId, versionsPath);
                         if (res && res.success) {
                           toast.success("Organization backup settings saved to backend successfully!");
                         } else {

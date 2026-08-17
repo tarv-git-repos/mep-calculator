@@ -339,7 +339,6 @@ function CapacitorBankSizingPage() {
         }}
         onImport={handleImportExcelRows}
       />
-      <TBtn onClick={exportExcel}><Download className="size-3.5" /> Excel</TBtn>
       <TBtn onClick={exportPdf}><Download className="size-3.5" /> PDF</TBtn>
     </>
   );

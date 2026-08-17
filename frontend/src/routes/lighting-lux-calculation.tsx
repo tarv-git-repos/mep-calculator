@@ -98,18 +98,18 @@ function LightingLuxCalculationPage() {
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!project?.id) return;
     try {
       const saved = localStorage.getItem(`mep_lux_calc_${project.id}`);
       if (saved) {
         setRows(JSON.parse(saved));
       }
       setTimeout(() => dirtyStore.set(false), 50);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     } catch (e) {
       console.error(e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
-  }, [project.id]);
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
 
   useEffect(() => {
     if (project?.id && loadedProjectId === project.id) {
@@ -911,9 +911,6 @@ function LightingLuxCalculationPage() {
             onImport={handleImportExcelRows}
             className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors"
           />
-          <button onClick={exportExcel} className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors">
-            <Download className="size-3.5" /> Export Excel
-          </button>
         </div>
       }
     >

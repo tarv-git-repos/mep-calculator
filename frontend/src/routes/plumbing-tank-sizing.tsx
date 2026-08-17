@@ -10,6 +10,7 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 function TankSizingPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Inputs
   const [daily, setDaily] = useState<number>(5000); // gal
@@ -19,6 +20,7 @@ function TankSizingPage() {
 
   // Load project state
   useEffect(() => {
+    if (!project?.id) return;
     if (project) {
       const saved = localStorage.getItem(`tankSizing_${project.id}`);
       if (saved) {
@@ -125,7 +127,6 @@ function TankSizingPage() {
         <div className="flex gap-2">
           <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
             <Download className="w-4 h-4" />
-            Export Excel
           </button>
           <button onClick={saveCalc} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium">
             <Save className="w-4 h-4" />

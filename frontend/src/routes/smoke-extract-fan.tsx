@@ -354,7 +354,6 @@ function SmokeExtractFanPage() {
             {/* Results Column */}
             <div className="lg:col-span-7 flex flex-col gap-5">
               <div className="flex items-center gap-2.5 bg-background border border-border rounded-xl p-2 select-none">
-                <TBtn onClick={handleExportExcel} className="h-8.5 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
               </div>
 
               {/* Summary card */}

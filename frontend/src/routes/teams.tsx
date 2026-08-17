@@ -24,13 +24,23 @@ function TeamsPage() {
   const [newTeamName, setNewTeamName] = useState("");
   const [selectedUser, setSelectedUser] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
   const loadData = async () => {
     if (profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') {
-       const u = await api.getUsers();
-       setUsers(u);
-       const t = await api.getTeams();
-       setTeams(t);
+       setIsLoading(true);
+       try {
+         const [u, t] = await Promise.all([
+           api.getUsers(),
+           api.getTeams()
+         ]);
+         setUsers(u);
+         setTeams(t);
+       } finally {
+         setIsLoading(false);
+       }
+    } else {
+       setIsLoading(false);
     }
   };
 
@@ -80,6 +90,16 @@ function TeamsPage() {
   const handleRemoveUser = async (teamId: string, userId: string) => {
     if (!confirm("Are you sure you want to remove this user from the team?")) return;
     const res = await api.removeUserFromTeam(teamId, userId);
+    if (res.success) {
+       loadData();
+    } else {
+       alert(res.message);
+    }
+  };
+
+  const handleDeleteTeam = async (teamId: string) => {
+    if (!confirm("Are you sure you want to completely delete this team? This action cannot be undone.")) return;
+    const res = await api.deleteTeam(teamId);
     if (res.success) {
        loadData();
     } else {
@@ -150,20 +170,34 @@ function TeamsPage() {
             {/* Teams List */}
             <div className="lg:col-span-2 flex flex-col gap-4">
                <h3 className="font-bold text-foreground text-lg mb-2">Organization Teams</h3>
-               {teams.length === 0 && (
+               {isLoading ? (
+                 <div className="p-8 flex flex-col items-center justify-center text-muted-foreground text-sm gap-3">
+                   <div className="size-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                   Loading teams...
+                 </div>
+               ) : teams.length === 0 ? (
                  <div className="p-8 text-center bg-card border border-border border-dashed rounded-2xl text-muted-foreground text-sm">
                     No teams created yet.
                  </div>
-               )}
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {teams.map(team => (
-                     <div key={team.id} className="bg-card border border-border p-5 rounded-2xl shadow-sm flex flex-col gap-4">
-                        <div className="flex justify-between items-center">
-                           <h4 className="font-bold text-foreground">{team.name}</h4>
-                           <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
-                              {team.team_members?.length || 0} Members
-                           </span>
-                        </div>
+               ) : (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {teams.map(team => (
+                       <div key={team.id} className="bg-card border border-border p-5 rounded-2xl shadow-sm flex flex-col gap-4 group/team">
+                          <div className="flex justify-between items-center">
+                             <h4 className="font-bold text-foreground">{team.name}</h4>
+                             <div className="flex items-center gap-2">
+                               <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                                  {team.team_members?.length || 0} Members
+                               </span>
+                               <button
+                                 onClick={() => handleDeleteTeam(team.id)}
+                                 className="opacity-0 group-hover/team:opacity-100 p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all"
+                                 title="Delete Team"
+                               >
+                                 <Trash2 className="size-4" />
+                               </button>
+                             </div>
+                          </div>
                         <div className="flex flex-col gap-2 border-t border-border/50 pt-3 mt-1">
                            {team.team_members?.map((tm: any) => {
                               const user = users.find(u => u.id === tm.user_id);
@@ -193,7 +227,8 @@ function TeamsPage() {
                         </div>
                      </div>
                   ))}
-               </div>
+                 </div>
+               )}
             </div>
          </div>
       </div>

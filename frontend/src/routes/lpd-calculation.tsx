@@ -6,6 +6,7 @@ import { Plus, Trash2, Search, Download, Trash, Upload, FolderKanban, ChevronDow
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { cn } from "@/lib/utils";
 import { exportLpdExcel } from "../lib/exportLpdExcel";
+import { dirtyStore } from "@/lib/dirty-store";
 
 export const Route = createFileRoute("/lpd-calculation")({
   head: () => ({
@@ -447,7 +448,6 @@ function LPDCalculationPage() {
         <span>Import Catalog</span>
         <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
       </label>
-      <TBtn primary onClick={handleExport}><Download className="size-3.5" /> Export Excel</TBtn>
     </div>
   );
 

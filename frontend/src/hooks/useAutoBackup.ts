@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
+import { writeTextFile, mkdir, exists } from '@tauri-apps/plugin-fs'
 
 // Helper to gather all project data from local storage
 const gatherProjectData = () => {
@@ -27,6 +27,10 @@ export function useAutoBackup() {
       if (!path) return
       
       try {
+        const pathExists = await exists(path).catch(() => false)
+        if (!pathExists) {
+          await mkdir(path, { recursive: true }).catch((e) => console.warn('mkdir warning:', e))
+        }
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
         const filename = `MEP_Project_Backup_${timestamp}.json`
         const fullPath = `${path}\\${filename}`

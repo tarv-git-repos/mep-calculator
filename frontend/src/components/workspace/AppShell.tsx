@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Sun, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy
+  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -13,7 +13,7 @@ import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { isFeatureLocked } from "@/utils/featureFlags";
-import { logActivity } from "@/utils/logger";
+import { logActivity, logCalculatorView, logCalculatorUpdate, getCalculatorTitleFromPath } from "@/utils/logger";
 import { VersionManager } from "./VersionManager";
 import { useCollaboration } from "@/lib/collaboration-store";
 import { supabase } from "@/lib/supabase";
@@ -158,6 +158,22 @@ const EXCLUDED_PERSIST_PATHS = [
   "/plumbing-storm-water"
 ];
 
+const NON_VERSION_PATHS = [
+  "/",
+  "/dashboard",
+  "/projects",
+  "/reports",
+  "/report",
+  "/teams",
+  "/team",
+  "/admin",
+  "/settings",
+  "/privacy",
+  "/login",
+  "/calculators",
+  "/reset-password"
+];
+
 const savePageInputs = (projectId: string, pathname: string) => {
   if (typeof document === "undefined") return;
   if (EXCLUDED_PERSIST_PATHS.includes(pathname)) return;
@@ -183,7 +199,6 @@ const savePageInputs = (projectId: string, pathname: string) => {
   localStorage.setItem(`mep_auto_state_${projectId}_${pathname}`, JSON.stringify(state));
   
   // Broadcast to other users in the project!
-  // Read-only users won't trigger this because their screen is pointer-events-none
   useCollaboration.getState().broadcastData(pathname, state);
 };
 
@@ -293,6 +308,11 @@ const restorePageInputs = (projectId: string, pathname: string) => {
 
 const triggerSave = () => {
   if (typeof document === "undefined") return false;
+  
+  const pathname = window.location.pathname;
+  const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
+  logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
+
   const buttons = Array.from(document.querySelectorAll('button'));
   const saveBtn = buttons.find(btn => {
     const txt = btn.textContent || "";
@@ -310,7 +330,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 let globalLicenseCache: LicenseStatusInfo | null = null;
 
-export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader }: {
+export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader, breadcrumb, spaceCount }: {
   children: ReactNode;
   title: string;
   subtitle?: string;
@@ -319,6 +339,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   intelOpen?: boolean;
   intelLabel?: string;
   hideSubHeader?: boolean;
+  breadcrumb?: ReactNode;
+  spaceCount?: number;
 }) {
   const { profile, userData, logout, loading } = useAuth();
   const userId = userData?.id || profile?.id;
@@ -326,15 +348,222 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const confirm = useConfirm();
   const prompt = usePrompt();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isVersionAllowed = useMemo(() => {
+    const cleanPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";
+    return !NON_VERSION_PATHS.some((nonPath) => cleanPath === nonPath || cleanPath.startsWith(nonPath + "/"));
+  }, [pathname]);
   const searchObj = useRouterState({ select: (s) => s.location.search }) as Record<string, any>;
   const activeName = searchObj?.name;
   const navigate = useNavigate();
-  const { project, projects, selectProject, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, syncFromCloud, isInitializing } = useWorkspace();
+  const { project, projects, selectProject, refreshProjects, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, syncFromCloud, isInitializing, spaces, zones, equipment } = useWorkspace();
   const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
+  const activeUsers = useCollaboration(s => s.activeUsers);
   const [myEmail, setMyEmail] = useState<string>("unknown");
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(globalLicenseCache);
   const [showPioneerModal, setShowPioneerModal] = useState(false);
+
+  const [notifTick, setNotifTick] = useState(0);
+
+  const rawRole = profile?.designation || profile?.role || "";
+  const isSrDesignEngineer = /senior|sr|lead|manager/i.test(rawRole);
+  const isCoordinatorOrAdmin = /coordinator|admin/i.test(rawRole);
+  const isJrDesignEngineer = !isSrDesignEngineer && !isCoordinatorOrAdmin;
+
+  const myNotifications = useMemo(() => {
+    if (!userId) return [];
+    
+    const notifs: any[] = [];
+    const addNotifs = (items: any[], typeName: string, projectName: string, projectId: string) => {
+      if (!items) return;
+      items.forEach(item => {
+        if (item.comments && Array.isArray(item.comments)) {
+          item.comments.forEach((c: any) => {
+            if (c.assignedUsers?.includes(userId)) {
+              notifs.push({
+                ...c,
+                targetId: item.id,
+                targetName: item.name || item.id,
+                targetType: typeName,
+                projectName: projectName,
+                projectId: projectId,
+                calculatorPath: '/ventilation'
+              });
+            }
+          });
+        }
+      });
+    };
+
+    projects.forEach(p => {
+      const wdata = p.workspace_data || {};
+      addNotifs(wdata.spaces, "Space", p.name, p.id);
+      addNotifs(wdata.zones, "Zone", p.name, p.id);
+      addNotifs(wdata.equipment, "Equipment", p.name, p.id);
+    });
+
+    const isUserMemberOfProject = (targetProjectId?: string) => {
+      if (!targetProjectId || targetProjectId === "none") return false;
+      const proj = projects.find((p: any) => p.id === targetProjectId);
+      if (!proj) return false;
+
+      const currentId = userId || userData?.id;
+      const currentName = (userData?.name || profile?.name || "").toLowerCase().trim();
+      const currentEmail = (userData?.email || profile?.email || "").toLowerCase().trim();
+
+      // Creator
+      if (proj.created_by === currentId) return true;
+
+      // project_users array
+      if (Array.isArray(proj.project_users)) {
+        const match = proj.project_users.some((pu: any) => 
+          pu.user_id === currentId || 
+          (pu.user?.email && pu.user.email.toLowerCase().trim() === currentEmail)
+        );
+        if (match) return true;
+      }
+
+      // members array
+      if (Array.isArray(proj.members)) {
+        const match = proj.members.some((m: any) => 
+          m.id === currentId || 
+          (m.name && m.name.toLowerCase().trim() === currentName) || 
+          (m.email && m.email.toLowerCase().trim() === currentEmail)
+        );
+        if (match) return true;
+      }
+
+      // workspace_data.assigned_users array
+      const wdata = proj.workspace_data || {};
+      if (Array.isArray(wdata.assigned_users)) {
+        const match = wdata.assigned_users.some((u: any) => {
+          const uStr = String(u).toLowerCase().trim();
+          return uStr === String(currentId).toLowerCase() || uStr === currentName || uStr === currentEmail;
+        });
+        if (match) return true;
+      }
+
+      return false;
+    };
+
+    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE ONLY TO Sr. Design Engineer (and Admins) of assigned project
+    if (isSrDesignEngineer || isCoordinatorOrAdmin) {
+      try {
+        const savedRejections = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_rejection_notifs") : null;
+        if (savedRejections) {
+          const parsed = JSON.parse(savedRejections);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((rn: any) => {
+              if (rn.projectId && isUserMemberOfProject(rn.projectId)) {
+                const targetProj = projects.find(p => p.id === rn.projectId);
+                notifs.push({
+                  id: rn.id,
+                  authorName: rn.rejectedBy || rn.authorName || "Discipline Coordinator",
+                  text: `🚨 CALCULATION REJECTED (${rn.calculatorTitle || "Calculation"}): "${rn.reason}"`,
+                  timestamp: rn.timestamp,
+                  targetType: "Calculation",
+                  targetName: rn.calculatorTitle || "Calculation",
+                  projectName: targetProj?.name || rn.projectName || "Project",
+                  projectId: rn.projectId,
+                  calculatorPath: rn.calculatorPath || "/ventilation",
+                  targetId: rn.id
+                });
+              }
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. Revision Comment Notifications from Sr. Design Engineer -> VISIBLE TO Jr. / Design Engineers of assigned project
+    if (isJrDesignEngineer || isCoordinatorOrAdmin) {
+      try {
+        const savedJrNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_jr_engineer_notifs") : null;
+        if (savedJrNotifs) {
+          const parsed = JSON.parse(savedJrNotifs);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((jn: any) => {
+              if (jn.projectId && isUserMemberOfProject(jn.projectId)) {
+                const targetProj = projects.find(p => p.id === jn.projectId);
+                notifs.push({
+                  id: jn.id,
+                  authorName: jn.reviewerName || "Sr. Design Engineer",
+                  text: `📝 REVISION INSTRUCTIONS (${jn.calculatorTitle || "Calculation"}): "${jn.comments}"`,
+                  timestamp: jn.timestamp,
+                  targetType: "Calculation",
+                  targetName: jn.calculatorTitle || "Calculation",
+                  projectName: targetProj?.name || jn.projectName || "Project",
+                  projectId: jn.projectId,
+                  calculatorPath: jn.calculatorPath || "/ventilation",
+                  targetId: jn.id
+                });
+              }
+            });
+          }
+        }
+      } catch (e) {}
+    }
+    
+    notifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return notifs;
+  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin]);
+
+  useEffect(() => {
+    const handleNotifAdded = () => setNotifTick(t => t + 1);
+    const handleReviewStateUpdate = (e: any) => {
+      setNotifTick(t => t + 1);
+      const notifProjectId = e?.detail?.projectId;
+      
+      // Verify logged in user is member of project before triggering toast
+      const isMember = () => {
+        if (!notifProjectId) return true;
+        const proj = projects.find((p: any) => p.id === notifProjectId);
+        if (!proj) return false;
+        const cId = userId || userData?.id;
+        const cName = (userData?.name || profile?.name || "").toLowerCase().trim();
+        const cEmail = (userData?.email || profile?.email || "").toLowerCase().trim();
+        if (proj.created_by === cId) return true;
+        if (Array.isArray(proj.project_users) && proj.project_users.some((pu: any) => pu.user_id === cId || pu.user?.email?.toLowerCase() === cEmail)) return true;
+        if (Array.isArray(proj.members) && proj.members.some((m: any) => m.id === cId || m.name?.toLowerCase().trim() === cName || m.email?.toLowerCase().trim() === cEmail)) return true;
+        const wdata = proj.workspace_data || {};
+        if (Array.isArray(wdata.assigned_users) && wdata.assigned_users.some((u: any) => String(u).toLowerCase().trim() === String(cId).toLowerCase() || String(u).toLowerCase().trim() === cName || String(u).toLowerCase().trim() === cEmail)) return true;
+        return false;
+      };
+
+      if (!isMember()) return;
+
+      if (e?.detail?.status === "REJECTED" && (isSrDesignEngineer || isCoordinatorOrAdmin)) {
+        toast.error(`⚠️ CALCULATION REJECTED: Reason from ${e.detail.rejectedBy || "Discipline Coordinator"}: "${e.detail.rejectionDescription || "Revision required"}"`, {
+          duration: 7000
+        });
+      }
+      if (e?.detail?.status === "SR_REVIEW_SUBMITTED" && (isJrDesignEngineer || isCoordinatorOrAdmin)) {
+        toast.info(`📝 REVISION REQUIRED: Notes from Sr. Design Engineer (${e.detail.reviewedBy}): "${e.detail.reviewerComments}"`, {
+          duration: 7000
+        });
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener("mep-notification-added", handleNotifAdded);
+      window.addEventListener("mep-review-state-updated", handleReviewStateUpdate);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener("mep-notification-added", handleNotifAdded);
+        window.removeEventListener("mep-review-state-updated", handleReviewStateUpdate);
+      }
+    };
+  }, [userId, userData, profile, projects, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin]);
+
+  // Real-time notification auto polling without needing page refresh
+  useEffect(() => {
+    if (!userId) return;
+    const interval = setInterval(() => {
+      refreshProjects();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [userId, refreshProjects]);
+
 
   useEffect(() => {
     if (userData?.is_founding_pioneer && userId) {
@@ -402,8 +631,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   }, []);
 
   useEffect(() => {
-    if (profile?.id && pathname && pathname !== '/') {
-      logActivity(profile.id, 'VIEW_CALCULATOR', { path: pathname });
+    if (profile?.id && pathname && pathname !== '/' && pathname !== '/login') {
+      const formattedTitle = pathname.replace('/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Dashboard';
+      logCalculatorView(formattedTitle, pathname);
     }
   }, [pathname, profile?.id]);
 
@@ -421,15 +651,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const userEmail = data.session?.user.email || "unknown";
       const userName = userData?.name || profile?.name || userEmail;
       setMyEmail(userEmail);
-      if (project?.name) {
-        joinProject(project.name, userEmail, userName);
+      if (project?.id) {
+        joinProject(project.id, userEmail, userName);
       }
     };
     initCollab();
     return () => {
       leaveProject();
     };
-  }, [project?.name, userData?.name, profile?.name]);
+  }, [project?.id, userData?.name, profile?.name]);
+
+
+
+  useEffect(() => {
+    // Expose for export scripts outside React context
+    if (typeof window !== 'undefined') {
+      (window as any).currentMepUserName = userData?.name || profile?.name || 'System Admin';
+    }
+  }, [userData?.name, profile?.name]);
 
   // Update active module on route change
   useEffect(() => {
@@ -471,27 +710,42 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
   }, [pathname, project.id]);
 
-  // Save inputs on any input or change event
+  // Save inputs on any input, change, or keyup event and log activity update immediately
   useEffect(() => {
-    const handleInput = (e: Event) => {
+    let updateTimer: any = null;
+
+    const handleUserEdit = (e: Event) => {
       if ((window as any).__mep_is_restoring) return;
       
       const target = e.target as HTMLElement;
-      if (target && (target.closest("aside") || target.closest("header") || target.closest("[data-ignore-persist]"))) {
+      if (!target) return;
+      if (target.closest("aside") || target.closest("header") || target.closest("[data-ignore-persist]")) {
         return;
       }
       
-      savePageInputs(project.id, pathname);
+      try {
+        if (project?.id) savePageInputs(project.id, pathname);
+      } catch (err) {}
+
+      const calcTitle = getCalculatorTitleFromPath(pathname);
+      if (calcTitle) {
+        logCalculatorUpdate(calcTitle, `Changes occurred in ${calcTitle}`);
+      }
     };
     
-    document.addEventListener("input", handleInput, true);
-    document.addEventListener("change", handleInput, true);
+    document.addEventListener("input", handleUserEdit, true);
+    document.addEventListener("change", handleUserEdit, true);
+    document.addEventListener("keyup", handleUserEdit, true);
+    document.addEventListener("click", handleUserEdit, true);
     
     return () => {
-      document.removeEventListener("input", handleInput, true);
-      document.removeEventListener("change", handleInput, true);
+      if (updateTimer) clearTimeout(updateTimer);
+      document.removeEventListener("input", handleUserEdit, true);
+      document.removeEventListener("change", handleUserEdit, true);
+      document.removeEventListener("keyup", handleUserEdit, true);
+      document.removeEventListener("click", handleUserEdit, true);
     };
-  }, [pathname, project.id]);
+  }, [pathname, project?.id]);
 
   // Listen for Live Sync Broadcasts!
   const setOnDataReceived = useCollaboration(s => s.setOnDataReceived);
@@ -623,6 +877,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           savePageInputs(project.id, pathname);
           triggerSave();
           forceSaveToCloud();
+          const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
+          logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
           toast.success("Calculations synced to cloud successfully!");
         }
       }
@@ -793,9 +1049,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   };
 
   const filteredNav = useMemo(() => {
+    const isAdmin = ['SUPER_ADMIN', 'ORG_ADMIN'].includes(profile?.role || '');
     const rawNav = import.meta.env.VITE_APP_MODE === 'kfactor'
       ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
-      : [...NAV, ...(['SUPER_ADMIN', 'ORG_ADMIN'].includes(profile?.role || '') ? [{ kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }] : [])];
+      : [
+          ...NAV,
+          ...(isAdmin ? [
+            { kind: "item" as const, label: "Company Hierarchy", to: "/company-hierarchy", icon: Network },
+            { kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }
+          ] : [])
+        ];
       
     const filterNavItems = (items: typeof rawNav): typeof rawNav => {
       return items.map(item => {
@@ -832,6 +1095,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";
   const brandName = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K-Factor Calc" : "MEP Calculator";
+
+  const rawExpiry = userData?.subscription_expires || profile?.subscription_expires;
+  let computedRemainingDays = licenseInfo?.remainingDays ?? 14;
+  let computedStatus = licenseInfo?.status;
+
+  if (rawExpiry) {
+    const expDate = new Date(rawExpiry);
+    if (!isNaN(expDate.getTime())) {
+      const diff = Math.ceil((expDate.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+      computedRemainingDays = Math.max(0, diff);
+      if (diff <= 0) {
+        computedStatus = 'EXPIRED_TRIAL';
+      } else if (computedStatus !== 'ACTIVE') {
+        computedStatus = 'FREE_TRIAL';
+      }
+    }
+  }
+
   return (
     <div className="grid h-screen grid-cols-[auto_1fr] grid-rows-[80px_1fr] bg-surface dark:bg-[#121212] text-foreground text-[14px] print:block print:h-auto">
       {/* Top Header (Column 2, Row 1) */}
@@ -983,24 +1264,44 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                               <Copy className="size-3.5 text-muted-foreground" />
                               <span>Duplicate</span>
                             </ContextMenuItem>
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
-                            <ContextMenuItem
-                              onSelect={async (e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (projects.length <= 1) {
-                                  await confirm("Cannot delete the only project.", { hideCancel: true, title: "Cannot Delete" });
-                                  return;
-                                }
-                                if (await confirm(`Are you sure you want to delete project "${p.name}"?`)) {
-                                  deleteProject(p.id);
-                                }
-                              }}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer"
-                            >
-                              <Trash2 className="size-3.5" />
-                              <span>Delete</span>
-                            </ContextMenuItem>
+                            {isVersionAllowed && (
+                              <ContextMenuItem
+                                onSelect={async (e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const revName = await prompt("Enter revision name (e.g., V1, V2):", "V1", { title: "Save as Version" });
+                                  if (revName && revName.trim() !== "") {
+                                    saveAsRevision(revName.trim());
+                                  }
+                                }}
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                              >
+                                <Save className="size-3.5 text-muted-foreground" />
+                                <span>Save as Version...</span>
+                              </ContextMenuItem>
+                            )}
+                            {(p.created_by === userId || p.created_by === userData?.id || profile?.id === p.created_by || profile?.role === 'SUPER_ADMIN') && (
+                              <>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onSelect={async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (projects.length <= 1) {
+                                      await confirm("Cannot delete the only project.", { hideCancel: true, title: "Cannot Delete" });
+                                      return;
+                                    }
+                                    if (await confirm(`Are you sure you want to delete project "${p.name}"?`)) {
+                                      deleteProject(p.id);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                  <span>Delete</span>
+                                </ContextMenuItem>
+                              </>
+                            )}
                           </ContextMenuContent>
                         </ContextMenu>
                       );
@@ -1033,7 +1334,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </DropdownMenu>
                  
                  {/* Revisions & Read-Only Manager */}
-                 <VersionManager projectName={project.name} />
+                 {isVersionAllowed && (
+                   <VersionManager projectName={project.name} calculatorName={pathname.split('/').pop() || 'Unknown'} />
+                 )}
                </div>
              </div>
 
@@ -1063,6 +1366,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   savePageInputs(project.id, pathname);
                   triggerSave();
                   forceSaveToCloud();
+                  const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
+                  logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
                   toast.success("Calculations synced to cloud successfully!");
                 }}
                 className="size-10 rounded-full flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border border-transparent"
@@ -1101,7 +1406,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold transition-all shadow-sm cursor-pointer border ${
                   licenseInfo?.plan === 'PRO' || licenseInfo?.plan === 'ENTERPRISE'
                     ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
-                    : licenseInfo?.status === 'EXPIRED_TRIAL'
+                    : computedStatus === 'EXPIRED_TRIAL'
                     ? "bg-red-500/10 text-red-500 border-red-500/30 hover:bg-red-500/20 animate-pulse"
                     : "bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-500 border-amber-500/40 hover:from-amber-500/30 hover:to-orange-500/30"
                 }`}
@@ -1112,8 +1417,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   {!licenseInfo ? 'CHECKING LICENSE...' :
                    licenseInfo.plan === 'PRO' ? 'PRO ACTIVE' :
                    licenseInfo.plan === 'ENTERPRISE' ? 'ENTERPRISE' :
-                   licenseInfo.status === 'EXPIRED_TRIAL' ? 'TRIAL EXPIRED - UPGRADE' :
-                   `TRIAL: ${licenseInfo.remainingDays ?? 14} DAYS LEFT`}
+                   computedStatus === 'EXPIRED_TRIAL' ? 'TRIAL EXPIRED - UPGRADE' :
+                   `TRIAL: ${computedRemainingDays} DAYS LEFT`}
                 </span>
               </button>
 
@@ -1136,9 +1441,68 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 <Moon className="size-5 dark:hidden" />
                 <Sun className="size-5 hidden dark:block" />
               </button>
-              <button className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
-                <Bell className="size-5" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="relative size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
+                    <Bell className="size-5" />
+                    {myNotifications.length > 0 && (
+                      <span className="absolute top-2 right-2 flex size-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full size-3 bg-red-500 text-[8px] text-white font-bold items-center justify-center">
+                          {myNotifications.length > 9 ? '9+' : myNotifications.length}
+                        </span>
+                      </span>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 bg-popover border border-border rounded-lg shadow-lg font-sans">
+                  <DropdownMenuLabel className="font-bold text-sm border-b border-border/50 pb-2 mb-2">Notifications</DropdownMenuLabel>
+                  {myNotifications.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-muted-foreground">No new notifications</div>
+                  ) : (
+                    <div className="max-h-72 overflow-y-auto custom-scrollbar">
+                      {myNotifications.map((notif, i) => {
+                        const handleClick = () => {
+                          if (notif.projectId) {
+                            selectProject(notif.projectId);
+                          }
+                          const targetPath = notif.calculatorPath || '/ventilation';
+                          navigate({
+                            to: targetPath as any,
+                            search: {
+                              commentTargetId: notif.targetId,
+                              commentTargetType: notif.targetType?.toLowerCase(),
+                              commentTargetName: notif.targetName,
+                            } as any,
+                          });
+                        };
+                        return (
+                          <DropdownMenuItem
+                            key={i}
+                            onSelect={handleClick}
+                            onClick={handleClick}
+                            className="flex flex-col items-start p-3 border-b border-border/30 last:border-0 hover:bg-surface-2 dark:hover:bg-white/5 transition-colors cursor-pointer focus:bg-surface-2 dark:focus:bg-white/5 outline-none rounded-md"
+                          >
+                            <div className="flex justify-between items-start w-full mb-1">
+                              <span className="text-xs font-semibold text-foreground/80">{notif.authorName}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {new Date(notif.timestamp).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <p className="text-[13px] font-medium leading-tight mb-1.5 text-left">{notif.text}</p>
+                            <div className="text-[10.5px] text-muted-foreground font-semibold flex flex-wrap items-center gap-1.5 w-full">
+                              <span className="px-1.5 py-0.5 bg-primary/10 text-primary rounded-sm uppercase tracking-wider">{notif.targetType}</span>
+                              <span className="truncate max-w-[120px]">{notif.targetName}</span>
+                              <span className="text-muted-foreground/60 text-[9px]">in</span>
+                              <span className="truncate max-w-[100px] text-primary" title={notif.projectName}>{notif.projectName}</span>
+                            </div>
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </div>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626] cursor-pointer hover:ring-2 ring-primary transition-all overflow-hidden">
@@ -1150,10 +1514,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64 bg-popover border border-border rounded-lg shadow-lg font-sans">
-                  <DropdownMenuItem 
-                    onSelect={() => navigate({ to: "/settings" })}
-                    className="py-2.5 px-3 flex items-center gap-3 cursor-pointer hover:bg-accent/40 rounded-md transition-all focus:bg-accent/40 outline-none w-full"
-                  >
+                  <div className="py-2.5 px-3 flex items-center gap-3 w-full">
                     {userPhoto ? (
                       <img src={userPhoto} alt="Profile Avatar" className="size-9 rounded-full object-cover border border-primary/40 shrink-0" />
                     ) : (
@@ -1169,6 +1530,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                         Verified License Active
                       </div>
                     </div>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem 
+                    onSelect={() => navigate({ to: "/settings" })}
+                    className="py-2 px-3 cursor-pointer focus:bg-accent/40 font-medium"
+                  >
+                    <Settings className="size-4 mr-2 text-muted-foreground" />
+                    Profile Settings
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
@@ -1286,60 +1655,72 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           )}
         </AnimatePresence>
 
-        {!hideSubHeader && (
-          <div className="flex items-center justify-between border-b border-border px-4 py-3 shrink-0 bg-surface-1/90 backdrop-blur-md no-print print:hidden transition-all duration-200">
-            <div className="flex items-center gap-3">
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-[18px] font-bold tracking-tight text-foreground">{title}</h1>
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative custom-scrollbar">
+          {!hideSubHeader && (
+            <div className="shrink-0 flex items-center justify-between px-6 py-3.5 bg-surface-1/90 backdrop-blur-md border-b border-border select-none z-10">
+              <div>
+                <div className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase flex items-center gap-1.5 mb-1">
+                  {breadcrumb}
+                </div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-[20px] font-extrabold text-foreground tracking-tight flex items-center gap-2">
+                    {title}
+                    {spaceCount !== undefined && (
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-surface-2 text-muted-foreground border border-border">
+                        {spaceCount} spaces
+                      </span>
+                    )}
+                  </h1>
                   {onIntelClick && (
                     <button 
                       onClick={onIntelClick}
-                      className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full transition-colors text-[11.5px] font-medium border cursor-pointer shrink-0 ${
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
                         intelOpen
                           ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                          : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
                       }`}
                     >
-                      <Sparkles className="size-3" />
+                      <Sparkles className="size-3.5" />
                       {intelLabel || "Intelligence"}
                     </button>
                   )}
                 </div>
-                {subtitle && <span className="text-[12.5px] text-muted-foreground font-medium leading-snug">{subtitle}</span>}
+                {subtitle && <span className="text-[12px] text-muted-foreground font-medium leading-snug mt-1 block">{subtitle}</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                {actions}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {actions}
-            </div>
-          </div>
-        )}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative custom-scrollbar">
+          )}
+
           {isLockedByOther && (
-            <div className="absolute top-0 left-0 right-0 z-[100] bg-transparent text-amber-500 px-4 py-2 flex items-center justify-center gap-2 shrink-0">
-              <ShieldAlert className="w-4 h-4" />
-              <span className="font-bold text-sm">
-                Read Only, it is being edited by {lockOwnerName}
+            <div className="absolute top-0 left-0 right-0 z-40 bg-red-500/10 border-b border-red-500/20 text-red-600 dark:text-red-400 px-4 py-3 flex items-center justify-center gap-2 shrink-0 shadow-sm backdrop-blur-md">
+              <ShieldAlert className="w-5 h-5" />
+              <span className="font-bold text-sm tracking-wide uppercase">
+                READ-ONLY MODE: This calculator is currently being edited by {lockOwnerName}
               </span>
             </div>
           )}
+
           <div className={`flex-1 min-h-0 flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''} ${
             sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5"
           }`}>
             {isInitializing ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-slate-50/50">
+              <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-surface dark:bg-[#121212]">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
-                <span className="text-slate-500 font-medium">Syncing with workspace...</span>
+                <span className="text-slate-500 dark:text-slate-400 font-medium">Syncing with workspace...</span>
               </div>
             ) : isFeatureLocked(pathname, profile) ? (
               <div className="flex flex-col items-center justify-center flex-1 text-center p-8 bg-surface dark:bg-[#121212]">
-                <div className="w-24 h-24 bg-slate-100 dark:bg-slate-800/50 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                  <Lock className="w-10 h-10 text-slate-400 dark:text-slate-500" />
+                <div className="w-full max-w-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-2xl p-8 flex flex-col items-center shadow-sm">
+                  <div className="w-20 h-20 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center mb-6 shadow-inner text-red-500 dark:text-red-400">
+                    <Lock className="w-8 h-8" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-3 tracking-tight">Warning</h2>
+                  <p className="text-red-600/80 dark:text-red-400/80 text-sm leading-relaxed">
+                    This calculator is currently locked or under development for your account. Please contact your administrator for access.
+                  </p>
                 </div>
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-3 tracking-tight">Coming Soon...</h2>
-                <p className="text-slate-500 dark:text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
-                  This calculator is currently locked or under development for your account. Please contact your administrator for access.
-                </p>
               </div>
             ) : (
               children

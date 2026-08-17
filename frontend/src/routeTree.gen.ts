@@ -62,6 +62,7 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as ConductorSizingRouteImport } from './routes/conductor-sizing'
 import { Route as CondensateDrainCalcRouteImport } from './routes/condensate-drain-calc'
 import { Route as CondensateDrainRouteImport } from './routes/condensate-drain'
+import { Route as CompanyHierarchyRouteImport } from './routes/company-hierarchy'
 import { Route as CircuitBreakerSizingRouteImport } from './routes/circuit-breaker-sizing'
 import { Route as ChwPumpHeadRouteImport } from './routes/chw-pump-head'
 import { Route as ChwPipeSizerRouteImport } from './routes/chw-pipe-sizer'
@@ -347,6 +348,11 @@ const CondensateDrainRoute = CondensateDrainRouteImport.update({
   path: '/condensate-drain',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CompanyHierarchyRoute = CompanyHierarchyRouteImport.update({
+  id: '/company-hierarchy',
+  path: '/company-hierarchy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CircuitBreakerSizingRoute = CircuitBreakerSizingRouteImport.update({
   id: '/circuit-breaker-sizing',
   path: '/circuit-breaker-sizing',
@@ -433,6 +439,7 @@ export interface FileRoutesByFullPath {
   '/chw-pipe-sizer': typeof ChwPipeSizerRoute
   '/chw-pump-head': typeof ChwPumpHeadRoute
   '/circuit-breaker-sizing': typeof CircuitBreakerSizingRoute
+  '/company-hierarchy': typeof CompanyHierarchyRoute
   '/condensate-drain': typeof CondensateDrainRoute
   '/condensate-drain-calc': typeof CondensateDrainCalcRoute
   '/conductor-sizing': typeof ConductorSizingRoute
@@ -502,6 +509,7 @@ export interface FileRoutesByTo {
   '/chw-pipe-sizer': typeof ChwPipeSizerRoute
   '/chw-pump-head': typeof ChwPumpHeadRoute
   '/circuit-breaker-sizing': typeof CircuitBreakerSizingRoute
+  '/company-hierarchy': typeof CompanyHierarchyRoute
   '/condensate-drain': typeof CondensateDrainRoute
   '/condensate-drain-calc': typeof CondensateDrainCalcRoute
   '/conductor-sizing': typeof ConductorSizingRoute
@@ -572,6 +580,7 @@ export interface FileRoutesById {
   '/chw-pipe-sizer': typeof ChwPipeSizerRoute
   '/chw-pump-head': typeof ChwPumpHeadRoute
   '/circuit-breaker-sizing': typeof CircuitBreakerSizingRoute
+  '/company-hierarchy': typeof CompanyHierarchyRoute
   '/condensate-drain': typeof CondensateDrainRoute
   '/condensate-drain-calc': typeof CondensateDrainCalcRoute
   '/conductor-sizing': typeof ConductorSizingRoute
@@ -643,6 +652,7 @@ export interface FileRouteTypes {
     | '/chw-pipe-sizer'
     | '/chw-pump-head'
     | '/circuit-breaker-sizing'
+    | '/company-hierarchy'
     | '/condensate-drain'
     | '/condensate-drain-calc'
     | '/conductor-sizing'
@@ -712,6 +722,7 @@ export interface FileRouteTypes {
     | '/chw-pipe-sizer'
     | '/chw-pump-head'
     | '/circuit-breaker-sizing'
+    | '/company-hierarchy'
     | '/condensate-drain'
     | '/condensate-drain-calc'
     | '/conductor-sizing'
@@ -781,6 +792,7 @@ export interface FileRouteTypes {
     | '/chw-pipe-sizer'
     | '/chw-pump-head'
     | '/circuit-breaker-sizing'
+    | '/company-hierarchy'
     | '/condensate-drain'
     | '/condensate-drain-calc'
     | '/conductor-sizing'
@@ -851,6 +863,7 @@ export interface RootRouteChildren {
   ChwPipeSizerRoute: typeof ChwPipeSizerRoute
   ChwPumpHeadRoute: typeof ChwPumpHeadRoute
   CircuitBreakerSizingRoute: typeof CircuitBreakerSizingRoute
+  CompanyHierarchyRoute: typeof CompanyHierarchyRoute
   CondensateDrainRoute: typeof CondensateDrainRoute
   CondensateDrainCalcRoute: typeof CondensateDrainCalcRoute
   ConductorSizingRoute: typeof ConductorSizingRoute
@@ -1279,6 +1292,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CondensateDrainRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/company-hierarchy': {
+      id: '/company-hierarchy'
+      path: '/company-hierarchy'
+      fullPath: '/company-hierarchy'
+      preLoaderRoute: typeof CompanyHierarchyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/circuit-breaker-sizing': {
       id: '/circuit-breaker-sizing'
       path: '/circuit-breaker-sizing'
@@ -1395,6 +1415,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChwPipeSizerRoute: ChwPipeSizerRoute,
   ChwPumpHeadRoute: ChwPumpHeadRoute,
   CircuitBreakerSizingRoute: CircuitBreakerSizingRoute,
+  CompanyHierarchyRoute: CompanyHierarchyRoute,
   CondensateDrainRoute: CondensateDrainRoute,
   CondensateDrainCalcRoute: CondensateDrainCalcRoute,
   ConductorSizingRoute: ConductorSizingRoute,

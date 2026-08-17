@@ -368,7 +368,6 @@ function BasementSmokeCalcPage() {
               <div className="bg-card border border-border rounded-2xl shadow-xs p-5 flex flex-col gap-4">
                 <div className="flex justify-between items-center pb-2 border-b border-border/60">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Basement Level Schedule</h3>
-                  <TBtn onClick={handleExportExcel} className="h-8 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                 </div>
 
                 {/* Add Level Form */}

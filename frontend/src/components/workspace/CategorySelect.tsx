@@ -18,8 +18,8 @@ export function CategorySelect({ value, onChange, className, triggerClassName, h
   const categories = getOccupancyCategories();
 
   // Find the selected display text
-  const displayVal = value && value.endsWith(" (Custom)") ? "Other" : value;
-  const triggerText = displayVal ? getCategoryDisplayName(displayVal) : "Select Category...";
+  const displayVal = value;
+  const triggerText = displayVal ? (displayVal.endsWith(" (Custom)") ? displayVal : getCategoryDisplayName(displayVal)) : "Select Category...";
 
   return (
     <div className={cn("relative w-full min-w-0", className)}>
@@ -78,7 +78,7 @@ export function CategorySelect({ value, onChange, className, triggerClassName, h
                   className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10"
                 >
                   <span>Other</span>
-                  {(value === "Other" || value === "Custom (Custom)") && <Check className="size-3.5 text-primary" />}
+                  {(value === "Other" || (value && value.endsWith(" (Custom)"))) && <Check className="size-3.5 text-primary" />}
                 </CommandItem>
                 {categories.map((c) => {
                   const disp = getCategoryDisplayName(c);

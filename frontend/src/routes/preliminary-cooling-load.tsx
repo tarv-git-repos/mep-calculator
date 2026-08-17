@@ -1503,7 +1503,6 @@ function PreliminaryCoolingLoadPage() {
                       
                       <div className="ml-auto flex items-center gap-1">
                         <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
-                        <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
 
@@ -1580,7 +1579,6 @@ function PreliminaryCoolingLoadPage() {
                   {/* Fixed Toolbar at the top */}
                   <div className="relative flex items-center justify-end gap-3 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
                     <TBtn onClick={handlePrintPDF} primary><Printer className="size-3.5" /> Print / Export PDF</TBtn>
-                    <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export to Excel</TBtn>
                   </div>
                   
                   {/* Scrollable Report Content */}

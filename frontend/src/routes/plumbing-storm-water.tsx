@@ -67,6 +67,7 @@ function StormWaterPage() {
 
   // Load project state on mount or project switch
   useEffect(() => {
+    if (!project?.id) return;
     try {
       const stored = localStorage.getItem(`mep_storm_water_calc_${project.id}`);
       if (stored) {
@@ -83,9 +84,9 @@ function StormWaterPage() {
       }
     } catch (e) {
       console.error(e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
-  }, [project.id]);
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
 
   const saveState = (updatedRows = rows, updatedUnit = unitSystem) => {
     try {
@@ -276,13 +277,6 @@ function StormWaterPage() {
             <div className="flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 pb-4">
               <h2 className="text-lg font-bold text-slate-800 dark:text-zinc-200">Runoff Schedule</h2>
               <div className="flex gap-2">
-                <button
-                  onClick={handleExportExcel}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400 rounded-lg hover:bg-green-100 transition text-[12px] font-bold border-0 cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Excel
-                </button>
                 <button
                   onClick={handleClearAll}
                   className="px-3 py-1.5 bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400 rounded-lg hover:bg-red-100 transition text-[12px] font-bold border-0 cursor-pointer"

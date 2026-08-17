@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { dirtyStore } from "@/lib/dirty-store";
+import { ConfirmProvider } from "@/hooks/use-confirm";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -227,9 +228,28 @@ function RootShell({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
+  let initialDark = false;
+  if (typeof window !== "undefined") {
+    try {
+      const t = localStorage.getItem('mep_theme') || 'dark';
+      if (t === 'dark') {
+        initialDark = true;
+      } else if (t === 'light') {
+        initialDark = false;
+      } else {
+        initialDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch (e) {}
+  }
+
   return (
-    <html lang="en">
+    <html lang="en" className={initialDark ? "dark" : ""}>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('mep_theme')||'dark';var d=false;if(t==='dark')d=true;else if(t==='light')d=false;else d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})();`,
+          }}
+        />
         <HeadContent />
       </head>
       <body>
@@ -240,7 +260,52 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
-import { ConfirmProvider } from "@/hooks/use-confirm";
+function ThemeWatcher() {
+  useEffect(() => {
+    const applyCurrentTheme = () => {
+      if (typeof window === "undefined") return;
+      const savedTheme = localStorage.getItem("mep_theme") || "dark";
+      let isDark = false;
+      if (savedTheme === "dark") {
+        isDark = true;
+      } else if (savedTheme === "light") {
+        isDark = false;
+      } else {
+        isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      }
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    };
+
+    applyCurrentTheme();
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleSystemChange = () => {
+      const savedTheme = localStorage.getItem("mep_theme") || "dark";
+      if (savedTheme === "system" || savedTheme === "dark") {
+        applyCurrentTheme();
+      }
+    };
+
+    const handleThemeEvent = () => applyCurrentTheme();
+
+    mediaQuery.addEventListener("change", handleSystemChange);
+    window.addEventListener("mep-theme-change", handleThemeEvent);
+    window.addEventListener("storage", handleThemeEvent);
+
+    return () => {
+      mediaQuery.removeEventListener("change", handleSystemChange);
+      window.removeEventListener("mep-theme-change", handleThemeEvent);
+      window.removeEventListener("storage", handleThemeEvent);
+    };
+  }, []);
+
+  return null;
+}
+
 
 function DirtyWatcher() {
   const router = useRouter();
@@ -307,6 +372,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ConfirmProvider>
+          <ThemeWatcher />
           <DirtyWatcher />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <AuthGuard>

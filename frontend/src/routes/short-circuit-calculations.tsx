@@ -771,7 +771,6 @@ function ShortCircuitCalculationsPage() {
     },
     onNewRow: handleAddRow,
     onPrint: handleExportPDF,
-    onExportExcel: handleExportExcel,
     onExportPdf: handleExportPDF
   });
 
@@ -918,7 +917,6 @@ function ShortCircuitCalculationsPage() {
                         }}
                         onImport={handleImportExcelRows}
                       />
-                      <TBtn onClick={handleExportExcel}><Download className="size-3.5" /> Export</TBtn>
                       <TBtn primary onClick={handleAddRow}><Plus className="size-3.5" /> Add Row</TBtn>
                       <TBtn
                         primary
@@ -959,7 +957,6 @@ function ShortCircuitCalculationsPage() {
                     </span>
                     <div className="flex items-center gap-1">
                       <TBtn onClick={handleExportPDF}><Printer className="size-3.5" /> Print</TBtn>
-                      <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Excel</TBtn>
                       <TBtn primary onClick={handleExportPDF}><FileText className="size-3.5" /> Export PDF</TBtn>
                     </div>
                   </div>

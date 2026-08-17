@@ -99,6 +99,7 @@ function PumpSizingPage() {
 
   // Load state from localStorage on project change
   useEffect(() => {
+    if (!project?.id) return;
     try {
       const stored = localStorage.getItem(`mep_pump_sizing_calc_${project.id}`);
       if (stored) {
@@ -151,9 +152,9 @@ function PumpSizingPage() {
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
       console.error("Failed to load pump sizing calculation", e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
-  }, [project.id]);
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
 
   const handleSaveCurrent = () => {
     try {
@@ -433,14 +434,6 @@ function PumpSizingPage() {
                 <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                   📥 Sizing Parameters
                 </span>
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  className="px-3 py-1 bg-[#0A7BC7] hover:bg-[#06456F] text-white text-[11px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition-colors outline-none"
-                >
-                  <Download className="size-3" />
-                  Export Excel
-                </button>
               </div>
 
               {/* SECTION: SELECT PUMP TYPE */}

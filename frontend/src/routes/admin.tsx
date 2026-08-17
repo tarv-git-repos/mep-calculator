@@ -1,9 +1,39 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Component, ReactNode } from 'react'
 import { SuperAdminDashboard } from '@/components/admin/SuperAdminDashboard'
 import { OrgAdminDashboard } from '@/components/admin/OrgAdminDashboard'
 import { Loader2 } from 'lucide-react'
+
+class AdminErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("Admin Dashboard Error Caught:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 bg-slate-950 text-white min-h-screen flex flex-col items-center justify-center text-center">
+          <h2 className="text-xl font-bold text-red-400 mb-2">Admin Control Panel Error</h2>
+          <p className="text-sm text-slate-400 max-w-md mb-4">{this.state.error?.message || "An unexpected rendering error occurred."}</p>
+          <button 
+            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm cursor-pointer"
+          >
+            Reload Admin Panel
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export const Route = createFileRoute('/admin')({
   component: AdminRoutingComponent,
@@ -28,11 +58,19 @@ function AdminRoutingComponent() {
   }
 
   if (profile.role === 'SUPER_ADMIN') {
-    return <SuperAdminDashboard />
+    return (
+      <AdminErrorBoundary>
+        <SuperAdminDashboard />
+      </AdminErrorBoundary>
+    )
   }
 
   if (profile.role === 'ORG_ADMIN') {
-    return <OrgAdminDashboard />
+    return (
+      <AdminErrorBoundary>
+        <OrgAdminDashboard />
+      </AdminErrorBoundary>
+    )
   }
 
   // Fallback for regular users who somehow bypassed the root auth guard

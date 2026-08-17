@@ -1902,12 +1902,6 @@ function SprinklerKFactorPage() {
                   </div>
                   <div className="flex items-center gap-2 no-print print:hidden">
                     <button
-                      onClick={exportExcel}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
-                    >
-                      <FileSpreadsheet className="size-3.5 text-success" /> Export Excel
-                    </button>
-                    <button
                       onClick={exportPdf}
                       className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
                     >

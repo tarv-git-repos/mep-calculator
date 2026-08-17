@@ -53,6 +53,7 @@ function SupplyPipeSizerPage() {
 
   // Load state from localStorage on project change
   useEffect(() => {
+    if (!project?.id) return;
     try {
       const stored = localStorage.getItem(`mep_supply_pipe_sizer_${project.id}`);
       if (stored) {
@@ -80,8 +81,8 @@ function SupplyPipeSizerPage() {
     } catch (e) {
       console.error("Failed to load supply pipe sizer calculation", e);
     }
-    if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
-  }, [project.id]);
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
 
   const handleSaveCurrent = () => {
     try {
@@ -287,7 +288,6 @@ function SupplyPipeSizerPage() {
               <button type="button" onClick={() => handleUnitSystemChange("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
               <button type="button" onClick={() => handleUnitSystemChange("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
             </div>
-            <TBtn onClick={handleExportExcel} disabled={!calculations} className="h-8.5 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

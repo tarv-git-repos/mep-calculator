@@ -584,12 +584,6 @@ function FM200SizerPage() {
                       {/* Export buttons */}
                       <div className="flex gap-2">
                         <button
-                          onClick={exportExcel}
-                          className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-xl border border-border text-[12px] font-semibold bg-background hover:bg-surface-2 text-foreground transition-colors cursor-pointer"
-                        >
-                          <FileSpreadsheet className="size-3.5 text-success" /> Excel
-                        </button>
-                        <button
                           onClick={exportPdf}
                           className="flex-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-xl border border-border text-[12px] font-semibold bg-background hover:bg-surface-2 text-foreground transition-colors cursor-pointer"
                         >

@@ -1051,7 +1051,6 @@ function BusbarCalculationPage() {
         <Upload className="size-3.5" /> Import Ratings
         <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
       </label>
-      <TBtn onClick={exportExcel}><Download className="size-3.5" /> Excel</TBtn>
       <TBtn onClick={exportPdf}><Download className="size-3.5" /> PDF</TBtn>
       <TBtn onClick={clearAll}><Trash2 className="size-3.5" /> Clear All</TBtn>
       <TBtn primary onClick={addPanel}><Plus className="size-3.5" /> Add LV Panel</TBtn>

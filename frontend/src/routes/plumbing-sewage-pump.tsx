@@ -10,6 +10,7 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 function SewagePumpPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Inputs
   const [inflow, setInflow] = useState<number>(30); // GPM
@@ -21,6 +22,7 @@ function SewagePumpPage() {
 
   // Load project state
   useEffect(() => {
+    if (!project?.id) return;
     if (project) {
       const saved = localStorage.getItem(`sewagePump_${project.id}`);
       if (saved) {
@@ -135,7 +137,6 @@ function SewagePumpPage() {
         <div className="flex gap-2">
           <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
             <Download className="w-4 h-4" />
-            Export Excel
           </button>
           <button onClick={saveCalc} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium">
             <Save className="w-4 h-4" />

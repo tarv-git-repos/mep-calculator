@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import {
   FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, FileCode,
-  MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search,
+  MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search, ShieldCheck,
   Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, Pin
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -67,8 +67,14 @@ function ProjectsPage() {
 
   const { profile } = useAuth();
   const isAdmin = ["SUPER_ADMIN", "ORG_ADMIN"].includes(profile?.role || "");
-  const [allUsers, setAllUsers] = useState<any[]>([]);
-  const [allTeams, setAllTeams] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>(() => {
+    const cached = localStorage.getItem('cachedAllUsers');
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [allTeams, setAllTeams] = useState<any[]>(() => {
+    const cached = localStorage.getItem('cachedAllTeams');
+    return cached ? JSON.parse(cached) : [];
+  });
 
   const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => {
     try {
@@ -135,8 +141,10 @@ function ProjectsPage() {
   const loadUsersAndTeams = async () => {
     const u = await api.getUsers();
     setAllUsers(u);
+    try { localStorage.setItem('cachedAllUsers', JSON.stringify(u)); } catch {}
     const t = await api.getTeams();
     setAllTeams(t);
+    try { localStorage.setItem('cachedAllTeams', JSON.stringify(t)); } catch {}
   };
 
   useEffect(() => {
@@ -467,6 +475,16 @@ function ProjectsPage() {
                         {p.name}
                       </h3>
                       <div className="mt-2 flex flex-col gap-1.5 text-[11.5px] text-muted-foreground font-semibold">
+                        {(() => {
+                          const creatorUser = allUsers.find(u => u.id === p.created_by);
+                          const creatorName = creatorUser?.name || (p as any).creator_name || (p.created_by === profile?.id ? (profile?.name || "You") : "Admin");
+                          return (
+                            <div className="flex items-center gap-2">
+                              <User className="size-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+                              <span>Created by: <strong className="text-foreground font-bold">{creatorName}</strong></span>
+                            </div>
+                          );
+                        })()}
                         <div className="flex items-center gap-2">
                           <User className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
                           <span>Client: <strong className="text-foreground/80 font-bold">{p.client}</strong></span>
@@ -511,10 +529,11 @@ function ProjectsPage() {
                     {((p as any).project_users?.length > 0 || (p as any).project_teams?.length > 0) && (
                       <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50">
                         {(p as any).project_teams?.map((pt: any) => {
-                          const team = allTeams.find(t => t.id === pt.team_id);
+                          const team = allTeams.find(t => String(t.id) === String(pt.team_id) || String(t.id) === String(pt.id));
+                          const teamName = team?.name || pt.teams?.name || pt.team_name || pt.name || 'Team';
                           return (
-                            <span key={`t-${pt.team_id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
-                              <Users className="size-3" /> {team?.name || 'Team'}
+                            <span key={`t-${pt.team_id || pt.id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
+                              <Users className="size-3" /> {teamName}
                               {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
                                 <button onClick={() => handleRemoveTeamFromProject(p.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
                                   <X className="size-2.5" />
@@ -575,13 +594,15 @@ function ProjectsPage() {
                     >
                       <Edit3 className="size-3.5" />
                     </button>
-                    <button
-                      onClick={() => setDeleteConfirmId(p.id)}
-                      className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-destructive hover:bg-destructive/5 flex items-center justify-center transition-all cursor-pointer"
-                      title="Delete Workspace"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    {(p.created_by === profile?.id || profile?.role === 'SUPER_ADMIN') && (
+                      <button
+                        onClick={() => setDeleteConfirmId(p.id)}
+                        className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-destructive hover:bg-destructive/5 flex items-center justify-center transition-all cursor-pointer"
+                        title="Delete Workspace"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -725,7 +746,7 @@ function ProjectsPage() {
                       type="text"
                       required
                       value={newProject.name}
-                      onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                      onChange={(e) => setNewProject({ ...newProject, name: e.target.value.replace(/[0-9]/g, '') })}
                       placeholder="e.g. Dubai Mall Expansion"
                       className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-sans outline-none focus:outline-none transition-all"
                     />
@@ -882,7 +903,7 @@ function ProjectsPage() {
                 <input
                   type="text"
                   value={editingProj.name}
-                  onChange={(e) => setEditingProj({ ...editingProj, name: e.target.value })}
+                  onChange={(e) => setEditingProj({ ...editingProj, name: e.target.value.replace(/[0-9]/g, '') })}
                   className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                 />
               </div>
@@ -924,7 +945,7 @@ function ProjectsPage() {
                   defaultValue=""
                 >
                   <option value="" disabled>Select Team to add...</option>
-                  {allTeams.map(t => (
+                  {allTeams.filter(t => !(editingProj as any).project_teams?.some((pt: any) => pt.team_id === t.id)).map(t => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
@@ -940,7 +961,7 @@ function ProjectsPage() {
                   defaultValue=""
                 >
                   <option value="" disabled>Select User to add...</option>
-                  {allUsers.map(u => (
+                  {allUsers.filter(u => !(editingProj as any).project_users?.some((pu: any) => pu.user_id === u.id)).map(u => (
                     <option key={u.id} value={u.id}>{u.name}</option>
                   ))}
                 </select>
@@ -948,10 +969,11 @@ function ProjectsPage() {
                 {((editingProj as any).project_users?.length > 0 || (editingProj as any).project_teams?.length > 0) && (
                   <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50 mt-2">
                     {(editingProj as any).project_teams?.map((pt: any) => {
-                      const team = allTeams.find(t => t.id === pt.team_id);
+                      const team = allTeams.find(t => String(t.id) === String(pt.team_id) || String(t.id) === String(pt.id));
+                      const teamName = team?.name || pt.teams?.name || pt.team_name || pt.name || 'Team';
                       return (
-                        <span key={`t-${pt.team_id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
-                          <Users className="size-3" /> {team?.name || 'Team'}
+                        <span key={`t-${pt.team_id || pt.id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
+                          <Users className="size-3" /> {teamName}
                           <button onClick={() => handleRemoveTeamFromProject(editingProj.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
                             <X className="size-2.5" />
                           </button>
@@ -1020,9 +1042,17 @@ function ProjectsPage() {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  deleteProject(deleteConfirmId);
+                onClick={async () => {
+                  const targetId = deleteConfirmId;
                   setDeleteConfirmId(null);
+                  if (targetId) {
+                    const res = await deleteProject(targetId);
+                    if (res && res.success === false) {
+                      toast.error(res.message || "Failed to delete project");
+                    } else {
+                      toast.success("Workspace deleted successfully!");
+                    }
+                  }
                 }}
                 className="bg-destructive text-destructive-foreground text-xs font-bold px-6 py-2.5 rounded-2xl hover:bg-destructive/95 transition-all cursor-pointer shadow-md shadow-destructive/15"
               >

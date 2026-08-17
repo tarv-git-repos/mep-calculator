@@ -347,7 +347,6 @@ function PsychrometricPage() {
                 <div className="flex flex-col gap-5 animate-fade-in">
                   {/* Action row */}
                   <div className="flex items-center gap-2.5 bg-background border border-border rounded-xl p-2 select-none">
-                    <TBtn onClick={handleExportExcel} className="h-8.5 text-xs"><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                     <TBtn onClick={() => setShowFormulaPanel(!showFormulaPanel)} className="h-8.5 text-xs"><HelpCircle className="size-3.5" /> Formula Reference</TBtn>
                   </div>
 

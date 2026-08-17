@@ -37,7 +37,6 @@ function ReportsPage() {
               <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">{r.desc}</p>
               <div className="mt-3 flex gap-1.5">
                 <TBtn><Download className="size-3" /> PDF</TBtn>
-                <TBtn>Excel</TBtn>
                 <TBtn>Generate</TBtn>
               </div>
             </div>
