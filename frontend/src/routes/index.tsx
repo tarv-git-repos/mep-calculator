@@ -1,12 +1,13 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { predictOccupancyCategory, predictSpacePressure } from "@/lib/ai-occupancy";
 import {
   Plus, Download, Upload, Filter, Columns3, GroupIcon, Pin,
   ChevronDown, ChevronUp, Trash2, Edit3, Copy, X, Bookmark, Wrench,
   Sparkles, AlertTriangle, CheckCircle2, Info, Gauge, FileText, Printer, FileSpreadsheet,
-  FolderKanban, ArrowUpDown, GripVertical, Check, Flag, ChevronsUpDown,
+  FolderKanban, ArrowUpDown, GripVertical, Check, Flag, ChevronsUpDown, MessageSquare,
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
@@ -18,6 +19,7 @@ import { exportVentilationPDF } from "@/lib/exportVentilationPDF";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { CategorySelect } from "@/components/workspace/CategorySelect";
 import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
@@ -470,6 +472,8 @@ function SpacesView() {
   const prompt = usePrompt();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
 
   // Modal states
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -1481,6 +1485,17 @@ function SpacesView() {
           <Copy className="size-3.5 text-muted-foreground" />
           <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
         </ContextMenuItem>
+
+        <ContextMenuItem
+          onClick={() => {
+            setCommentTarget({ id: row.id, name: row.name, type: 'space' });
+            setAssignCommentOpen(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <MessageSquare className="size-3.5 text-muted-foreground" />
+          <span>Add comment</span>
+        </ContextMenuItem>
         
         <ContextMenuSeparator className="h-px bg-border my-1" />
         
@@ -1893,11 +1908,21 @@ function SpacesView() {
 
   const columns: Column<Space>[] = [
     { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => (
-      <InlineInput
-        value={r.name}
-        onCommit={(val) => bulkUpdateSpaces(getSpaceEditIds(r.id), { name: val.trim() || r.name })}
-        className="font-medium text-[13.5px]"
-      />
+      <div className="flex items-center gap-1.5 w-full">
+        {r.comments && r.comments.length > 0 && (
+          <span 
+            title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`} 
+            className="inline-flex items-center justify-center p-1 rounded bg-primary/10 text-primary shrink-0 cursor-help"
+          >
+            <MessageSquare className="size-3.5" />
+          </span>
+        )}
+        <InlineInput
+          value={r.name}
+          onCommit={(val) => bulkUpdateSpaces(getSpaceEditIds(r.id), { name: val.trim() || r.name })}
+          className="font-medium text-[13.5px] flex-1 min-w-0"
+        />
+      </div>
     ) },
     { key: "zone", header: "Zone", width: 200, mono: true, editable: true, render: (r) => {
       const matchingZone = zones.find((z) => z.id === r.zone || z.name === r.zone);
@@ -2625,7 +2650,7 @@ addSpace(newSpace);
           
           <div className="ml-auto flex items-center gap-1">
             <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
-            <TBtn onClick={() => exportVentilationExcel(spaces)}><Download className="size-3.5" /> Export Excel</TBtn>
+            <TBtn onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
             <TBtn onClick={triggerAutoZoning}><Sparkles className="size-3.5 text-primary" /> Auto-Zone</TBtn>
             <TBtn primary onClick={handleNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
           </div>
@@ -2745,6 +2770,24 @@ addSpace(newSpace);
             <span>Î£ Area: <span className="font-mono text-foreground">{rows.reduce((a, s) => a + (s.area || 0) * (s.multiplier || 1), 0).toFixed(0)} mÂ²</span></span>
           </div>
         </div>
+
+        {/* Assign Comment Modal overlay */}
+        {commentTarget && (
+          <AssignCommentModal
+            isOpen={assignCommentOpen}
+            onClose={() => {
+              setAssignCommentOpen(false);
+              setCommentTarget(null);
+            }}
+            targetId={commentTarget.id}
+            targetName={commentTarget.name}
+            targetType={commentTarget.type}
+            onSave={(comment) => {
+              workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
+              toast.success(`Comment assigned on ${commentTarget.type} "${commentTarget.name}"`);
+            }}
+          />
+        )}
 
         {/* Edit Modal overlay */}
         {editingSpace && (
@@ -4641,6 +4684,16 @@ function ZonesView() {
         <Plus className="size-3.5" />
         <span>Manage Equipment</span>
       </ContextMenuItem>
+      <ContextMenuItem
+        onClick={() => {
+          setCommentTarget({ id: z.id, name: z.name, type: 'zone' });
+          setAssignCommentOpen(true);
+        }}
+        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent hover:text-accent-foreground cursor-pointer"
+      >
+        <MessageSquare className="size-3.5" />
+        <span>Add comment</span>
+      </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem
         onClick={async () => {
@@ -5990,6 +6043,16 @@ function EquipmentView() {
         <Wrench className="size-3.5" />
         <span>Manage Assignments</span>
       </ContextMenuItem>
+      <ContextMenuItem
+        onClick={() => {
+          setCommentTarget({ id: e.id, name: e.tag || e.type, type: 'equipment' });
+          setAssignCommentOpen(true);
+        }}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+      >
+        <MessageSquare className="size-3.5" />
+        <span>Add comment</span>
+      </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem
         onClick={async () => {
@@ -6111,7 +6174,6 @@ function ReportView() {
         <span className="text-[12px] text-muted-foreground font-semibold">Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString()}</span></span>
         <div className="ml-auto flex items-center gap-1.5">
           <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
-          <TBtn onClick={() => exportVentilationExcel(spaces)}><FileSpreadsheet className="size-3.5" /> Excel</TBtn>
           <TBtn primary onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
         </div>
       </div>

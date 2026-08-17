@@ -1,0 +1,899 @@
+import { o as __toESM } from "../_runtime.mjs";
+import { u as require_react } from "../_libs/@floating-ui/react-dom+[...].mjs";
+import { u as useWorkspace } from "./workspace-store-Ct3ePlL1.mjs";
+import { j as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
+import { N as Plus, St as Copy, it as FolderPlus, p as Trash, vt as Database } from "../_libs/lucide-react.mjs";
+import { i as useConfirm } from "./use-confirm-BT3fngjN.mjs";
+import { a as ContextMenuSeparator, i as ContextMenuItem, r as ContextMenuContent, t as AppShell } from "./AppShell-urg-0zDa.mjs";
+import { t as require_FileSaver_min } from "../_libs/file-saver.mjs";
+import { t as ImportExcelBtn } from "./ImportExcelBtn-rAnQAoVD.mjs";
+import { n as require_excel } from "../_libs/exceljs+[...].mjs";
+import { t as DataGrid } from "./DataGrid-BXNURe3V.mjs";
+import { n as useElectricalNetworkStore, t as calculateCircuitLoad } from "./electrical-network-CfR4u4MX.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/cable-voltage-drop-Clf-Cmy0.js
+var import_react = /* @__PURE__ */ __toESM(require_react());
+var import_jsx_runtime = require_jsx_runtime();
+var import_FileSaver_min = /* @__PURE__ */ __toESM(require_FileSaver_min());
+require_excel();
+import_FileSaver_min.default.saveAs;
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, onFocus }) {
+	const [localVal, setLocalVal] = (0, import_react.useState)(String(value));
+	const [loadedProjectId, setLoadedProjectId] = (0, import_react.useState)(null);
+	(0, import_react.useEffect)(() => {
+		const strVal = String(value);
+		if (localVal !== strVal) {
+			const parsedLocal = parseFloat(localVal);
+			const parsedValue = parseFloat(strVal);
+			if (localVal.endsWith(".") && parsedLocal === parsedValue) return;
+			if (localVal === "" && parsedValue === 0) return;
+			if (localVal === "-" && parsedValue === 0) return;
+			setLocalVal(strVal);
+		}
+	}, [value, localVal]);
+	const handleChange = (e) => {
+		setLocalVal(e.target.value);
+		onCommit(e.target.value);
+	};
+	const handleKeyDown = (e) => {
+		if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+		type,
+		step,
+		min,
+		value: localVal,
+		onChange: handleChange,
+		onFocus,
+		onKeyDown: handleKeyDown,
+		onClick: (e) => e.stopPropagation(),
+		onDoubleClick: (e) => e.stopPropagation(),
+		className: `bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text ${className}`
+	});
+}
+var CABLE_CATALOGUE = {
+	"4c 16": 2.5,
+	"4c 25": 1.65,
+	"4c 35": 1.15,
+	"4c 50": .87,
+	"4c 70": .6,
+	"4c 95": .43,
+	"4c 120": .35,
+	"4c 150": .29,
+	"4c 185": .24,
+	"4c 240": .19,
+	"4c 300": .16,
+	"1c 16": 2.5,
+	"1c 25": 1.65,
+	"1c 35": 1.15,
+	"1c 50": .87,
+	"1c 70": .6,
+	"1c 95": .43,
+	"1c 120": .35,
+	"1c 150": .29,
+	"1c 185": .24,
+	"1c 240": .19,
+	"1c 300": .16,
+	"1c 400": .13,
+	"1c 500": .11,
+	"1c 630": .09
+};
+var normalizeString = (s) => (s || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+var computeAllRows = (rows) => {
+	let currentGroupVd = 0;
+	const computedVdMap = /* @__PURE__ */ new Map();
+	let busbarVdMap = {};
+	if (typeof window !== "undefined") try {
+		const saved = localStorage.getItem("mep-busbar-calculated-vd-v1");
+		if (saved) busbarVdMap = JSON.parse(saved);
+	} catch (e) {}
+	return rows.map((row) => {
+		if (row.isGroup) {
+			const fromName = normalizeString(row.from);
+			let parentVd = row.cumulativeVd || 0;
+			if (fromName) {
+				if (computedVdMap.has(fromName)) parentVd = computedVdMap.get(fromName);
+				else for (const key of Object.keys(busbarVdMap)) if (normalizeString(key) === fromName) {
+					parentVd = busbarVdMap[key];
+					break;
+				}
+			}
+			currentGroupVd = parentVd;
+			return {
+				...row,
+				cumulativeVd: parentVd,
+				lineCurrent: 0,
+				currentPerCable: 0,
+				vd: 0,
+				vdPercent: 0
+			};
+		}
+		const V = row.voltage || 1;
+		const PF = row.pf || 1;
+		const Runs = row.runs || 1;
+		const lineCurrent = row.load * 1e3 / (1.732 * V * PF);
+		const currentPerCable = lineCurrent / Runs;
+		const vd = row.mvAm * currentPerCable * row.length / 1e3;
+		const vdPercent = vd / V * 100;
+		const cumulativeVd = currentGroupVd + vdPercent;
+		if (row.description) computedVdMap.set(normalizeString(row.description), cumulativeVd);
+		return {
+			...row,
+			lineCurrent: Number(lineCurrent.toFixed(2)),
+			currentPerCable: Number(currentPerCable.toFixed(2)),
+			vd: Number(vd.toFixed(2)),
+			vdPercent: Number(vdPercent.toFixed(2)),
+			cumulativeVd: Number(cumulativeVd.toFixed(2))
+		};
+	});
+};
+var pushToHistory = (currentRows, history, setHistory, setRedoStack) => {
+	setHistory([...history, [...currentRows]]);
+	if (setRedoStack) setRedoStack([]);
+};
+function CableVoltageDropPage() {
+	const { project, forceSaveToCloud } = useWorkspace();
+	const confirm = useConfirm();
+	const boards = useElectricalNetworkStore((state) => state.boards);
+	const setBoards = useElectricalNetworkStore((state) => state.setBoards);
+	const updateCircuit = useElectricalNetworkStore((state) => state.updateCircuit);
+	const [rows, setRows] = (0, import_react.useState)([]);
+	const [selected, setSelected] = (0, import_react.useState)(/* @__PURE__ */ new Set());
+	const [activeRowId, setActiveRowId] = (0, import_react.useState)();
+	const [history, setHistory] = (0, import_react.useState)([]);
+	const [redoStack, setRedoStack] = (0, import_react.useState)([]);
+	const syncToLoadSchedule = (updatedRow, updates) => {
+		if (!updatedRow.isLinked || !updates.size && updates.length === void 0 && updates.runs === void 0) return;
+		const fromNorm = normalizeString(updatedRow.from);
+		const descNorm = normalizeString(updatedRow.description);
+		const parentBoard = boards.find((b) => normalizeString(b.name) === fromNorm);
+		if (parentBoard) {
+			const circuit = parentBoard.circuits.find((c) => {
+				return normalizeString(c.desc || c.roomArea || "") === descNorm;
+			});
+			if (circuit) {
+				if (updates.size !== void 0) {
+					const field = circuit.wire !== void 0 ? "wire" : "wireEcc";
+					updateCircuit(parentBoard.id, circuit.id, field, updates.size);
+				}
+				if (updates.length !== void 0) updateCircuit(parentBoard.id, circuit.id, "len", updates.length.toString());
+				if (updates.runs !== void 0) updateCircuit(parentBoard.id, circuit.id, "qty", updates.runs);
+			}
+		}
+	};
+	const updateRow = (id, updates) => {
+		pushToHistory(rows, history, setHistory, setRedoStack);
+		let newRows = [...rows];
+		if (selected.has(id) && selected.size > 1) newRows = newRows.map((row) => {
+			if (selected.has(row.id)) {
+				const updatedRow = {
+					...row,
+					...updates
+				};
+				if (updates.size !== void 0) {
+					const normalizedSize = updates.size.toLowerCase().trim();
+					if (CABLE_CATALOGUE[normalizedSize] !== void 0) updatedRow.mvAm = CABLE_CATALOGUE[normalizedSize];
+				}
+				syncToLoadSchedule(updatedRow, updates);
+				return updatedRow;
+			}
+			return row;
+		});
+		else newRows = newRows.map((row) => {
+			if (row.id === id) {
+				const updatedRow = {
+					...row,
+					...updates
+				};
+				if (updates.description !== void 0 || updates.from !== void 0) if (!updatedRow.isGroup && updatedRow.from && updatedRow.description) {
+					const fromNorm = normalizeString(updatedRow.from);
+					const descNorm = normalizeString(updatedRow.description);
+					const parentBoard = boards.find((b) => normalizeString(b.name) === fromNorm);
+					if (parentBoard) {
+						const circuit = parentBoard.circuits.find((c) => {
+							return normalizeString(c.desc || c.roomArea || "") === descNorm;
+						});
+						if (circuit) {
+							updatedRow.isLinked = true;
+							const loadW = circuit.loadW !== void 0 ? circuit.loadW : calculateCircuitLoad(circuit);
+							if (loadW) updatedRow.load = Number((loadW / 1e3).toFixed(2));
+							if (circuit.qty) updatedRow.runs = Number(circuit.qty);
+							if (circuit.wire || circuit.wireEcc) updatedRow.size = circuit.wire || circuit.wireEcc;
+							if (circuit.len) updatedRow.length = Number(circuit.len);
+							const normalizedSize = (circuit.wire || circuit.wireEcc || "").toLowerCase().trim();
+							if (CABLE_CATALOGUE[normalizedSize] !== void 0) updatedRow.mvAm = CABLE_CATALOGUE[normalizedSize];
+						} else updatedRow.isLinked = false;
+					} else updatedRow.isLinked = false;
+				} else updatedRow.isLinked = false;
+				if (updates.size !== void 0) {
+					const normalizedSize = updates.size.toLowerCase().trim();
+					if (CABLE_CATALOGUE[normalizedSize] !== void 0) updatedRow.mvAm = CABLE_CATALOGUE[normalizedSize];
+				}
+				syncToLoadSchedule(updatedRow, updates);
+				return updatedRow;
+			}
+			return row;
+		});
+		setRows(computeAllRows(newRows));
+	};
+	const handleToggle = (id, isShift, isCtrl) => {
+		setSelected((prev) => {
+			const next = new Set(prev);
+			if (isShift && activeRowId) {
+				const currentIndex = rows.findIndex((r) => r.id === id);
+				const activeIndex = rows.findIndex((r) => r.id === activeRowId);
+				if (currentIndex !== -1 && activeIndex !== -1) {
+					const start = Math.min(currentIndex, activeIndex);
+					const end = Math.max(currentIndex, activeIndex);
+					for (let i = start; i <= end; i++) next.add(rows[i].id);
+					return next;
+				}
+			}
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+		setActiveRowId(id);
+	};
+	const handleToggleAll = () => {
+		if (selected.size === rows.length && rows.length > 0) setSelected(/* @__PURE__ */ new Set());
+		else setSelected(new Set(rows.map((r) => r.id)));
+	};
+	const addRow = (isGroup = false) => {
+		const newId = `vd_${Math.random().toString(36).slice(2, 9)}`;
+		const newRow = {
+			id: newId,
+			isGroup,
+			from: "",
+			description: isGroup ? "VOLTAGE DROP FROM SMDB-XX TO DBs/EQUIPMENTS AS FOLLOW" : "",
+			load: 0,
+			voltage: 400,
+			pf: .8,
+			lineCurrent: 0,
+			runs: 1,
+			size: "",
+			currentPerCable: 0,
+			length: 0,
+			mvAm: 0,
+			vd: 0,
+			vdPercent: 0,
+			cumulativeVd: 0
+		};
+		pushToHistory(rows, history, setHistory, setRedoStack);
+		setRows((prev) => computeAllRows([...prev, newRow]));
+		setSelected(/* @__PURE__ */ new Set([newId]));
+		setActiveRowId(newId);
+	};
+	const loadDummyData = () => {
+		const sampleMDB = {
+			id: "board-sample-mdb",
+			name: "MDB-MAIN",
+			type: "MDB",
+			phaseType: "3-Phase",
+			fedFrom: "DEWA",
+			incomer: {
+				rating: "1600A",
+				sptp: "4P",
+				faultKa: "50",
+				cableSize: "300",
+				eccSize: "150",
+				inc1: "",
+				inc2: "",
+				meterType: "None"
+			},
+			circuits: [{
+				id: "c-1",
+				cirNo: 1,
+				desc: "SMDB-1",
+				qty: 1,
+				loadW: 45e3,
+				phase: "R",
+				df: 1,
+				mcb: "100",
+				faultKa: "36",
+				wire: "4c 35",
+				type: "XLPE",
+				ecc: "16",
+				len: "45",
+				ph1Mtr: "",
+				ph3Mtr: "",
+				ctMtr: "",
+				remarks: ""
+			}, {
+				id: "c-2",
+				cirNo: 2,
+				desc: "CHILLER-1",
+				qty: 2,
+				loadW: 12e4,
+				phase: "Y",
+				df: 1,
+				mcb: "250",
+				faultKa: "36",
+				wire: "4c 120",
+				type: "XLPE",
+				ecc: "70",
+				len: "60",
+				ph1Mtr: "",
+				ph3Mtr: "",
+				ctMtr: "",
+				remarks: ""
+			}]
+		};
+		if (!boards.find((b) => b.name === "MDB-MAIN")) setBoards([...boards, sampleMDB]);
+		localStorage.setItem("mep-busbar-calculated-vd-v1", JSON.stringify({
+			"lv panel 01": .42,
+			"bb 1": .42,
+			"smdb 1": .25
+		}));
+		localStorage.setItem("mep-busbar-calculation-v1", JSON.stringify([{
+			id: "pan_sample",
+			name: "LV PANEL-01",
+			sections: [{
+				id: "sec_sample",
+				name: "BB-1",
+				ratingId: "1600_rt",
+				volts: 415,
+				pf: .8,
+				rows: [{
+					id: "bb_1",
+					from: "LV PANEL-01",
+					desc: "SMDB-1",
+					ref: "BB-1",
+					length: 15,
+					loadKw: 45,
+					div: 1
+				}]
+			}]
+		}]));
+		const dummy = [{
+			id: `vd_${Math.random().toString(36).slice(2, 9)}`,
+			isGroup: true,
+			from: "BB-1",
+			description: "VOLTAGE DROP FROM BB-1 TO SMDB-1",
+			load: 0,
+			voltage: 0,
+			pf: 0,
+			lineCurrent: 0,
+			runs: 0,
+			size: "",
+			currentPerCable: 0,
+			length: 0,
+			mvAm: 0,
+			vd: 0,
+			vdPercent: 0,
+			cumulativeVd: 0
+		}, {
+			id: `vd_${Math.random().toString(36).slice(2, 9)}`,
+			isGroup: false,
+			from: "",
+			description: "",
+			load: 0,
+			voltage: 400,
+			pf: .8,
+			lineCurrent: 0,
+			runs: 1,
+			size: "",
+			currentPerCable: 0,
+			length: 0,
+			mvAm: 0,
+			vd: 0,
+			vdPercent: 0,
+			cumulativeVd: 0
+		}];
+		pushToHistory(rows, history, setHistory, setRedoStack);
+		setRows((prev) => computeAllRows([...prev, ...dummy]));
+		setTimeout(() => {
+			alert("Sample data loaded successfully!\n\n1. I've added 'MDB-MAIN' to your Project Load Schedule.\n2. I've added 'LV PANEL-01' to your Busbar Calculation.\n\nTo see the automation work right now:\nClick on the empty row at the bottom and type:\nFrom: MDB MAIN\nDescription: SMDB 1");
+		}, 100);
+	};
+	const deleteSelected = async () => {
+		if (selected.size === 0) return;
+		if (await confirm(`Are you sure you want to delete ${selected.size} selected row(s)?`)) {
+			pushToHistory(rows, history, setHistory, setRedoStack);
+			setRows((prev) => computeAllRows(prev.filter((r) => !selected.has(r.id))));
+			setSelected(/* @__PURE__ */ new Set());
+			setActiveRowId(void 0);
+		}
+	};
+	const duplicateSelected = () => {
+		if (selected.size === 0) return;
+		pushToHistory(rows, history, setHistory, setRedoStack);
+		const duplicated = [];
+		rows.forEach((r) => {
+			if (selected.has(r.id)) duplicated.push({
+				...r,
+				id: `vd_dup_${Math.random().toString(36).slice(2, 9)}`,
+				description: `${r.description} (Copy)`
+			});
+		});
+		setRows((prev) => computeAllRows([...prev, ...duplicated]));
+	};
+	(0, import_react.useEffect)(() => {
+		const handleKeyDown = (e) => {
+			const activeEl = document.activeElement;
+			const isCmdOrCtrl = navigator.platform.toUpperCase().indexOf("MAC") >= 0 ? e.metaKey : e.ctrlKey;
+			if (e.key === "Enter" && activeEl.tagName === "INPUT") {
+				activeEl.blur();
+				return;
+			}
+			if (e.key === "Escape") {
+				activeEl?.blur();
+				if (selected.size > 0) {
+					e.preventDefault();
+					setSelected(/* @__PURE__ */ new Set());
+					setActiveRowId(void 0);
+				}
+				return;
+			}
+			if ([
+				"ArrowUp",
+				"ArrowDown",
+				"ArrowLeft",
+				"ArrowRight"
+			].includes(e.key) && activeEl.tagName === "INPUT") {
+				const rowIdxStr = activeEl.getAttribute("data-row-idx");
+				const colIdxStr = activeEl.getAttribute("data-col-idx");
+				if (rowIdxStr !== null && colIdxStr !== null) {
+					let rIdx = parseInt(rowIdxStr);
+					let cIdx = parseInt(colIdxStr);
+					if (e.key === "ArrowUp") rIdx--;
+					else if (e.key === "ArrowDown") rIdx++;
+					else if (e.key === "ArrowLeft") cIdx--;
+					else if (e.key === "ArrowRight") cIdx++;
+					const nextInput = document.querySelector(`input[data-row-idx="${rIdx}"][data-col-idx="${cIdx}"]`);
+					if (nextInput) {
+						e.preventDefault();
+						nextInput.focus();
+						setTimeout(() => nextInput.select(), 0);
+					}
+					return;
+				}
+			}
+			if (activeEl && (activeEl.tagName === "INPUT" && activeEl.type !== "checkbox" && activeEl.type !== "radio" || activeEl.tagName === "SELECT" || activeEl.tagName === "TEXTAREA" || activeEl.isContentEditable)) return;
+			if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+				e.preventDefault();
+				setSelected(new Set(rows.map((r) => r.id)));
+			}
+			if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
+				e.preventDefault();
+				deleteSelected();
+			}
+			if (isCmdOrCtrl && e.key.toLowerCase() === "z" && !e.shiftKey) {
+				e.preventDefault();
+				if (history.length > 0) {
+					const previous = history[history.length - 1];
+					setRedoStack((prev) => [...prev, rows]);
+					setRows(previous);
+					setHistory((prev) => prev.slice(0, -1));
+				}
+			}
+			if (isCmdOrCtrl && (e.key.toLowerCase() === "y" || e.shiftKey && e.key.toLowerCase() === "z")) {
+				e.preventDefault();
+				if (redoStack.length > 0) {
+					const next = redoStack[redoStack.length - 1];
+					setHistory((prev) => [...prev, rows]);
+					setRows(next);
+					setRedoStack((prev) => prev.slice(0, -1));
+				}
+			}
+			if (isCmdOrCtrl && e.key.toLowerCase() === "c" && selected.size > 0) {
+				e.preventDefault();
+				const selectedRows = rows.filter((r) => selected.has(r.id));
+				navigator.clipboard.writeText(JSON.stringify(selectedRows));
+			}
+			if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+				e.preventDefault();
+				navigator.clipboard.readText().then((text) => {
+					try {
+						const parsed = JSON.parse(text);
+						if (Array.isArray(parsed) && parsed.length > 0 && "cumulativeVd" in parsed[0]) {
+							pushToHistory(rows, history, setHistory, setRedoStack);
+							const newRows = parsed.map((r) => ({
+								...r,
+								id: `vd_paste_${Math.random().toString(36).slice(2, 9)}`
+							}));
+							setRows((prev) => computeAllRows([...prev, ...newRows]));
+						}
+					} catch (err) {
+						console.error("Failed to paste", err);
+					}
+				});
+			}
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [
+		rows,
+		selected,
+		history,
+		redoStack,
+		activeRowId
+	]);
+	const handleImportExcelRows = (mappedRows) => {
+		const newRows = mappedRows.map((mr, idx) => ({
+			id: `vd_import_${Date.now()}_${idx}`,
+			isGroup: false,
+			loadRef: mr.loadRef || `Imported Load ${idx + 1}`,
+			from: mr.from || "",
+			to: mr.to || "",
+			length: Number(mr.length) || 10,
+			loadKw: Number(mr.loadKw) || 0,
+			powerFactor: Number(mr.powerFactor) || .8,
+			phase: Number(mr.phase) || 3,
+			voltageDropLimit: Number(mr.voltageDropLimit) || 5,
+			cableType: mr.cableType || "XLPE/SWA/PVC",
+			conductor: mr.conductor || "Cu",
+			installationMethod: mr.installationMethod || "In Trench",
+			ambientTemp: Number(mr.ambientTemp) || 50,
+			groupingFactor: Number(mr.groupingFactor) || 1
+		}));
+		setRows((prev) => computeAllRows([...prev, ...newRows]));
+	};
+	const columns = (0, import_react.useMemo)(() => [
+		{
+			key: "from",
+			header: "From",
+			width: 100,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1",
+					value: row.from,
+					onCommit: (val) => updateRow(row.id, { from: val }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "description",
+			header: "Description",
+			width: 250,
+			render: (row) => {
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "relative flex items-center w-full",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+							className: `w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 pr-6 ${row.isGroup ? "font-bold" : ""}`,
+							value: row.description,
+							onCommit: (val) => updateRow(row.id, { description: val }),
+							onFocus: (e) => {
+								if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+								setActiveRowId(row.id);
+							}
+						}),
+						!row.isGroup && row.isLinked && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "absolute right-1 text-green-500 bg-white dark:bg-slate-900 rounded-full",
+							title: "Linked to Load Schedule",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Database, { size: 14 })
+						}),
+						!row.isGroup && !row.isLinked && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "absolute right-1 text-slate-300 dark:text-slate-600 bg-white dark:bg-slate-900 rounded-full",
+							title: "Not found in Load Schedule",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Database, { size: 14 })
+						})
+					]
+				});
+			}
+		},
+		{
+			key: "load",
+			header: "Load (kW)",
+			width: 90,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					type: "number",
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center",
+					value: row.load,
+					onCommit: (val) => updateRow(row.id, { load: parseFloat(val) || 0 }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "voltage",
+			header: "Voltage",
+			width: 80,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					type: "number",
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center",
+					value: row.voltage,
+					onCommit: (val) => updateRow(row.id, { voltage: parseFloat(val) || 0 }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "pf",
+			header: "PF",
+			width: 60,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					type: "number",
+					step: "0.01",
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center",
+					value: row.pf,
+					onCommit: (val) => updateRow(row.id, { pf: parseFloat(val) || 0 }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "lineCurrent",
+			header: "Line A",
+			width: 80,
+			render: (row) => !row.isGroup ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "w-full text-center text-slate-500",
+				children: row.lineCurrent
+			}) : null
+		},
+		{
+			key: "runs",
+			header: "Runs",
+			width: 60,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					type: "number",
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center",
+					value: row.runs,
+					onCommit: (val) => updateRow(row.id, { runs: parseFloat(val) || 1 }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "size",
+			header: "Cable Size",
+			width: 100,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center",
+					value: row.size,
+					onCommit: (val) => updateRow(row.id, { size: val }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "currentPerCable",
+			header: "A / Cable",
+			width: 90,
+			render: (row) => !row.isGroup ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "w-full text-center text-slate-500",
+				children: row.currentPerCable
+			}) : null
+		},
+		{
+			key: "length",
+			header: "Len (m)",
+			width: 80,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					type: "number",
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center",
+					value: row.length,
+					onCommit: (val) => updateRow(row.id, { length: parseFloat(val) || 0 }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "mvAm",
+			header: "mV/A/m",
+			width: 80,
+			render: (row) => {
+				if (row.isGroup) return null;
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+					type: "number",
+					step: "0.01",
+					className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 text-center",
+					value: row.mvAm,
+					onCommit: (val) => updateRow(row.id, { mvAm: parseFloat(val) || 0 }),
+					onFocus: (e) => {
+						if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+						setActiveRowId(row.id);
+					}
+				});
+			}
+		},
+		{
+			key: "vd",
+			header: "VD (V)",
+			width: 80,
+			render: (row) => !row.isGroup ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "w-full text-center font-medium",
+				children: row.vd
+			}) : null
+		},
+		{
+			key: "vdPercent",
+			header: "VD (%)",
+			width: 80,
+			render: (row) => !row.isGroup ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "w-full text-center font-bold text-[#06456F] dark:text-sky-400",
+				children: row.vdPercent
+			}) : null
+		},
+		{
+			key: "cumulativeVd",
+			header: "Cumul. %V",
+			width: 90,
+			render: (row) => {
+				if (row.isGroup) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded px-1",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-[10px] text-slate-500",
+						children: "Parent:"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InlineInput, {
+						type: "number",
+						step: "0.01",
+						className: "w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded text-center text-sm font-bold",
+						value: row.cumulativeVd,
+						onCommit: (val) => updateRow(row.id, { cumulativeVd: parseFloat(val) || 0 }),
+						onFocus: (e) => {
+							if (!selected.has(row.id)) setSelected(/* @__PURE__ */ new Set([row.id]));
+							setActiveRowId(row.id);
+						}
+					})]
+				});
+				return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "w-full text-center font-bold text-blue-600 dark:text-blue-400",
+					children: row.cumulativeVd
+				});
+			}
+		}
+	], [rows, selected]);
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AppShell, {
+		title: "Cable Voltage Drop Calculations",
+		subtitle: "Calculate electrical cable voltage drop.",
+		actions: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "flex gap-2",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ImportExcelBtn, {
+				columnMapping: {
+					"Load Ref": "loadRef",
+					"From": "from",
+					"To": "to",
+					"Length (m)": "length",
+					"Length": "length",
+					"Load (kW)": "loadKw",
+					"Load": "loadKw",
+					"PF": "powerFactor",
+					"Power Factor": "powerFactor",
+					"Phase": "phase",
+					"VD Limit (%)": "voltageDropLimit",
+					"VD Limit": "voltageDropLimit",
+					"Cable Type": "cableType",
+					"Conductor": "conductor",
+					"Installation": "installationMethod",
+					"Ambient Temp (C)": "ambientTemp",
+					"Grouping Factor": "groupingFactor"
+				},
+				onImport: handleImportExcelRows,
+				className: "flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors"
+			})
+		}),
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "relative z-10 flex flex-col h-full w-full",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "flex items-center justify-between px-4 h-12 border-b border-border bg-background/80 backdrop-blur-md shrink-0 select-none",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-2",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: () => addRow(true),
+								className: "flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded text-[12.5px] font-medium shadow-sm transition-all",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderPlus, { className: "size-3.5" }), " Add Group"]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: () => addRow(false),
+								className: "flex items-center gap-1.5 px-3 py-1.5 border border-primary/20 text-primary hover:bg-primary/10 rounded text-[12.5px] font-medium shadow-sm transition-all",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "size-3.5" }), " Add Node"]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "w-px h-4 bg-border mx-1" }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								disabled: selected.size === 0,
+								onClick: deleteSelected,
+								className: "flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 rounded text-[12.5px] font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash, { className: "size-3.5" }), " Delete Selected"]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "w-px h-4 bg-border mx-1" }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								onClick: loadDummyData,
+								className: "flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:text-foreground hover:bg-surface-2 rounded text-[12.5px] font-medium transition-colors",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Database, { className: "size-3.5" }), " Load Sample Data"]
+							})
+						]
+					})
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "flex-1 overflow-hidden flex flex-col relative p-4",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "flex-1 flex flex-col bg-white/80 dark:bg-black/40 backdrop-blur-sm rounded-xl border border-white/50 dark:border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.04)] overflow-hidden",
+						children: rows.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DataGrid, {
+							rows,
+							columns,
+							selected,
+							onToggle: handleToggle,
+							onToggleAll: handleToggleAll,
+							renderContextMenu: (row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ContextMenuContent, {
+								className: "w-48",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ContextMenuItem, {
+										onClick: () => addRow(false),
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "size-4 mr-2" }), " Add Node"]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ContextMenuItem, {
+										onClick: () => addRow(true),
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderPlus, { className: "size-4 mr-2" }), " Add Group"]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ContextMenuItem, {
+										onClick: duplicateSelected,
+										disabled: selected.size === 0,
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { className: "size-4 mr-2" }), " Duplicate Selected"]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ContextMenuSeparator, {}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(ContextMenuItem, {
+										onClick: deleteSelected,
+										disabled: selected.size === 0,
+										className: "text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash, { className: "size-4 mr-2" }), " Delete Selected"]
+									})
+								]
+							})
+						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex-1 flex flex-col items-center justify-center text-center p-8",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "size-12 rounded-full bg-surface-2 flex items-center justify-center mb-4 border border-border shadow-sm",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "size-5 text-muted-foreground" })
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+									className: "text-sm font-semibold text-foreground mb-1",
+									children: "No cable VD rows"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs text-muted-foreground max-w-sm mb-4",
+									children: "Add a group or load sample data to begin calculating your cable voltage drops."
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									onClick: () => addRow(true),
+									className: "flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded text-[13px] font-medium shadow-sm transition-all",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "size-4" }), " Add First Group"]
+								})
+							]
+						})
+					})
+				})]
+			})]
+		})
+	});
+}
+//#endregion
+export { CableVoltageDropPage as component };

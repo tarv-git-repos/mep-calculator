@@ -43,7 +43,6 @@ export function AssignCommentModal({
     }
 
     const fetchAssignees = async () => {
-      if (!project) return;
       if (availableUsers.length === 0) {
         setIsLoading(true);
       }
@@ -70,7 +69,7 @@ export function AssignCommentModal({
           }
         });
 
-        const filteredUsers = allUsers.filter((u: any) => assignedUserIds.has(u.id));
+        const filteredUsers = assignedUserIds.size > 0 ? allUsers.filter((u: any) => assignedUserIds.has(u.id)) : allUsers;
 
         setAvailableUsers(filteredUsers);
         setAvailableTeams(filteredTeams);

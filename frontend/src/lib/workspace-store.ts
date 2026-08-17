@@ -573,6 +573,41 @@ export const workspaceStore = {
     notify();
   },
 
+  addCommentToTarget(targetId: string, targetType: 'space' | 'zone' | 'equipment', comment: any) {
+    pushHistory();
+    if (targetType === 'space') {
+      const nextSpaces = currentWorkspaceState.spaces.map(s => {
+        if (s.id === targetId) {
+          const comments = [...(s.comments || []), comment];
+          return { ...s, comments };
+        }
+        return s;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, spaces: nextSpaces };
+    } else if (targetType === 'zone') {
+      const nextZones = currentWorkspaceState.zones.map(z => {
+        if (z.id === targetId) {
+          const comments = [...(z.comments || []), comment];
+          return { ...z, comments };
+        }
+        return z;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, zones: nextZones };
+    } else if (targetType === 'equipment') {
+      const nextEquip = currentWorkspaceState.equipment.map(e => {
+        if (e.id === targetId) {
+          const comments = [...(e.comments || []), comment];
+          return { ...e, comments };
+        }
+        return e;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, equipment: nextEquip };
+    }
+    saveState();
+    logCalculatorUpdate('Ventilation', `Added comment to ${targetType}`);
+    notify();
+  },
+
   addSpace(newSpace: Space) {
     pushHistory();
     const nextSpace = { ...newSpace };
