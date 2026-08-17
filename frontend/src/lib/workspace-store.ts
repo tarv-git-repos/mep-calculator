@@ -264,48 +264,53 @@ export const workspaceStore = {
     if (cloudInitDone) return;
     cloudInitDone = true;
     
-    supabase
-      .channel('public:projects')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
-        workspaceStore.refreshProjects();
-      })
-      .subscribe();
+    try {
+      supabase
+        .channel('public:projects')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+          workspaceStore.refreshProjects();
+        })
+        .subscribe();
 
-    const cloudProjects = await api.getProjects();
-    projects = cloudProjects || [];
-    
-    if (projects.length > 0) {
-       let lastActive = typeof localStorage !== "undefined"
-         ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id"))
-         : null;
-       let target = projects[0];
-       if (lastActive) {
-         const found = projects.find(p => p.id === lastActive || p.code === lastActive);
-         if (found) target = found;
-       }
-       activeProjectId = target.id;
-       currentProject = target;
-       if (typeof localStorage !== "undefined") {
-         localStorage.setItem("mep_active_project_id", target.id);
-         localStorage.setItem("mep_last_worked_project_id", target.id);
-       }
-       const wdata = currentProject.workspace_data || {};
-       injectLocalStorageCache(wdata);
-       currentWorkspaceState = sanitizeWorkspaceState({
-          spaces: wdata.spaces || [],
-          zones: wdata.zones || [],
-          equipment: wdata.equipment || [],
-          roundOffPreset: wdata.roundOffPreset ?? 5,
-          isReadOnly: false
-       });
-    } else {
-       activeProjectId = "";
-       currentProject = undefined;
-       currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+      const cloudProjects = await api.getProjects();
+      projects = cloudProjects || [];
+      
+      if (projects.length > 0) {
+         let lastActive = typeof localStorage !== "undefined"
+           ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id"))
+           : null;
+         let target = projects[0];
+         if (lastActive) {
+           const found = projects.find(p => p.id === lastActive || p.code === lastActive);
+           if (found) target = found;
+         }
+         activeProjectId = target.id;
+         currentProject = target;
+         if (typeof localStorage !== "undefined") {
+           localStorage.setItem("mep_active_project_id", target.id);
+           localStorage.setItem("mep_last_worked_project_id", target.id);
+         }
+         const wdata = currentProject.workspace_data || {};
+         injectLocalStorageCache(wdata);
+         currentWorkspaceState = sanitizeWorkspaceState({
+            spaces: wdata.spaces || [],
+            zones: wdata.zones || [],
+            equipment: wdata.equipment || [],
+            roundOffPreset: wdata.roundOffPreset ?? 5,
+            isReadOnly: false
+         });
+      } else {
+         activeProjectId = "";
+         currentProject = undefined;
+         currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+      }
+      setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+    } catch (err) {
+      console.error("Workspace init failed:", err);
+    } finally {
+      isInitializing = false;
+      notify();
     }
-    setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
-    isInitializing = false;
-    notify();
   },
   getState() {
     const defaultProject = { id: "", name: "No Workspace Selected", code: "---", client: "N/A" };

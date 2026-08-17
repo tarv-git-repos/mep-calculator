@@ -1889,8 +1889,11 @@ const server = http.createServer(async (req, res) => {
         .order('created_at', { ascending: false });
 
       if (user && user.role !== 'SUPER_ADMIN') {
-        // Normal users or Org Admins see global broadcasts (org_id is null) OR their own org's broadcasts
-        query = query.or(`organization_id.is.null,organization_id.eq.${user.organization_id}`);
+        if (user.organization_id) {
+          query = query.or(`organization_id.is.null,organization_id.eq.${user.organization_id}`);
+        } else {
+          query = query.is('organization_id', null);
+        }
       } else if (!user) {
         // Unauthenticated users ONLY see global broadcasts
         query = query.is('organization_id', null);
