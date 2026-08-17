@@ -1,0 +1,1 @@
+import{t as e}from"./index-Bxh1_5Mq.js";var t=e;export{t as component};

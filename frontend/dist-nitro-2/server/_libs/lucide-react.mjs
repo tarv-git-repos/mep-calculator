@@ -1219,38 +1219,6 @@ var FileCode = createLucideIcon("file-code", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
-var FileSpreadsheet = createLucideIcon("file-spreadsheet", [
-	["path", {
-		d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z",
-		key: "1oefj6"
-	}],
-	["path", {
-		d: "M14 2v5a1 1 0 0 0 1 1h5",
-		key: "wfsgrz"
-	}],
-	["path", {
-		d: "M8 13h2",
-		key: "yr2amv"
-	}],
-	["path", {
-		d: "M14 13h2",
-		key: "un5t4a"
-	}],
-	["path", {
-		d: "M8 17h2",
-		key: "2yhykz"
-	}],
-	["path", {
-		d: "M14 17h2",
-		key: "10kma7"
-	}]
-]);
-/**
-* @license lucide-react v0.575.0 - ISC
-*
-* This source code is licensed under the ISC license.
-* See the LICENSE file in the root directory of this source tree.
-*/
 var FileText = createLucideIcon("file-text", [
 	["path", {
 		d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z",
@@ -2571,4 +2539,4 @@ var Zap = createLucideIcon("zap", [["path", {
 	key: "1xq2db"
 }]]);
 //#endregion
-export { Group as $, FileChartColumnIncreasing as $t, RefreshCcw as A, Check as At, Megaphone as B, ArrowRight as Bt, Settings2 as C, Cog as Ct, RotateCcw as D, ChevronUp as Dt, Save as E, ChevronsUpDown as Et, Pin as F, Building2 as Ft, List as G, Sparkles as Gt, Mail as H, ArrowDown as Ht, Network as I, Briefcase as It, KeyRound as J, PanelLeftClose as Jt, LayoutDashboard as K, PenLine as Kt, Moon as L, Boxes as Lt, Printer as M, Calendar as Mt, Plus as N, Calculator as Nt, Rocket as O, ChevronRight as Ot, Play as P, Building as Pt, HardDrive as Q, Funnel as Qt, Monitor as R, Bell as Rt, Settings as S, Copy as St, Search as T, Circle as Tt, LogOut as U, Activity as Ut, MapPin as V, ArrowLeft as Vt, Lock as W, TriangleAlert as Wt, Import as X, Layers as Xt, Info as Y, LoaderCircle as Yt, History as Z, Grid3x3 as Zt, Star as _, Download as _t, Users as a, CircleCheck as an, FolderOpen as at, ShieldCheck as b, CreditCard as bt, UserCheck as c, Flag as ct, Trophy as d, FileCode as dt, CloudUpload as en, GripVertical as et, TrendingUp as f, Fan as ft, Sun as g, Droplet as gt, Table as h, Droplets as ht, Wind as i, CircleCheckBig as in, FolderPlus as it, Redo as j, Camera as jt, RefreshCw as k, ChevronDown as kt, Upload as l, FileText as lt, Trash2 as m, EyeOff as mt, X as n, CircleX as nn, GitFork as nt, User as o, CircleAlert as on, FolderKanban as ot, Trash as p, Eye as pt, Key as q, PanelLeftOpen as qt, Wrench as r, CircleQuestionMark as rn, Gauge as rt, UserPlus as s, Flame as st, Zap as t, CloudDownload as tn, Globe as tt, Undo as u, FileSpreadsheet as ut, SlidersHorizontal as v, Database as vt, Send as w, Clock as wt, ShieldAlert as x, Cpu as xt, Shield as y, Crown as yt, MessageSquare as z, ArrowUpDown as zt };
+export { Group as $, CloudUpload as $t, RefreshCcw as A, Camera as At, Megaphone as B, ArrowLeft as Bt, Settings2 as C, Clock as Ct, RotateCcw as D, ChevronRight as Dt, Save as E, ChevronUp as Et, Pin as F, Briefcase as Ft, List as G, PenLine as Gt, Mail as H, Activity as Ht, Network as I, Boxes as It, KeyRound as J, LoaderCircle as Jt, LayoutDashboard as K, PanelLeftOpen as Kt, Moon as L, Bell as Lt, Printer as M, Calculator as Mt, Plus as N, Building as Nt, Rocket as O, ChevronDown as Ot, Play as P, Building2 as Pt, HardDrive as Q, FileChartColumnIncreasing as Qt, Monitor as R, ArrowUpDown as Rt, Settings as S, Cog as St, Search as T, ChevronsUpDown as Tt, LogOut as U, TriangleAlert as Ut, MapPin as V, ArrowDown as Vt, Lock as W, Sparkles as Wt, Import as X, Grid3x3 as Xt, Info as Y, Layers as Yt, History as Z, Funnel as Zt, Star as _, Database as _t, Users as a, CircleAlert as an, FolderOpen as at, ShieldCheck as b, Cpu as bt, UserCheck as c, Flag as ct, Trophy as d, Fan as dt, CloudDownload as en, GripVertical as et, TrendingUp as f, Eye as ft, Sun as g, Download as gt, Table as h, Droplet as ht, Wind as i, CircleCheck as in, FolderPlus as it, Redo as j, Calendar as jt, RefreshCw as k, Check as kt, Upload as l, FileText as lt, Trash2 as m, Droplets as mt, X as n, CircleQuestionMark as nn, GitFork as nt, User as o, FolderKanban as ot, Trash as p, EyeOff as pt, Key as q, PanelLeftClose as qt, Wrench as r, CircleCheckBig as rn, Gauge as rt, UserPlus as s, Flame as st, Zap as t, CircleX as tn, Globe as tt, Undo as u, FileCode as ut, SlidersHorizontal as v, Crown as vt, Send as w, Circle as wt, ShieldAlert as x, Copy as xt, Shield as y, CreditCard as yt, MessageSquare as z, ArrowRight as zt };

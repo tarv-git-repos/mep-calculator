@@ -3,7 +3,7 @@ import { u as require_react } from "../_libs/@floating-ui/react-dom+[...].mjs";
 import { C as Slot, a as Overlay2, c as Title2, i as Description2, j as require_jsx_runtime, n as Cancel, o as Portal2, r as Content2, s as Root2, t as Action } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
 import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs";
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
-import { Wt as TriangleAlert } from "../_libs/lucide-react.mjs";
+import { Ut as TriangleAlert } from "../_libs/lucide-react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/use-confirm-BT3fngjN.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();

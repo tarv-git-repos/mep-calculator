@@ -1,4 +1,4 @@
-import { $t as FileChartColumnIncreasing, Ct as Cog, K as LayoutDashboard, a as Users, ht as Droplets, i as Wind, ot as FolderKanban, r as Wrench, t as Zap } from "../_libs/lucide-react.mjs";
+import { K as LayoutDashboard, Qt as FileChartColumnIncreasing, St as Cog, a as Users, i as Wind, mt as Droplets, ot as FolderKanban, r as Wrench, t as Zap } from "../_libs/lucide-react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/navigation-W62yd3w7.js
 var NAV = [
 	{
