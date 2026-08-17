@@ -312,15 +312,42 @@ export function CompanyHierarchyPage() {
           }
           return m;
         });
-
       saveHierarchy(updated);
       toast.success(`Removed ${name} from hierarchy.`);
     }
   };
 
+  const visibleMembers = useMemo(() => {
+    if (currentRole === "SUPER_ADMIN") return members;
+
+    // For ORG_ADMIN: Find their node based on email
+    const emailToMatch = userData?.email || profile?.email;
+    let currentUserNode = members.find(m => m.email === emailToMatch);
+    if (!currentUserNode) {
+      // Fallback for dummy data if emails don't match
+      currentUserNode = members.find(m => m.role === "ORG_ADMIN");
+    }
+
+    if (!currentUserNode) return [];
+
+    const visibleIds = new Set<string>();
+    const toProcess = [currentUserNode.id];
+
+    while (toProcess.length > 0) {
+      const currentId = toProcess.pop()!;
+      if (!visibleIds.has(currentId)) {
+        visibleIds.add(currentId);
+        const children = members.filter(m => m.parentId === currentId).map(m => m.id);
+        toProcess.push(...children);
+      }
+    }
+
+    return members.filter(m => visibleIds.has(m.id));
+  }, [members, currentRole, userData?.email, profile?.email]);
+
   // Filtered members for search & department
   const filteredMembers = useMemo(() => {
-    return members.filter((m) => {
+    return visibleMembers.filter((m) => {
       const matchQuery = 
         m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         m.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -328,25 +355,25 @@ export function CompanyHierarchyPage() {
       const matchDept = selectedDept === "ALL" || m.department === selectedDept;
       return matchQuery && matchDept;
     });
-  }, [members, searchQuery, selectedDept]);
+  }, [visibleMembers, searchQuery, selectedDept]);
 
   // Root members (parentId is null or parent doesn't exist)
   const rootMembers = useMemo(() => {
-    const ids = new Set(members.map((m) => m.id));
-    return members.filter((m) => !m.parentId || !ids.has(m.parentId));
-  }, [members]);
+    const ids = new Set(visibleMembers.map((m) => m.id));
+    return visibleMembers.filter((m) => !m.parentId || !ids.has(m.parentId));
+  }, [visibleMembers]);
 
   // Map of direct reports: managerId -> child members
   const reportsMap = useMemo(() => {
     const map = new Map<string, HierarchyUser[]>();
-    members.forEach((m) => {
+    visibleMembers.forEach((m) => {
       if (m.parentId) {
         if (!map.has(m.parentId)) map.set(m.parentId, []);
         map.get(m.parentId)!.push(m);
       }
     });
     return map;
-  }, [members]);
+  }, [visibleMembers]);
 
   if (!isAuthorized) {
     return (
