@@ -2,12 +2,6 @@ import axios from 'axios';
 import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname;
-    if (host === 'localhost' || host === '127.0.0.1' || host === '' || host.startsWith('192.168.')) {
-      return 'http://localhost:4000';
-    }
-  }
   return import.meta.env.VITE_API_URL || 'http://localhost:4000';
 };
 

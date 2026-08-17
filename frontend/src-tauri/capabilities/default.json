@@ -9,6 +9,8 @@
     "core:default",
     "fs:default",
     "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
     "updater:default",
     "process:default",
     {
