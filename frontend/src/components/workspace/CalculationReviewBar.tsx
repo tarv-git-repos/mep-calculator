@@ -51,7 +51,23 @@ export function CalculationReviewBar({
 
   const { profile, userData } = useAuth();
   
-  const currentUserName = userData?.name || profile?.name || "Engineering User";
+  const currentUserName = useMemo(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const u = JSON.parse(localStorage.getItem('mep_user') || '{}');
+        if (u.name) return u.name;
+        if (u.user?.name) return u.user.name;
+      } catch (e) {}
+      try {
+        const p = JSON.parse(localStorage.getItem('mep_profile') || localStorage.getItem('mep_user_data') || '{}');
+        if (p.name) return p.name;
+        if (p.user?.name) return p.user.name;
+      } catch (e) {}
+      if ((window as any).currentMepUserName) return (window as any).currentMepUserName;
+    }
+    return userData?.name || profile?.name || "System Admin";
+  }, [userData, profile]);
+
   const currentUserEmail = userData?.email || profile?.email || "";
 
   // 1. Workflow Role derived automatically from admin-assigned designation & profile role
@@ -108,25 +124,39 @@ export function CalculationReviewBar({
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
-  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "ventilation"}`;
+  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "/ventilation"}`;
 
   // 2. Calculation Review State
   const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
+    const rawPath = calculatorPath || "/ventilation";
+    const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+    const pathNoSlash = rawPath.replace(/^\//, "");
+    const pId = projectId || "default";
+
+    const k1 = `mep_calc_review_${pId}_${rawPath}`;
+    const k2 = `mep_calc_review_${pId}_${pathWithSlash}`;
+    const k3 = `mep_calc_review_${pId}_${pathNoSlash}`;
+
     // Priority 1: Backend Workspace Data
     const currentProj = workspaceStore.getState().project;
-    if (currentProj && currentProj.id === projectId) {
+    if (currentProj && (currentProj.id === pId || pId === "default")) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
-      if (reviewStates[storageKey]) {
-        return reviewStates[storageKey];
-      }
+      if (reviewStates[k1]) return reviewStates[k1];
+      if (reviewStates[k2]) return reviewStates[k2];
+      if (reviewStates[k3]) return reviewStates[k3];
     }
 
     // Priority 2: Local Storage fallback
     if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(storageKey);
-        if (saved) return JSON.parse(saved);
-      } catch (e) {}
+      for (const k of [k1, k2, k3]) {
+        try {
+          const saved = localStorage.getItem(k);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed && (parsed.status || parsed.reviewedBy || parsed.approvedBy)) return parsed;
+          }
+        } catch (e) {}
+      }
     }
     return { status: "DRAFT" };
   });
@@ -141,57 +171,86 @@ export function CalculationReviewBar({
 
   // Sync state when storageKey changes
   useEffect(() => {
+    const rawPath = calculatorPath || "/ventilation";
+    const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+    const pathNoSlash = rawPath.replace(/^\//, "");
+    const pId = projectId || "default";
+
+    const k1 = `mep_calc_review_${pId}_${rawPath}`;
+    const k2 = `mep_calc_review_${pId}_${pathWithSlash}`;
+    const k3 = `mep_calc_review_${pId}_${pathNoSlash}`;
+
     const currentProj = workspaceStore.getState().project;
-    if (currentProj && currentProj.id === projectId) {
+    if (currentProj && (currentProj.id === pId || pId === "default")) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
-      if (reviewStates[storageKey]) {
-        setReviewState(reviewStates[storageKey]);
-        if (onReviewStateChange) onReviewStateChange(reviewStates[storageKey]);
+      const st = reviewStates[k1] || reviewStates[k2] || reviewStates[k3];
+      if (st) {
+        setReviewState(st);
+        if (onReviewStateChange) onReviewStateChange(st);
         return;
       }
     }
 
     if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(storageKey);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          setReviewState(parsed);
-          if (onReviewStateChange) onReviewStateChange(parsed);
-          return;
-        }
-      } catch (e) {}
+      for (const k of [k1, k2, k3]) {
+        try {
+          const saved = localStorage.getItem(k);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed && (parsed.status || parsed.reviewedBy || parsed.approvedBy)) {
+              setReviewState(parsed);
+              if (onReviewStateChange) onReviewStateChange(parsed);
+              return;
+            }
+          }
+        } catch (e) {}
+      }
     }
     const initialState: CalculationReviewState = { status: "DRAFT" };
     setReviewState(initialState);
     if (onReviewStateChange) onReviewStateChange(initialState);
-  }, [storageKey, projectId]);
+  }, [storageKey, projectId, calculatorPath]);
 
   // Helper to persist & sync state
-  const updateReviewState = (next: CalculationReviewState, skipSaveBackend = false) => {
+  const updateReviewState = (next: CalculationReviewState) => {
     setReviewState(next);
-    
-    // Save to Backend
-    if (!skipSaveBackend) {
+
+    const rawPath = calculatorPath || "/ventilation";
+    const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+    const pathNoSlash = rawPath.replace(/^\//, "");
+    const pId = projectId || "default";
+
+    const k1 = `mep_calc_review_${pId}_${rawPath}`;
+    const k2 = `mep_calc_review_${pId}_${pathWithSlash}`;
+    const k3 = `mep_calc_review_${pId}_${pathNoSlash}`;
+
+    if (typeof window !== "undefined") {
       const currentProj = workspaceStore.getState().project;
-      if (currentProj && currentProj.id === projectId) {
+      if (currentProj && (currentProj.id === pId || pId === "default")) {
         const currentWdata = currentProj.workspace_data || {};
         const reviewStates = currentWdata.review_states || {};
+
         const updatedWdata = {
           ...currentWdata,
           review_states: {
             ...reviewStates,
-            [storageKey]: next
+            [k1]: next,
+            [k2]: next,
+            [k3]: next
           }
         };
-        
-        api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+
+        api.saveWorkspace(currentProj.id, updatedWdata).catch(console.error);
         workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
       }
     }
 
     if (typeof window !== "undefined") {
-      localStorage.setItem(storageKey, JSON.stringify(next));
+      try {
+        localStorage.setItem(k1, JSON.stringify(next));
+        localStorage.setItem(k2, JSON.stringify(next));
+        localStorage.setItem(k3, JSON.stringify(next));
+      } catch (e) {}
     }
     if (onReviewStateChange) {
       onReviewStateChange(next);
