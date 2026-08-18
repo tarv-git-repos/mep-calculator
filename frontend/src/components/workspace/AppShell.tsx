@@ -373,15 +373,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const isCoordinatorOrAdmin = useMemo(() => {
     return (
       roleVal === "Discipline Coordinator" ||
-      roleVal === "Admin" ||
-      roleVal === "SUPER_ADMIN" ||
-      roleVal === "ORG_ADMIN" ||
+      rawRole === "discipline coordinator" ||
       rawRole.includes("coordinator") ||
-      rawRole.includes("lead") ||
-      rawRole.includes("admin") ||
-      des.includes("coordinator") ||
-      des.includes("lead") ||
-      (!roleVal && !des)
+      des.includes("coordinator")
     );
   }, [roleVal, rawRole, des]);
 

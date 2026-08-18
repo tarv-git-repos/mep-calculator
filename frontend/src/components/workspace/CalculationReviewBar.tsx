@@ -51,23 +51,7 @@ export function CalculationReviewBar({
 
   const { profile, userData } = useAuth();
   
-  const currentUserName = useMemo(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const u = JSON.parse(localStorage.getItem('mep_user') || '{}');
-        if (u.name) return u.name;
-        if (u.user?.name) return u.user.name;
-      } catch (e) {}
-      try {
-        const p = JSON.parse(localStorage.getItem('mep_profile') || localStorage.getItem('mep_user_data') || '{}');
-        if (p.name) return p.name;
-        if (p.user?.name) return p.user.name;
-      } catch (e) {}
-      if ((window as any).currentMepUserName) return (window as any).currentMepUserName;
-    }
-    return userData?.name || profile?.name || "System Admin";
-  }, [userData, profile]);
-
+  const currentUserName = userData?.name || profile?.name || "Engineering User";
   const currentUserEmail = userData?.email || profile?.email || "";
 
   // 1. Workflow Role derived automatically from admin-assigned designation & profile role
@@ -91,17 +75,12 @@ export function CalculationReviewBar({
       return "Jr. / Design Engineer";
     }
 
-    // Second priority: Discipline Coordinator / Admin check (Gets Approve & Reject buttons)
+    // Second priority: Discipline Coordinator check ONLY (ONLY Discipline Coordinator gets Approve & Reject buttons)
     if (
       roleVal === "Discipline Coordinator" ||
-      roleVal === "Admin" ||
-      roleVal === "SUPER_ADMIN" ||
-      roleVal === "ORG_ADMIN" ||
+      rawRole === "discipline coordinator" ||
       rawRole.includes("coordinator") ||
-      rawRole.includes("lead") ||
-      rawRole.includes("admin") ||
-      des.includes("coordinator") ||
-      des.includes("lead")
+      des.includes("coordinator")
     ) {
       return "Discipline Coordinator";
     }
@@ -124,39 +103,25 @@ export function CalculationReviewBar({
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
-  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "/ventilation"}`;
+  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "ventilation"}`;
 
   // 2. Calculation Review State
   const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
-    const rawPath = calculatorPath || "/ventilation";
-    const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-    const pathNoSlash = rawPath.replace(/^\//, "");
-    const pId = projectId || "default";
-
-    const k1 = `mep_calc_review_${pId}_${rawPath}`;
-    const k2 = `mep_calc_review_${pId}_${pathWithSlash}`;
-    const k3 = `mep_calc_review_${pId}_${pathNoSlash}`;
-
     // Priority 1: Backend Workspace Data
     const currentProj = workspaceStore.getState().project;
-    if (currentProj && (currentProj.id === pId || pId === "default")) {
+    if (currentProj && currentProj.id === projectId) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
-      if (reviewStates[k1]) return reviewStates[k1];
-      if (reviewStates[k2]) return reviewStates[k2];
-      if (reviewStates[k3]) return reviewStates[k3];
+      if (reviewStates[storageKey]) {
+        return reviewStates[storageKey];
+      }
     }
 
     // Priority 2: Local Storage fallback
     if (typeof window !== "undefined") {
-      for (const k of [k1, k2, k3]) {
-        try {
-          const saved = localStorage.getItem(k);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (parsed && (parsed.status || parsed.reviewedBy || parsed.approvedBy)) return parsed;
-          }
-        } catch (e) {}
-      }
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
     }
     return { status: "DRAFT" };
   });
@@ -171,86 +136,57 @@ export function CalculationReviewBar({
 
   // Sync state when storageKey changes
   useEffect(() => {
-    const rawPath = calculatorPath || "/ventilation";
-    const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-    const pathNoSlash = rawPath.replace(/^\//, "");
-    const pId = projectId || "default";
-
-    const k1 = `mep_calc_review_${pId}_${rawPath}`;
-    const k2 = `mep_calc_review_${pId}_${pathWithSlash}`;
-    const k3 = `mep_calc_review_${pId}_${pathNoSlash}`;
-
     const currentProj = workspaceStore.getState().project;
-    if (currentProj && (currentProj.id === pId || pId === "default")) {
+    if (currentProj && currentProj.id === projectId) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
-      const st = reviewStates[k1] || reviewStates[k2] || reviewStates[k3];
-      if (st) {
-        setReviewState(st);
-        if (onReviewStateChange) onReviewStateChange(st);
+      if (reviewStates[storageKey]) {
+        setReviewState(reviewStates[storageKey]);
+        if (onReviewStateChange) onReviewStateChange(reviewStates[storageKey]);
         return;
       }
     }
 
     if (typeof window !== "undefined") {
-      for (const k of [k1, k2, k3]) {
-        try {
-          const saved = localStorage.getItem(k);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (parsed && (parsed.status || parsed.reviewedBy || parsed.approvedBy)) {
-              setReviewState(parsed);
-              if (onReviewStateChange) onReviewStateChange(parsed);
-              return;
-            }
-          }
-        } catch (e) {}
-      }
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setReviewState(parsed);
+          if (onReviewStateChange) onReviewStateChange(parsed);
+          return;
+        }
+      } catch (e) {}
     }
     const initialState: CalculationReviewState = { status: "DRAFT" };
     setReviewState(initialState);
     if (onReviewStateChange) onReviewStateChange(initialState);
-  }, [storageKey, projectId, calculatorPath]);
+  }, [storageKey, projectId]);
 
   // Helper to persist & sync state
-  const updateReviewState = (next: CalculationReviewState) => {
+  const updateReviewState = (next: CalculationReviewState, skipSaveBackend = false) => {
     setReviewState(next);
-
-    const rawPath = calculatorPath || "/ventilation";
-    const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-    const pathNoSlash = rawPath.replace(/^\//, "");
-    const pId = projectId || "default";
-
-    const k1 = `mep_calc_review_${pId}_${rawPath}`;
-    const k2 = `mep_calc_review_${pId}_${pathWithSlash}`;
-    const k3 = `mep_calc_review_${pId}_${pathNoSlash}`;
-
-    if (typeof window !== "undefined") {
+    
+    // Save to Backend
+    if (!skipSaveBackend) {
       const currentProj = workspaceStore.getState().project;
-      if (currentProj && (currentProj.id === pId || pId === "default")) {
+      if (currentProj && currentProj.id === projectId) {
         const currentWdata = currentProj.workspace_data || {};
         const reviewStates = currentWdata.review_states || {};
-
         const updatedWdata = {
           ...currentWdata,
           review_states: {
             ...reviewStates,
-            [k1]: next,
-            [k2]: next,
-            [k3]: next
+            [storageKey]: next
           }
         };
-
-        api.saveWorkspace(currentProj.id, updatedWdata).catch(console.error);
+        
+        api.saveWorkspace(projectId, updatedWdata).catch(console.error);
         workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
       }
     }
 
     if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(k1, JSON.stringify(next));
-        localStorage.setItem(k2, JSON.stringify(next));
-        localStorage.setItem(k3, JSON.stringify(next));
-      } catch (e) {}
+      localStorage.setItem(storageKey, JSON.stringify(next));
     }
     if (onReviewStateChange) {
       onReviewStateChange(next);
