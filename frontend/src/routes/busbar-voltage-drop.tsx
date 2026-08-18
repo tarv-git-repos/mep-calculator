@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useState, useMemo, useEffect } from "react";
@@ -108,6 +111,9 @@ const pushToHistory = (
 };
 
 function BusbarVoltageDropPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
 
@@ -577,6 +583,9 @@ function BusbarVoltageDropPage() {
       }
     });
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "busbar-voltage-drop");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), "Busbar_Voltage_Drop_Calculations.xlsx");
   };

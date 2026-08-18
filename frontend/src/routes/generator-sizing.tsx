@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
@@ -75,6 +78,9 @@ const STANDARD_SIZES = [
 ];
 
 function GeneratorSizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
   const prompt = usePrompt();
   const { project, forceSaveToCloud } = useWorkspace();
@@ -721,94 +727,9 @@ function GeneratorSizingPage() {
     }
     rowIndex++;
 
-    // Signatures Header
-    worksheet.getCell(`A${rowIndex}`).value = "";
-    setBorder(worksheet.getCell(`A${rowIndex}`));
-
-    worksheet.mergeCells(`B${rowIndex}:E${rowIndex}`);
-    const origTitle = worksheet.getCell(`B${rowIndex}`);
-    origTitle.value = "Originated By";
-    origTitle.font = fontBold;
-    origTitle.alignment = alignCenter;
-    origTitle.fill = bgGreen;
-    for (let c = 2; c <= 5; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`F${rowIndex}:I${rowIndex}`);
-    const revTitle = worksheet.getCell(`F${rowIndex}`);
-    revTitle.value = "Reviewed By";
-    revTitle.font = fontBold;
-    revTitle.alignment = alignCenter;
-    revTitle.fill = bgGreen;
-    for (let c = 6; c <= 9; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`J${rowIndex}:L${rowIndex}`);
-    const appTitle = worksheet.getCell(`J${rowIndex}`);
-    appTitle.value = "Approved By";
-    appTitle.font = fontBold;
-    appTitle.alignment = alignCenter;
-    appTitle.fill = bgGreen;
-    for (let c = 10; c <= 12; c++) setBorder(worksheet.getCell(rowIndex, c));
-    rowIndex++;
-
-    // Signatures Name
-    worksheet.getCell(`A${rowIndex}`).value = "Name";
-    worksheet.getCell(`A${rowIndex}`).font = fontBold;
-    setBorder(worksheet.getCell(`A${rowIndex}`));
-
-    worksheet.mergeCells(`B${rowIndex}:E${rowIndex}`);
-    worksheet.getCell(`B${rowIndex}`).value = "";
-    worksheet.getCell(`B${rowIndex}`).alignment = alignCenter;
-    for (let c = 2; c <= 5; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`F${rowIndex}:I${rowIndex}`);
-    worksheet.getCell(`F${rowIndex}`).value = "";
-    worksheet.getCell(`F${rowIndex}`).alignment = alignCenter;
-    for (let c = 6; c <= 9; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`J${rowIndex}:L${rowIndex}`);
-    worksheet.getCell(`J${rowIndex}`).value = "";
-    worksheet.getCell(`J${rowIndex}`).alignment = alignCenter;
-    for (let c = 10; c <= 12; c++) setBorder(worksheet.getCell(rowIndex, c));
-    rowIndex++;
-
-    // Signature Space
-    worksheet.getCell(`A${rowIndex}`).value = "Signature";
-    worksheet.getCell(`A${rowIndex}`).font = fontBold;
-    setBorder(worksheet.getCell(`A${rowIndex}`));
-
-    worksheet.mergeCells(`B${rowIndex}:E${rowIndex}`);
-    for (let c = 2; c <= 5; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`F${rowIndex}:I${rowIndex}`);
-    for (let c = 6; c <= 9; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`J${rowIndex}:L${rowIndex}`);
-    for (let c = 10; c <= 12; c++) setBorder(worksheet.getCell(rowIndex, c));
-    worksheet.getRow(rowIndex).height = 40;
-    rowIndex++;
-
-    // Date Space
-    worksheet.getCell(`A${rowIndex}`).value = "Date";
-    worksheet.getCell(`A${rowIndex}`).font = fontBold;
-    setBorder(worksheet.getCell(`A${rowIndex}`));
-
-    const today = "";
-
-    worksheet.mergeCells(`B${rowIndex}:E${rowIndex}`);
-    worksheet.getCell(`B${rowIndex}`).value = today;
-    worksheet.getCell(`B${rowIndex}`).alignment = alignCenter;
-    for (let c = 2; c <= 5; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`F${rowIndex}:I${rowIndex}`);
-    worksheet.getCell(`F${rowIndex}`).value = today;
-    worksheet.getCell(`F${rowIndex}`).alignment = alignCenter;
-    for (let c = 6; c <= 9; c++) setBorder(worksheet.getCell(rowIndex, c));
-
-    worksheet.mergeCells(`J${rowIndex}:L${rowIndex}`);
-    worksheet.getCell(`J${rowIndex}`).value = today;
-    worksheet.getCell(`J${rowIndex}`).alignment = alignCenter;
-    for (let c = 10; c <= 12; c++) setBorder(worksheet.getCell(rowIndex, c));
-
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "generator-sizing");
     const buffer = await workbook.xlsx.writeBuffer();
     await downloadFile(new Uint8Array(buffer), "Generator_Sizing_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
@@ -840,6 +761,9 @@ function GeneratorSizingPage() {
       body: tableData,
       startY: 20,
     });
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "generator-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "generator_sizing.pdf", "PDF Document", ["pdf"]);
   };

@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
@@ -23,6 +26,9 @@ export const Route = createFileRoute("/plumbing-fm200")({
 type PresetOption = "class_a" | "class_b" | "class_c" | "custom";
 
 function FM200SizerPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project } = useWorkspace();
 
   // Tabs & intelligence panel state
@@ -215,6 +221,9 @@ function FM200SizerPage() {
       doc.text("- WARNING: Design concentration exceeds human exposure limits for occupied zones.", 14, finalY + 13);
     }
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "plumbing-fm200");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `FM200_Sizing_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };

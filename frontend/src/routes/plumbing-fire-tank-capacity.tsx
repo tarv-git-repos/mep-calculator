@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -20,6 +23,9 @@ export const Route = createFileRoute("/plumbing-fire-tank-capacity")({
 });
 
 function FireTankCapacityPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   
@@ -163,7 +169,10 @@ function FireTankCapacityPage() {
       sheet.addRow({ param: "Total Required Capacity", val: results.totalGal.toFixed(0), unit: "gal" });
       sheet.addRow({ param: "Total Required Capacity (Liters)", val: results.totalL.toFixed(0), unit: "L" });
 
-      const buffer = await workbook.xlsx.writeBuffer();
+      
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "plumbing-fire-tank-capacity");
+    const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer]), `Fire_Tank_Capacity_${Date.now()}.xlsx`);
       toast.success("Excel calculation report generated successfully!");
     } catch (e) {

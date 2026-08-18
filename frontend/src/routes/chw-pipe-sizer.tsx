@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -64,6 +67,9 @@ function fToC(f: number): number {
 }
 
 function ChwPipeSizerPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   // State matching the original defaults for IP mode
   const [projectInfo, setProjectInfo] = useState({
@@ -317,6 +323,9 @@ function ChwPipeSizerPage() {
     sheet.addRow(["Reynolds Number", Math.round(calculatedData.reynoldsNumber).toLocaleString()]);
     sheet.addRow(["Flow Regime", calculatedData.regime]);
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "chw-pipe-sizer");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_pipe_sizer_report.xlsx`);
   };
@@ -413,6 +422,9 @@ function ChwPipeSizerPage() {
       },
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "chw-pipe-sizer");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };

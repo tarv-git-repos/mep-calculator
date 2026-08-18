@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -93,6 +96,9 @@ const STANDARD_REACTANCE_LOOKUP = (size: number): number => {
 };
 
 function ShortCircuitCalculationsPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("schedule");
 
@@ -429,6 +435,9 @@ function ShortCircuitCalculationsPage() {
       currentRow++;
     });
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "short-circuit-calculations");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), "Short_Circuit_Report.xlsx");
   };
@@ -515,6 +524,9 @@ function ShortCircuitCalculationsPage() {
       }
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "short-circuit-calculations");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "Short_Circuit_Report.pdf", "PDF Document", ["pdf"]);
   };

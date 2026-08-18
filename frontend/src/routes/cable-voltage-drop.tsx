@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useState, useMemo, useEffect } from "react";
@@ -215,6 +218,9 @@ const pushToHistory = (
 };
 
 function CableVoltageDropPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
   const boards = useElectricalNetworkStore(state => state.boards);
@@ -707,6 +713,9 @@ function CableVoltageDropPage() {
       }
     });
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "cable-voltage-drop");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), "Cable_Voltage_Drop_Calculations.xlsx");
   };

@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useEffect, useRef } from "react";
 import { useElectricalNetworkStore } from "@/store/electrical-network";
@@ -105,6 +108,9 @@ function generateDefaultMDBCircuit(id: string, index: number) {
 
 // --- Main Component ---
 function ProjectLoadSchedulePage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
   const [view, setView] = useState<"schedule" | "sld">("schedule");
   const tableContainerRef = useRef<HTMLDivElement>(null);

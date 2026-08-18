@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useEffect, useMemo } from "react";
@@ -48,6 +51,9 @@ const SURFACE_LABELS: Record<string, string> = {
 };
 
 function StormWaterPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
@@ -234,7 +240,10 @@ function StormWaterPage() {
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(worksheet.rowCount).font = { bold: true };
 
-      const buffer = await workbook.xlsx.writeBuffer();
+      
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "plumbing-storm-water");
+    const buffer = await workbook.xlsx.writeBuffer();
       await downloadFile(new Uint8Array(buffer), `Storm_Water_Sizing_${project.name.replace(/\s+/g, "_")}.xlsx`, "Excel Document", ["xlsx"]);
       toast.success("Excel report exported successfully!");
     } catch (e) {

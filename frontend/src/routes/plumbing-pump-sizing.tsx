@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -54,6 +57,9 @@ function wsfuToLPS(wsfu: number): number {
 }
 
 function PumpSizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   // Inputs matching defaults in screenshots
@@ -387,7 +393,10 @@ function PumpSizingPage() {
       sheet.addRow({ param: "Estimated Motor Power", val: results.motorPower.toFixed(2), unit: "kW" });
       sheet.addRow({ param: "Motor Power (HP)", val: results.hp.toFixed(2), unit: "HP" });
 
-      const buffer = await workbook.xlsx.writeBuffer();
+      
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "plumbing-pump-sizing");
+    const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer]), `Pump_Sizing_${Date.now()}.xlsx`);
       toast.success("Excel calculation report generated successfully!");
     } catch (e) {

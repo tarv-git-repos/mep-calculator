@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo } from "react";
@@ -96,6 +99,9 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 }
 
 function TransformerSizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
@@ -342,6 +348,9 @@ function TransformerSizingPage() {
     sheet.addRow(["Recommended Transformer Rating (kVA)", `${calculatedData.recommendedKva} kVA`]);
     sheet.addRow(["Transformer Utilization (%)", `${calculatedData.utilization.toFixed(1)}%`]);
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "transformer-sizing");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `transformer_sizing_report.xlsx`);
   };
@@ -435,6 +444,9 @@ function TransformerSizingPage() {
       },
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "transformer-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `transformer_sizing_report.pdf`, "PDF Document", ["pdf"]);
   };

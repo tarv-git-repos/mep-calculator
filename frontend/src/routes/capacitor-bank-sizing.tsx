@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -38,6 +41,9 @@ const defaultPanel = (id: number): CapPanel => ({
 });
 
 function CapacitorBankSizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const [project, setProject] = useState("");
   const [sub, setSub] = useState("");
   
@@ -303,6 +309,9 @@ function CapacitorBankSizingPage() {
       }
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "capacitor-bank-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "Capacitor_Bank_Calculations.pdf", "PDF Document", ["pdf"]);
   };

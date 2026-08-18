@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -20,6 +23,9 @@ export const Route = createFileRoute("/plumbing-pressure-vessel")({
 });
 
 function PressureVesselPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   
   // State variables matching the calculator parameters
@@ -227,7 +233,10 @@ function PressureVesselPage() {
       sheet.addRow({});
       sheet.addRow({ param: "Required Pressure Vessel Capacity", val: results.volume.toFixed(2), unit: "Liters" });
       
-      const buffer = await workbook.xlsx.writeBuffer();
+      
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "plumbing-pressure-vessel");
+    const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer]), `Pressure_Vessel_Sizing_${Date.now()}.xlsx`);
       toast.success("Excel report generated successfully!");
     } catch (e) {

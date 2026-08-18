@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
@@ -62,6 +65,9 @@ const pushToHistory = (
 };
 
 function LoadSummaryPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project } = useWorkspace();
   const confirm = useConfirm();
 
@@ -579,6 +585,9 @@ function LoadSummaryPage() {
     worksheet.getColumn(9).width = 15;
     worksheet.getColumn(10).width = 25;
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "load-summary");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `Load_Summary_${project.code}.xlsx`);
   };

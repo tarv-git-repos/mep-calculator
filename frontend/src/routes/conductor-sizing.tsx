@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -96,6 +99,9 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 }
 
 function ConductorSizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const [globalDerating, setGlobalDerating] = useState(0.85);
   const [globalVdLimit, setGlobalVdLimit] = useState(3);
   const [globalPf, setGlobalPf] = useState(0.85);

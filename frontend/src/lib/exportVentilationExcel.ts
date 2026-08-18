@@ -1,3 +1,5 @@
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import * as ExcelJSModule from 'exceljs';
 import * as fileSaver from 'file-saver';
 import { downloadFile } from './download';
@@ -22,6 +24,17 @@ export const exportVentilationExcel = async (
   spaces: Space[],
   meta: ProjectMetaData = {}
 ) => {
+  let currentUserName = "System Admin";
+  let activeProjectId = "default";
+  if (typeof window !== "undefined") {
+    try {
+      const user = JSON.parse(localStorage.getItem('mep_user') || '{}');
+      currentUserName = user.name || "System Admin";
+      const ws = JSON.parse(localStorage.getItem('workspace-storage') || '{}');
+      activeProjectId = ws.state?.activeProjectId || "default";
+    } catch (e) {}
+  }
+
   const activeProj: any = workspaceStore.getState()?.project || {};
 
   const workbook = new ExcelJS.Workbook();

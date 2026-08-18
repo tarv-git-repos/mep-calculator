@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -207,6 +210,9 @@ function computeRowOutputs(row: SprinklerRow): SprinklerRow {
 }
 
 function SprinklerKFactorPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
@@ -801,6 +807,9 @@ function SprinklerKFactorPage() {
       headStyles: { fillColor: [220, 76, 52], halign: "left" }
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "plumbing-sprinkler-kfactor");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };

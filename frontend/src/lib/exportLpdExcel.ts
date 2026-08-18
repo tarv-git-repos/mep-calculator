@@ -1,3 +1,5 @@
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import ExcelJS from 'exceljs';
 import fileSaver from 'file-saver';
 const saveAs = (fileSaver as any)?.saveAs || fileSaver;
@@ -24,6 +26,17 @@ const getBorder = (r: number, c: number, lastR: number, lastC: number): Partial<
 };
 
 export const exportLpdExcel = async (project: LpdProject) => {
+  let currentUserName = "System Admin";
+  let activeProjectId = "default";
+  if (typeof window !== "undefined") {
+    try {
+      const user = JSON.parse(localStorage.getItem('mep_user') || '{}');
+      currentUserName = user.name || "System Admin";
+      const ws = JSON.parse(localStorage.getItem('workspace-storage') || '{}');
+      activeProjectId = ws.state?.activeProjectId || "default";
+    } catch (e) {}
+  }
+
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("LPD", {
     views: [{ showGridLines: false }]

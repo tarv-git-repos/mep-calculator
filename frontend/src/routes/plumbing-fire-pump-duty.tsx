@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -20,6 +23,9 @@ export const Route = createFileRoute("/plumbing-fire-pump-duty")({
 });
 
 function FirePumpDutyPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   
@@ -141,7 +147,10 @@ function FirePumpDutyPage() {
       sheet.addRow({ param: "Peak Point Head (65%)", val: results.peakPsi.toFixed(1), unit: "psi" });
       sheet.addRow({ param: "Motor Power", val: results.hp.toFixed(1), unit: "HP" });
 
-      const buffer = await workbook.xlsx.writeBuffer();
+      
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "plumbing-fire-pump-duty");
+    const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer]), `Fire_Pump_Duty_${Date.now()}.xlsx`);
       toast.success("Excel calculation report generated successfully!");
     } catch (e) {

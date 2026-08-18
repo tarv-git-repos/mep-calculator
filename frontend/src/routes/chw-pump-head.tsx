@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -27,6 +30,9 @@ export const Route = createFileRoute("/chw-pump-head")({
 });
 
 function ChwPumpHeadPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [projectInfo, setProjectInfo] = useState({
@@ -289,6 +295,9 @@ function ChwPumpHeadPage() {
     sheet.addRow(["Total calculated head", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`]);
     sheet.addRow(["Motor Power Requirement", `${calculatedData.motorPowerKw.toFixed(2)} kW / ${calculatedData.motorPowerHp.toFixed(2)} HP`]);
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "chw-pump-head");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_pump_head_report.xlsx`);
   };
@@ -406,6 +415,9 @@ function ChwPumpHeadPage() {
       },
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "chw-pump-head");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };

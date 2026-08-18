@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -85,6 +88,9 @@ const STANDARD_CBS_SIZES = [
 ];
 
 function CentralBatterySizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("schedule");
 
@@ -357,6 +363,9 @@ function CentralBatterySizingPage() {
       }
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "central-battery-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "CBS_Sizing_Report.pdf", "PDF Document", ["pdf"]);
   };
@@ -426,6 +435,9 @@ function CentralBatterySizingPage() {
       currentRow++;
     });
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "central-battery-sizing");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), "CBS_Sizing_Report.xlsx");
   };

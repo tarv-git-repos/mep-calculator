@@ -1,3 +1,5 @@
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import ExcelJS from 'exceljs';
 import pkg from 'file-saver';
@@ -14,6 +16,17 @@ const allBorders: Partial<ExcelJS.Borders> = {
 };
 
 export async function exportCableTrayExcel(trays: Tray[], unitSystem: "si" | "ip", cableDatabase: Record<string, Record<string, number>>, projectName: string = "PROJECT NAME", docNumber: string = "CABLE TRAY CALCULATION") {
+  let currentUserName = "System Admin";
+  let activeProjectId = "default";
+  if (typeof window !== "undefined") {
+    try {
+      const user = JSON.parse(localStorage.getItem('mep_user') || '{}');
+      currentUserName = user.name || "System Admin";
+      const ws = JSON.parse(localStorage.getItem('workspace-storage') || '{}');
+      activeProjectId = ws.state?.activeProjectId || "default";
+    } catch (e) {}
+  }
+
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Cable Tray Sizing');
 

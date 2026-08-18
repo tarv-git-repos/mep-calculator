@@ -1,3 +1,5 @@
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { downloadFile } from './download';
@@ -20,6 +22,17 @@ export const exportVentilationPDF = async (
   spaces: Space[],
   meta: ProjectMetaData = {}
 ) => {
+  let currentUserName = "System Admin";
+  let activeProjectId = "default";
+  if (typeof window !== "undefined") {
+    try {
+      const user = JSON.parse(localStorage.getItem('mep_user') || '{}');
+      currentUserName = user.name || "System Admin";
+      const ws = JSON.parse(localStorage.getItem('workspace-storage') || '{}');
+      activeProjectId = ws.state?.activeProjectId || "default";
+    } catch (e) {}
+  }
+
   try {
     const activeProj: any = workspaceStore.getState()?.project || {};
 

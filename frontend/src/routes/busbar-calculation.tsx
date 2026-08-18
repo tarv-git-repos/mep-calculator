@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -69,6 +72,9 @@ interface LVPanel {
 }
 
 function BusbarCalculationPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
   const [panels, setPanels] = useState<LVPanel[]>(() => {
     if (typeof window !== "undefined") {
@@ -967,6 +973,9 @@ function BusbarCalculationPage() {
       }
     });
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "busbar-calculation");
     const buffer = await workbook.xlsx.writeBuffer();
     await downloadFile(new Uint8Array(buffer), "Busbar_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
@@ -993,6 +1002,9 @@ function BusbarCalculationPage() {
         styles: { fontSize: 8 },
       });
     });
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "busbar-calculation");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "Busbar_Calculation.pdf", "PDF Document", ["pdf"]);
   };

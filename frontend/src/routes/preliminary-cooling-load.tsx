@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -230,6 +233,9 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 }
 
 function PreliminaryCoolingLoadPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
   const prompt = usePrompt();
   const { project, forceSaveToCloud } = useWorkspace();
@@ -971,6 +977,9 @@ function PreliminaryCoolingLoadPage() {
       cell.border = { top: { style: "thin" }, bottom: { style: "double", color: { argb: "06456F" } }, left: { style: "thin" }, right: { style: "thin" } };
     });
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "preliminary-cooling-load");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.xlsx`);
   };
@@ -1061,6 +1070,9 @@ function PreliminaryCoolingLoadPage() {
       headStyles: { fillColor: [10, 123, 199] },
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "preliminary-cooling-load");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };

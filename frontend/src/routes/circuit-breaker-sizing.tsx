@@ -1,3 +1,6 @@
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo } from "react";
@@ -94,6 +97,9 @@ interface BreakerRow {
 }
 
 function CircuitBreakerSizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
   const confirm = useConfirm();
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
@@ -298,6 +304,9 @@ function CircuitBreakerSizingPage() {
     sheet.addRow(["Total Design Load (kW)", `${calculatedData.totalDesignLoadKw.toFixed(1)} kW`]);
     sheet.addRow(["Maximum Design Current (A)", `${calculatedData.maxDesignCurrentA.toFixed(2)} A`]);
 
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "circuit-breaker-sizing");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `circuit_breaker_sizing_report.xlsx`);
   };
@@ -367,6 +376,9 @@ function CircuitBreakerSizingPage() {
       },
     });
 
+    
+    const finalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "circuit-breaker-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `circuit_breaker_sizing_report.pdf`, "PDF Document", ["pdf"]);
   };
