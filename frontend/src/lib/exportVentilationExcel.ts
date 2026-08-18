@@ -1,4 +1,4 @@
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import * as ExcelJSModule from 'exceljs';
 import * as fileSaver from 'file-saver';
@@ -549,7 +549,14 @@ export const exportVentilationExcel = async (
   sheet.getCell(`D${nameRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
   sheet.mergeCells(`H${nameRow}:K${nameRow}`);
+  sheet.getCell(`H${nameRow}`).value = reviewerName;
+  sheet.getCell(`H${nameRow}`).font = baseFont;
+  sheet.getCell(`H${nameRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
   sheet.mergeCells(`L${nameRow}:O${nameRow}`);
+  sheet.getCell(`L${nameRow}`).value = approverName;
+  sheet.getCell(`L${nameRow}`).font = baseFont;
+  sheet.getCell(`L${nameRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
   for (let c = 1; c <= 15; c++) {
     const cell = sheet.getCell(nameRow, c);
@@ -567,12 +574,19 @@ export const exportVentilationExcel = async (
   sheet.getCell(`A${sigDateRow}`).alignment = { horizontal: 'right', vertical: 'middle' };
 
   sheet.mergeCells(`D${sigDateRow}:G${sigDateRow}`);
-  sheet.getCell(`D${sigDateRow}`).value = today;
+  sheet.getCell(`D${sigDateRow}`).value = originatedDate;
   sheet.getCell(`D${sigDateRow}`).font = baseFont;
   sheet.getCell(`D${sigDateRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
   sheet.mergeCells(`H${sigDateRow}:K${sigDateRow}`);
+  sheet.getCell(`H${sigDateRow}`).value = reviewerDate;
+  sheet.getCell(`H${sigDateRow}`).font = baseFont;
+  sheet.getCell(`H${sigDateRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
   sheet.mergeCells(`L${sigDateRow}:O${sigDateRow}`);
+  sheet.getCell(`L${sigDateRow}`).value = approverDate;
+  sheet.getCell(`L${sigDateRow}`).font = baseFont;
+  sheet.getCell(`L${sigDateRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
   for (let c = 1; c <= 15; c++) {
     const cell = sheet.getCell(sigDateRow, c);

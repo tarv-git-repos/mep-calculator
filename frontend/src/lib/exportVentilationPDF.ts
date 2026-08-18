@@ -1,4 +1,4 @@
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -375,6 +375,15 @@ export const exportVentilationPDF = async (
     
     const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
 
+    const {
+      originatedName,
+      originatedDate,
+      reviewerName,
+      reviewerDate,
+      approverName,
+      approverDate
+    } = getSignatureBlockDetails(activeProj?.id || "default", "ventilation", userName);
+
     callAutoTable(doc, {
       startY: finalY + 8,
       margin: { left: 14, right: 14 },
@@ -392,15 +401,15 @@ export const exportVentilationPDF = async (
       body: [
         [
           { content: 'Name:', styles: { fontStyle: 'bold', halign: 'right' } },
-          { content: userName, styles: { halign: 'center' } },
-          { content: '' },
-          { content: '' }
+          { content: originatedName, styles: { halign: 'center' } },
+          { content: reviewerName, styles: { halign: 'center' } },
+          { content: approverName, styles: { halign: 'center' } }
         ],
         [
           { content: 'Date:', styles: { fontStyle: 'bold', halign: 'right' } },
-          { content: today, styles: { halign: 'center' } },
-          { content: '' },
-          { content: '' }
+          { content: originatedDate, styles: { halign: 'center' } },
+          { content: reviewerDate, styles: { halign: 'center' } },
+          { content: approverDate, styles: { halign: 'center' } }
         ]
       ],
       columnStyles: {

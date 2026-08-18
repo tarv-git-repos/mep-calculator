@@ -1,6 +1,5 @@
 import type { Worksheet } from "exceljs";
-
-import { workspaceStore } from "@/lib/workspace-store";
+import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
 
 /**
  * Appends the 3-tier signature block to an Excel worksheet.
@@ -17,41 +16,14 @@ export function addExcelSignatureBlock(
   projectId: string,
   calculatorPath: string
 ): number {
-  let reviewState: any = {};
-  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath}`;
-
-  const currentProj = workspaceStore.getState().project;
-  if (currentProj && currentProj.id === projectId) {
-    const reviewStates = currentProj.workspace_data?.review_states || {};
-    if (reviewStates[storageKey]) {
-      reviewState = reviewStates[storageKey];
-    }
-  }
-
-  if (!reviewState?.status && typeof window !== "undefined") {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        reviewState = JSON.parse(saved);
-      }
-    } catch (e) {}
-  }
-  const reviewerName = reviewState?.status === "REVIEWED" || reviewState?.status === "APPROVED" 
-    ? reviewState?.reviewedBy || "" 
-    : "";
-  const reviewerDate = reviewState?.status === "REVIEWED" || reviewState?.status === "APPROVED" 
-    ? (reviewState?.reviewedAt?.split(',')[0] || "") 
-    : "";
-    
-  const approverName = reviewState?.status === "APPROVED" ? reviewState?.approvedBy || "" : "";
-  const approverDate = reviewState?.status === "APPROVED" ? (reviewState?.approvedAt?.split(',')[0] || "") : "";
-
-  const creatorDate = new Date().toLocaleDateString();
-
-  // Create table structure
-  // We'll use 4 columns: A (Label), B (Originated), C (Reviewed), D (Approved)
-  // Assuming the worksheet might have different column layouts, we use specific cells but merge if needed, 
-  // or just use columns 1, 2, 3, 4. We will use columns 1-4 for simplicity.
+  const {
+    originatedName,
+    originatedDate,
+    reviewerName,
+    reviewerDate,
+    approverName,
+    approverDate
+  } = getSignatureBlockDetails(projectId, calculatorPath, creatorName);
 
   const headerRow = worksheet.getRow(startRow);
   headerRow.getCell(2).value = "Originated by";
@@ -60,13 +32,13 @@ export function addExcelSignatureBlock(
 
   const nameRow = worksheet.getRow(startRow + 1);
   nameRow.getCell(1).value = "Name:";
-  nameRow.getCell(2).value = creatorName || "System Admin";
+  nameRow.getCell(2).value = originatedName;
   nameRow.getCell(3).value = reviewerName;
   nameRow.getCell(4).value = approverName;
 
   const dateRow = worksheet.getRow(startRow + 2);
   dateRow.getCell(1).value = "Date:";
-  dateRow.getCell(2).value = creatorDate;
+  dateRow.getCell(2).value = originatedDate;
   dateRow.getCell(3).value = reviewerDate;
   dateRow.getCell(4).value = approverDate;
 

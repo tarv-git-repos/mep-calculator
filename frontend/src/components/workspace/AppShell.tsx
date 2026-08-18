@@ -365,29 +365,48 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   const [notifTick, setNotifTick] = useState(0);
 
-  const roleVal = profile?.role || userData?.role || "";
-  const rawRole = (profile?.designation || profile?.role || userData?.designation || userData?.role || "").toLowerCase();
-  
-  let isCoordinatorOrAdmin = false;
-  let isSrDesignEngineer = false;
-  let isJrDesignEngineer = false;
-  
-  if (roleVal === "Discipline Coordinator") {
-    isCoordinatorOrAdmin = true;
-  } else if (roleVal === "Sr. Design Engineer" || roleVal === "Senior Design Engineer") {
-    isSrDesignEngineer = true;
-  } else if (roleVal === "Jr. Design Engineer" || roleVal === "Junior Design Engineer" || roleVal === "Design Engineer") {
-    isJrDesignEngineer = true;
-  } else {
-    // Fallback logic
-    if (rawRole.includes("coordinator") || rawRole.includes("lead")) {
-      isCoordinatorOrAdmin = true;
-    } else if (rawRole.includes("senior") || rawRole.includes("sr")) {
-      isSrDesignEngineer = true;
-    } else {
-      isJrDesignEngineer = true;
-    }
-  }
+  const roleVal = String(profile?.role || userData?.user_metadata?.role || userData?.role || "").trim();
+  const rawRole = roleVal.toLowerCase();
+  const activeProfile = profile || userData || {};
+  const des = String(activeProfile.designation || "").toLowerCase().trim();
+
+  const isCoordinatorOrAdmin = useMemo(() => {
+    return (
+      roleVal === "Discipline Coordinator" ||
+      roleVal === "Admin" ||
+      roleVal === "SUPER_ADMIN" ||
+      roleVal === "ORG_ADMIN" ||
+      rawRole.includes("coordinator") ||
+      rawRole.includes("lead") ||
+      rawRole.includes("admin") ||
+      des.includes("coordinator") ||
+      des.includes("lead") ||
+      (!roleVal && !des)
+    );
+  }, [roleVal, rawRole, des]);
+
+  const isSrDesignEngineer = useMemo(() => {
+    return (
+      roleVal === "Sr. Design Engineer" ||
+      roleVal === "Senior Design Engineer" ||
+      rawRole.includes("senior") ||
+      rawRole.includes("sr") ||
+      des.includes("senior") ||
+      des.includes("sr")
+    );
+  }, [roleVal, rawRole, des]);
+
+  const isJrDesignEngineer = useMemo(() => {
+    return (
+      roleVal === "Jr. Design Engineer" ||
+      roleVal === "Junior Design Engineer" ||
+      roleVal === "Design Engineer" ||
+      rawRole.includes("junior") ||
+      rawRole.includes("jr") ||
+      des.includes("engineer") ||
+      (!isCoordinatorOrAdmin && !isSrDesignEngineer)
+    );
+  }, [roleVal, rawRole, des, isCoordinatorOrAdmin, isSrDesignEngineer]);
 
   const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
@@ -490,8 +509,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return false;
     };
 
-    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE TO Sr. Design Engineer (and Admins for testing)
-    if (isSrDesignEngineer || isCoordinatorOrAdmin) {
+    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE TO Sr. Design Engineer ONLY
+    if (isSrDesignEngineer) {
       try {
         // Collect from backend first
         projects.forEach(p => {
@@ -594,19 +613,22 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       } catch (e) {}
     }
 
-    // 3. Approval Notifications for Discipline Coordinator
+    // 3. Approval Notifications for Discipline Coordinator / Admin
     if (isCoordinatorOrAdmin) {
       try {
         // Collect from backend
         projects.forEach(p => {
-          const wdata = p.workspace_data || {};
+          let wdata = p.workspace_data || {};
+          if (typeof wdata === 'string') {
+            try { wdata = JSON.parse(wdata); } catch(e) {}
+          }
           const cNotifs = Array.isArray(wdata.coord_notifs) ? wdata.coord_notifs : [];
           cNotifs.forEach((cn: any) => {
-            if (true) {
+            if (cn.id && !notifs.some(n => n.id === cn.id)) {
               notifs.push({
                 id: cn.id,
                 authorName: cn.reviewerName || "Sr. Design Engineer",
-                text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): "${cn.comments || "Reviewed"}"`,
+                text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): Reviewed by ${cn.reviewerName || "Sr. Design Engineer"}. "${cn.comments || "Ready for approval."}"`,
                 timestamp: cn.timestamp,
                 targetType: "Calculation",
                 targetName: cn.calculatorTitle || "Calculation",
@@ -625,23 +647,20 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const parsed = JSON.parse(savedCoordNotifs);
           if (Array.isArray(parsed)) {
             parsed.forEach((cn: any) => {
-              if (cn.projectId && !notifs.some(n => n.id === cn.id)) {
-                // No longer excluding the user who triggered it, for testing purposes
-                if (true) {
-                  const targetProj = projects.find(p => p.id === cn.projectId);
-                  notifs.push({
-                    id: cn.id,
-                    authorName: cn.reviewerName || "Sr. Design Engineer",
-                    text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): "${cn.comments || "Reviewed"}"`,
-                    timestamp: cn.timestamp,
-                    targetType: "Calculation",
-                    targetName: cn.calculatorTitle || "Calculation",
-                    projectName: targetProj?.name || cn.projectName || "Project",
-                    projectId: cn.projectId,
-                    calculatorPath: cn.calculatorPath || "/ventilation",
-                    targetId: cn.id
-                  });
-                }
+              if (cn.id && !notifs.some(n => n.id === cn.id)) {
+                const targetProj = projects.find(p => p.id === cn.projectId);
+                notifs.push({
+                  id: cn.id,
+                  authorName: cn.reviewerName || "Sr. Design Engineer",
+                  text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): Reviewed by ${cn.reviewerName || "Sr. Design Engineer"}. "${cn.comments || "Ready for approval."}"`,
+                  timestamp: cn.timestamp,
+                  targetType: "Calculation",
+                  targetName: cn.calculatorTitle || "Calculation",
+                  projectName: targetProj?.name || cn.projectName || "Project",
+                  projectId: cn.projectId || "none",
+                  calculatorPath: cn.calculatorPath || "/ventilation",
+                  targetId: cn.id
+                });
               }
             });
           }
@@ -700,10 +719,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           duration: 7000
         });
       }
-      if (e?.detail?.status === "SR_REVIEW_SUBMITTED" && (isJrDesignEngineer || isCoordinatorOrAdmin)) {
-        toast.info(`📝 REVISION REQUIRED: Notes from Sr. Design Engineer (${e.detail.reviewedBy}): "${e.detail.reviewerComments}"`, {
-          duration: 7000
-        });
+      if (e?.detail?.status === "SR_REVIEW_SUBMITTED") {
+        if (isCoordinatorOrAdmin) {
+          toast.success(`✅ CALCULATION REVIEWED: ${e.detail.calculatorTitle || "Calculation"} reviewed by ${e.detail.reviewedBy || "Sr. Design Engineer"}. Ready for your approval!`, {
+            duration: 7000
+          });
+        }
+        if (isJrDesignEngineer && e?.detail?.reviewerComments) {
+          toast.info(`📝 REVISION REQUIRED: Notes from Sr. Design Engineer (${e.detail.reviewedBy}): "${e.detail.reviewerComments}"`, {
+            duration: 7000
+          });
+        }
       }
     };
     if (typeof window !== 'undefined') {
@@ -1650,11 +1676,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                           const targetPath = notif.calculatorPath || '/ventilation';
                           navigate({
                             to: targetPath as any,
-                            search: {
-                              commentTargetId: notif.targetId,
-                              commentTargetType: notif.targetType?.toLowerCase(),
-                              commentTargetName: notif.targetName,
-                            } as any,
                           });
 
                           setTimeout(() => {
@@ -1669,7 +1690,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                           <DropdownMenuItem
                             key={i}
                             onSelect={handleClick}
-                            onClick={handleClick}
                             className={`flex flex-col items-start p-3 border-b border-border/30 last:border-0 hover:bg-surface-2 dark:hover:bg-white/5 transition-colors cursor-pointer focus:bg-surface-2 dark:focus:bg-white/5 outline-none rounded-md ${
                               isUnread ? "bg-primary/5 dark:bg-primary/10 font-semibold" : "opacity-75"
                             }`}

@@ -168,7 +168,10 @@ function saveState() {
       }
       
       const nowIso = new Date().toISOString();
+      const existingWdata = currentProject ? (currentProject.workspace_data || {}) : {};
+      
       const payload = {
+        ...existingWdata,
         ...currentWorkspaceState,
         localStorageCache: lsState
       };

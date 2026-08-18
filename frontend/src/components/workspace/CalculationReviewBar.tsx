@@ -57,20 +57,35 @@ export function CalculationReviewBar({
   // 1. Workflow Role derived automatically from admin-assigned designation & profile role
   const userRole = useMemo<WorkflowRole>(() => {
     const activeProfile = profile || userData || {};
-    const des = (activeProfile.designation || activeProfile.role || "").toLowerCase();
-    const roleVal = activeProfile.role;
-    // First priority: Explicit Admin-assigned roles
-    if (roleVal === "Discipline Coordinator") return "Discipline Coordinator";
-    if (roleVal === "Sr. Design Engineer" || roleVal === "Senior Design Engineer") return "Sr. Design Engineer";
-    if (roleVal === "Jr. Design Engineer" || roleVal === "Junior Design Engineer" || roleVal === "Design Engineer") return "Jr. / Design Engineer";
+    const roleVal = String(activeProfile.role || userData?.user_metadata?.role || userData?.role || "").trim();
+    const des = String(activeProfile.designation || "").toLowerCase().trim();
+    const rawRole = roleVal.toLowerCase();
 
-    // Second priority: User-typed designation fallback
-    if (des.includes("coordinator") || des.includes("lead")) {
+    if (
+      roleVal === "Discipline Coordinator" ||
+      roleVal === "Admin" ||
+      roleVal === "SUPER_ADMIN" ||
+      roleVal === "ORG_ADMIN" ||
+      rawRole.includes("coordinator") ||
+      rawRole.includes("lead") ||
+      rawRole.includes("admin") ||
+      des.includes("coordinator") ||
+      des.includes("lead")
+    ) {
       return "Discipline Coordinator";
     }
-    if (des.includes("senior") || des.includes("sr")) {
+
+    if (
+      roleVal === "Sr. Design Engineer" ||
+      roleVal === "Senior Design Engineer" ||
+      rawRole.includes("senior") ||
+      rawRole.includes("sr") ||
+      des.includes("senior") ||
+      des.includes("sr")
+    ) {
       return "Sr. Design Engineer";
     }
+
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
@@ -140,19 +155,20 @@ export function CalculationReviewBar({
     // Save to Backend
     if (!skipSaveBackend) {
       const currentProj = workspaceStore.getState().project;
-    if (currentProj && currentProj.id === projectId) {
-      const currentWdata = currentProj.workspace_data || {};
-      const reviewStates = currentWdata.review_states || {};
-      const updatedWdata = {
-        ...currentWdata,
-        review_states: {
-          ...reviewStates,
-          [storageKey]: next
-        }
-      };
-      
-      api.saveWorkspace(projectId, updatedWdata).catch(console.error);
-      workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+      if (currentProj && currentProj.id === projectId) {
+        const currentWdata = currentProj.workspace_data || {};
+        const reviewStates = currentWdata.review_states || {};
+        const updatedWdata = {
+          ...currentWdata,
+          review_states: {
+            ...reviewStates,
+            [storageKey]: next
+          }
+        };
+        
+        api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+        workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+      }
     }
 
     if (typeof window !== "undefined") {
@@ -241,27 +257,16 @@ export function CalculationReviewBar({
 
           api.saveWorkspace(projectId, updatedWdata).catch(console.error);
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
-        } else {
-          // Fallback
-          const existingCoord = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
-          existingCoord.unshift(coordNotifRecord);
-          localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoord.slice(0, 20)));
-
-          if (srComments.trim()) {
-            const jrNotifRecord = {
-              id: `jr-notif-${Date.now()}`,
-              reviewerName: currentUserName,
-              comments: srComments.trim(),
-              calculatorTitle,
-              calculatorPath,
-              projectId,
-              timestamp: new Date().toISOString()
-            };
-            const existingJr = JSON.parse(localStorage.getItem("mep_calc_jr_engineer_notifs") || "[]");
-            existingJr.unshift(jrNotifRecord);
-            localStorage.setItem("mep_calc_jr_engineer_notifs", JSON.stringify(existingJr.slice(0, 20)));
-          }
         }
+
+        // Save to LocalStorage fallback as well for immediate cross-tab/local sync
+        try {
+          const existingCoordLS = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
+          if (!existingCoordLS.some((n: any) => n.id === coordNotifRecord.id)) {
+            existingCoordLS.unshift(coordNotifRecord);
+            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoordLS.slice(0, 20)));
+          }
+        } catch (e) {}
 
         // Dispatch event to notify Jr. Design Engineers & Coordinators
         window.dispatchEvent(new CustomEvent("mep-notification-added"));

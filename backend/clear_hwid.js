@@ -13,16 +13,16 @@ async function clearHwids() {
   }
   
   for (const user of data) {
-    const hasRootHwid = !!user.active_hwid;
     const hasFeatureHwid = user.features && user.features.active_hwid;
 
-    if (hasRootHwid || hasFeatureHwid) {
+    if (hasFeatureHwid) {
       console.log(`Clearing hwid for ${user.email}`);
       let newFeatures = { ...user.features };
       if (newFeatures.active_hwid) {
          newFeatures.active_hwid = null;
       }
-      await supabase.from('custom_users').update({ active_hwid: null, features: newFeatures }).eq('id', user.id);
+      const { error } = await supabase.from('custom_users').update({ features: newFeatures }).eq('id', user.id);
+      if (error) console.error("Error clearing:", error);
     }
   }
   console.log("Done clearing hwids.");
