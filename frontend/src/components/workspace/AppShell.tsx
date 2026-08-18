@@ -365,10 +365,29 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   const [notifTick, setNotifTick] = useState(0);
 
-  const rawRole = profile?.designation || profile?.role || "";
-  const isSrDesignEngineer = /senior|sr|lead|manager/i.test(rawRole);
-  const isCoordinatorOrAdmin = /coordinator|admin/i.test(rawRole);
-  const isJrDesignEngineer = !isSrDesignEngineer && !isCoordinatorOrAdmin;
+  const roleVal = profile?.role || userData?.role || "";
+  const rawRole = (profile?.designation || profile?.role || userData?.designation || userData?.role || "").toLowerCase();
+  
+  let isCoordinatorOrAdmin = false;
+  let isSrDesignEngineer = false;
+  let isJrDesignEngineer = false;
+  
+  if (roleVal === "Discipline Coordinator") {
+    isCoordinatorOrAdmin = true;
+  } else if (roleVal === "Sr. Design Engineer" || roleVal === "Senior Design Engineer") {
+    isSrDesignEngineer = true;
+  } else if (roleVal === "Jr. Design Engineer" || roleVal === "Junior Design Engineer" || roleVal === "Design Engineer") {
+    isJrDesignEngineer = true;
+  } else {
+    // Fallback logic
+    if (rawRole.includes("coordinator") || rawRole.includes("lead")) {
+      isCoordinatorOrAdmin = true;
+    } else if (rawRole.includes("senior") || rawRole.includes("sr")) {
+      isSrDesignEngineer = true;
+    } else {
+      isJrDesignEngineer = true;
+    }
+  }
 
   const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
@@ -501,7 +520,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
 
     // 2. Revision Comment Notifications from Sr. Design Engineer -> VISIBLE TO Jr. / Design Engineers of assigned project
-    if (isJrDesignEngineer || isCoordinatorOrAdmin) {
+    if (isJrDesignEngineer) {
       try {
         const savedJrNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_jr_engineer_notifs") : null;
         if (savedJrNotifs) {
@@ -527,6 +546,38 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           }
         }
       } catch (e) {}
+    }
+
+    // 3. Approval Notifications for Discipline Coordinator
+    if (isCoordinatorOrAdmin) {
+      try {
+        const savedCoordNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_coord_notifs") : null;
+        if (savedCoordNotifs) {
+          const parsed = JSON.parse(savedCoordNotifs);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((cn: any) => {
+              if (cn.projectId && isUserMemberOfProject(cn.projectId)) {
+                // Do not show to the person who triggered it
+                if (cn.reviewerName !== currentName && cn.reviewerName !== currentEmail) {
+                  const targetProj = projects.find(p => p.id === cn.projectId);
+                  notifs.push({
+                    id: cn.id,
+                    authorName: cn.reviewerName || "Sr. Design Engineer",
+                    text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): "${cn.comments || "Reviewed"}"`,
+                    timestamp: cn.timestamp,
+                    targetType: "Calculation",
+                    targetName: cn.calculatorTitle || "Calculation",
+                    projectName: targetProj?.name || cn.projectName || "Project",
+                    projectId: cn.projectId,
+                    calculatorPath: cn.calculatorPath || "/ventilation",
+                    targetId: cn.id
+                  });
+                }
+              }
+            });
+          }
+        }
+      } catch(e) {}
     }
     
     notifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
