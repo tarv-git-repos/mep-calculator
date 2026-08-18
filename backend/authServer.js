@@ -168,7 +168,6 @@ async function writeUsers(users) {
       }
       return {
         ...user,
-        active_hwid: active_hwid !== undefined ? active_hwid : (user.active_hwid || null),
         features
       };
     });
