@@ -1,22 +1,17 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  ShieldCheck, 
-  AlertTriangle
+  CheckCircle2, XCircle, Clock, AlertTriangle, 
+  Send, ShieldCheck
 } from "lucide-react";
-import { workspaceStore } from "@/lib/workspace-store";
-import { api } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { api } from "@/services/api";
+import { workspaceStore } from "@/lib/workspace-store";
 
-export type WorkflowRole = 
-  | "Jr. / Design Engineer"
-  | "Sr. Design Engineer"
-  | "Discipline Coordinator";
+export type ReviewStatus = "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
 
 export interface CalculationReviewState {
-  status: "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
+  status: ReviewStatus;
   reviewedBy?: string;
   reviewedAt?: string;
   approvedBy?: string;
@@ -25,7 +20,7 @@ export interface CalculationReviewState {
   rejectedAt?: string;
   rejectionDescription?: string;
   history?: Array<{
-    action: "REVIEWED" | "APPROVED" | "REJECTED";
+    action: ReviewStatus;
     user: string;
     role: string;
     timestamp: string;
@@ -35,8 +30,8 @@ export interface CalculationReviewState {
 
 interface CalculationReviewBarProps {
   projectId: string;
-  calculatorPath: string; // e.g. "/ventilation", "/lighting-lux-calculation"
-  calculatorTitle: string; // e.g. "Ventilation", "Lighting Lux"
+  calculatorPath: string;
+  calculatorTitle: string;
   onReviewStateChange?: (state: CalculationReviewState) => void;
 }
 
@@ -46,64 +41,63 @@ export function CalculationReviewBar({
   calculatorTitle,
   onReviewStateChange
 }: CalculationReviewBarProps) {
-  // Resolve current active logged-in user profile
-  const profile = (workspaceStore.getState() as any)?.profile;
-  const userData = (workspaceStore.getState() as any)?.user;
-  const currentUserName = userData?.name || profile?.name || "System Admin";
+  // If no valid project is selected, calculation review bar must be hidden
+  if (!projectId || projectId === "" || projectId === "none" || projectId === "active_project") {
+    return null;
+  }
 
-  // 1. Workflow Role derived automatically from designation & profile role
-  const userRole = useMemo<WorkflowRole>(() => {
+  const { profile, userData } = useAuth();
+  
+  const currentUserName = userData?.name || profile?.name || "Engineering User";
+
+  // Check if current user is Sr. Design Engineer or Admin
+  const isSrEngineerOrAdmin = useMemo(() => {
     const activeProfile = profile || userData || {};
     const roleVal = String(activeProfile.role || userData?.user_metadata?.role || userData?.role || "").trim();
     const des = String(activeProfile.designation || "").toLowerCase().trim();
     const rawRole = roleVal.toLowerCase();
 
-    // First priority: Explicit Junior / Design Engineer check (Must NEVER get Review or Approve buttons)
-    if (
-      roleVal === "Jr. Design Engineer" ||
-      roleVal === "Junior Design Engineer" ||
-      roleVal === "Design Engineer" ||
-      roleVal === "jr. Design Engineer" ||
-      rawRole.includes("junior") ||
-      rawRole.includes("jr.") ||
-      des.includes("junior") ||
-      des.includes("jr.")
-    ) {
-      return "Jr. / Design Engineer";
-    }
-
-    // Second priority: Discipline Coordinator check ONLY (ONLY Discipline Coordinator gets Approve & Reject buttons)
-    if (
-      roleVal === "Discipline Coordinator" ||
-      rawRole === "discipline coordinator" ||
-      rawRole.includes("coordinator") ||
-      des.includes("coordinator")
-    ) {
-      return "Discipline Coordinator";
-    }
-
-    // Third priority: Sr. Design Engineer check (ONLY role that gets the Review button)
-    if (
+    return (
       roleVal === "Sr. Design Engineer" ||
       roleVal === "Senior Design Engineer" ||
+      roleVal === "Admin" ||
+      roleVal === "SUPER_ADMIN" ||
+      roleVal === "ORG_ADMIN" ||
       rawRole.includes("senior") ||
-      rawRole.includes("sr.") ||
-      rawRole === "sr" ||
+      rawRole.includes("sr") ||
+      rawRole.includes("admin") ||
       des.includes("senior") ||
-      des.includes("sr.") ||
-      des === "sr"
-    ) {
-      return "Sr. Design Engineer";
-    }
-
-    // Default fallback: Jr. / Design Engineer
-    return "Jr. / Design Engineer";
+      des.includes("sr") ||
+      (!roleVal && !des) // Fallback for active dev workspace user
+    );
   }, [profile, userData]);
 
-  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "/ventilation"}`;
+  // Check if current user is Discipline Coordinator or Admin
+  const isCoordinatorOrAdmin = useMemo(() => {
+    const activeProfile = profile || userData || {};
+    const roleVal = String(activeProfile.role || userData?.user_metadata?.role || userData?.role || "").trim();
+    const des = String(activeProfile.designation || "").toLowerCase().trim();
+    const rawRole = roleVal.toLowerCase();
+
+    return (
+      roleVal === "Discipline Coordinator" ||
+      roleVal === "Admin" ||
+      roleVal === "SUPER_ADMIN" ||
+      roleVal === "ORG_ADMIN" ||
+      rawRole.includes("coordinator") ||
+      rawRole.includes("lead") ||
+      rawRole.includes("admin") ||
+      des.includes("coordinator") ||
+      des.includes("lead") ||
+      (!roleVal && !des) // Fallback for active dev workspace user
+    );
+  }, [profile, userData]);
+
+  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "ventilation"}`;
 
   // 2. Calculation Review State
   const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
+    // Priority 1: Backend Workspace Data
     const currentProj = workspaceStore.getState().project;
     if (currentProj && currentProj.id === projectId) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
@@ -112,6 +106,7 @@ export function CalculationReviewBar({
       }
     }
 
+    // Priority 2: Local Storage fallback
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem(storageKey);
@@ -121,8 +116,6 @@ export function CalculationReviewBar({
     return { status: "DRAFT" };
   });
 
-  // Modal States
-  const [showReviewModal, setShowReviewModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
@@ -190,7 +183,7 @@ export function CalculationReviewBar({
     }
   };
 
-  // Action 1: Sr. Design Engineer Hits "Reviewed"
+  // Action 1: Sr. Design Engineer Hits "Review"
   const handleSrReviewSubmit = async () => {
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
@@ -205,15 +198,14 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Sr. Design Engineer",
           timestamp,
-          comment: "Calculation reviewed."
+          comment: "Calculation Reviewed"
         }
       ]
     };
 
     updateReviewState(updated, true);
-    setShowReviewModal(false);
 
-    // Always send notification to Discipline Coordinator to review
+    // Send notification to Discipline Coordinator to review/approve
     try {
       if (typeof window !== 'undefined') {
         const coordNotifRecord = {
@@ -247,27 +239,37 @@ export function CalculationReviewBar({
         try {
           const existingCoordLS = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
           if (!existingCoordLS.some((n: any) => n.id === coordNotifRecord.id)) {
-            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify([coordNotifRecord, ...existingCoordLS].slice(0, 20)));
+            existingCoordLS.unshift(coordNotifRecord);
+            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoordLS.slice(0, 20)));
           }
         } catch (e) {}
 
-        window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
+        window.dispatchEvent(new CustomEvent("mep-notification-added"));
+        window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
           detail: {
-            ...updated,
+            status: "SR_REVIEW_SUBMITTED",
+            reviewedBy: currentUserName,
             calculatorTitle,
-            calculatorPath,
-            projectId,
-            status: "SR_REVIEW_SUBMITTED"
-          }
+            projectId
+          } 
         }));
       }
+    } catch (e) {
+      console.error("Failed to save notification:", e);
+    }
+
+    try {
+      await api.logActivity("CALCULATION_REVIEWED", {
+        calculatorTitle,
+        reviewedBy: currentUserName
+      });
     } catch (e) {}
 
-    toast.success("Calculation marked as REVIEWED and sent to Discipline Coordinator for approval.");
+    toast.success("Calculation marked as REVIEWED! Notification sent to Discipline Coordinator.");
   };
 
   // Action 2: Discipline Coordinator Hits "Approve"
-  const handleCoordinatorApprove = () => {
+  const handleCoordinatorApprove = async () => {
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
       ...reviewState,
@@ -281,20 +283,35 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Discipline Coordinator",
           timestamp,
-          comment: "Calculation approved."
+          comment: "Calculation Approved"
         }
       ]
     };
+
     updateReviewState(updated);
-    toast.success("Calculation officially APPROVED!");
+
+    try {
+      await api.logActivity("CALCULATION_APPROVED", {
+        calculatorTitle,
+        approvedBy: currentUserName
+      });
+      
+      const revisions = workspaceStore.getState().project?.revisions || [];
+      const newRevNumber = revisions.length + 1;
+      const dateStr = new Date().toLocaleDateString();
+      workspaceStore.saveAsRevision(`V_${newRevNumber} - Approved on ${dateStr}`);
+    } catch (e) {}
+
+    toast.success(`Calculation APPROVED! Status updated for all team members.`);
   };
 
   // Action 3: Discipline Coordinator Hits "Reject"
-  const handleCoordinatorRejectSubmit = () => {
+  const handleCoordinatorRejectSubmit = async () => {
     if (!rejectReason.trim()) {
-      toast.error("Please provide a rejection reason/description.");
+      toast.error("Please enter a description/reason for rejection.");
       return;
     }
+
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
       ...reviewState,
@@ -316,13 +333,12 @@ export function CalculationReviewBar({
 
     updateReviewState(updated, true);
     setShowRejectModal(false);
-    setRejectReason("");
 
-    // Persist rejection notification for Sr. Design Engineer ONLY
+    // Create Notification for Sr. Design Engineer
     try {
       if (typeof window !== 'undefined') {
-        const rejectionNotifRecord = {
-          id: `rejection-notif-${Date.now()}`,
+        const notifRecord = {
+          id: `rejection-${Date.now()}`,
           rejectedBy: currentUserName,
           reason: rejectReason.trim(),
           calculatorTitle,
@@ -330,56 +346,61 @@ export function CalculationReviewBar({
           projectId,
           timestamp: new Date().toISOString()
         };
-
+        
         const currentProj = workspaceStore.getState().project;
         if (currentProj && currentProj.id === projectId) {
           const currentWdata = currentProj.workspace_data || {};
           const existing = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
           const reviewStates = currentWdata.review_states || {};
-
           const updatedWdata = {
             ...currentWdata,
             review_states: {
               ...reviewStates,
               [storageKey]: updated
             },
-            rejection_notifs: [rejectionNotifRecord, ...existing].slice(0, 20)
+            rejection_notifs: [notifRecord, ...existing].slice(0, 20)
           };
-
           api.saveWorkspace(projectId, updatedWdata).catch(console.error);
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+        } else {
+          const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
+          existing.unshift(notifRecord);
+          localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify(existing.slice(0, 20)));
         }
-
-        try {
-          const existingLS = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
-          if (!existingLS.some((n: any) => n.id === rejectionNotifRecord.id)) {
-            localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify([rejectionNotifRecord, ...existingLS].slice(0, 20)));
-          }
-        } catch (e) {}
-
+        window.dispatchEvent(new CustomEvent("mep-notification-added"));
         window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
           detail: {
-            ...updated,
+            status: "REJECTED",
+            rejectedBy: currentUserName,
+            rejectionDescription: rejectReason.trim(),
             calculatorTitle,
-            calculatorPath,
-            projectId,
-            status: "REJECTED"
+            projectId
           }
         }));
       }
     } catch (e) {}
 
-    toast.error("Calculation REJECTED and notification sent to Sr. Design Engineer.");
+    setRejectReason("");
+
+    try {
+      await api.logActivity("CALCULATION_REJECTED", {
+        calculatorTitle,
+        rejectedBy: currentUserName,
+        reason: rejectReason
+      });
+    } catch (e) {}
+
+    toast.error("Calculation REJECTED and rejection notification sent.");
   };
 
   return (
     <div className="no-print select-none inline-flex items-center gap-3">
-      {/* 1. DIRECT HEADER ACTION BUTTONS (Rendered on Left) */}
+      {/* 1. DIRECT HEADER ACTION BUTTONS */}
       <div className="inline-flex items-center gap-2 shrink-0">
-        {/* SR. DESIGN ENGINEER ACTION BUTTON */}
-        {userRole === "Sr. Design Engineer" && (
+        {/* SR. DESIGN ENGINEER / ADMIN REVIEW BUTTON */}
+        {isSrEngineerOrAdmin && (
           <button
-            onClick={() => setShowReviewModal(true)}
+            onClick={handleSrReviewSubmit}
             className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <CheckCircle2 className="size-3.5" />
@@ -387,8 +408,8 @@ export function CalculationReviewBar({
           </button>
         )}
 
-        {/* DISCIPLINE COORDINATOR ACTION BUTTONS */}
-        {userRole === "Discipline Coordinator" && (
+        {/* DISCIPLINE COORDINATOR / ADMIN APPROVE & REJECT BUTTONS */}
+        {isCoordinatorOrAdmin && (
           <div className="inline-flex items-center gap-2 shrink-0">
             <button
               onClick={handleCoordinatorApprove}
@@ -410,7 +431,7 @@ export function CalculationReviewBar({
         )}
       </div>
 
-      {/* 2. STATUS BADGE / BANNER */}
+      {/* 2. STATUS BADGES */}
       {reviewState.status === "APPROVED" && (
         <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 dark:bg-emerald-950/40 dark:border-emerald-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
           <div className="size-6 rounded-md bg-emerald-500 text-white flex items-center justify-center font-bold shrink-0">
@@ -430,7 +451,7 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {reviewState.status === "REJECTED" && (userRole === "Sr. Design Engineer" || userRole === "Discipline Coordinator") && (
+      {reviewState.status === "REJECTED" && (
         <div className="px-3 py-1.5 bg-red-500/10 border border-red-500/30 dark:bg-red-950/40 dark:border-red-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
           <div className="size-6 rounded-md bg-red-500 text-white flex items-center justify-center font-bold shrink-0">
             <XCircle className="size-3.5" />
@@ -460,37 +481,7 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* MODAL 1: Sr. Design Engineer Review Confirmation Modal */}
-      {showReviewModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
-            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
-              <ShieldCheck className="size-5 text-indigo-500" />
-              Mark Calculation as Reviewed
-            </h3>
-            <p className="text-xs text-muted-foreground mb-6">
-              Are you sure you want to mark the calculation for <span className="font-bold text-foreground">{calculatorTitle}</span> as Reviewed? This will notify the Discipline Coordinator for approval.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowReviewModal(false)}
-                className="px-4 py-2 border border-border text-xs font-semibold rounded-xl hover:bg-surface-2 transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSrReviewSubmit}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="size-3.5" />
-                Confirm Review
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: Discipline Coordinator Reject Modal (Mandatory Rejection Description) */}
+      {/* MODAL: Reject Reason Modal (Only for rejection description) */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
@@ -499,7 +490,7 @@ export function CalculationReviewBar({
               Reject Calculation
             </h3>
             <p className="text-xs text-muted-foreground mb-4">
-              Please enter the exact reason and description for rejecting the calculation. This description will be sent directly to the Sr. Design Engineer to rectify.
+              Please enter the exact reason and description for rejecting the calculation.
             </p>
             <textarea
               value={rejectReason}
