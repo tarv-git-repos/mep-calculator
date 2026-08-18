@@ -385,28 +385,32 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     );
   }, [roleVal, rawRole, des]);
 
-  const isSrDesignEngineer = useMemo(() => {
-    return (
-      roleVal === "Sr. Design Engineer" ||
-      roleVal === "Senior Design Engineer" ||
-      rawRole.includes("senior") ||
-      rawRole.includes("sr") ||
-      des.includes("senior") ||
-      des.includes("sr")
-    );
-  }, [roleVal, rawRole, des]);
-
   const isJrDesignEngineer = useMemo(() => {
     return (
       roleVal === "Jr. Design Engineer" ||
       roleVal === "Junior Design Engineer" ||
       roleVal === "Design Engineer" ||
+      roleVal === "jr. Design Engineer" ||
       rawRole.includes("junior") ||
-      rawRole.includes("jr") ||
-      des.includes("engineer") ||
-      (!isCoordinatorOrAdmin && !isSrDesignEngineer)
+      rawRole.includes("jr.") ||
+      des.includes("junior") ||
+      des.includes("jr.")
     );
-  }, [roleVal, rawRole, des, isCoordinatorOrAdmin, isSrDesignEngineer]);
+  }, [roleVal, rawRole, des]);
+
+  const isSrDesignEngineer = useMemo(() => {
+    if (isJrDesignEngineer) return false;
+    return (
+      roleVal === "Sr. Design Engineer" ||
+      roleVal === "Senior Design Engineer" ||
+      rawRole.includes("senior") ||
+      rawRole.includes("sr.") ||
+      rawRole === "sr" ||
+      des.includes("senior") ||
+      des.includes("sr.") ||
+      des === "sr"
+    );
+  }, [roleVal, rawRole, des, isJrDesignEngineer]);
 
   const [readNotifIds, setReadNotifIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {

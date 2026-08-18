@@ -61,6 +61,21 @@ export function CalculationReviewBar({
     const des = String(activeProfile.designation || "").toLowerCase().trim();
     const rawRole = roleVal.toLowerCase();
 
+    // First priority: Explicit Junior / Design Engineer check (Must NEVER get Review or Approve buttons)
+    if (
+      roleVal === "Jr. Design Engineer" ||
+      roleVal === "Junior Design Engineer" ||
+      roleVal === "Design Engineer" ||
+      roleVal === "jr. Design Engineer" ||
+      rawRole.includes("junior") ||
+      rawRole.includes("jr.") ||
+      des.includes("junior") ||
+      des.includes("jr.")
+    ) {
+      return "Jr. / Design Engineer";
+    }
+
+    // Second priority: Discipline Coordinator / Admin check (Gets Approve & Reject buttons)
     if (
       roleVal === "Discipline Coordinator" ||
       roleVal === "Admin" ||
@@ -75,17 +90,21 @@ export function CalculationReviewBar({
       return "Discipline Coordinator";
     }
 
+    // Third priority: Sr. Design Engineer check (ONLY role that gets the Review button)
     if (
       roleVal === "Sr. Design Engineer" ||
       roleVal === "Senior Design Engineer" ||
       rawRole.includes("senior") ||
-      rawRole.includes("sr") ||
+      rawRole.includes("sr.") ||
+      rawRole === "sr" ||
       des.includes("senior") ||
-      des.includes("sr")
+      des.includes("sr.") ||
+      des === "sr"
     ) {
       return "Sr. Design Engineer";
     }
 
+    // Default fallback: Jr. / Design Engineer
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
