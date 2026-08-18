@@ -78,6 +78,16 @@ export function CalculationReviewBar({
 
   // 2. Calculation Review State
   const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
+    // Priority 1: Backend Workspace Data
+    const currentProj = workspaceStore.getState().project;
+    if (currentProj && currentProj.id === projectId) {
+      const reviewStates = currentProj.workspace_data?.review_states || {};
+      if (reviewStates[storageKey]) {
+        return reviewStates[storageKey];
+      }
+    }
+
+    // Priority 2: Local Storage fallback
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem(storageKey);
@@ -97,6 +107,16 @@ export function CalculationReviewBar({
 
   // Sync state when storageKey changes
   useEffect(() => {
+    const currentProj = workspaceStore.getState().project;
+    if (currentProj && currentProj.id === projectId) {
+      const reviewStates = currentProj.workspace_data?.review_states || {};
+      if (reviewStates[storageKey]) {
+        setReviewState(reviewStates[storageKey]);
+        if (onReviewStateChange) onReviewStateChange(reviewStates[storageKey]);
+        return;
+      }
+    }
+
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem(storageKey);
@@ -111,11 +131,29 @@ export function CalculationReviewBar({
     const initialState: CalculationReviewState = { status: "DRAFT" };
     setReviewState(initialState);
     if (onReviewStateChange) onReviewStateChange(initialState);
-  }, [storageKey]);
+  }, [storageKey, projectId]);
 
   // Helper to persist & sync state
   const updateReviewState = (next: CalculationReviewState) => {
     setReviewState(next);
+    
+    // Save to Backend
+    const currentProj = workspaceStore.getState().project;
+    if (currentProj && currentProj.id === projectId) {
+      const currentWdata = currentProj.workspace_data || {};
+      const reviewStates = currentWdata.review_states || {};
+      const updatedWdata = {
+        ...currentWdata,
+        review_states: {
+          ...reviewStates,
+          [storageKey]: next
+        }
+      };
+      
+      api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+      workspaceStore.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
+    }
+
     if (typeof window !== "undefined") {
       localStorage.setItem(storageKey, JSON.stringify(next));
     }
@@ -167,9 +205,6 @@ export function CalculationReviewBar({
             projectId,
             timestamp: new Date().toISOString()
           };
-          const existingCoord = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
-          existingCoord.unshift(coordNotifRecord);
-          localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoord.slice(0, 20)));
 
           const jrNotifRecord = {
             id: `jr-notif-${Date.now()}`,
@@ -180,9 +215,30 @@ export function CalculationReviewBar({
             projectId,
             timestamp: new Date().toISOString()
           };
-          const existing = JSON.parse(localStorage.getItem("mep_calc_jr_engineer_notifs") || "[]");
-          existing.unshift(jrNotifRecord);
-          localStorage.setItem("mep_calc_jr_engineer_notifs", JSON.stringify(existing.slice(0, 20)));
+
+          const currentProj = workspaceStore.getState().project;
+          if (currentProj && currentProj.id === projectId) {
+            const currentWdata = currentProj.workspace_data || {};
+            const existingCoord = Array.isArray(currentWdata.coord_notifs) ? currentWdata.coord_notifs : [];
+            const existingJr = Array.isArray(currentWdata.jr_engineer_notifs) ? currentWdata.jr_engineer_notifs : [];
+
+            const updatedWdata = {
+              ...currentWdata,
+              coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20),
+              jr_engineer_notifs: [jrNotifRecord, ...existingJr].slice(0, 20)
+            };
+
+            api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+            workspaceStore.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
+          } else {
+            const existingCoord = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
+            existingCoord.unshift(coordNotifRecord);
+            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoord.slice(0, 20)));
+
+            const existing = JSON.parse(localStorage.getItem("mep_calc_jr_engineer_notifs") || "[]");
+            existing.unshift(jrNotifRecord);
+            localStorage.setItem("mep_calc_jr_engineer_notifs", JSON.stringify(existing.slice(0, 20)));
+          }
 
           // Dispatch event to notify Jr. Design Engineers & Coordinators
           window.dispatchEvent(new CustomEvent("mep-notification-added"));
@@ -291,9 +347,22 @@ export function CalculationReviewBar({
           projectId,
           timestamp: new Date().toISOString()
         };
-        const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
-        existing.unshift(notifRecord);
-        localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify(existing.slice(0, 20)));
+        
+        const currentProj = workspaceStore.getState().project;
+        if (currentProj && currentProj.id === projectId) {
+          const currentWdata = currentProj.workspace_data || {};
+          const existing = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
+          const updatedWdata = {
+            ...currentWdata,
+            rejection_notifs: [notifRecord, ...existing].slice(0, 20)
+          };
+          api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+          workspaceStore.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
+        } else {
+          const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
+          existing.unshift(notifRecord);
+          localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify(existing.slice(0, 20)));
+        }
         window.dispatchEvent(new CustomEvent("mep-notification-added"));
         window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
           detail: {

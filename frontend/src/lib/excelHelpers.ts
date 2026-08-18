@@ -1,11 +1,14 @@
 import type { Worksheet } from "exceljs";
 
+import { workspaceStore } from "@/lib/workspace-store";
+
 /**
  * Appends the 3-tier signature block to an Excel worksheet.
  * @param worksheet The exceljs Worksheet instance
  * @param startRow The row number to start drawing the table
  * @param creatorName Name of the originator
- * @param reviewState The CalculationReviewState object from local storage
+ * @param projectId Project ID
+ * @param calculatorPath Current path to derive storage key
  */
 export function addExcelSignatureBlock(
   worksheet: Worksheet,
@@ -15,9 +18,18 @@ export function addExcelSignatureBlock(
   calculatorPath: string
 ): number {
   let reviewState: any = {};
-  if (typeof window !== "undefined") {
+  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath}`;
+
+  const currentProj = workspaceStore.getState().project;
+  if (currentProj && currentProj.id === projectId) {
+    const reviewStates = currentProj.workspace_data?.review_states || {};
+    if (reviewStates[storageKey]) {
+      reviewState = reviewStates[storageKey];
+    }
+  }
+
+  if (!reviewState?.status && typeof window !== "undefined") {
     try {
-      const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath}`;
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         reviewState = JSON.parse(saved);

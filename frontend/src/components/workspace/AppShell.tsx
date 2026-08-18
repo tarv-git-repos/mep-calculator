@@ -490,15 +490,38 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return false;
     };
 
-    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE ONLY TO Sr. Design Engineer (and Admins) of assigned project
-    if (isSrDesignEngineer || isCoordinatorOrAdmin) {
+    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE TO Sr. Design Engineer
+    if (isSrDesignEngineer) {
       try {
+        // Collect from backend first
+        projects.forEach(p => {
+          const wdata = p.workspace_data || {};
+          const rNotifs = Array.isArray(wdata.rejection_notifs) ? wdata.rejection_notifs : [];
+          rNotifs.forEach((rn: any) => {
+            if (isUserMemberOfProject(p.id)) {
+              notifs.push({
+                id: rn.id,
+                authorName: rn.rejectedBy || rn.authorName || "Discipline Coordinator",
+                text: `🚨 CALCULATION REJECTED (${rn.calculatorTitle || "Calculation"}): "${rn.reason}"`,
+                timestamp: rn.timestamp,
+                targetType: "Calculation",
+                targetName: rn.calculatorTitle || "Calculation",
+                projectName: p.name || rn.projectName || "Project",
+                projectId: p.id,
+                calculatorPath: rn.calculatorPath || "/ventilation",
+                targetId: rn.id
+              });
+            }
+          });
+        });
+
+        // Collect from local storage fallback
         const savedRejections = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_rejection_notifs") : null;
         if (savedRejections) {
           const parsed = JSON.parse(savedRejections);
           if (Array.isArray(parsed)) {
             parsed.forEach((rn: any) => {
-              if (rn.projectId && isUserMemberOfProject(rn.projectId)) {
+              if (rn.projectId && isUserMemberOfProject(rn.projectId) && !notifs.some(n => n.id === rn.id)) {
                 const targetProj = projects.find(p => p.id === rn.projectId);
                 notifs.push({
                   id: rn.id,
@@ -522,12 +545,35 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     // 2. Revision Comment Notifications from Sr. Design Engineer -> VISIBLE TO Jr. / Design Engineers of assigned project
     if (isJrDesignEngineer) {
       try {
+        // Collect from backend
+        projects.forEach(p => {
+          const wdata = p.workspace_data || {};
+          const jNotifs = Array.isArray(wdata.jr_engineer_notifs) ? wdata.jr_engineer_notifs : [];
+          jNotifs.forEach((jn: any) => {
+            if (isUserMemberOfProject(p.id)) {
+              notifs.push({
+                id: jn.id,
+                authorName: jn.reviewerName || "Sr. Design Engineer",
+                text: `📝 REVISION INSTRUCTIONS (${jn.calculatorTitle || "Calculation"}): "${jn.comments}"`,
+                timestamp: jn.timestamp,
+                targetType: "Calculation",
+                targetName: jn.calculatorTitle || "Calculation",
+                projectName: p.name || jn.projectName || "Project",
+                projectId: p.id,
+                calculatorPath: jn.calculatorPath || "/ventilation",
+                targetId: jn.id
+              });
+            }
+          });
+        });
+
+        // Collect from local storage fallback
         const savedJrNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_jr_engineer_notifs") : null;
         if (savedJrNotifs) {
           const parsed = JSON.parse(savedJrNotifs);
           if (Array.isArray(parsed)) {
             parsed.forEach((jn: any) => {
-              if (jn.projectId && isUserMemberOfProject(jn.projectId)) {
+              if (jn.projectId && isUserMemberOfProject(jn.projectId) && !notifs.some(n => n.id === jn.id)) {
                 const targetProj = projects.find(p => p.id === jn.projectId);
                 notifs.push({
                   id: jn.id,
@@ -551,12 +597,35 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     // 3. Approval Notifications for Discipline Coordinator
     if (isCoordinatorOrAdmin) {
       try {
+        // Collect from backend
+        projects.forEach(p => {
+          const wdata = p.workspace_data || {};
+          const cNotifs = Array.isArray(wdata.coord_notifs) ? wdata.coord_notifs : [];
+          cNotifs.forEach((cn: any) => {
+            if (isUserMemberOfProject(p.id) && cn.reviewerName !== currentName && cn.reviewerName !== currentEmail) {
+              notifs.push({
+                id: cn.id,
+                authorName: cn.reviewerName || "Sr. Design Engineer",
+                text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): "${cn.comments || "Reviewed"}"`,
+                timestamp: cn.timestamp,
+                targetType: "Calculation",
+                targetName: cn.calculatorTitle || "Calculation",
+                projectName: p.name || cn.projectName || "Project",
+                projectId: p.id,
+                calculatorPath: cn.calculatorPath || "/ventilation",
+                targetId: cn.id
+              });
+            }
+          });
+        });
+
+        // Collect from local storage fallback
         const savedCoordNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_coord_notifs") : null;
         if (savedCoordNotifs) {
           const parsed = JSON.parse(savedCoordNotifs);
           if (Array.isArray(parsed)) {
             parsed.forEach((cn: any) => {
-              if (cn.projectId && isUserMemberOfProject(cn.projectId)) {
+              if (cn.projectId && isUserMemberOfProject(cn.projectId) && !notifs.some(n => n.id === cn.id)) {
                 // Do not show to the person who triggered it
                 if (cn.reviewerName !== currentName && cn.reviewerName !== currentEmail) {
                   const targetProj = projects.find(p => p.id === cn.projectId);
