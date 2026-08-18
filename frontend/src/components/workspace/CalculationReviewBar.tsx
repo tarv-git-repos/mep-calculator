@@ -6,6 +6,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { api } from "@/services/api";
+import { workspaceStore } from "@/lib/workspace-store";
 
 export type WorkflowRole = "Jr. / Design Engineer" | "Sr. Design Engineer" | "Discipline Coordinator";
 
@@ -55,15 +56,18 @@ export function CalculationReviewBar({
 
   // 1. Workflow Role derived automatically from admin-assigned designation & profile role
   const userRole = useMemo<WorkflowRole>(() => {
-    const des = (profile?.designation || profile?.role || "").toLowerCase();
-    if (des.includes("coordinator") || des.includes("lead") || profile?.role === "SUPER_ADMIN" || profile?.role === "ORG_ADMIN") {
+    const activeProfile = profile || userData || {};
+    const des = (activeProfile.designation || activeProfile.role || "").toLowerCase();
+    const roleVal = activeProfile.role;
+    
+    if (des.includes("coordinator") || des.includes("lead") || roleVal === "SUPER_ADMIN" || roleVal === "ORG_ADMIN") {
       return "Discipline Coordinator";
     }
-    if (des.includes("senior") || des.includes("sr")) {
+    if (des.includes("senior") || des.includes("sr") || roleVal === "Sr. Design Engineer") {
       return "Sr. Design Engineer";
     }
     return "Jr. / Design Engineer";
-  }, [profile?.designation, profile?.role]);
+  }, [profile, userData]);
 
   const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "ventilation"}`;
 
@@ -148,6 +152,20 @@ export function CalculationReviewBar({
     if (srComments.trim()) {
       try {
         if (typeof window !== 'undefined') {
+          // Send notification to Discipline Coordinator to review
+          const coordNotifRecord = {
+            id: `coord-notif-${Date.now()}`,
+            reviewerName: currentUserName,
+            comments: srComments.trim(),
+            calculatorTitle,
+            calculatorPath,
+            projectId,
+            timestamp: new Date().toISOString()
+          };
+          const existingCoord = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
+          existingCoord.unshift(coordNotifRecord);
+          localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoord.slice(0, 20)));
+
           const jrNotifRecord = {
             id: `jr-notif-${Date.now()}`,
             reviewerName: currentUserName,
@@ -161,7 +179,7 @@ export function CalculationReviewBar({
           existing.unshift(jrNotifRecord);
           localStorage.setItem("mep_calc_jr_engineer_notifs", JSON.stringify(existing.slice(0, 20)));
 
-          // Dispatch event to notify Jr. Design Engineers
+          // Dispatch event to notify Jr. Design Engineers & Coordinators
           window.dispatchEvent(new CustomEvent("mep-notification-added"));
           window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
             detail: {
@@ -216,6 +234,12 @@ export function CalculationReviewBar({
         calculatorTitle,
         approvedBy: currentUserName
       });
+      
+      // Auto-save version
+      const revisions = workspaceStore.getState().project?.revisions || [];
+      const newRevNumber = revisions.length + 1;
+      const dateStr = new Date().toLocaleDateString();
+      workspaceStore.saveAsRevision(`V_${newRevNumber} - Approved on ${dateStr}`);
     } catch (e) {}
 
     toast.success(`Calculation APPROVED! Status updated for all team members.`);

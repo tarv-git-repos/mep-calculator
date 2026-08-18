@@ -36,14 +36,13 @@ export function getHardwareFingerprint(): string {
     const language = nav.language || "";
 
     const rawString = [
-      "MEP-PHYSICAL-HWID-V1",
+      "MEP-PHYSICAL-HWID-V2", // Bump version since we changed the hash logic
       platform,
       hardwareConcurrency,
       deviceMemory,
-      screenRes,
       timezone,
-      language,
-      userAgent
+      language
+      // Removed screenRes and userAgent because they fluctuate on the same device
     ].join("||");
 
     const hash1 = cyrb53(rawString, 42);
