@@ -1,19 +1,19 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
-  CheckCircle2, XCircle, Clock, AlertTriangle, MessageSquare, 
-  Send, UserCheck, ShieldCheck, ChevronDown, User, Sparkles, RefreshCw, FileText 
+  CheckCircle2, 
+  XCircle, 
+  Clock, 
+  AlertTriangle,
+  Send
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { api } from "@/services/api";
 import { workspaceStore } from "@/lib/workspace-store";
+import { api } from "@/services/api";
 
-export type WorkflowRole = "Jr. / Design Engineer" | "Sr. Design Engineer" | "Discipline Coordinator";
-
-export type ReviewStatus = "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
+export type CalculationReviewStatus = "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
 
 export interface CalculationReviewState {
-  status: ReviewStatus;
+  status: CalculationReviewStatus;
   reviewedBy?: string;
   reviewedAt?: string;
   reviewerComments?: string;
@@ -23,7 +23,7 @@ export interface CalculationReviewState {
   rejectedAt?: string;
   rejectionDescription?: string;
   history?: Array<{
-    action: ReviewStatus;
+    action: CalculationReviewStatus;
     user: string;
     role: string;
     timestamp: string;
@@ -31,28 +31,24 @@ export interface CalculationReviewState {
   }>;
 }
 
+export type WorkflowRole = "Jr. / Design Engineer" | "Sr. Design Engineer" | "Discipline Coordinator";
+
 interface CalculationReviewBarProps {
   projectId: string;
-  calculatorPath: string;
-  calculatorTitle: string;
+  calculatorPath: string; // e.g. '/ventilation'
+  calculatorTitle: string; // e.g. 'Ventilation'
   onReviewStateChange?: (state: CalculationReviewState) => void;
 }
 
-export function CalculationReviewBar({
+export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
   projectId,
   calculatorPath,
   calculatorTitle,
   onReviewStateChange
-}: CalculationReviewBarProps) {
-  // If no valid project is selected, calculation review bar must be hidden
-  if (!projectId || projectId === "" || projectId === "none" || projectId === "active_project") {
-    return null;
-  }
-
-  const { profile, userData } = useAuth();
-  
-  const currentUserName = userData?.name || profile?.name || "Engineering User";
-  const currentUserEmail = userData?.email || profile?.email || "";
+}) => {
+  const profile = (workspaceStore.getState() as any)?.profile;
+  const userData = (workspaceStore.getState() as any)?.user;
+  const currentUserName = profile?.name || userData?.name || "System User";
 
   // 1. Workflow Role derived automatically from admin-assigned designation & profile role
   const userRole = useMemo<WorkflowRole>(() => {
@@ -127,11 +123,7 @@ export function CalculationReviewBar({
   });
 
   // Modal States
-  const [showReviewModal, setShowReviewModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
-  const [showCommentsModal, setShowCommentsModal] = useState(false);
-  
-  const [srComments, setSrComments] = useState("");
   const [rejectReason, setRejectReason] = useState("");
 
   // Sync state when storageKey changes
@@ -198,7 +190,7 @@ export function CalculationReviewBar({
     }
   };
 
-  // Action 1: Sr. Design Engineer Hits "Reviewed"
+  // Action 1: Sr. Design Engineer Hits "Review" Directly
   const handleSrReviewSubmit = async () => {
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
@@ -206,7 +198,6 @@ export function CalculationReviewBar({
       status: "REVIEWED",
       reviewedBy: currentUserName,
       reviewedAt: timestamp,
-      reviewerComments: srComments.trim() || undefined,
       history: [
         ...(reviewState.history || []),
         {
@@ -214,14 +205,12 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Sr. Design Engineer",
           timestamp,
-          comment: srComments.trim() || "Calculation reviewed and submitted to Discipline Coordinator."
+          comment: "Calculation reviewed and submitted to Discipline Coordinator."
         }
       ]
     };
 
-    // Pass skipSaveBackend = true, we will do one combined save below
     updateReviewState(updated, true);
-    setShowReviewModal(false);
 
     // Always send notification to Discipline Coordinator to review
     try {
@@ -229,7 +218,7 @@ export function CalculationReviewBar({
         const coordNotifRecord = {
           id: `coord-notif-${Date.now()}`,
           reviewerName: currentUserName,
-          comments: srComments.trim() || "Ready for approval.",
+          comments: "Ready for approval.",
           calculatorTitle,
           calculatorPath,
           projectId,
@@ -259,42 +248,41 @@ export function CalculationReviewBar({
         try {
           const existingCoordLS = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
           if (!existingCoordLS.some((n: any) => n.id === coordNotifRecord.id)) {
-            existingCoordLS.unshift(coordNotifRecord);
-            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoordLS.slice(0, 20)));
+            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify([coordNotifRecord, ...existingCoordLS].slice(0, 20)));
           }
         } catch (e) {}
 
-        // Dispatch event to notify Jr. Design Engineers & Coordinators
-        window.dispatchEvent(new CustomEvent("mep-notification-added"));
-        window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
+        // Dispatch event to notify Discipline Coordinators & Admins
+        window.dispatchEvent(new CustomEvent("mep-notification-added", {
           detail: {
-            status: "SR_REVIEW_SUBMITTED",
-            reviewedBy: currentUserName,
-            reviewerComments: srComments.trim(),
+            id: coordNotifRecord.id,
+            authorName: currentUserName,
+            text: `Calculation (${calculatorTitle}) reviewed by Sr. Design Engineer (${currentUserName}). Ready for your approval!`,
+            timestamp: coordNotifRecord.timestamp,
+            targetType: "Calculation",
+            targetName: calculatorTitle,
+            projectId,
+            calculatorPath
+          }
+        }));
+
+        window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
+          detail: {
+            ...updated,
             calculatorTitle,
-            projectId
-          } 
+            calculatorPath,
+            projectId,
+            status: "SR_REVIEW_SUBMITTED"
+          }
         }));
       }
-    } catch (e) {
-      console.error("Failed to save notification:", e);
-    }
-
-    setSrComments("");
-
-    try {
-      await api.logActivity("CALCULATION_REVIEWED", {
-        calculatorTitle,
-        reviewedBy: currentUserName,
-        comments: srComments
-      });
     } catch (e) {}
 
-    toast.success("Review submitted! Revision instructions sent to Design Engineers.");
+    toast.success("Calculation marked as REVIEWED and notification sent to Discipline Coordinator.");
   };
 
   // Action 2: Discipline Coordinator Hits "Approve"
-  const handleCoordinatorApprove = async () => {
+  const handleCoordinatorApprove = () => {
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
       ...reviewState,
@@ -308,33 +296,18 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Discipline Coordinator",
           timestamp,
-          comment: "Calculation Approved"
+          comment: "Calculation officially APPROVED by Discipline Coordinator."
         }
       ]
     };
-
     updateReviewState(updated);
-
-    try {
-      await api.logActivity("CALCULATION_APPROVED", {
-        calculatorTitle,
-        approvedBy: currentUserName
-      });
-      
-      // Auto-save version
-      const revisions = workspaceStore.getState().project?.revisions || [];
-      const newRevNumber = revisions.length + 1;
-      const dateStr = new Date().toLocaleDateString();
-      workspaceStore.saveAsRevision(`V_${newRevNumber} - Approved on ${dateStr}`);
-    } catch (e) {}
-
-    toast.success(`Calculation APPROVED! Status updated for all team members.`);
+    toast.success("Calculation officially APPROVED! All users can now view the approved status.");
   };
 
   // Action 3: Discipline Coordinator Hits "Reject"
-  const handleCoordinatorRejectSubmit = async () => {
+  const handleCoordinatorRejectSubmit = () => {
     if (!rejectReason.trim()) {
-      toast.error("Please enter a description/reason for rejection.");
+      toast.error("Please enter a rejection description for the Sr. Design Engineer.");
       return;
     }
 
@@ -352,16 +325,15 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Discipline Coordinator",
           timestamp,
-          comment: rejectReason.trim()
+          comment: `REJECTED: ${rejectReason.trim()}`
         }
       ]
     };
-
-    // Pass skipSaveBackend = true, we will do one combined save below
-    updateReviewState(updated, true);
+    updateReviewState(updated);
     setShowRejectModal(false);
+    setRejectReason("");
 
-    // Create Notification for Sr. Design Engineer
+    // Create rejection notification exclusively for Sr. Design Engineer
     try {
       if (typeof window !== 'undefined') {
         const notifRecord = {
@@ -373,48 +345,24 @@ export function CalculationReviewBar({
           projectId,
           timestamp: new Date().toISOString()
         };
-        
+
         const currentProj = workspaceStore.getState().project;
         if (currentProj && currentProj.id === projectId) {
           const currentWdata = currentProj.workspace_data || {};
-          const existing = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
-          const reviewStates = currentWdata.review_states || {};
+          const existingRejections = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
           const updatedWdata = {
             ...currentWdata,
-            review_states: {
-              ...reviewStates,
-              [storageKey]: updated
-            },
-            rejection_notifs: [notifRecord, ...existing].slice(0, 20)
+            rejection_notifs: [notifRecord, ...existingRejections].slice(0, 20)
           };
           api.saveWorkspace(projectId, updatedWdata).catch(console.error);
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
-        } else {
-          const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
-          existing.unshift(notifRecord);
-          localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify(existing.slice(0, 20)));
         }
-        window.dispatchEvent(new CustomEvent("mep-notification-added"));
-        window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
-          detail: {
-            status: "REJECTED",
-            rejectedBy: currentUserName,
-            rejectionDescription: rejectReason.trim(),
-            calculatorTitle,
-            projectId
-          }
-        }));
+
+        try {
+          const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
+          localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify([notifRecord, ...existing].slice(0, 20)));
+        } catch (e) {}
       }
-    } catch (e) {}
-
-    setRejectReason("");
-
-    try {
-      await api.logActivity("CALCULATION_REJECTED", {
-        calculatorTitle,
-        rejectedBy: currentUserName,
-        reason: rejectReason
-      });
     } catch (e) {}
 
     toast.error("Calculation REJECTED and rejection notification sent to Sr. Design Engineer.");
@@ -427,8 +375,9 @@ export function CalculationReviewBar({
         {/* SR. DESIGN ENGINEER ACTION BUTTON */}
         {userRole === "Sr. Design Engineer" && (
           <button
-            onClick={() => setShowReviewModal(true)}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            onClick={handleSrReviewSubmit}
+            disabled={reviewState.status === "REVIEWED" || reviewState.status === "APPROVED"}
+            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <CheckCircle2 className="size-3.5" />
             <span>{reviewState.status === "REVIEWED" || reviewState.status === "APPROVED" ? "Reviewed" : "Review"}</span>
@@ -455,16 +404,6 @@ export function CalculationReviewBar({
               <span>Reject</span>
             </button>
           </div>
-        )}
-
-        {/* JR / DESIGN ENGINEER VIEW NOTES */}
-        {userRole === "Jr. / Design Engineer" && reviewState.reviewerComments && (
-          <button
-            onClick={() => setShowCommentsModal(true)}
-            className="px-3 py-1 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-xs font-semibold rounded-full transition-colors flex items-center gap-1 cursor-pointer shrink-0"
-          >
-            <MessageSquare className="size-3.5" /> Reviewer Notes
-          </button>
         )}
       </div>
 
@@ -518,44 +457,7 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
-      {showReviewModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
-            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
-              <ShieldCheck className="size-5 text-indigo-500" />
-              Mark Calculation as Reviewed
-            </h3>
-            <p className="text-xs text-muted-foreground mb-4">
-              You are confirming that you have reviewed the calculation for <span className="font-bold text-foreground">{calculatorTitle}</span>. You can optionally add notes for the Design Engineers or Discipline Coordinator.
-            </p>
-            <textarea
-              value={srComments}
-              onChange={(e) => setSrComments(e.target.value)}
-              placeholder="Add optional reviewer comments or guidelines for Jr. / Design Engineers…"
-              rows={4}
-              className="w-full p-3 bg-surface-2 border border-border rounded-xl text-xs font-medium outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 text-foreground resize-none"
-            />
-            <div className="flex items-center justify-end gap-2 mt-5">
-              <button
-                onClick={() => setShowReviewModal(false)}
-                className="px-4 py-2 border border-border text-xs font-semibold rounded-xl hover:bg-surface-2 transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSrReviewSubmit}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
-              >
-                <Send className="size-3.5" />
-                Submit Reviewed Status
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: Discipline Coordinator Reject Modal (Mandatory Rejection Description) */}
+      {/* DISCIPLINE COORDINATOR REJECT MODAL */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
@@ -591,42 +493,6 @@ export function CalculationReviewBar({
           </div>
         </div>
       )}
-
-      {/* MODAL 3: View Reviewer Notes Modal */}
-      {showCommentsModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
-            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
-              <MessageSquare className="size-5 text-primary" />
-              Reviewer Notes & Feedback
-            </h3>
-            {reviewState.reviewerComments && (
-              <div className="mb-4">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase">Sr. Design Engineer Notes:</span>
-                <p className="text-xs text-foreground bg-surface-2 p-3 rounded-xl border border-border mt-1">
-                  {reviewState.reviewerComments}
-                </p>
-              </div>
-            )}
-            {reviewState.rejectionDescription && (
-              <div className="mb-4">
-                <span className="text-[11px] font-bold text-red-500 uppercase">Discipline Coordinator Rejection Description:</span>
-                <p className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 p-3 rounded-xl border border-red-200 dark:border-red-900/50 mt-1">
-                  {reviewState.rejectionDescription}
-                </p>
-              </div>
-            )}
-            <div className="flex items-center justify-end mt-5">
-              <button
-                onClick={() => setShowCommentsModal(false)}
-                className="px-4 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
-}
+};
