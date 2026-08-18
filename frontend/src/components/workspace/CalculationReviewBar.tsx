@@ -191,68 +191,84 @@ export function CalculationReviewBar({
     updateReviewState(updated);
     setShowReviewModal(false);
 
-    // Save notification specifically for Jr. / Design Engineers if comments were provided
-    if (srComments.trim()) {
-      try {
-        if (typeof window !== 'undefined') {
-          // Send notification to Discipline Coordinator to review
-          const coordNotifRecord = {
-            id: `coord-notif-${Date.now()}`,
-            reviewerName: currentUserName,
-            comments: srComments.trim(),
-            calculatorTitle,
-            calculatorPath,
-            projectId,
-            timestamp: new Date().toISOString()
-          };
+    // Always send notification to Discipline Coordinator to review
+    try {
+      if (typeof window !== 'undefined') {
+        const coordNotifRecord = {
+          id: `coord-notif-${Date.now()}`,
+          reviewerName: currentUserName,
+          comments: srComments.trim() || "Ready for approval.",
+          calculatorTitle,
+          calculatorPath,
+          projectId,
+          timestamp: new Date().toISOString()
+        };
 
-          const jrNotifRecord = {
-            id: `jr-notif-${Date.now()}`,
-            reviewerName: currentUserName,
-            comments: srComments.trim(),
-            calculatorTitle,
-            calculatorPath,
-            projectId,
-            timestamp: new Date().toISOString()
-          };
+        const currentProj = workspaceStore.getState().project;
+        if (currentProj && currentProj.id === projectId) {
+          const currentWdata = currentProj.workspace_data || {};
+          const existingCoord = Array.isArray(currentWdata.coord_notifs) ? currentWdata.coord_notifs : [];
+          const existingJr = Array.isArray(currentWdata.jr_engineer_notifs) ? currentWdata.jr_engineer_notifs : [];
 
-          const currentProj = workspaceStore.getState().project;
-          if (currentProj && currentProj.id === projectId) {
-            const currentWdata = currentProj.workspace_data || {};
-            const existingCoord = Array.isArray(currentWdata.coord_notifs) ? currentWdata.coord_notifs : [];
-            const existingJr = Array.isArray(currentWdata.jr_engineer_notifs) ? currentWdata.jr_engineer_notifs : [];
-
-            const updatedWdata = {
-              ...currentWdata,
-              coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20),
-              jr_engineer_notifs: [jrNotifRecord, ...existingJr].slice(0, 20)
+          // Only add Jr Notif if comments exist
+          let updatedJrNotifs = existingJr;
+          if (srComments.trim()) {
+            const jrNotifRecord = {
+              id: `jr-notif-${Date.now()}`,
+              reviewerName: currentUserName,
+              comments: srComments.trim(),
+              calculatorTitle,
+              calculatorPath,
+              projectId,
+              timestamp: new Date().toISOString()
             };
-
-            api.saveWorkspace(projectId, updatedWdata).catch(console.error);
-            workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
-          } else {
-            const existingCoord = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
-            existingCoord.unshift(coordNotifRecord);
-            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoord.slice(0, 20)));
-
-            const existing = JSON.parse(localStorage.getItem("mep_calc_jr_engineer_notifs") || "[]");
-            existing.unshift(jrNotifRecord);
-            localStorage.setItem("mep_calc_jr_engineer_notifs", JSON.stringify(existing.slice(0, 20)));
+            updatedJrNotifs = [jrNotifRecord, ...existingJr].slice(0, 20);
           }
 
-          // Dispatch event to notify Jr. Design Engineers & Coordinators
-          window.dispatchEvent(new CustomEvent("mep-notification-added"));
-          window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
-            detail: {
-              status: "SR_REVIEW_SUBMITTED",
-              reviewedBy: currentUserName,
-              reviewerComments: srComments.trim(),
+          const updatedWdata = {
+            ...currentWdata,
+            coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20),
+            jr_engineer_notifs: updatedJrNotifs
+          };
+
+          api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+          workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+        } else {
+          // Fallback
+          const existingCoord = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
+          existingCoord.unshift(coordNotifRecord);
+          localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoord.slice(0, 20)));
+
+          if (srComments.trim()) {
+            const jrNotifRecord = {
+              id: `jr-notif-${Date.now()}`,
+              reviewerName: currentUserName,
+              comments: srComments.trim(),
               calculatorTitle,
-              projectId
-            } 
-          }));
+              calculatorPath,
+              projectId,
+              timestamp: new Date().toISOString()
+            };
+            const existingJr = JSON.parse(localStorage.getItem("mep_calc_jr_engineer_notifs") || "[]");
+            existingJr.unshift(jrNotifRecord);
+            localStorage.setItem("mep_calc_jr_engineer_notifs", JSON.stringify(existingJr.slice(0, 20)));
+          }
         }
-      } catch (e) {}
+
+        // Dispatch event to notify Jr. Design Engineers & Coordinators
+        window.dispatchEvent(new CustomEvent("mep-notification-added"));
+        window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
+          detail: {
+            status: "SR_REVIEW_SUBMITTED",
+            reviewedBy: currentUserName,
+            reviewerComments: srComments.trim(),
+            calculatorTitle,
+            projectId
+          } 
+        }));
+      }
+    } catch (e) {
+      console.error("Failed to save notification:", e);
     }
 
     setSrComments("");
