@@ -134,11 +134,12 @@ export function CalculationReviewBar({
   }, [storageKey, projectId]);
 
   // Helper to persist & sync state
-  const updateReviewState = (next: CalculationReviewState) => {
+  const updateReviewState = (next: CalculationReviewState, skipSaveBackend = false) => {
     setReviewState(next);
     
     // Save to Backend
-    const currentProj = workspaceStore.getState().project;
+    if (!skipSaveBackend) {
+      const currentProj = workspaceStore.getState().project;
     if (currentProj && currentProj.id === projectId) {
       const currentWdata = currentProj.workspace_data || {};
       const reviewStates = currentWdata.review_states || {};
@@ -188,7 +189,8 @@ export function CalculationReviewBar({
       ]
     };
 
-    updateReviewState(updated);
+    // Pass skipSaveBackend = true, we will do one combined save below
+    updateReviewState(updated, true);
     setShowReviewModal(false);
 
     // Always send notification to Discipline Coordinator to review
@@ -225,8 +227,14 @@ export function CalculationReviewBar({
             updatedJrNotifs = [jrNotifRecord, ...existingJr].slice(0, 20);
           }
 
+          const reviewStates = currentWdata.review_states || {};
+
           const updatedWdata = {
             ...currentWdata,
+            review_states: {
+              ...reviewStates,
+              [storageKey]: updated
+            },
             coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20),
             jr_engineer_notifs: updatedJrNotifs
           };
@@ -348,7 +356,8 @@ export function CalculationReviewBar({
       ]
     };
 
-    updateReviewState(updated);
+    // Pass skipSaveBackend = true, we will do one combined save below
+    updateReviewState(updated, true);
     setShowRejectModal(false);
 
     // Create Notification for Sr. Design Engineer
@@ -368,8 +377,13 @@ export function CalculationReviewBar({
         if (currentProj && currentProj.id === projectId) {
           const currentWdata = currentProj.workspace_data || {};
           const existing = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
+          const reviewStates = currentWdata.review_states || {};
           const updatedWdata = {
             ...currentWdata,
+            review_states: {
+              ...reviewStates,
+              [storageKey]: updated
+            },
             rejection_notifs: [notifRecord, ...existing].slice(0, 20)
           };
           api.saveWorkspace(projectId, updatedWdata).catch(console.error);
