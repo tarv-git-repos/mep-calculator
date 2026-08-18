@@ -226,23 +226,6 @@ export function CalculationReviewBar({
         if (currentProj && currentProj.id === projectId) {
           const currentWdata = currentProj.workspace_data || {};
           const existingCoord = Array.isArray(currentWdata.coord_notifs) ? currentWdata.coord_notifs : [];
-          const existingJr = Array.isArray(currentWdata.jr_engineer_notifs) ? currentWdata.jr_engineer_notifs : [];
-
-          // Only add Jr Notif if comments exist
-          let updatedJrNotifs = existingJr;
-          if (srComments.trim()) {
-            const jrNotifRecord = {
-              id: `jr-notif-${Date.now()}`,
-              reviewerName: currentUserName,
-              comments: srComments.trim(),
-              calculatorTitle,
-              calculatorPath,
-              projectId,
-              timestamp: new Date().toISOString()
-            };
-            updatedJrNotifs = [jrNotifRecord, ...existingJr].slice(0, 20);
-          }
-
           const reviewStates = currentWdata.review_states || {};
 
           const updatedWdata = {
@@ -251,8 +234,7 @@ export function CalculationReviewBar({
               ...reviewStates,
               [storageKey]: updated
             },
-            coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20),
-            jr_engineer_notifs: updatedJrNotifs
+            coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20)
           };
 
           api.saveWorkspace(projectId, updatedWdata).catch(console.error);
@@ -492,7 +474,7 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {reviewState.status === "REJECTED" && (
+      {reviewState.status === "REJECTED" && (userRole === "Sr. Design Engineer" || userRole === "Discipline Coordinator") && (
         <div className="px-3 py-1.5 bg-red-500/10 border border-red-500/30 dark:bg-red-950/40 dark:border-red-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
           <div className="size-6 rounded-md bg-red-500 text-white flex items-center justify-center font-bold shrink-0">
             <XCircle className="size-3.5" />

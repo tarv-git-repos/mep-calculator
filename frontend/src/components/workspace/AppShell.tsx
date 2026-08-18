@@ -561,57 +561,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       } catch (e) {}
     }
 
-    // 2. Revision Comment Notifications from Sr. Design Engineer -> VISIBLE TO Jr. / Design Engineers of assigned project
-    if (isJrDesignEngineer) {
-      try {
-        // Collect from backend
-        projects.forEach(p => {
-          const wdata = p.workspace_data || {};
-          const jNotifs = Array.isArray(wdata.jr_engineer_notifs) ? wdata.jr_engineer_notifs : [];
-          jNotifs.forEach((jn: any) => {
-            if (true) {
-              notifs.push({
-                id: jn.id,
-                authorName: jn.reviewerName || "Sr. Design Engineer",
-                text: `📝 REVISION INSTRUCTIONS (${jn.calculatorTitle || "Calculation"}): "${jn.comments}"`,
-                timestamp: jn.timestamp,
-                targetType: "Calculation",
-                targetName: jn.calculatorTitle || "Calculation",
-                projectName: p.name || jn.projectName || "Project",
-                projectId: p.id,
-                calculatorPath: jn.calculatorPath || "/ventilation",
-                targetId: jn.id
-              });
-            }
-          });
-        });
 
-        // Collect from local storage fallback
-        const savedJrNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_jr_engineer_notifs") : null;
-        if (savedJrNotifs) {
-          const parsed = JSON.parse(savedJrNotifs);
-          if (Array.isArray(parsed)) {
-            parsed.forEach((jn: any) => {
-              if (jn.projectId && !notifs.some(n => n.id === jn.id)) {
-                const targetProj = projects.find(p => p.id === jn.projectId);
-                notifs.push({
-                  id: jn.id,
-                  authorName: jn.reviewerName || "Sr. Design Engineer",
-                  text: `📝 REVISION INSTRUCTIONS (${jn.calculatorTitle || "Calculation"}): "${jn.comments}"`,
-                  timestamp: jn.timestamp,
-                  targetType: "Calculation",
-                  targetName: jn.calculatorTitle || "Calculation",
-                  projectName: targetProj?.name || jn.projectName || "Project",
-                  projectId: jn.projectId,
-                  calculatorPath: jn.calculatorPath || "/ventilation",
-                  targetId: jn.id
-                });
-              }
-            });
-          }
-        }
-      } catch (e) {}
-    }
 
     // 3. Approval Notifications for Discipline Coordinator / Admin
     if (isCoordinatorOrAdmin) {
@@ -714,22 +664,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
       if (!isMember()) return;
 
-      if (e?.detail?.status === "REJECTED" && (isSrDesignEngineer || isCoordinatorOrAdmin)) {
+      if (e?.detail?.status === "REJECTED" && isSrDesignEngineer) {
         toast.error(`⚠️ CALCULATION REJECTED: Reason from ${e.detail.rejectedBy || "Discipline Coordinator"}: "${e.detail.rejectionDescription || "Revision required"}"`, {
           duration: 7000
         });
       }
-      if (e?.detail?.status === "SR_REVIEW_SUBMITTED") {
-        if (isCoordinatorOrAdmin) {
-          toast.success(`✅ CALCULATION REVIEWED: ${e.detail.calculatorTitle || "Calculation"} reviewed by ${e.detail.reviewedBy || "Sr. Design Engineer"}. Ready for your approval!`, {
-            duration: 7000
-          });
-        }
-        if (isJrDesignEngineer && e?.detail?.reviewerComments) {
-          toast.info(`📝 REVISION REQUIRED: Notes from Sr. Design Engineer (${e.detail.reviewedBy}): "${e.detail.reviewerComments}"`, {
-            duration: 7000
-          });
-        }
+      if (e?.detail?.status === "SR_REVIEW_SUBMITTED" && isCoordinatorOrAdmin) {
+        toast.success(`✅ CALCULATION REVIEWED: ${e.detail.calculatorTitle || "Calculation"} reviewed by ${e.detail.reviewedBy || "Sr. Design Engineer"}. Ready for your approval!`, {
+          duration: 7000
+        });
       }
     };
     if (typeof window !== 'undefined') {
