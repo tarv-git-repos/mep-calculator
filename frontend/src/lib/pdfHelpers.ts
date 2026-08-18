@@ -73,13 +73,7 @@ export function getExporterUserName(metaUserName?: string): string {
   return metaUserName?.trim() || "System Admin";
 }
 
-export function getSignatureBlockDetails(
-  projectId: string,
-  calculatorPath: string,
-  exporterName: string
-) {
-  let reviewState: any = {};
-  
+export function resolveLatestReviewState(projectId: string, calculatorPath: string) {
   const rawPath = calculatorPath || "ventilation";
   const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
   const pathNoSlash = rawPath.replace(/^\//, "");
@@ -89,6 +83,58 @@ export function getSignatureBlockDetails(
   const key1 = `mep_calc_review_${pId}_${rawPath}`;
   const key2 = `mep_calc_review_${pId}_${pathWithSlash}`;
   const key3 = `mep_calc_review_${pId}_${pathNoSlash}`;
+  const keysToTry = [key1, key2, key3];
+
+  let candidateBackend: any = null;
+  let candidateLocal: any = null;
+
+  // 1. Fetch from workspaceStore project workspace_data
+  if (currentProj) {
+    const reviewStates = currentProj.workspace_data?.review_states || {};
+    for (const k of keysToTry) {
+      if (reviewStates[k] && (reviewStates[k].status || reviewStates[k].history)) {
+        candidateBackend = reviewStates[k];
+        break;
+      }
+    }
+  }
+
+  // 2. Fetch from LocalStorage
+  if (typeof window !== "undefined") {
+    for (const k of keysToTry) {
+      try {
+        const saved = localStorage.getItem(k);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && (parsed.status || parsed.history || parsed.approvedBy || parsed.reviewedBy)) {
+            candidateLocal = parsed;
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  // If local storage has a newer history or approval, return candidateLocal
+  if (candidateBackend && candidateLocal) {
+    const bHistLen = Array.isArray(candidateBackend.history) ? candidateBackend.history.length : 0;
+    const lHistLen = Array.isArray(candidateLocal.history) ? candidateLocal.history.length : 0;
+    if (lHistLen >= bHistLen) {
+      return candidateLocal;
+    }
+    return candidateBackend;
+  }
+
+  return candidateLocal || candidateBackend || {};
+}
+
+export function getSignatureBlockDetails(
+  projectId: string,
+  calculatorPath: string,
+  exporterName: string
+) {
+  const reviewState = resolveLatestReviewState(projectId, calculatorPath);
+  const currentProj = workspaceStore.getState().project;
 
   // Originated by Date = Date of creation of that project
   const projectCreationDateRaw = currentProj?.created_at || currentProj?.createdAt || currentProj?.date;
@@ -100,42 +146,15 @@ export function getSignatureBlockDetails(
     projectCreatedDateStr = formatDateStr(new Date().toISOString());
   }
 
-  // Fetch Review State from Workspace Project Data
-  if (currentProj) {
-    const reviewStates = currentProj.workspace_data?.review_states || {};
-    if (reviewStates[key1]) reviewState = reviewStates[key1];
-    else if (reviewStates[key2]) reviewState = reviewStates[key2];
-    else if (reviewStates[key3]) reviewState = reviewStates[key3];
-  }
-
-  // Fallback to LocalStorage
-  if (!reviewState?.status && typeof window !== "undefined") {
-    const keysToTry = [key1, key2, key3];
-    for (const k of keysToTry) {
-      try {
-        const saved = localStorage.getItem(k);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed && (parsed.status || parsed.reviewedBy || parsed.approvedBy)) {
-            reviewState = parsed;
-            break;
-          }
-        }
-      } catch (e) {}
-    }
-  }
-
   // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = project creation date
   const originatedName = getExporterUserName(exporterName);
   const originatedDate = projectCreatedDateStr;
 
-  // 2. Reviewed By: Name = recently reviewed user, Date = review date
+  // 2. Reviewed By: Find the LATEST reviewed action
   let reviewerName = "";
   let reviewerDate = "";
-  if (reviewState?.reviewedBy) {
-    reviewerName = reviewState.reviewedBy;
-    reviewerDate = formatDateStr(reviewState.reviewedAt);
-  } else if (reviewState?.history && Array.isArray(reviewState.history)) {
+
+  if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
     const revItem = [...reviewState.history].reverse().find((h: any) => h.action === "REVIEWED");
     if (revItem) {
       reviewerName = revItem.user;
@@ -143,18 +162,26 @@ export function getSignatureBlockDetails(
     }
   }
 
-  // 3. Approved By: Name = recently approved user, Date = approval date
+  if (!reviewerName && reviewState?.reviewedBy) {
+    reviewerName = reviewState.reviewedBy;
+    reviewerDate = formatDateStr(reviewState.reviewedAt);
+  }
+
+  // 3. Approved By: Find the LATEST approved action
   let approverName = "";
   let approverDate = "";
-  if (reviewState?.approvedBy) {
-    approverName = reviewState.approvedBy;
-    approverDate = formatDateStr(reviewState.approvedAt);
-  } else if (reviewState?.history && Array.isArray(reviewState.history)) {
+
+  if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
     const appItem = [...reviewState.history].reverse().find((h: any) => h.action === "APPROVED");
     if (appItem) {
       approverName = appItem.user;
       approverDate = formatDateStr(appItem.timestamp);
     }
+  }
+
+  if (!approverName && reviewState?.status === "APPROVED" && reviewState?.approvedBy) {
+    approverName = reviewState.approvedBy;
+    approverDate = formatDateStr(reviewState.approvedAt);
   }
 
   return {

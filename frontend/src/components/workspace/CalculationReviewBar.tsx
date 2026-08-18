@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
-  CheckCircle2, XCircle, Clock, AlertTriangle, 
-  Send, ShieldCheck
+  CheckCircle2, XCircle, Clock, AlertTriangle, MessageSquare, 
+  Send, UserCheck, ShieldCheck, ChevronDown, User, Sparkles, RefreshCw, FileText 
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { api } from "@/services/api";
 import { workspaceStore } from "@/lib/workspace-store";
+
+export type WorkflowRole = "Jr. / Design Engineer" | "Sr. Design Engineer" | "Discipline Coordinator";
 
 export type ReviewStatus = "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
 
@@ -14,6 +16,7 @@ export interface CalculationReviewState {
   status: ReviewStatus;
   reviewedBy?: string;
   reviewedAt?: string;
+  reviewerComments?: string;
   approvedBy?: string;
   approvedAt?: string;
   rejectedBy?: string;
@@ -49,48 +52,55 @@ export function CalculationReviewBar({
   const { profile, userData } = useAuth();
   
   const currentUserName = userData?.name || profile?.name || "Engineering User";
+  const currentUserEmail = userData?.email || profile?.email || "";
 
-  // Check if current user is Sr. Design Engineer or Admin
-  const isSrEngineerOrAdmin = useMemo(() => {
+  // 1. Workflow Role derived automatically from admin-assigned designation & profile role
+  const userRole = useMemo<WorkflowRole>(() => {
     const activeProfile = profile || userData || {};
     const roleVal = String(activeProfile.role || userData?.user_metadata?.role || userData?.role || "").trim();
     const des = String(activeProfile.designation || "").toLowerCase().trim();
     const rawRole = roleVal.toLowerCase();
 
-    return (
+    // First priority: Explicit Junior / Design Engineer check (Must NEVER get Review or Approve buttons)
+    if (
+      roleVal === "Jr. Design Engineer" ||
+      roleVal === "Junior Design Engineer" ||
+      roleVal === "Design Engineer" ||
+      roleVal === "jr. Design Engineer" ||
+      rawRole.includes("junior") ||
+      rawRole.includes("jr.") ||
+      des.includes("junior") ||
+      des.includes("jr.")
+    ) {
+      return "Jr. / Design Engineer";
+    }
+
+    // Second priority: Discipline Coordinator check ONLY (ONLY Discipline Coordinator gets Approve & Reject buttons)
+    if (
+      roleVal === "Discipline Coordinator" ||
+      rawRole === "discipline coordinator" ||
+      rawRole.includes("coordinator") ||
+      des.includes("coordinator")
+    ) {
+      return "Discipline Coordinator";
+    }
+
+    // Third priority: Sr. Design Engineer check (ONLY role that gets the Review button)
+    if (
       roleVal === "Sr. Design Engineer" ||
       roleVal === "Senior Design Engineer" ||
-      roleVal === "Admin" ||
-      roleVal === "SUPER_ADMIN" ||
-      roleVal === "ORG_ADMIN" ||
       rawRole.includes("senior") ||
-      rawRole.includes("sr") ||
-      rawRole.includes("admin") ||
+      rawRole.includes("sr.") ||
+      rawRole === "sr" ||
       des.includes("senior") ||
-      des.includes("sr") ||
-      (!roleVal && !des) // Fallback for active dev workspace user
-    );
-  }, [profile, userData]);
+      des.includes("sr.") ||
+      des === "sr"
+    ) {
+      return "Sr. Design Engineer";
+    }
 
-  // Check if current user is Discipline Coordinator or Admin
-  const isCoordinatorOrAdmin = useMemo(() => {
-    const activeProfile = profile || userData || {};
-    const roleVal = String(activeProfile.role || userData?.user_metadata?.role || userData?.role || "").trim();
-    const des = String(activeProfile.designation || "").toLowerCase().trim();
-    const rawRole = roleVal.toLowerCase();
-
-    return (
-      roleVal === "Discipline Coordinator" ||
-      roleVal === "Admin" ||
-      roleVal === "SUPER_ADMIN" ||
-      roleVal === "ORG_ADMIN" ||
-      rawRole.includes("coordinator") ||
-      rawRole.includes("lead") ||
-      rawRole.includes("admin") ||
-      des.includes("coordinator") ||
-      des.includes("lead") ||
-      (!roleVal && !des) // Fallback for active dev workspace user
-    );
+    // Default fallback: Jr. / Design Engineer
+    return "Jr. / Design Engineer";
   }, [profile, userData]);
 
   const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "ventilation"}`;
@@ -116,7 +126,12 @@ export function CalculationReviewBar({
     return { status: "DRAFT" };
   });
 
+  // Modal States
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
+  
+  const [srComments, setSrComments] = useState("");
   const [rejectReason, setRejectReason] = useState("");
 
   // Sync state when storageKey changes
@@ -183,7 +198,7 @@ export function CalculationReviewBar({
     }
   };
 
-  // Action 1: Sr. Design Engineer Hits "Review"
+  // Action 1: Sr. Design Engineer Hits "Reviewed"
   const handleSrReviewSubmit = async () => {
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
@@ -191,6 +206,7 @@ export function CalculationReviewBar({
       status: "REVIEWED",
       reviewedBy: currentUserName,
       reviewedAt: timestamp,
+      reviewerComments: srComments.trim() || undefined,
       history: [
         ...(reviewState.history || []),
         {
@@ -198,19 +214,22 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Sr. Design Engineer",
           timestamp,
-          comment: "Calculation Reviewed"
+          comment: srComments.trim() || "Calculation reviewed and submitted to Discipline Coordinator."
         }
       ]
     };
 
+    // Pass skipSaveBackend = true, we will do one combined save below
     updateReviewState(updated, true);
+    setShowReviewModal(false);
 
-    // Send notification to Discipline Coordinator to review/approve
+    // Always send notification to Discipline Coordinator to review
     try {
       if (typeof window !== 'undefined') {
         const coordNotifRecord = {
           id: `coord-notif-${Date.now()}`,
           reviewerName: currentUserName,
+          comments: srComments.trim() || "Ready for approval.",
           calculatorTitle,
           calculatorPath,
           projectId,
@@ -236,6 +255,7 @@ export function CalculationReviewBar({
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
         }
 
+        // Save to LocalStorage fallback as well for immediate cross-tab/local sync
         try {
           const existingCoordLS = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
           if (!existingCoordLS.some((n: any) => n.id === coordNotifRecord.id)) {
@@ -244,11 +264,13 @@ export function CalculationReviewBar({
           }
         } catch (e) {}
 
+        // Dispatch event to notify Jr. Design Engineers & Coordinators
         window.dispatchEvent(new CustomEvent("mep-notification-added"));
         window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
           detail: {
             status: "SR_REVIEW_SUBMITTED",
             reviewedBy: currentUserName,
+            reviewerComments: srComments.trim(),
             calculatorTitle,
             projectId
           } 
@@ -258,14 +280,17 @@ export function CalculationReviewBar({
       console.error("Failed to save notification:", e);
     }
 
+    setSrComments("");
+
     try {
       await api.logActivity("CALCULATION_REVIEWED", {
         calculatorTitle,
-        reviewedBy: currentUserName
+        reviewedBy: currentUserName,
+        comments: srComments
       });
     } catch (e) {}
 
-    toast.success("Calculation marked as REVIEWED! Notification sent to Discipline Coordinator.");
+    toast.success("Review submitted! Revision instructions sent to Design Engineers.");
   };
 
   // Action 2: Discipline Coordinator Hits "Approve"
@@ -296,6 +321,7 @@ export function CalculationReviewBar({
         approvedBy: currentUserName
       });
       
+      // Auto-save version
       const revisions = workspaceStore.getState().project?.revisions || [];
       const newRevNumber = revisions.length + 1;
       const dateStr = new Date().toLocaleDateString();
@@ -331,6 +357,7 @@ export function CalculationReviewBar({
       ]
     };
 
+    // Pass skipSaveBackend = true, we will do one combined save below
     updateReviewState(updated, true);
     setShowRejectModal(false);
 
@@ -390,17 +417,17 @@ export function CalculationReviewBar({
       });
     } catch (e) {}
 
-    toast.error("Calculation REJECTED and rejection notification sent.");
+    toast.error("Calculation REJECTED and rejection notification sent to Sr. Design Engineer.");
   };
 
   return (
     <div className="no-print select-none inline-flex items-center gap-3">
-      {/* 1. DIRECT HEADER ACTION BUTTONS */}
+      {/* 1. DIRECT HEADER ACTION BUTTONS (Rendered on Left) */}
       <div className="inline-flex items-center gap-2 shrink-0">
-        {/* SR. DESIGN ENGINEER / ADMIN REVIEW BUTTON */}
-        {isSrEngineerOrAdmin && (
+        {/* SR. DESIGN ENGINEER ACTION BUTTON */}
+        {userRole === "Sr. Design Engineer" && (
           <button
-            onClick={handleSrReviewSubmit}
+            onClick={() => setShowReviewModal(true)}
             className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <CheckCircle2 className="size-3.5" />
@@ -408,8 +435,8 @@ export function CalculationReviewBar({
           </button>
         )}
 
-        {/* DISCIPLINE COORDINATOR / ADMIN APPROVE & REJECT BUTTONS */}
-        {isCoordinatorOrAdmin && (
+        {/* DISCIPLINE COORDINATOR ACTION BUTTONS */}
+        {userRole === "Discipline Coordinator" && (
           <div className="inline-flex items-center gap-2 shrink-0">
             <button
               onClick={handleCoordinatorApprove}
@@ -429,9 +456,19 @@ export function CalculationReviewBar({
             </button>
           </div>
         )}
+
+        {/* JR / DESIGN ENGINEER VIEW NOTES */}
+        {userRole === "Jr. / Design Engineer" && reviewState.reviewerComments && (
+          <button
+            onClick={() => setShowCommentsModal(true)}
+            className="px-3 py-1 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-xs font-semibold rounded-full transition-colors flex items-center gap-1 cursor-pointer shrink-0"
+          >
+            <MessageSquare className="size-3.5" /> Reviewer Notes
+          </button>
+        )}
       </div>
 
-      {/* 2. STATUS BADGES */}
+      {/* 2. STATUS BADGE / BANNER (Rendered on Right of Approve/Reject Buttons) */}
       {reviewState.status === "APPROVED" && (
         <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 dark:bg-emerald-950/40 dark:border-emerald-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
           <div className="size-6 rounded-md bg-emerald-500 text-white flex items-center justify-center font-bold shrink-0">
@@ -451,7 +488,7 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {reviewState.status === "REJECTED" && (
+      {reviewState.status === "REJECTED" && (userRole === "Sr. Design Engineer" || userRole === "Discipline Coordinator") && (
         <div className="px-3 py-1.5 bg-red-500/10 border border-red-500/30 dark:bg-red-950/40 dark:border-red-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
           <div className="size-6 rounded-md bg-red-500 text-white flex items-center justify-center font-bold shrink-0">
             <XCircle className="size-3.5" />
@@ -481,7 +518,44 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* MODAL: Reject Reason Modal (Only for rejection description) */}
+      {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
+      {showReviewModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
+              <ShieldCheck className="size-5 text-indigo-500" />
+              Mark Calculation as Reviewed
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              You are confirming that you have reviewed the calculation for <span className="font-bold text-foreground">{calculatorTitle}</span>. You can optionally add notes for the Design Engineers or Discipline Coordinator.
+            </p>
+            <textarea
+              value={srComments}
+              onChange={(e) => setSrComments(e.target.value)}
+              placeholder="Add optional reviewer comments or guidelines for Jr. / Design Engineers…"
+              rows={4}
+              className="w-full p-3 bg-surface-2 border border-border rounded-xl text-xs font-medium outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 text-foreground resize-none"
+            />
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowReviewModal(false)}
+                className="px-4 py-2 border border-border text-xs font-semibold rounded-xl hover:bg-surface-2 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSrReviewSubmit}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Send className="size-3.5" />
+                Submit Reviewed Status
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Discipline Coordinator Reject Modal (Mandatory Rejection Description) */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
@@ -490,7 +564,7 @@ export function CalculationReviewBar({
               Reject Calculation
             </h3>
             <p className="text-xs text-muted-foreground mb-4">
-              Please enter the exact reason and description for rejecting the calculation.
+              Please enter the exact reason and description for rejecting the calculation. This description will be sent directly to the Sr. Design Engineer to rectify.
             </p>
             <textarea
               value={rejectReason}
@@ -512,6 +586,42 @@ export function CalculationReviewBar({
               >
                 <XCircle className="size-3.5" />
                 Reject Calculation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: View Reviewer Notes Modal */}
+      {showCommentsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
+              <MessageSquare className="size-5 text-primary" />
+              Reviewer Notes & Feedback
+            </h3>
+            {reviewState.reviewerComments && (
+              <div className="mb-4">
+                <span className="text-[11px] font-bold text-muted-foreground uppercase">Sr. Design Engineer Notes:</span>
+                <p className="text-xs text-foreground bg-surface-2 p-3 rounded-xl border border-border mt-1">
+                  {reviewState.reviewerComments}
+                </p>
+              </div>
+            )}
+            {reviewState.rejectionDescription && (
+              <div className="mb-4">
+                <span className="text-[11px] font-bold text-red-500 uppercase">Discipline Coordinator Rejection Description:</span>
+                <p className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 p-3 rounded-xl border border-red-200 dark:border-red-900/50 mt-1">
+                  {reviewState.rejectionDescription}
+                </p>
+              </div>
+            )}
+            <div className="flex items-center justify-end mt-5">
+              <button
+                onClick={() => setShowCommentsModal(false)}
+                className="px-4 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>
