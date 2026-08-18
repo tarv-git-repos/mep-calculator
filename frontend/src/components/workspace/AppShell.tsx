@@ -602,7 +602,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const wdata = p.workspace_data || {};
           const cNotifs = Array.isArray(wdata.coord_notifs) ? wdata.coord_notifs : [];
           cNotifs.forEach((cn: any) => {
-            if (isUserMemberOfProject(p.id) && cn.reviewerName !== currentName && cn.reviewerName !== currentEmail) {
+            if (isUserMemberOfProject(p.id)) {
               notifs.push({
                 id: cn.id,
                 authorName: cn.reviewerName || "Sr. Design Engineer",
@@ -626,8 +626,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           if (Array.isArray(parsed)) {
             parsed.forEach((cn: any) => {
               if (cn.projectId && isUserMemberOfProject(cn.projectId) && !notifs.some(n => n.id === cn.id)) {
-                // Do not show to the person who triggered it
-                if (cn.reviewerName !== currentName && cn.reviewerName !== currentEmail) {
+                // No longer excluding the user who triggered it, for testing purposes
+                if (true) {
                   const targetProj = projects.find(p => p.id === cn.projectId);
                   notifs.push({
                     id: cn.id,
