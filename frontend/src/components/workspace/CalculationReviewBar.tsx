@@ -151,7 +151,7 @@ export function CalculationReviewBar({
       };
       
       api.saveWorkspace(projectId, updatedWdata).catch(console.error);
-      workspaceStore.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
+      workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
     }
 
     if (typeof window !== "undefined") {
@@ -229,7 +229,7 @@ export function CalculationReviewBar({
             };
 
             api.saveWorkspace(projectId, updatedWdata).catch(console.error);
-            workspaceStore.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
+            workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
           } else {
             const existingCoord = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
             existingCoord.unshift(coordNotifRecord);
@@ -357,7 +357,7 @@ export function CalculationReviewBar({
             rejection_notifs: [notifRecord, ...existing].slice(0, 20)
           };
           api.saveWorkspace(projectId, updatedWdata).catch(console.error);
-          workspaceStore.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
+          workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
         } else {
           const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
           existing.unshift(notifRecord);
