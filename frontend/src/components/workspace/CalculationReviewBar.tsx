@@ -3,27 +3,29 @@ import {
   CheckCircle2, 
   XCircle, 
   Clock, 
-  AlertTriangle,
-  Send
+  ShieldCheck, 
+  AlertTriangle
 } from "lucide-react";
-import { toast } from "sonner";
 import { workspaceStore } from "@/lib/workspace-store";
 import { api } from "@/services/api";
+import { toast } from "sonner";
 
-export type CalculationReviewStatus = "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
+export type WorkflowRole = 
+  | "Jr. / Design Engineer"
+  | "Sr. Design Engineer"
+  | "Discipline Coordinator";
 
 export interface CalculationReviewState {
-  status: CalculationReviewStatus;
+  status: "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
   reviewedBy?: string;
   reviewedAt?: string;
-  reviewerComments?: string;
   approvedBy?: string;
   approvedAt?: string;
   rejectedBy?: string;
   rejectedAt?: string;
   rejectionDescription?: string;
   history?: Array<{
-    action: CalculationReviewStatus;
+    action: "REVIEWED" | "APPROVED" | "REJECTED";
     user: string;
     role: string;
     timestamp: string;
@@ -31,26 +33,25 @@ export interface CalculationReviewState {
   }>;
 }
 
-export type WorkflowRole = "Jr. / Design Engineer" | "Sr. Design Engineer" | "Discipline Coordinator";
-
 interface CalculationReviewBarProps {
   projectId: string;
-  calculatorPath: string; // e.g. '/ventilation'
-  calculatorTitle: string; // e.g. 'Ventilation'
+  calculatorPath: string; // e.g. "/ventilation", "/lighting-lux-calculation"
+  calculatorTitle: string; // e.g. "Ventilation", "Lighting Lux"
   onReviewStateChange?: (state: CalculationReviewState) => void;
 }
 
-export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
+export function CalculationReviewBar({
   projectId,
   calculatorPath,
   calculatorTitle,
   onReviewStateChange
-}) => {
+}: CalculationReviewBarProps) {
+  // Resolve current active logged-in user profile
   const profile = (workspaceStore.getState() as any)?.profile;
   const userData = (workspaceStore.getState() as any)?.user;
-  const currentUserName = profile?.name || userData?.name || "System User";
+  const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  // 1. Workflow Role derived automatically from admin-assigned designation & profile role
+  // 1. Workflow Role derived automatically from designation & profile role
   const userRole = useMemo<WorkflowRole>(() => {
     const activeProfile = profile || userData || {};
     const roleVal = String(activeProfile.role || userData?.user_metadata?.role || userData?.role || "").trim();
@@ -99,11 +100,10 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
-  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "ventilation"}`;
+  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "/ventilation"}`;
 
   // 2. Calculation Review State
   const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
-    // Priority 1: Backend Workspace Data
     const currentProj = workspaceStore.getState().project;
     if (currentProj && currentProj.id === projectId) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
@@ -112,7 +112,6 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
       }
     }
 
-    // Priority 2: Local Storage fallback
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem(storageKey);
@@ -123,6 +122,7 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
   });
 
   // Modal States
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
 
@@ -190,7 +190,7 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
     }
   };
 
-  // Action 1: Sr. Design Engineer Hits "Review" Directly
+  // Action 1: Sr. Design Engineer Hits "Reviewed"
   const handleSrReviewSubmit = async () => {
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
@@ -205,12 +205,13 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
           user: currentUserName,
           role: "Sr. Design Engineer",
           timestamp,
-          comment: "Calculation reviewed and submitted to Discipline Coordinator."
+          comment: "Calculation reviewed."
         }
       ]
     };
 
     updateReviewState(updated, true);
+    setShowReviewModal(false);
 
     // Always send notification to Discipline Coordinator to review
     try {
@@ -218,7 +219,6 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
         const coordNotifRecord = {
           id: `coord-notif-${Date.now()}`,
           reviewerName: currentUserName,
-          comments: "Ready for approval.",
           calculatorTitle,
           calculatorPath,
           projectId,
@@ -244,27 +244,12 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
         }
 
-        // Save to LocalStorage fallback as well for immediate cross-tab/local sync
         try {
           const existingCoordLS = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
           if (!existingCoordLS.some((n: any) => n.id === coordNotifRecord.id)) {
             localStorage.setItem("mep_calc_coord_notifs", JSON.stringify([coordNotifRecord, ...existingCoordLS].slice(0, 20)));
           }
         } catch (e) {}
-
-        // Dispatch event to notify Discipline Coordinators & Admins
-        window.dispatchEvent(new CustomEvent("mep-notification-added", {
-          detail: {
-            id: coordNotifRecord.id,
-            authorName: currentUserName,
-            text: `Calculation (${calculatorTitle}) reviewed by Sr. Design Engineer (${currentUserName}). Ready for your approval!`,
-            timestamp: coordNotifRecord.timestamp,
-            targetType: "Calculation",
-            targetName: calculatorTitle,
-            projectId,
-            calculatorPath
-          }
-        }));
 
         window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
           detail: {
@@ -278,7 +263,7 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
       }
     } catch (e) {}
 
-    toast.success("Calculation marked as REVIEWED and notification sent to Discipline Coordinator.");
+    toast.success("Calculation marked as REVIEWED and sent to Discipline Coordinator for approval.");
   };
 
   // Action 2: Discipline Coordinator Hits "Approve"
@@ -296,21 +281,20 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
           user: currentUserName,
           role: "Discipline Coordinator",
           timestamp,
-          comment: "Calculation officially APPROVED by Discipline Coordinator."
+          comment: "Calculation approved."
         }
       ]
     };
     updateReviewState(updated);
-    toast.success("Calculation officially APPROVED! All users can now view the approved status.");
+    toast.success("Calculation officially APPROVED!");
   };
 
   // Action 3: Discipline Coordinator Hits "Reject"
   const handleCoordinatorRejectSubmit = () => {
     if (!rejectReason.trim()) {
-      toast.error("Please enter a rejection description for the Sr. Design Engineer.");
+      toast.error("Please provide a rejection reason/description.");
       return;
     }
-
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
       ...reviewState,
@@ -325,19 +309,20 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
           user: currentUserName,
           role: "Discipline Coordinator",
           timestamp,
-          comment: `REJECTED: ${rejectReason.trim()}`
+          comment: rejectReason.trim()
         }
       ]
     };
-    updateReviewState(updated);
+
+    updateReviewState(updated, true);
     setShowRejectModal(false);
     setRejectReason("");
 
-    // Create rejection notification exclusively for Sr. Design Engineer
+    // Persist rejection notification for Sr. Design Engineer ONLY
     try {
       if (typeof window !== 'undefined') {
-        const notifRecord = {
-          id: `rejection-${Date.now()}`,
+        const rejectionNotifRecord = {
+          id: `rejection-notif-${Date.now()}`,
           rejectedBy: currentUserName,
           reason: rejectReason.trim(),
           calculatorTitle,
@@ -349,23 +334,42 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
         const currentProj = workspaceStore.getState().project;
         if (currentProj && currentProj.id === projectId) {
           const currentWdata = currentProj.workspace_data || {};
-          const existingRejections = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
+          const existing = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
+          const reviewStates = currentWdata.review_states || {};
+
           const updatedWdata = {
             ...currentWdata,
-            rejection_notifs: [notifRecord, ...existingRejections].slice(0, 20)
+            review_states: {
+              ...reviewStates,
+              [storageKey]: updated
+            },
+            rejection_notifs: [rejectionNotifRecord, ...existing].slice(0, 20)
           };
+
           api.saveWorkspace(projectId, updatedWdata).catch(console.error);
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
         }
 
         try {
-          const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
-          localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify([notifRecord, ...existing].slice(0, 20)));
+          const existingLS = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
+          if (!existingLS.some((n: any) => n.id === rejectionNotifRecord.id)) {
+            localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify([rejectionNotifRecord, ...existingLS].slice(0, 20)));
+          }
         } catch (e) {}
+
+        window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
+          detail: {
+            ...updated,
+            calculatorTitle,
+            calculatorPath,
+            projectId,
+            status: "REJECTED"
+          }
+        }));
       }
     } catch (e) {}
 
-    toast.error("Calculation REJECTED and rejection notification sent to Sr. Design Engineer.");
+    toast.error("Calculation REJECTED and notification sent to Sr. Design Engineer.");
   };
 
   return (
@@ -375,9 +379,8 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
         {/* SR. DESIGN ENGINEER ACTION BUTTON */}
         {userRole === "Sr. Design Engineer" && (
           <button
-            onClick={handleSrReviewSubmit}
-            disabled={reviewState.status === "REVIEWED" || reviewState.status === "APPROVED"}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            onClick={() => setShowReviewModal(true)}
+            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <CheckCircle2 className="size-3.5" />
             <span>{reviewState.status === "REVIEWED" || reviewState.status === "APPROVED" ? "Reviewed" : "Review"}</span>
@@ -407,7 +410,7 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
         )}
       </div>
 
-      {/* 2. STATUS BADGE / BANNER (Rendered on Right of Approve/Reject Buttons) */}
+      {/* 2. STATUS BADGE / BANNER */}
       {reviewState.status === "APPROVED" && (
         <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 dark:bg-emerald-950/40 dark:border-emerald-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
           <div className="size-6 rounded-md bg-emerald-500 text-white flex items-center justify-center font-bold shrink-0">
@@ -457,7 +460,37 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
         </div>
       )}
 
-      {/* DISCIPLINE COORDINATOR REJECT MODAL */}
+      {/* MODAL 1: Sr. Design Engineer Review Confirmation Modal */}
+      {showReviewModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
+              <ShieldCheck className="size-5 text-indigo-500" />
+              Mark Calculation as Reviewed
+            </h3>
+            <p className="text-xs text-muted-foreground mb-6">
+              Are you sure you want to mark the calculation for <span className="font-bold text-foreground">{calculatorTitle}</span> as Reviewed? This will notify the Discipline Coordinator for approval.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowReviewModal(false)}
+                className="px-4 py-2 border border-border text-xs font-semibold rounded-xl hover:bg-surface-2 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSrReviewSubmit}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="size-3.5" />
+                Confirm Review
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Discipline Coordinator Reject Modal (Mandatory Rejection Description) */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
@@ -495,4 +528,4 @@ export const CalculationReviewBar: React.FC<CalculationReviewBarProps> = ({
       )}
     </div>
   );
-};
+}
