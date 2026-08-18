@@ -400,7 +400,7 @@ export function CalculationReviewBar({
             className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
           >
             <CheckCircle2 className="size-3.5" />
-            <span>{reviewState.status === "REVIEWED" ? "Re-submit Review" : "Reviewed"}</span>
+            <span>{reviewState.status === "REVIEWED" || reviewState.status === "APPROVED" ? "Reviewed" : "Review"}</span>
           </button>
         )}
 
