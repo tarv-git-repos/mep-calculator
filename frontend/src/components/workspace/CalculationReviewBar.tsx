@@ -59,11 +59,16 @@ export function CalculationReviewBar({
     const activeProfile = profile || userData || {};
     const des = (activeProfile.designation || activeProfile.role || "").toLowerCase();
     const roleVal = activeProfile.role;
-    
+    // First priority: Explicit Admin-assigned roles
+    if (roleVal === "Discipline Coordinator") return "Discipline Coordinator";
+    if (roleVal === "Sr. Design Engineer" || roleVal === "Senior Design Engineer") return "Sr. Design Engineer";
+    if (roleVal === "Jr. Design Engineer" || roleVal === "Junior Design Engineer" || roleVal === "Design Engineer") return "Jr. / Design Engineer";
+
+    // Second priority: User-typed designation fallback
     if (des.includes("coordinator") || des.includes("lead")) {
       return "Discipline Coordinator";
     }
-    if (des.includes("senior") || des.includes("sr") || roleVal === "Sr. Design Engineer") {
+    if (des.includes("senior") || des.includes("sr")) {
       return "Sr. Design Engineer";
     }
     return "Jr. / Design Engineer";
