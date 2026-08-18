@@ -34,15 +34,61 @@ export function formatDateStr(rawDate?: string): string {
   return datePart;
 }
 
+export function getExporterUserName(metaUserName?: string): string {
+  if (metaUserName && metaUserName.trim() && metaUserName !== "System Admin") {
+    return metaUserName.trim();
+  }
+
+  if (typeof window !== "undefined") {
+    // 1. Check window global if attached by active session
+    if ((window as any).currentMepUserName) return (window as any).currentMepUserName;
+
+    // 2. Check active auth user from 'mep_user'
+    try {
+      const uStr = localStorage.getItem('mep_user');
+      if (uStr) {
+        const u = JSON.parse(uStr);
+        if (u.name) return u.name;
+        if (u.user?.name) return u.user.name;
+      }
+    } catch (e) {}
+
+    // 3. Check workspace store current user
+    try {
+      const storeUser = (workspaceStore.getState() as any)?.user;
+      if (storeUser?.name) return storeUser.name;
+    } catch (e) {}
+
+    // 4. Check secondary profile keys
+    try {
+      const pStr = localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
+      if (pStr) {
+        const p = JSON.parse(pStr);
+        if (p.name) return p.name;
+        if (p.user?.name) return p.user.name;
+      }
+    } catch (e) {}
+  }
+
+  return metaUserName?.trim() || "System Admin";
+}
+
 export function getSignatureBlockDetails(
   projectId: string,
   calculatorPath: string,
   exporterName: string
 ) {
   let reviewState: any = {};
-  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath}`;
-
+  
+  const rawPath = calculatorPath || "ventilation";
+  const pathWithSlash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+  const pathNoSlash = rawPath.replace(/^\//, "");
   const currentProj = workspaceStore.getState().project;
+  const pId = projectId || currentProj?.id || "default";
+
+  const key1 = `mep_calc_review_${pId}_${rawPath}`;
+  const key2 = `mep_calc_review_${pId}_${pathWithSlash}`;
+  const key3 = `mep_calc_review_${pId}_${pathNoSlash}`;
 
   // Originated by Date = Date of creation of that project
   const projectCreationDateRaw = currentProj?.created_at || currentProj?.createdAt || currentProj?.date;
@@ -54,25 +100,33 @@ export function getSignatureBlockDetails(
     projectCreatedDateStr = formatDateStr(new Date().toISOString());
   }
 
-  // Fetch Review State
-  if (currentProj && currentProj.id === projectId) {
+  // Fetch Review State from Workspace Project Data
+  if (currentProj) {
     const reviewStates = currentProj.workspace_data?.review_states || {};
-    if (reviewStates[storageKey]) {
-      reviewState = reviewStates[storageKey];
+    if (reviewStates[key1]) reviewState = reviewStates[key1];
+    else if (reviewStates[key2]) reviewState = reviewStates[key2];
+    else if (reviewStates[key3]) reviewState = reviewStates[key3];
+  }
+
+  // Fallback to LocalStorage
+  if (!reviewState?.status && typeof window !== "undefined") {
+    const keysToTry = [key1, key2, key3];
+    for (const k of keysToTry) {
+      try {
+        const saved = localStorage.getItem(k);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && (parsed.status || parsed.reviewedBy || parsed.approvedBy)) {
+            reviewState = parsed;
+            break;
+          }
+        }
+      } catch (e) {}
     }
   }
 
-  if (!reviewState?.status && typeof window !== "undefined") {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        reviewState = JSON.parse(saved);
-      }
-    } catch (e) {}
-  }
-
-  // 1. Originated By: Name = user who exported PDF/Excel, Date = project creation date
-  const originatedName = exporterName || "System Admin";
+  // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = project creation date
+  const originatedName = getExporterUserName(exporterName);
   const originatedDate = projectCreatedDateStr;
 
   // 2. Reviewed By: Name = recently reviewed user, Date = review date

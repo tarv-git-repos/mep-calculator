@@ -522,18 +522,14 @@ export const exportVentilationExcel = async (
     setCellBorder(cell, 'medium', 'thin', leftStyle, rightStyle);
   }
 
-  let userName = meta.userName || (typeof window !== 'undefined' ? (window as any).currentMepUserName : undefined) || 'System Admin';
-  if (!meta.userName) {
-    try {
-      const profileStr = localStorage.getItem('mep_calculator_user_data') || localStorage.getItem('mep_profile') || localStorage.getItem('mep_user_data');
-      if (profileStr) {
-        const profile = JSON.parse(profileStr);
-        if (profile.name) userName = profile.name;
-        else if (profile.user?.name) userName = profile.user.name;
-        else if (profile.userData?.name) userName = profile.userData.name;
-      }
-    } catch (e) {}
-  }
+  const {
+    originatedName,
+    originatedDate,
+    reviewerName,
+    reviewerDate,
+    approverName,
+    approverDate
+  } = getSignatureBlockDetails(activeProj?.id || "default", "/ventilation", meta.userName || "");
 
   // Name Row
   const nameRow = sigStartRow + 1;
@@ -544,7 +540,7 @@ export const exportVentilationExcel = async (
   sheet.getCell(`A${nameRow}`).alignment = { horizontal: 'right', vertical: 'middle' };
 
   sheet.mergeCells(`D${nameRow}:G${nameRow}`);
-  sheet.getCell(`D${nameRow}`).value = userName;
+  sheet.getCell(`D${nameRow}`).value = originatedName;
   sheet.getCell(`D${nameRow}`).font = baseFont;
   sheet.getCell(`D${nameRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 

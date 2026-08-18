@@ -382,7 +382,7 @@ export const exportVentilationPDF = async (
       reviewerDate,
       approverName,
       approverDate
-    } = getSignatureBlockDetails(activeProj?.id || "default", "ventilation", userName);
+    } = getSignatureBlockDetails(activeProj?.id || "default", "/ventilation", meta.userName || "");
 
     callAutoTable(doc, {
       startY: finalY + 8,
