@@ -24,6 +24,7 @@ import { isFeatureLocked } from "@/utils/featureFlags";
 
 import { PricingModal } from "@/components/workspace/PricingModal";
 import { useState } from "react";
+import { AutoUpdaterPopup } from "@/components/AutoUpdaterPopup";
 
 function AuthGuard({ children }: { children: ReactNode }) {
   const { session, profile, loading, isLoggedin, logout } = useAuth();
@@ -374,6 +375,7 @@ function RootComponent() {
         <ConfirmProvider>
           <ThemeWatcher />
           <DirtyWatcher />
+          <AutoUpdaterPopup />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <AuthGuard>
             <Outlet />

@@ -115,18 +115,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const handleUnauthResponse = (res: any) => {
+    if (!res) return;
+    if (res.sessionRevoked || res.message?.includes('another device')) {
+      toast.error(res.message || "Your account was logged in on another device.", { duration: 6000 });
+      clearAllAuthStorage();
+      setUserDataState(null);
+      setIsLoggedin(false);
+    } else if (res.message?.includes('deactivated') || res.message?.includes('deleted')) {
+      toast.error(res.message, { duration: 6000 });
+      clearAllAuthStorage();
+      setUserDataState(null);
+      setIsLoggedin(false);
+    } else if (res.success === false) {
+      clearAllAuthStorage();
+      setUserDataState(null);
+      setIsLoggedin(false);
+    }
+  };
+
   const getUserData = async () => {
     const res = await authService.getUserData();
     if (res.success && res.userData) {
       setUserData(res.userData);
       return res;
-    } else if (res.success === false && res.message && !res.message.includes('Network Error')) {
-      if (isLoggedin && userData) {
-        toast.error("Your account has been deleted or deactivated by an administrator.");
-      }
-      clearAllAuthStorage();
-      setUserDataState(null);
-      setIsLoggedin(false);
+    } else if (res.success === false) {
+      handleUnauthResponse(res);
     }
     return res;
   };
@@ -136,24 +150,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const authState = await authService.getAuthState();
       if (authState.success && authState.userData) {
         setUserData(authState.userData);
-      } else if (authState.success === false && authState.message && !authState.message.includes('Network Error')) {
-        if (isLoggedin && userData) {
-          toast.error("Your account has been deleted or deactivated by an administrator.");
-        }
-        clearAllAuthStorage();
-        setUserDataState(null);
-        setIsLoggedin(false);
+      } else if (authState.success === false) {
+        handleUnauthResponse(authState);
       } else {
         const res = await authService.getUserData();
         if (res.success && res.userData) {
           setUserData(res.userData);
-        } else if (res.success === false && res.message && !res.message.includes('Network Error')) {
-          if (isLoggedin && userData) {
-            toast.error("Your account has been deleted or deactivated by an administrator.");
-          }
-          clearAllAuthStorage();
-          setUserDataState(null);
-          setIsLoggedin(false);
+        } else if (res.success === false) {
+          handleUnauthResponse(res);
         }
       }
 
@@ -231,7 +235,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     checkAuth();
+
+    const handleRevoked = (e: any) => {
+      const msg = e.detail || "Your account was logged in on another device.";
+      toast.error(msg, { duration: 6000 });
+      clearAllAuthStorage();
+      setUserDataState(null);
+      setIsLoggedin(false);
+    };
+
+    window.addEventListener('mep_session_revoked', handleRevoked as EventListener);
+    return () => {
+      window.removeEventListener('mep_session_revoked', handleRevoked as EventListener);
+    };
   }, []);
+
+  // Periodic heartbeat session check (every 15s) and on window focus when logged in
+  useEffect(() => {
+    if (!isLoggedin) return;
+
+    const performSessionCheck = async () => {
+      const authState = await authService.getAuthState();
+      if (authState.success === false && (authState.requireForceLogout || authState.message?.includes('another device'))) {
+        toast.error(authState.message || "Your account was logged in on another device.", { duration: 6000 });
+        clearAllAuthStorage();
+        setUserDataState(null);
+        setIsLoggedin(false);
+      }
+    };
+
+    const interval = setInterval(performSessionCheck, 15000);
+    const handleFocus = () => { performSessionCheck(); };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isLoggedin]);
 
   const session = userData ? { user: { id: userData.id, email: userData.email } } : null;
   const user = session?.user ?? null;

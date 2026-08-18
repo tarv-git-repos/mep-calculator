@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
   return import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -8,11 +9,40 @@ const getBackendUrl = () => {
 
 axios.interceptors.request.use((config) => {
   const token = localStorage.getItem('auth_token');
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
+  if (config.headers) {
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    const hwid = getHardwareFingerprint();
+    if (hwid) {
+      config.headers['x-hwid'] = hwid;
+    }
   }
   return config;
 });
+
+let lastRevokedEventTime = 0;
+
+axios.interceptors.response.use(
+  (response) => {
+    if (response.data && response.data.sessionRevoked) {
+      if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
+        lastRevokedEventTime = Date.now();
+        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: response.data.message }));
+      }
+    }
+    return response;
+  },
+  (error) => {
+    if (error.response?.data?.sessionRevoked || (error.response?.status === 401 && error.response?.data?.message?.includes('another device'))) {
+      if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
+        lastRevokedEventTime = Date.now();
+        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: error.response?.data?.message }));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 export const api = {
   // USERS
   async getUsers() {
@@ -275,9 +305,10 @@ export const api = {
         } catch(e) {}
         return data;
       }
-    } catch (e) {}
-
-    // Desktop offline fallback creation
+    } catch (e) {
+      console.error('Error creating organization:', e);
+    }
+    
     const fallbackOrg = {
       id: `org_${Date.now()}`,
       name: orgData.name.trim(),
@@ -290,9 +321,29 @@ export const api = {
       existing.push(fallbackOrg);
       localStorage.setItem('mep_local_organizations', JSON.stringify(existing));
     } catch(e) {}
-
+    
     return { success: true, organization: fallbackOrg };
   },
+
+  async updateOrganization(orgData: { orgId: string; name?: string; subscription_plan?: string; max_users?: number }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/organizations/update`, orgData);
+      if (data.success) {
+        try {
+          const existing = JSON.parse(localStorage.getItem('mep_local_organizations') || '[]');
+          const idx = existing.findIndex((o: any) => o.id === orgData.orgId);
+          if (idx !== -1) {
+            existing[idx] = { ...existing[idx], ...orgData };
+            localStorage.setItem('mep_local_organizations', JSON.stringify(existing));
+          }
+        } catch(e) {}
+      }
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+
   async deleteOrganization(orgId: string) {
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/admin/organizations/delete`, { orgId });

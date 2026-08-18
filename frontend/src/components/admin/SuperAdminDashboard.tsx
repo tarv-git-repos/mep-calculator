@@ -108,6 +108,7 @@ export function SuperAdminDashboard() {
   const [organizations, setOrganizations] = useState<any[]>([])
   const [loadingOrganizations, setLoadingOrganizations] = useState(false)
   const [showAddOrg, setShowAddOrg] = useState(false)
+  const [isAddingOrg, setIsAddingOrg] = useState(false)
   const [newOrgName, setNewOrgName] = useState('')
   const [newOrgPlan, setNewOrgPlan] = useState('PRO')
   const [newOrgUsers, setNewOrgUsers] = useState(5)

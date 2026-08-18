@@ -593,7 +593,8 @@ export function SettingsPage() {
       const { relaunch } = await import('@tauri-apps/plugin-process');
       await relaunch();
     } catch (e: any) {
-      setUpdateStatus(`Error installing update: ${e.message}`);
+      console.error("Update error:", e);
+      setUpdateStatus(`Error installing update: ${e?.message || String(e)}`);
     } finally {
       setIsCheckingUpdate(false);
     }

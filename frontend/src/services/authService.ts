@@ -41,10 +41,12 @@ export interface AuthResponse {
   token?: string;
   userData?: AuthUserData;
   requireForceLogout?: boolean;
+  sessionRevoked?: boolean;
 }
 
 export const clearAllAuthStorage = () => {
   if (typeof window !== 'undefined') {
+    const clientId = localStorage.getItem('mep_device_client_id');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('mep_user_data');
     localStorage.removeItem('mep_profile');
@@ -53,6 +55,9 @@ export const clearAllAuthStorage = () => {
     localStorage.removeItem('mep_grid_spaces_grid');
     localStorage.removeItem('mep_grid_zones_grid');
     localStorage.removeItem('mep_grid_equipment_grid');
+    if (clientId) {
+      localStorage.setItem('mep_device_client_id', clientId);
+    }
   }
 };
 
@@ -89,28 +94,9 @@ export const authService = {
       }
       return data;
     } catch (error: any) {
-      if (!error.response || error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
-        console.warn('Backend server offline — enabling desktop offline session authentication.');
-        const fallbackUser: AuthUserData = {
-          id: `usr-${Date.now()}`,
-          name: email.split('@')[0] || 'Desktop User',
-          email: email,
-          role: email.toLowerCase().includes('admin') ? 'SUPER_ADMIN' : 'ENGINEER',
-          isAccountVerified: true,
-        };
-        const mockToken = `desktop-token-${Date.now()}`;
-        localStorage.setItem('auth_token', mockToken);
-        localStorage.setItem('mep_user_data', JSON.stringify(fallbackUser));
-        return {
-          success: true,
-          token: mockToken,
-          userData: fallbackUser,
-          message: 'Signed in (Desktop Offline Mode)',
-        };
-      }
       return {
         success: false,
-        message: error.response?.data?.message || error.message || 'Login failed',
+        message: error.response?.data?.message || error.message || 'Login failed. Could not reach server.',
       };
     }
   },
@@ -212,6 +198,9 @@ export const authService = {
       const { data } = await axios.get<AuthResponse>(`${getBackendUrl()}/api/auth/is-auth`);
       return data;
     } catch (error: any) {
+      if (error.response?.data?.sessionRevoked || error.response?.data?.message?.includes('another device')) {
+        return { success: false, message: error.response.data.message || 'Your account was logged in on another device.' };
+      }
       return { success: false };
     }
   },
@@ -221,6 +210,9 @@ export const authService = {
       const { data } = await axios.get<AuthResponse>(`${getBackendUrl()}/api/user/data`);
       return data;
     } catch (error: any) {
+      if (error.response?.data?.sessionRevoked || error.response?.data?.message?.includes('another device')) {
+        return { success: false, message: error.response.data.message || 'Your account was logged in on another device.' };
+      }
       return { success: false };
     }
   },

@@ -116,7 +116,7 @@ async function readUsers() {
         designation: u.designation || u.features?.designation || '',
         profile_photo: u.profile_photo || u.features?.profile_photo || '',
         settings: u.settings || u.features?.settings || {},
-        active_hwid: u.features?.active_hwid || null
+        active_hwid: u.features?.active_hwid || u.active_hwid || null
       }));
       saveLocalUsers(users);
     } else {
@@ -168,6 +168,7 @@ async function writeUsers(users) {
       }
       return {
         ...user,
+        active_hwid: active_hwid !== undefined ? active_hwid : (user.active_hwid || null),
         features
       };
     });
@@ -264,7 +265,15 @@ async function getUserFromReq(req) {
     const decoded = jwt.verify(token, JWT_SECRET);
     const userIndex = users.findIndex((u) => u.id === decoded.id);
     if (userIndex === -1) return null;
-    let user = users[userIndex];
+    let user = { ...users[userIndex] };
+
+    const reqHwid = req.headers['x-hwid'] || req.headers['hwid'];
+    if (user.active_hwid && reqHwid && user.active_hwid !== reqHwid) {
+      if (user.role !== 'SUPER_ADMIN') {
+        user.sessionRevoked = true;
+      }
+    }
+
     if (user.status === 'invited') {
       user.status = 'active';
       user.isAccountVerified = true;
@@ -285,7 +294,7 @@ function sendJSON(res, statusCode, body, setCookieStr = null) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-hwid, hwid',
   };
   if (setCookieStr) {
     headers['Set-Cookie'] = setCookieStr;
@@ -316,7 +325,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-hwid, hwid',
     });
     return res.end();
   }
@@ -514,11 +523,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (hwid && user.active_hwid && user.active_hwid !== hwid && !force) {
-      return sendJSON(res, 200, { 
-        success: false, 
-        requireForceLogout: true, 
-        message: 'This email is already logged in on another device. Do you want to remove it from that device?' 
-      });
+      if (user.role !== 'SUPER_ADMIN') {
+        return sendJSON(res, 200, { 
+          success: false, 
+          requireForceLogout: true, 
+          message: 'This email is already logged in on another device. Do you want to remove it from that device?' 
+        });
+      }
     }
 
     if (hwid) {
@@ -638,6 +649,13 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/auth/is-auth') {
     const user = await getUserFromReq(req);
     if (user) {
+      if (user.sessionRevoked) {
+        return sendJSON(res, 401, {
+          success: false,
+          sessionRevoked: true,
+          message: 'Your account was logged in on another device.'
+        });
+      }
       return sendJSON(res, 200, {
         success: true,
         userData: await formatUser(user),
@@ -651,6 +669,13 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'User not logged in' });
+    }
+    if (user.sessionRevoked) {
+      return sendJSON(res, 401, {
+        success: false,
+        sessionRevoked: true,
+        message: 'Your account was logged in on another device.'
+      });
     }
     return sendJSON(res, 200, {
       success: true,
@@ -1698,6 +1723,35 @@ const server = http.createServer(async (req, res) => {
 
     if (user) logActivity(user, 'CREATE_ORGANIZATION', { orgName: name });
     return sendJSON(res, 200, { success: true, organization: newOrg });
+  }
+
+  if (req.method === 'POST' && url === '/api/admin/organizations/update') {
+    const user = await getUserFromReq(req);
+    if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    const { orgId, name, subscription_plan, max_users } = await getRequestBody(req);
+    
+    const localOrgs = readLocalOrgs();
+    const orgIndex = localOrgs.findIndex(o => o.id === orgId);
+    if (orgIndex === -1) return sendJSON(res, 404, { success: false, message: 'Organization not found' });
+    
+    if (name) localOrgs[orgIndex].name = name;
+    if (subscription_plan) localOrgs[orgIndex].subscription_plan = subscription_plan;
+    if (max_users !== undefined) localOrgs[orgIndex].max_users = max_users;
+    
+    saveLocalOrgs(localOrgs);
+
+    try {
+      const updateData = {};
+      if (name) updateData.name = name;
+      if (subscription_plan) updateData.subscription_plan = subscription_plan;
+      if (max_users !== undefined) updateData.max_users = max_users;
+      await supabase.from('organizations').update(updateData).eq('id', orgId);
+    } catch (e) {
+      console.warn('Supabase org update warning:', e);
+    }
+
+    logActivity(user, 'UPDATE_ORGANIZATION', { orgId, name });
+    return sendJSON(res, 200, { success: true, organization: localOrgs[orgIndex] });
   }
 
   if (req.method === 'POST' && url === '/api/admin/organizations/delete') {

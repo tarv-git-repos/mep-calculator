@@ -246,23 +246,31 @@ export function DataGrid<T extends { id: string }>({
 
   useEffect(() => {
     const handleScrollToItem = (e: Event) => {
-      const customEvent = e as CustomEvent<{ id: string }>;
-      if (!customEvent || !customEvent.detail || !customEvent.detail.id) return;
-      const itemId = customEvent.detail.id;
+      const customEvent = e as CustomEvent<{ id?: string; name?: string }>;
+      if (!customEvent || !customEvent.detail) return;
+      const { id: itemId, name: targetName } = customEvent.detail;
       const currentItems = itemsRef.current;
       const currentHeight = heightRef.current;
       
-      const itemIndex = currentItems.findIndex((item) => item.id === itemId || (item.data && item.data.id === itemId));
+      const itemIndex = currentItems.findIndex(
+        (item) =>
+          (itemId && (item.id === itemId || (item.data && item.data.id === itemId))) ||
+          (targetName && item.data && String((item.data as any).name).toLowerCase().trim() === String(targetName).toLowerCase().trim())
+      );
+
       if (itemIndex !== -1 && ref.current) {
+        const matchedItem = currentItems[itemIndex];
+        const actualId = matchedItem.data?.id || matchedItem.id;
+
         const topOffset = itemIndex * ROW_H;
         ref.current.scrollTop = Math.max(0, topOffset - (currentHeight / 2) + (ROW_H / 2));
         
-        setHighlightedRowId(itemId);
+        setHighlightedRowId(actualId);
         if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
         highlightTimeoutRef.current = setTimeout(() => {
           setHighlightedRowId(null);
           highlightTimeoutRef.current = null;
-        }, 2500);
+        }, 3000);
       }
     };
     

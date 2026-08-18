@@ -1,7 +1,7 @@
 /**
  * Hardware Fingerprint Generator for MEP Calculator
- * Combines browser/system hardware properties (screen specs, platform, CPU cores, canvas renderer, timezone)
- * into a unique hash for binding Free Trials to physical devices.
+ * Combines browser/system hardware properties into a unique, deterministic 
+ * hash for physical device binding.
  */
 
 function cyrb53(str: string, seed = 0): string {
@@ -26,7 +26,7 @@ export function getHardwareFingerprint(): string {
     const nav = window.navigator as any;
     const screen = window.screen;
 
-    // Collect hardware & system parameters
+    // Static, deterministic hardware parameters unique to physical machine & browser environment
     const userAgent = nav.userAgent || "";
     const platform = nav.platform || "";
     const hardwareConcurrency = nav.hardwareConcurrency || 4;
@@ -35,35 +35,15 @@ export function getHardwareFingerprint(): string {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
     const language = nav.language || "";
 
-    // Canvas fingerprinting component
-    let canvasData = "";
-    try {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.textBaseline = "top";
-        ctx.font = "14px 'Arial'";
-        ctx.fillStyle = "#f60";
-        ctx.fillRect(125, 1, 62, 20);
-        ctx.fillStyle = "#069";
-        ctx.fillText("MEP-CALC-HWID-2026", 2, 15);
-        ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
-        ctx.fillText("MEP-CALC-HWID-2026", 4, 17);
-        canvasData = canvas.toDataURL();
-      }
-    } catch (e) {
-      canvasData = "canvas_disabled";
-    }
-
     const rawString = [
+      "MEP-PHYSICAL-HWID-V1",
       platform,
       hardwareConcurrency,
       deviceMemory,
       screenRes,
       timezone,
       language,
-      userAgent.split(" ")[0],
-      canvasData.slice(-100),
+      userAgent
     ].join("||");
 
     const hash1 = cyrb53(rawString, 42);

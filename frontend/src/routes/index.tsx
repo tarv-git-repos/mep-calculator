@@ -138,6 +138,33 @@ export function VentilationModule() {
   }, [activeProjectId]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const targetType = (params.get("commentTargetType") || "").toLowerCase();
+    const targetId = params.get("commentTargetId");
+    const targetName = params.get("commentTargetName");
+
+    if (targetType === "zone") {
+      setTab("zones");
+    } else if (targetType === "equipment") {
+      setTab("equipment");
+    } else if (targetType === "space") {
+      setTab("spaces");
+    }
+
+    if (targetId || targetName) {
+      const timer = setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("mep-scroll-to-item", {
+            detail: { id: targetId, name: targetName },
+          })
+        );
+      }, 450);
+      return () => clearTimeout(timer);
+    }
+  }, [typeof window !== 'undefined' ? window.location.search : '']);
+
+  useEffect(() => {
     const handleUpdate = (e: any) => {
       if (e.detail) {
         setCalcReviewState(e.detail);
