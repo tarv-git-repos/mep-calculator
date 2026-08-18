@@ -60,7 +60,7 @@ export function CalculationReviewBar({
     const des = (activeProfile.designation || activeProfile.role || "").toLowerCase();
     const roleVal = activeProfile.role;
     
-    if (des.includes("coordinator") || des.includes("lead") || roleVal === "SUPER_ADMIN" || roleVal === "ORG_ADMIN") {
+    if (des.includes("coordinator") || des.includes("lead")) {
       return "Discipline Coordinator";
     }
     if (des.includes("senior") || des.includes("sr") || roleVal === "Sr. Design Engineer") {
