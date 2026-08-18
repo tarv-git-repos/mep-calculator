@@ -1003,8 +1003,8 @@ function BusbarCalculationPage() {
       });
     });
     
-    const finalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "busbar-calculation");
+    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "busbar-calculation");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "Busbar_Calculation.pdf", "PDF Document", ["pdf"]);
   };

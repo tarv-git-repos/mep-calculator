@@ -310,8 +310,8 @@ function CapacitorBankSizingPage() {
     });
 
     
-    const finalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "capacitor-bank-sizing");
+    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "capacitor-bank-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "Capacitor_Bank_Calculations.pdf", "PDF Document", ["pdf"]);
   };

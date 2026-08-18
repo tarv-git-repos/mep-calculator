@@ -161,8 +161,8 @@ function HazenWilliamsPage() {
     });
 
     
-    const finalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "plumbing-hazen-williams");
+    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "plumbing-hazen-williams");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `Hazen_Williams_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };

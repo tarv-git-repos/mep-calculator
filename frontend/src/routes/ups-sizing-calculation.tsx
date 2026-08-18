@@ -370,8 +370,8 @@ function UpsSizingCalculationPage() {
     });
 
     
-    const finalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "ups-sizing-calculation");
+    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "ups-sizing-calculation");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "UPS_Sizing_Report.pdf", "PDF Document", ["pdf"]);
   };

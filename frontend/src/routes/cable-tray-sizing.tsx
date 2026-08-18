@@ -710,8 +710,8 @@ function CableTraySizingPage() {
     }
 
     
-    const finalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "cable-tray-sizing");
+    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "cable-tray-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "Cable_Tray_Sizing.pdf", "PDF Document", ["pdf"]);
   };

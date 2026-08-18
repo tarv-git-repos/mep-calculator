@@ -222,8 +222,8 @@ function FM200SizerPage() {
     }
 
     
-    const finalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "plumbing-fm200");
+    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "plumbing-fm200");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `FM200_Sizing_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };

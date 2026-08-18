@@ -808,8 +808,8 @@ function SprinklerKFactorPage() {
     });
 
     
-    const finalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "plumbing-sprinkler-kfactor");
+    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "plumbing-sprinkler-kfactor");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };
