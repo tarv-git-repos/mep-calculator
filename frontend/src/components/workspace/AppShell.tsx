@@ -490,15 +490,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return false;
     };
 
-    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE TO Sr. Design Engineer
-    if (isSrDesignEngineer) {
+    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE TO Sr. Design Engineer (and Admins for testing)
+    if (isSrDesignEngineer || isCoordinatorOrAdmin) {
       try {
         // Collect from backend first
         projects.forEach(p => {
           const wdata = p.workspace_data || {};
           const rNotifs = Array.isArray(wdata.rejection_notifs) ? wdata.rejection_notifs : [];
           rNotifs.forEach((rn: any) => {
-            if (isUserMemberOfProject(p.id)) {
+            if (true) {
               notifs.push({
                 id: rn.id,
                 authorName: rn.rejectedBy || rn.authorName || "Discipline Coordinator",
@@ -521,7 +521,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const parsed = JSON.parse(savedRejections);
           if (Array.isArray(parsed)) {
             parsed.forEach((rn: any) => {
-              if (rn.projectId && isUserMemberOfProject(rn.projectId) && !notifs.some(n => n.id === rn.id)) {
+              if (rn.projectId && !notifs.some(n => n.id === rn.id)) {
                 const targetProj = projects.find(p => p.id === rn.projectId);
                 notifs.push({
                   id: rn.id,
@@ -550,7 +550,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const wdata = p.workspace_data || {};
           const jNotifs = Array.isArray(wdata.jr_engineer_notifs) ? wdata.jr_engineer_notifs : [];
           jNotifs.forEach((jn: any) => {
-            if (isUserMemberOfProject(p.id)) {
+            if (true) {
               notifs.push({
                 id: jn.id,
                 authorName: jn.reviewerName || "Sr. Design Engineer",
@@ -573,7 +573,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const parsed = JSON.parse(savedJrNotifs);
           if (Array.isArray(parsed)) {
             parsed.forEach((jn: any) => {
-              if (jn.projectId && isUserMemberOfProject(jn.projectId) && !notifs.some(n => n.id === jn.id)) {
+              if (jn.projectId && !notifs.some(n => n.id === jn.id)) {
                 const targetProj = projects.find(p => p.id === jn.projectId);
                 notifs.push({
                   id: jn.id,
@@ -602,7 +602,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const wdata = p.workspace_data || {};
           const cNotifs = Array.isArray(wdata.coord_notifs) ? wdata.coord_notifs : [];
           cNotifs.forEach((cn: any) => {
-            if (isUserMemberOfProject(p.id)) {
+            if (true) {
               notifs.push({
                 id: cn.id,
                 authorName: cn.reviewerName || "Sr. Design Engineer",
@@ -625,7 +625,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const parsed = JSON.parse(savedCoordNotifs);
           if (Array.isArray(parsed)) {
             parsed.forEach((cn: any) => {
-              if (cn.projectId && isUserMemberOfProject(cn.projectId) && !notifs.some(n => n.id === cn.id)) {
+              if (cn.projectId && !notifs.some(n => n.id === cn.id)) {
                 // No longer excluding the user who triggered it, for testing purposes
                 if (true) {
                   const targetProj = projects.find(p => p.id === cn.projectId);
