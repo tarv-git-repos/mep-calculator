@@ -1036,6 +1036,7 @@ const server = http.createServer(async (req, res) => {
 
     // Always assign creator
     if (!assigned_users.includes(user.id)) assigned_users.push(user.id);
+    if (user.email && !assigned_users.includes(user.email)) assigned_users.push(user.email);
 
     // Insert access rules
     if (assigned_users.length > 0) {
@@ -1045,10 +1046,15 @@ const server = http.createServer(async (req, res) => {
       await supabase.from('project_teams').insert(assigned_teams.map(tid => ({ project_id: projectId, team_id: tid })));
     }
 
+    const projectUsers = assigned_users.map(uid => ({ project_id: projectId, user_id: uid }));
+    const projectTeams = assigned_teams.map(tid => ({ project_id: projectId, team_id: tid }));
+
     return sendJSON(res, 200, { 
       success: true, 
       project: { 
         ...dbProject, 
+        project_users: projectUsers,
+        project_teams: projectTeams,
         createdDate: nowIso, 
         lastModified: nowIso 
       } 
@@ -1072,15 +1078,18 @@ const server = http.createServer(async (req, res) => {
       const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
 
         visibleProjects = projects.filter(p => {
-          if (p.created_by && p.created_by === user.id) return true;
-          if (Array.isArray(p.project_users) && p.project_users.some(pu => pu.user_id === user.id)) return true;
+          if (p.created_by && (p.created_by === user.id || p.created_by === user.email)) return true;
+          if (Array.isArray(p.project_users) && p.project_users.some(pu => pu.user_id === user.id || pu.user_id === user.email)) return true;
           if (Array.isArray(p.project_teams) && p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
           return false;
         });
     } else if (user.role === 'ORG_ADMIN') {
         const users = await readUsers();
-        const orgUsers = users.filter(u => u.organization_id === user.organization_id).map(u => u.id);
-        visibleProjects = projects.filter(p => orgUsers.includes(p.created_by));
+        const orgUserIds = new Set(users.filter(u => u.organization_id === user.organization_id).flatMap(u => [u.id, u.email].filter(Boolean)));
+        visibleProjects = projects.filter(p => 
+          orgUserIds.has(p.created_by) ||
+          (Array.isArray(p.project_users) && p.project_users.some(pu => orgUserIds.has(pu.user_id)))
+        );
     }
 
     return sendJSON(res, 200, { success: true, projects: visibleProjects });

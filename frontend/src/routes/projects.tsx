@@ -76,11 +76,12 @@ function MemberAssignmentPicker({
     );
   }, [assignableTeams, search]);
 
-  const toggleUser = (userId: string) => {
-    if (selectedUsers.includes(userId)) {
-      onChangeUsers(selectedUsers.filter((id) => id !== userId));
+  const toggleUser = (userObj: any) => {
+    const targetId = userObj.id || userObj.email;
+    if (selectedUsers.includes(targetId) || selectedUsers.includes(userObj.email)) {
+      onChangeUsers(selectedUsers.filter((id) => id !== targetId && id !== userObj.email && id !== userObj.id));
     } else {
-      onChangeUsers([...selectedUsers, userId]);
+      onChangeUsers([...selectedUsers, targetId]);
     }
   };
 
@@ -94,7 +95,7 @@ function MemberAssignmentPicker({
 
   const selectAll = () => {
     if (activeTab === 'users') {
-      const allIds = Array.from(new Set([...selectedUsers, ...filteredUsers.map((u) => u.id)]));
+      const allIds = Array.from(new Set([...selectedUsers, ...filteredUsers.map((u) => u.id || u.email)]));
       onChangeUsers(allIds);
     } else {
       const allIds = Array.from(new Set([...selectedTeams, ...filteredTeams.map((t) => t.id)]));
@@ -111,7 +112,7 @@ function MemberAssignmentPicker({
   };
 
   const selectedUserObjects = useMemo(() => {
-    return assignableUsers.filter((u) => selectedUsers.includes(u.id));
+    return assignableUsers.filter((u) => selectedUsers.includes(u.id) || selectedUsers.includes(u.email));
   }, [assignableUsers, selectedUsers]);
 
   const selectedTeamObjects = useMemo(() => {
@@ -250,11 +251,11 @@ function MemberAssignmentPicker({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
             {filteredUsers.map((u) => {
-              const isSelected = selectedUsers.includes(u.id);
+              const isSelected = selectedUsers.includes(u.id) || selectedUsers.includes(u.email);
               return (
                 <div
-                  key={u.id}
-                  onClick={() => toggleUser(u.id)}
+                  key={u.id || u.email}
+                  onClick={() => toggleUser(u)}
                   className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 select-none ${
                     isSelected
                       ? 'bg-primary/10 border-primary/40 text-foreground ring-1 ring-primary/20 shadow-2xs'
