@@ -2784,7 +2784,6 @@ addSpace(newSpace);
               onRowDoubleClick={(r) => setEditingSpace(r)}
               activeRowId={editingSpace?.id}
               rowClassName={(r) => spaceRowClasses[r.id] || ""}
-              stickyHeaderTop={89}
             />
           )}
         </div>
@@ -4742,7 +4741,7 @@ function ZonesView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="sticky top-[49px] z-28 flex items-center gap-1 px-3 py-1.5 shrink-0 flex-wrap bg-card/95 backdrop-blur-md no-print border-b border-border/50">
+      <div className="relative flex items-center gap-1.5 px-3 py-2 shrink-0 flex-wrap bg-background no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -4820,7 +4819,7 @@ function ZonesView() {
         )}
       </div>
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <DataGrid
           rows={rows}
           columns={columns}
@@ -4834,7 +4833,6 @@ function ZonesView() {
             setZoneAllocOpen(true);
           }}
           rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
-          stickyHeaderTop={89}
         />
       </div>
 
@@ -6118,7 +6116,7 @@ function EquipmentView() {
 
   return (
     <div className="flex flex-col h-full select-none">
-      <div className="sticky top-[49px] z-28 flex items-center gap-1 px-3 py-1.5 shrink-0 bg-card/95 backdrop-blur-md no-print border-b border-border/50">
+      <div className="relative flex items-center gap-1.5 px-3 py-2 shrink-0 bg-background no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -6179,7 +6177,6 @@ function EquipmentView() {
           renderContextMenu={renderEquipmentContextMenu}
           onRowDoubleClick={handleEquipmentDoubleClicked}
           rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
-          stickyHeaderTop={89}
         />
       </div>
       <SharedAssignmentModal
