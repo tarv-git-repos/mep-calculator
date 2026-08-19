@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, FileCode,
   MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search, ShieldCheck,
-  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, Pin
+  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, Pin, Check
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -38,6 +38,313 @@ const formatRelativeTime = (dateStr?: string) => {
   const days = Math.floor(diffSec / 86400);
   return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 };
+
+function MemberAssignmentPicker({
+  assignableUsers,
+  assignableTeams,
+  selectedUsers,
+  selectedTeams,
+  onChangeUsers,
+  onChangeTeams,
+}: {
+  assignableUsers: any[];
+  assignableTeams: any[];
+  selectedUsers: string[];
+  selectedTeams: string[];
+  onChangeUsers: (users: string[]) => void;
+  onChangeTeams: (teams: string[]) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<'users' | 'teams'>('users');
+  const [search, setSearch] = useState('');
+
+  const filteredUsers = useMemo(() => {
+    if (!search.trim()) return assignableUsers;
+    const q = search.toLowerCase();
+    return assignableUsers.filter(
+      (u) =>
+        (u.name && u.name.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.role && u.role.toLowerCase().includes(q))
+    );
+  }, [assignableUsers, search]);
+
+  const filteredTeams = useMemo(() => {
+    if (!search.trim()) return assignableTeams;
+    const q = search.toLowerCase();
+    return assignableTeams.filter(
+      (t) => t.name && t.name.toLowerCase().includes(q)
+    );
+  }, [assignableTeams, search]);
+
+  const toggleUser = (userId: string) => {
+    if (selectedUsers.includes(userId)) {
+      onChangeUsers(selectedUsers.filter((id) => id !== userId));
+    } else {
+      onChangeUsers([...selectedUsers, userId]);
+    }
+  };
+
+  const toggleTeam = (teamId: string) => {
+    if (selectedTeams.includes(teamId)) {
+      onChangeTeams(selectedTeams.filter((id) => id !== teamId));
+    } else {
+      onChangeTeams([...selectedTeams, teamId]);
+    }
+  };
+
+  const selectAll = () => {
+    if (activeTab === 'users') {
+      const allIds = Array.from(new Set([...selectedUsers, ...filteredUsers.map((u) => u.id)]));
+      onChangeUsers(allIds);
+    } else {
+      const allIds = Array.from(new Set([...selectedTeams, ...filteredTeams.map((t) => t.id)]));
+      onChangeTeams(allIds);
+    }
+  };
+
+  const clearAll = () => {
+    if (activeTab === 'users') {
+      onChangeUsers([]);
+    } else {
+      onChangeTeams([]);
+    }
+  };
+
+  const selectedUserObjects = useMemo(() => {
+    return assignableUsers.filter((u) => selectedUsers.includes(u.id));
+  }, [assignableUsers, selectedUsers]);
+
+  const selectedTeamObjects = useMemo(() => {
+    return assignableTeams.filter((t) => selectedTeams.includes(t.id));
+  }, [assignableTeams, selectedTeams]);
+
+  return (
+    <div className="flex flex-col gap-3 p-4 bg-slate-50/70 dark:bg-zinc-900/60 rounded-2xl border border-border/80 shadow-2xs">
+      {/* Header & Tabs */}
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-3">
+        <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'users'
+                ? 'bg-background text-primary shadow-xs'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <User className="size-3.5" />
+            Users
+            <span className="ml-1 px-1.5 py-0.2 text-[9.5px] rounded-full bg-primary/10 text-primary font-extrabold">
+              {selectedUsers.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('teams')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'teams'
+                ? 'bg-background text-primary shadow-xs'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Users className="size-3.5" />
+            Teams
+            <span className="ml-1 px-1.5 py-0.2 text-[9.5px] rounded-full bg-primary/10 text-primary font-extrabold">
+              {selectedTeams.length}
+            </span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={selectAll}
+            className="text-[10.5px] font-semibold text-primary hover:underline cursor-pointer"
+          >
+            Select All
+          </button>
+          <span className="text-muted-foreground/40 text-xs">•</span>
+          <button
+            type="button"
+            onClick={clearAll}
+            className="text-[10.5px] font-semibold text-muted-foreground hover:text-rose-500 hover:underline cursor-pointer"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Selected Members Badges Strip */}
+      {(selectedUserObjects.length > 0 || selectedTeamObjects.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1.5 p-2 bg-background/80 rounded-xl border border-border/50 max-h-24 overflow-y-auto custom-scrollbar">
+          {selectedUserObjects.map((u) => (
+            <span
+              key={u.id}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-primary/10 text-primary border border-primary/20 animate-fade-in"
+            >
+              <User className="size-3 text-primary" />
+              <span>{u.name}</span>
+              <button
+                type="button"
+                onClick={() => toggleUser(u.id)}
+                className="hover:bg-primary/20 rounded-full p-0.5 text-primary cursor-pointer transition-colors"
+                title="Remove"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+
+          {selectedTeamObjects.map((t) => (
+            <span
+              key={t.id}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 animate-fade-in"
+            >
+              <Users className="size-3" />
+              <span>{t.name}</span>
+              <button
+                type="button"
+                onClick={() => toggleTeam(t.id)}
+                className="hover:bg-emerald-500/20 rounded-full p-0.5 text-emerald-600 cursor-pointer transition-colors"
+                title="Remove"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Search Input Bar */}
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 size-3.5 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={
+            activeTab === 'users'
+              ? 'Search users by name, email or role...'
+              : 'Search teams by name...'
+          }
+          className="w-full bg-background border border-border/70 rounded-xl pl-9 pr-8 py-2 text-[11.5px] outline-none focus:border-primary transition-all"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch('')}
+            className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Selection Grid */}
+      {activeTab === 'users' ? (
+        filteredUsers.length === 0 ? (
+          <div className="p-4 text-center text-xs text-muted-foreground italic">
+            No users found matching "{search}"
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+            {filteredUsers.map((u) => {
+              const isSelected = selectedUsers.includes(u.id);
+              return (
+                <div
+                  key={u.id}
+                  onClick={() => toggleUser(u.id)}
+                  className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 select-none ${
+                    isSelected
+                      ? 'bg-primary/10 border-primary/40 text-foreground ring-1 ring-primary/20 shadow-2xs'
+                      : 'bg-background border-border/70 hover:border-primary/40 hover:bg-accent/40 text-muted-foreground'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className={`size-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                        isSelected ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'
+                      }`}
+                    >
+                      {u.name ? u.name.charAt(0).toUpperCase() : 'U'}
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-[12px] truncate text-foreground leading-snug">
+                        {u.name}
+                      </span>
+                      {u.role && (
+                        <span className="text-[9.5px] text-muted-foreground truncate">
+                          {u.role.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`size-5 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+                      isSelected ? 'bg-primary text-primary-foreground' : 'border border-border/80 bg-background'
+                    }`}
+                  >
+                    {isSelected && <Check className="size-3 stroke-3" />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : filteredTeams.length === 0 ? (
+        <div className="p-4 text-center text-xs text-muted-foreground italic">
+          No teams found matching "{search}"
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+          {filteredTeams.map((t) => {
+            const isSelected = selectedTeams.includes(t.id);
+            const memberCount = (t.team_members || []).length;
+            return (
+              <div
+                key={t.id}
+                onClick={() => toggleTeam(t.id)}
+                className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all duration-150 select-none ${
+                  isSelected
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-foreground ring-1 ring-emerald-500/20 shadow-2xs'
+                    : 'bg-background border-border/70 hover:border-emerald-500/40 hover:bg-accent/40 text-muted-foreground'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`size-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                      isSelected ? 'bg-emerald-500 text-white' : 'bg-muted text-foreground'
+                    }`}
+                  >
+                    <Users className="size-3.5" />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold text-[12px] truncate text-foreground leading-snug">
+                      {t.name}
+                    </span>
+                    <span className="text-[9.5px] text-muted-foreground">
+                      {memberCount} member{memberCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+
+                <div
+                  className={`size-5 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+                    isSelected ? 'bg-emerald-500 text-white' : 'border border-border/80 bg-background'
+                  }`}
+                >
+                  {isSelected && <Check className="size-3 stroke-3" />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ProjectsPage() {
   const confirm = useConfirm();
@@ -845,42 +1152,18 @@ function ProjectsPage() {
                 </div>
 
                 {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') && (
-                  <div className="flex flex-col gap-4 mt-2 p-4 bg-primary/5 rounded-2xl border border-primary/10">
-                     <div className="flex flex-col gap-1.5">
-                        <label className="text-primary font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Assign Users to Project</label>
-                        <select 
-                           multiple 
-                           value={newProject.assigned_users}
-                           onChange={(e) => {
-                             const vals = Array.from(e.target.selectedOptions, option => option.value);
-                             setNewProject({ ...newProject, assigned_users: vals });
-                           }}
-                           className="w-full bg-background border border-border/70 rounded-xl px-3 py-2 text-[12px] h-24 custom-scrollbar outline-none focus:border-primary"
-                        >
-                           {assignableUsers.map(u => (
-                              <option key={u.id} value={u.id}>{u.name}</option>
-                           ))}
-                        </select>
-                        <span className="text-[9px] text-muted-foreground">Hold Ctrl/Cmd to select multiple</span>
-                     </div>
-                     
-                     <div className="flex flex-col gap-1.5">
-                        <label className="text-primary font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Assign Teams to Project</label>
-                        <select 
-                           multiple 
-                           value={newProject.assigned_teams}
-                           onChange={(e) => {
-                             const vals = Array.from(e.target.selectedOptions, option => option.value);
-                             setNewProject({ ...newProject, assigned_teams: vals });
-                           }}
-                           className="w-full bg-background border border-border/70 rounded-xl px-3 py-2 text-[12px] h-24 custom-scrollbar outline-none focus:border-primary"
-                        >
-                           {assignableTeams.map(t => (
-                              <option key={t.id} value={t.id}>{t.name}</option>
-                           ))}
-                        </select>
-                        <span className="text-[9px] text-muted-foreground">Hold Ctrl/Cmd to select multiple</span>
-                     </div>
+                  <div className="flex flex-col gap-2 mt-2">
+                    <label className="text-primary font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans">
+                      Assign Members & Teams to Workspace
+                    </label>
+                    <MemberAssignmentPicker
+                      assignableUsers={assignableUsers}
+                      assignableTeams={assignableTeams}
+                      selectedUsers={newProject.assigned_users}
+                      selectedTeams={newProject.assigned_teams}
+                      onChangeUsers={(users) => setNewProject({ ...newProject, assigned_users: users })}
+                      onChangeTeams={(teams) => setNewProject({ ...newProject, assigned_teams: teams })}
+                    />
                   </div>
                 )}
 
