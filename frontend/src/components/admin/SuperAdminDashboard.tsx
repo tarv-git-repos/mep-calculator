@@ -598,7 +598,7 @@ export function SuperAdminDashboard() {
     }
     
     // Update local state & local storage instantly
-    const updatedProfiles = profiles.map(p => p.id === profileId ? { ...p, organization_id: orgId || '', company: orgName, organization: orgName } : p);
+    const updatedProfiles = profiles.map(p => (p.id === profileId || (p.email && p.email.toLowerCase() === String(profileId).toLowerCase())) ? { ...p, organization_id: orgId || '', company: orgName, organization: orgName } : p);
     setProfiles(updatedProfiles);
     try {
       localStorage.setItem('mep_local_users', JSON.stringify(updatedProfiles));

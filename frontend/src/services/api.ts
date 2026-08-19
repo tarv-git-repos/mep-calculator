@@ -123,8 +123,9 @@ export const api = {
       if (!users || !Array.isArray(users)) {
         users = await this.getUsers();
       }
-      users = users.map((u: any) => u.id === profileId ? { ...u, ...updates } : u);
+      users = users.map((u: any) => (u.id === profileId || (u.email && u.email.toLowerCase() === String(profileId).toLowerCase())) ? { ...u, ...updates } : u);
       localStorage.setItem('mep_local_users', JSON.stringify(users));
+      localStorage.setItem('cachedAllUsers', JSON.stringify(users));
     } catch (e) {}
 
     // 2. Async backend sync
@@ -413,13 +414,15 @@ export const api = {
       const cachedStr = localStorage.getItem('mep_local_users');
       if (cachedStr) {
         const cachedUsers = JSON.parse(cachedStr);
-        const cachedMap = new Map(cachedUsers.map((u: any) => [u.id, u]));
         usersList = usersList.filter(u => {
-          const c = cachedMap.get(u.id);
+          const c = cachedUsers.find((x: any) => 
+            (x.id && u.id && String(x.id).toLowerCase() === String(u.id).toLowerCase()) || 
+            (x.email && u.email && String(x.email).toLowerCase() === String(u.email).toLowerCase())
+          );
           if (c) {
-            return c.organization_id && c.organization_id !== '' && c.organization_id !== 'No Organization';
+            return c.organization_id && c.organization_id !== '' && c.organization_id !== 'No Organization' && c.organization_id !== 'null';
           }
-          return u.organization_id && u.organization_id !== '' && u.organization_id !== 'No Organization';
+          return u.organization_id && u.organization_id !== '' && u.organization_id !== 'No Organization' && u.organization_id !== 'null';
         });
       }
     } catch (e) {}
