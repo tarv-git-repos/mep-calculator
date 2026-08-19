@@ -34,10 +34,11 @@ axios.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.data?.sessionRevoked || (error.response?.status === 401 && error.response?.data?.message?.includes('another device'))) {
+    if (error.response?.status === 401) {
       if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
         lastRevokedEventTime = Date.now();
-        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: error.response?.data?.message }));
+        const msg = error.response?.data?.message || 'Session expired or unauthorized. Please log in again.';
+        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: msg }));
       }
     }
     return Promise.reject(error);
