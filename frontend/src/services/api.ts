@@ -248,6 +248,17 @@ export const api = {
       return { success: false, message: error.response?.data?.message || 'Failed to save workspace' };
     }
   },
+  async updateProjectDetails(project_id: string, details: { name?: string; code?: string; client?: string; location?: string; description?: string; notes?: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/update`, {
+        project_id,
+        ...details
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to update project' };
+    }
+  },
   async deleteProject(project_id: string) {
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/projects/delete`, { project_id });

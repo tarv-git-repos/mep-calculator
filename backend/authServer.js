@@ -913,10 +913,10 @@ const server = http.createServer(async (req, res) => {
     
     let filteredUsers = users;
     if (user.role !== 'SUPER_ADMIN') {
-      // Non-Super-Admins (e.g. Org Admins) must ONLY see non-Super-Admin members belonging to their organization
+      // Non-Super-Admins can see non-Super-Admin members belonging to their organization, or all non-super-admin members if org_id is not set
       filteredUsers = users.filter(u => 
         u.role !== 'SUPER_ADMIN' && 
-        (user.organization_id ? u.organization_id === user.organization_id : u.id === user.id)
+        (!user.organization_id || !u.organization_id || u.organization_id === user.organization_id)
       );
     }
     
@@ -1034,9 +1034,20 @@ const server = http.createServer(async (req, res) => {
     const { error } = await supabase.from('projects').insert(dbProject);
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
-    // Always assign creator (deduplicated)
-    const rawUserIds = [...assigned_users, user.id, user.email].filter(Boolean);
-    const cleanUserIds = Array.from(new Set(rawUserIds.map(x => String(x).trim())));
+    const allDbUsers = await readUsers();
+    const resolveUserId = (input) => {
+      if (!input) return null;
+      const str = String(input).trim();
+      const match = allDbUsers.find(u => 
+        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) || 
+        (u.email && String(u.email).toLowerCase() === str.toLowerCase())
+      );
+      return match ? match.id : str;
+    };
+
+    // Always assign creator (deduplicated by canonical user.id)
+    const rawUserIds = [...assigned_users, user.id].map(resolveUserId).filter(Boolean);
+    const cleanUserIds = Array.from(new Set(rawUserIds));
     const cleanTeamIds = Array.from(new Set(assigned_teams.filter(Boolean).map(x => String(x).trim())));
 
     // Insert access rules safely using upsert to handle any pre-existing or duplicate entries
@@ -1125,6 +1136,31 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, message: 'Workspace saved successfully' });
   }
 
+  // G1. UPDATE PROJECT DETAILS
+  if (req.method === 'POST' && url === '/api/projects/update') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { project_id, name, code, client, location, description, notes } = await getRequestBody(req);
+
+    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
+    if (!proj || (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (code !== undefined) updates.code = code;
+    if (client !== undefined) updates.client = client;
+    if (location !== undefined) updates.location = location;
+    if (description !== undefined) updates.description = description;
+    if (notes !== undefined) updates.notes = notes;
+    updates.last_modified = new Date().toISOString();
+
+    const { error } = await supabase.from('projects').update(updates).eq('id', project_id);
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    return sendJSON(res, 200, { success: true, message: 'Project details updated successfully' });
+  }
+
   // G2. REMOVE USER FROM PROJECT
   if (req.method === 'POST' && url === '/api/projects/remove-user') {
     const user = await getUserFromReq(req);
@@ -1152,7 +1188,17 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
 
-    const { error } = await supabase.from('project_users').insert({ project_id, user_id });
+    const allDbUsers = await readUsers();
+    const resolvedUid = (() => {
+      const str = String(user_id).trim();
+      const match = allDbUsers.find(u => 
+        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) || 
+        (u.email && String(u.email).toLowerCase() === str.toLowerCase())
+      );
+      return match ? match.id : str;
+    })();
+
+    const { error } = await supabase.from('project_users').upsert({ project_id, user_id: resolvedUid }, { onConflict: 'project_id,user_id', ignoreDuplicates: true });
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
     return sendJSON(res, 200, { success: true, message: 'User added to project' });
   }

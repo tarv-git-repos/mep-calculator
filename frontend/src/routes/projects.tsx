@@ -39,6 +39,22 @@ const formatRelativeTime = (dateStr?: string) => {
   return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 };
 
+const getUserDisplayName = (userId: string, usersList: any[]) => {
+  if (!userId) return 'User';
+  const cleanId = String(userId).trim().toLowerCase();
+  const user = usersList.find(u => 
+    String(u.id || '').trim().toLowerCase() === cleanId || 
+    String(u.email || '').trim().toLowerCase() === cleanId ||
+    (u.email && String(u.email).trim().toLowerCase().split('@')[0] === cleanId)
+  );
+  if (user?.name) {
+    const handle = user.email ? ` (${user.email.split('@')[0]})` : '';
+    return `${user.name}${handle}`;
+  }
+  if (cleanId.includes('@')) return cleanId.split('@')[0];
+  return userId;
+};
+
 function MemberAssignmentPicker({
   assignableUsers,
   assignableTeams,
@@ -77,14 +93,19 @@ function MemberAssignmentPicker({
   }, [assignableTeams, search]);
 
   const toggleUser = (userObj: any) => {
-    const idVal = userObj.id || userObj.email;
-    const emailVal = userObj.email || userObj.id;
-    const isCurrentlySelected = selectedUsers.includes(idVal) || selectedUsers.includes(emailVal);
+    const userId = userObj.id || userObj.email;
+    if (!userId) return;
+    const isCurrentlySelected = selectedUsers.some(id => 
+      String(id).toLowerCase() === String(userObj.id || '').toLowerCase() || 
+      String(id).toLowerCase() === String(userObj.email || '').toLowerCase()
+    );
     if (isCurrentlySelected) {
-      onChangeUsers(selectedUsers.filter((id) => id !== idVal && id !== emailVal));
+      onChangeUsers(selectedUsers.filter((id) => 
+        String(id).toLowerCase() !== String(userObj.id || '').toLowerCase() &&
+        String(id).toLowerCase() !== String(userObj.email || '').toLowerCase()
+      ));
     } else {
-      const next = Array.from(new Set([...selectedUsers, idVal, emailVal].filter(Boolean)));
-      onChangeUsers(next);
+      onChangeUsers([...selectedUsers, userId]);
     }
   };
 
@@ -115,7 +136,12 @@ function MemberAssignmentPicker({
   };
 
   const selectedUserObjects = useMemo(() => {
-    return assignableUsers.filter((u) => selectedUsers.includes(u.id) || selectedUsers.includes(u.email));
+    return assignableUsers.filter((u) => 
+      selectedUsers.some(id => 
+        String(id).toLowerCase() === String(u.id || '').toLowerCase() || 
+        String(id).toLowerCase() === String(u.email || '').toLowerCase()
+      )
+    );
   }, [assignableUsers, selectedUsers]);
 
   const selectedTeamObjects = useMemo(() => {
@@ -191,7 +217,7 @@ function MemberAssignmentPicker({
               <span>{u.name}</span>
               <button
                 type="button"
-                onClick={() => toggleUser(u.id)}
+                onClick={() => toggleUser(u)}
                 className="hover:bg-primary/20 rounded-full p-0.5 text-primary cursor-pointer transition-colors"
                 title="Remove"
               >
@@ -254,7 +280,10 @@ function MemberAssignmentPicker({
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
             {filteredUsers.map((u) => {
-              const isSelected = selectedUsers.includes(u.id) || selectedUsers.includes(u.email);
+              const isSelected = selectedUsers.some(id => 
+                String(id).toLowerCase() === String(u.id || '').toLowerCase() || 
+                String(id).toLowerCase() === String(u.email || '').toLowerCase()
+              );
               return (
                 <div
                   key={u.id || u.email}
@@ -502,8 +531,14 @@ function ProjectsPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   
-  const openCreateModal = () => {
-    loadUsersAndTeams();
+  const openCreateModal = async () => {
+    await loadUsersAndTeams();
+    const creatorId = profile?.id;
+    setNewProject((prev) => ({
+      ...prev,
+      assigned_users: creatorId ? [creatorId] : [],
+      assigned_teams: [],
+    }));
     setIsCreateOpen(true);
   };
 
@@ -573,15 +608,28 @@ function ProjectsPage() {
     }
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (editingProj) {
       if (!editingProj.name.trim()) {
         toast.error("Project Name is required!");
         return;
       }
-      updateProject(editingProj);
-      setEditingProj(null);
-      toast.success("Project updated successfully!");
+      const res = await api.updateProjectDetails(editingProj.id, {
+        name: editingProj.name.trim(),
+        code: editingProj.code.trim().toUpperCase(),
+        client: editingProj.client,
+        location: editingProj.location,
+        description: editingProj.description,
+        notes: editingProj.notes,
+      });
+      if (res && res.success) {
+        updateProject(editingProj);
+        setEditingProj(null);
+        toast.success("Project updated successfully!");
+        await refreshProjects();
+      } else {
+        toast.error(res?.message || "Failed to update project details");
+      }
     }
   };
 
@@ -594,13 +642,20 @@ function ProjectsPage() {
     if (!isConfirmed) return;
     const res = await api.removeUserFromProject(projectId, userId);
     if (res.success) {
-      const proj = projects.find(p => p.id === projectId);
-      if (proj && (proj as any).project_users) {
-        (proj as any).project_users = (proj as any).project_users.filter((u: any) => u.user_id !== userId);
-        updateProject({...proj});
-        if (editingProj?.id === projectId) setEditingProj({...proj} as any);
-      }
+      const updatedProjects = projects.map(p => {
+        if (p.id === projectId) {
+          const pu = ((p as any).project_users || []).filter((u: any) => 
+            String(u.user_id).toLowerCase() !== String(userId).toLowerCase()
+          );
+          return { ...p, project_users: pu };
+        }
+        return p;
+      });
+      const targetProj = updatedProjects.find(p => p.id === projectId);
+      if (targetProj) updateProject({ ...targetProj });
+      if (editingProj?.id === projectId && targetProj) setEditingProj({ ...targetProj } as any);
       toast.success("User removed from project successfully.");
+      await refreshProjects();
     } else {
       toast.error(res.message || "Failed to remove user");
     }
@@ -610,16 +665,21 @@ function ProjectsPage() {
     if (!userId) return;
     const res = await api.addUserToProject(projectId, userId);
     if (res.success) {
-      const proj = projects.find(p => p.id === projectId);
-      if (proj) {
-        if (!(proj as any).project_users) (proj as any).project_users = [];
-        if (!(proj as any).project_users.find((u: any) => u.user_id === userId)) {
-          (proj as any).project_users.push({ project_id: projectId, user_id: userId });
-          updateProject({...proj});
-          if (editingProj?.id === projectId) setEditingProj({...proj} as any);
+      const updatedProjects = projects.map(p => {
+        if (p.id === projectId) {
+          const pu = [...((p as any).project_users || [])];
+          if (!pu.some((u: any) => String(u.user_id).toLowerCase() === String(userId).toLowerCase())) {
+            pu.push({ project_id: projectId, user_id: userId });
+          }
+          return { ...p, project_users: pu };
         }
-      }
+        return p;
+      });
+      const targetProj = updatedProjects.find(p => p.id === projectId);
+      if (targetProj) updateProject({ ...targetProj });
+      if (editingProj?.id === projectId && targetProj) setEditingProj({ ...targetProj } as any);
       toast.success("User added to project successfully!");
+      await refreshProjects();
     } else {
       toast.error(res.message || "Failed to add user");
     }
@@ -634,13 +694,18 @@ function ProjectsPage() {
     if (!isConfirmed) return;
     const res = await api.removeTeamFromProject(projectId, teamId);
     if (res.success) {
-      const proj = projects.find(p => p.id === projectId);
-      if (proj && (proj as any).project_teams) {
-        (proj as any).project_teams = (proj as any).project_teams.filter((t: any) => t.team_id !== teamId);
-        updateProject({...proj});
-        if (editingProj?.id === projectId) setEditingProj({...proj} as any);
-      }
+      const updatedProjects = projects.map(p => {
+        if (p.id === projectId) {
+          const pt = ((p as any).project_teams || []).filter((t: any) => String(t.team_id) !== String(teamId));
+          return { ...p, project_teams: pt };
+        }
+        return p;
+      });
+      const targetProj = updatedProjects.find(p => p.id === projectId);
+      if (targetProj) updateProject({ ...targetProj });
+      if (editingProj?.id === projectId && targetProj) setEditingProj({ ...targetProj } as any);
       toast.success("Team removed from project successfully.");
+      await refreshProjects();
     } else {
       toast.error(res.message || "Failed to remove team");
     }
@@ -650,16 +715,21 @@ function ProjectsPage() {
     if (!teamId) return;
     const res = await api.addTeamToProject(projectId, teamId);
     if (res.success) {
-      const proj = projects.find(p => p.id === projectId);
-      if (proj) {
-        if (!(proj as any).project_teams) (proj as any).project_teams = [];
-        if (!(proj as any).project_teams.find((t: any) => t.team_id === teamId)) {
-          (proj as any).project_teams.push({ project_id: projectId, team_id: teamId });
-          updateProject({...proj});
-          if (editingProj?.id === projectId) setEditingProj({...proj} as any);
+      const updatedProjects = projects.map(p => {
+        if (p.id === projectId) {
+          const pt = [...((p as any).project_teams || [])];
+          if (!pt.some((t: any) => String(t.team_id) === String(teamId))) {
+            pt.push({ project_id: projectId, team_id: teamId });
+          }
+          return { ...p, project_teams: pt };
         }
-      }
+        return p;
+      });
+      const targetProj = updatedProjects.find(p => p.id === projectId);
+      if (targetProj) updateProject({ ...targetProj });
+      if (editingProj?.id === projectId && targetProj) setEditingProj({ ...targetProj } as any);
       toast.success("Team added to project successfully!");
+      await refreshProjects();
     } else {
       toast.error(res.message || "Failed to add team");
     }
@@ -875,23 +945,20 @@ function ProjectsPage() {
                           );
                         })}
                         {(() => {
-                          const seenUserNames = new Set<string>();
+                          const seenUserIds = new Set<string>();
                           return (p as any).project_users?.map((pu: any) => {
-                            const puId = String(pu.user_id || pu.id || '').toLowerCase();
-                            const user = allUsers.find(u => 
-                              String(u.id || '').toLowerCase() === puId || 
-                              String(u.email || '').toLowerCase() === puId ||
-                              (u.email && String(u.email || '').toLowerCase().split('@')[0] === puId)
-                            );
-                            const userName = user?.name || (pu.user_id && String(pu.user_id).includes('@') ? String(pu.user_id).split('@')[0] : (pu.user_id || 'User'));
-                            if (seenUserNames.has(userName.toLowerCase())) return null;
-                            seenUserNames.add(userName.toLowerCase());
+                            const rawId = pu.user_id || pu.id;
+                            const puId = String(rawId || '').toLowerCase();
+                            if (!puId || seenUserIds.has(puId)) return null;
+                            seenUserIds.add(puId);
+
+                            const userName = getUserDisplayName(rawId, allUsers);
 
                             return (
-                              <span key={`u-${pu.user_id}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
+                              <span key={`u-${rawId}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
                                 <User className="size-3 text-muted-foreground" /> {userName}
                                 {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
-                                  <button onClick={() => handleRemoveUserFromProject(p.id, pu.user_id)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
+                                  <button onClick={() => handleRemoveUserFromProject(p.id, rawId)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
                                     <X className="size-2.5" />
                                   </button>
                                 )}
@@ -1169,21 +1236,19 @@ function ProjectsPage() {
                   </div>
                 </div>
 
-                {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') && (
-                  <div className="flex flex-col gap-2 mt-2">
-                    <label className="text-primary font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans">
-                      Assign Members & Teams to Workspace
-                    </label>
-                    <MemberAssignmentPicker
-                      assignableUsers={assignableUsers}
-                      assignableTeams={assignableTeams}
-                      selectedUsers={newProject.assigned_users}
-                      selectedTeams={newProject.assigned_teams}
-                      onChangeUsers={(users) => setNewProject((prev) => ({ ...prev, assigned_users: users }))}
-                      onChangeTeams={(teams) => setNewProject((prev) => ({ ...prev, assigned_teams: teams }))}
-                    />
-                  </div>
-                )}
+                <div className="flex flex-col gap-2 mt-2">
+                  <label className="text-primary font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans">
+                    Assign Members & Teams to Workspace
+                  </label>
+                  <MemberAssignmentPicker
+                    assignableUsers={assignableUsers}
+                    assignableTeams={assignableTeams}
+                    selectedUsers={newProject.assigned_users}
+                    selectedTeams={newProject.assigned_teams}
+                    onChangeUsers={(users) => setNewProject((prev) => ({ ...prev, assigned_users: users }))}
+                    onChangeTeams={(teams) => setNewProject((prev) => ({ ...prev, assigned_teams: teams }))}
+                  />
+                </div>
 
               </div>
               
@@ -1271,7 +1336,26 @@ function ProjectsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">Add Engineer/User</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Add Engineer/User</label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      for (const u of assignableUsers) {
+                        if (!(editingProj as any).project_users?.some((pu: any) => pu.user_id === u.id || pu.user_id === u.email)) {
+                          await api.addUserToProject(editingProj.id, u.id);
+                        }
+                      }
+                      await refreshProjects();
+                      const updated = projects.find(p => p.id === editingProj.id);
+                      if (updated) setEditingProj({...updated} as any);
+                      toast.success("All team members assigned to project!");
+                    }}
+                    className="text-[10px] text-primary hover:underline font-bold cursor-pointer"
+                  >
+                    + Add All Team Members
+                  </button>
+                </div>
                 <select
                   onChange={(e) => {
                     handleAddUserToProject(editingProj.id, e.target.value);
@@ -1281,8 +1365,8 @@ function ProjectsPage() {
                   defaultValue=""
                 >
                   <option value="" disabled>Select User to add...</option>
-                  {assignableUsers.filter(u => !(editingProj as any).project_users?.some((pu: any) => pu.user_id === u.id)).map(u => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
+                  {assignableUsers.filter(u => !(editingProj as any).project_users?.some((pu: any) => pu.user_id === u.id || pu.user_id === u.email)).map(u => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.email || u.role})</option>
                   ))}
                 </select>
                 {/* Active Assignments List in Edit Modal */}
@@ -1301,11 +1385,12 @@ function ProjectsPage() {
                       );
                     })}
                     {(editingProj as any).project_users?.map((pu: any) => {
-                      const user = allUsers.find(u => u.id === pu.user_id);
+                      const rawId = pu.user_id || pu.id;
+                      const userName = getUserDisplayName(rawId, allUsers);
                       return (
-                        <span key={`u-${pu.user_id}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
-                          <User className="size-3 text-muted-foreground" /> {user?.name || 'User'}
-                          <button onClick={() => handleRemoveUserFromProject(editingProj.id, pu.user_id)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
+                        <span key={`u-${rawId}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
+                          <User className="size-3 text-muted-foreground" /> {userName}
+                          <button onClick={() => handleRemoveUserFromProject(editingProj.id, rawId)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
                             <X className="size-2.5" />
                           </button>
                         </span>
