@@ -191,7 +191,7 @@ export function VentilationModule() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-3 pb-3 gap-3 h-full overflow-hidden">
           {/* Breadcrumbs & Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
