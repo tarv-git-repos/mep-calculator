@@ -1258,12 +1258,19 @@ const server = http.createServer(async (req, res) => {
     if (!profileId || !updates) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
     
     let users = await readUsers();
-    const targetUserIndex = users.findIndex(u => u.id === profileId);
-    if (targetUserIndex === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
+    const pidLower = String(profileId).toLowerCase();
+    const targetUserIndex = users.findIndex(u => u.id === profileId || (u.email && u.email.toLowerCase() === pidLower));
     
-    // Merge updates (e.g. features, subscription_expires)
-    users[targetUserIndex] = { ...users[targetUserIndex], ...updates };
-    await writeUsers(users);
+    if (targetUserIndex !== -1) {
+      users[targetUserIndex] = { ...users[targetUserIndex], ...updates };
+      await writeUsers(users);
+    }
+
+    try {
+      if (updates.organization_id !== undefined) {
+        await supabase.from('custom_users').update({ organization_id: updates.organization_id }).or(`id.eq.${profileId},email.eq.${profileId}`);
+      }
+    } catch (e) {}
     
     logActivity(adminUser, 'ADMIN_UPDATE_PROFILE', { targetUser: profileId, updates });
     return sendJSON(res, 200, { success: true, message: 'Profile updated successfully' });

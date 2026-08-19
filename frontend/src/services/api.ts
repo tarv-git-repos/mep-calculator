@@ -123,7 +123,24 @@ export const api = {
       if (!users || !Array.isArray(users)) {
         users = await this.getUsers();
       }
-      users = users.map((u: any) => (u.id === profileId || (u.email && u.email.toLowerCase() === String(profileId).toLowerCase())) ? { ...u, ...updates } : u);
+      const emailOrId = String(profileId).toLowerCase();
+      
+      let orgMap: Record<string, string> = {};
+      try { orgMap = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
+      if (updates.organization_id !== undefined) {
+        orgMap[emailOrId] = updates.organization_id || '';
+        localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgMap));
+      }
+
+      users = users.map((u: any) => {
+        const uId = String(u.id || '').toLowerCase();
+        const uEmail = String(u.email || '').toLowerCase();
+        if (uId === emailOrId || uEmail === emailOrId) {
+          return { ...u, ...updates };
+        }
+        return u;
+      });
+
       localStorage.setItem('mep_local_users', JSON.stringify(users));
       localStorage.setItem('cachedAllUsers', JSON.stringify(users));
     } catch (e) {}
@@ -410,22 +427,39 @@ export const api = {
       usersList = [];
     }
 
+    let orgOverrides: Record<string, string> = {};
+    try {
+      orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}');
+    } catch(e) {}
+
+    let cachedUsers: any[] = [];
     try {
       const cachedStr = localStorage.getItem('mep_local_users');
-      if (cachedStr) {
-        const cachedUsers = JSON.parse(cachedStr);
-        usersList = usersList.filter(u => {
-          const c = cachedUsers.find((x: any) => 
-            (x.id && u.id && String(x.id).toLowerCase() === String(u.id).toLowerCase()) || 
-            (x.email && u.email && String(x.email).toLowerCase() === String(u.email).toLowerCase())
-          );
-          if (c) {
-            return c.organization_id && c.organization_id !== '' && c.organization_id !== 'No Organization' && c.organization_id !== 'null';
-          }
-          return u.organization_id && u.organization_id !== '' && u.organization_id !== 'No Organization' && u.organization_id !== 'null';
-        });
-      }
+      if (cachedStr) cachedUsers = JSON.parse(cachedStr);
     } catch (e) {}
+
+    usersList = usersList.filter(u => {
+      const uEmail = String(u.email || '').toLowerCase();
+      const uId = String(u.id || '').toLowerCase();
+
+      if (uEmail && orgOverrides[uEmail] !== undefined) {
+        const override = orgOverrides[uEmail];
+        if (!override || override === 'No Organization' || override === 'null') return false;
+      }
+      if (uId && orgOverrides[uId] !== undefined) {
+        const override = orgOverrides[uId];
+        if (!override || override === 'No Organization' || override === 'null') return false;
+      }
+
+      const c = cachedUsers.find((x: any) => 
+        (x.id && u.id && String(x.id).toLowerCase() === uId) || 
+        (x.email && u.email && String(x.email).toLowerCase() === uEmail)
+      );
+      if (c) {
+        return c.organization_id && c.organization_id !== '' && c.organization_id !== 'No Organization' && c.organization_id !== 'null';
+      }
+      return u.organization_id && u.organization_id !== '' && u.organization_id !== 'No Organization' && u.organization_id !== 'null';
+    });
 
     return usersList;
   },
