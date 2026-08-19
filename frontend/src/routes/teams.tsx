@@ -45,6 +45,19 @@ function TeamsPage() {
   const [selectedTeam, setSelectedTeam] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
+  // Exclude users who are ALREADY members of the selected team
+  const availableUsersToAssign = useMemo(() => {
+    let baseList = assignableUsers;
+    if (selectedTeam) {
+      const targetTeam = teams.find(t => t.id === selectedTeam);
+      if (targetTeam && Array.isArray(targetTeam.team_members)) {
+        const existingMemberIds = new Set(targetTeam.team_members.map((tm: any) => tm.user_id));
+        baseList = baseList.filter(u => !existingMemberIds.has(u.id));
+      }
+    }
+    return baseList;
+  }, [assignableUsers, selectedTeam, teams]);
+
   const loadData = async () => {
     if (profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') {
        setIsLoading(true);
@@ -163,7 +176,7 @@ function TeamsPage() {
                         className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-primary"
                      >
                         <option value="">Select Team...</option>
-                        {teams.map(t => (
+                        {assignableTeams.map(t => (
                            <option key={t.id} value={t.id}>{t.name}</option>
                         ))}
                      </select>
@@ -174,7 +187,7 @@ function TeamsPage() {
                         className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-primary"
                      >
                         <option value="">Select User...</option>
-                        {assignableUsers.map(u => (
+                        {availableUsersToAssign.map(u => (
                            <option key={u.id} value={u.id}>{u.name}</option>
                         ))}
                      </select>
