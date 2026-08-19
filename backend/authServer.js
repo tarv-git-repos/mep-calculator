@@ -936,17 +936,20 @@ const server = http.createServer(async (req, res) => {
   // B. CREATE TEAM
   if (req.method === 'POST' && url === '/api/teams/create') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can create teams' });
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Only Admins can create teams' });
+    }
     const { name } = await getRequestBody(req);
     if (!name) return sendJSON(res, 400, { success: false, message: 'Team name required' });
     
     const teamId = `team_${Date.now()}`;
-    const { error } = await supabase.from('teams').insert({
+    const payload = {
       id: teamId,
       name: name.trim(),
-      created_by: user.id,
-      organization_id: user.organization_id || null
-    });
+      created_by: user.id
+    };
+
+    const { error } = await supabase.from('teams').insert(payload);
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
     return sendJSON(res, 200, { success: true, message: 'Team created', team: { id: teamId, name } });
   }
@@ -955,20 +958,24 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/teams/list') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-    const { data: rawTeams, error } = await supabase.from('teams').select('*, team_members(user_id)');
+    
+    // Select explicit existing columns to avoid schema cache error on missing organization_id column
+    let { data: rawTeams, error } = await supabase.from('teams').select('id, name, created_by, team_members(user_id)');
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
     const allUsers = await readUsers();
     const superAdminIds = new Set(allUsers.filter(u => u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai').map(u => u.id));
-    const orgUserIds = new Set(user.organization_id ? allUsers.filter(u => u.organization_id === user.organization_id).map(u => u.id) : [user.id]);
+    const userOrg = user.organization_id || user.company || user.organization;
+    const orgUserIds = new Set(userOrg ? allUsers.filter(u => 
+      (u.organization_id && String(u.organization_id) === String(userOrg)) ||
+      (u.company && u.company === userOrg) ||
+      (u.organization && u.organization === userOrg)
+    ).map(u => u.id) : [user.id]);
 
     let teamsList = rawTeams || [];
     if (user.role !== 'SUPER_ADMIN') {
-      // Non-Super-Admins see only teams created by their organization or created by org members
-      teamsList = teamsList.filter(t => 
-        (t.organization_id && user.organization_id && t.organization_id === user.organization_id) ||
-        (t.created_by && orgUserIds.has(t.created_by))
-      );
+      // Non-Super-Admins see teams created by their organization or created by org members
+      teamsList = teamsList.filter(t => t.created_by && orgUserIds.has(t.created_by));
     }
 
     // Strip Super Admin accounts from team_members when requested by non-Super-Admins
@@ -1268,7 +1275,11 @@ const server = http.createServer(async (req, res) => {
 
     try {
       if (updates.organization_id !== undefined) {
-        await supabase.from('custom_users').update({ organization_id: updates.organization_id }).or(`id.eq.${profileId},email.eq.${profileId}`);
+        await supabase.from('custom_users').update({ 
+          organization_id: updates.organization_id || null,
+          company: updates.company || '',
+          organization: updates.organization || ''
+        }).or(`id.eq.${profileId},email.eq.${profileId}`);
       }
     } catch (e) {}
     
@@ -1887,9 +1898,24 @@ const server = http.createServer(async (req, res) => {
     const updated = localOrgs.filter(o => o.id !== orgId);
     saveLocalOrgs(updated);
 
-    // Try Supabase delete
+    // Unassign all members of this organization locally
+    let allUsers = await readUsers();
+    let modified = false;
+    allUsers = allUsers.map(u => {
+      if (u.organization_id && String(u.organization_id) === String(orgId)) {
+        modified = true;
+        return { ...u, organization_id: null, company: '', organization: '' };
+      }
+      return u;
+    });
+    if (modified) {
+      await writeUsers(allUsers);
+    }
+
+    // Try Supabase delete & unassign users
     try {
       await supabase.from('organizations').delete().eq('id', orgId);
+      await supabase.from('custom_users').update({ organization_id: null, company: '', organization: '' }).eq('organization_id', orgId);
     } catch (e) {}
 
     logActivity(user, 'DELETE_ORGANIZATION', { orgId });
@@ -1902,16 +1928,27 @@ const server = http.createServer(async (req, res) => {
     
     // For SUPER_ADMIN, they might pass ?org_id=... to view a specific org's users
     let orgId = user.organization_id;
+    let userCompany = user.company || user.organization;
     if (user.role === 'SUPER_ADMIN') {
       const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
       if (qOrgId) orgId = qOrgId;
     }
     
-    if (!orgId && user.role !== 'SUPER_ADMIN') return sendJSON(res, 400, { success: false, message: 'Organization ID missing' });
+    if (!orgId && !userCompany && user.role !== 'SUPER_ADMIN') return sendJSON(res, 400, { success: false, message: 'Organization missing' });
     
     const allUsers = await readUsers();
-    // Filter users strictly by matching organization_id (excluding null, empty or removed users)
-    const orgUsers = allUsers.filter(u => u.organization_id && String(u.organization_id) === String(orgId));
+    // Filter users strictly by matching organization_id OR company / organization name
+    const orgUsers = allUsers.filter(u => {
+      if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+      const uOrgId = u.organization_id;
+      const uCompany = u.company || u.organization;
+
+      if (orgId && uOrgId && String(uOrgId) === String(orgId)) return true;
+      if (userCompany && uCompany && uCompany === userCompany) return true;
+      if (userCompany && uOrgId && String(uOrgId) === String(userCompany)) return true;
+      if (orgId && uCompany && uCompany === String(orgId)) return true;
+      return false;
+    });
     const formattedUsers = await Promise.all(orgUsers.map(u => formatUser(u)));
     return sendJSON(res, 200, { success: true, users: formattedUsers });
   }

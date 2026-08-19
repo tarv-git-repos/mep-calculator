@@ -222,6 +222,12 @@ export function SuperAdminDashboard() {
     } else {
       toast.success("Organization deleted successfully");
       if (selectedOrgForManagement?.id === orgId) setSelectedOrgForManagement(null);
+      const updatedProfiles = profiles.map(p => p.organization_id === orgId ? { ...p, organization_id: '', company: '', organization: '' } : p);
+      setProfiles(updatedProfiles);
+      try {
+        localStorage.setItem('mep_local_users', JSON.stringify(updatedProfiles));
+        localStorage.setItem('cachedAllUsers', JSON.stringify(updatedProfiles));
+      } catch (e) {}
       fetchOrganizations();
       fetchProfiles();
     }
@@ -605,6 +611,16 @@ export function SuperAdminDashboard() {
       localStorage.setItem('cachedAllUsers', JSON.stringify(updatedProfiles));
       if (profileId) {
         localStorage.setItem(`mep_user_company_${profileId}`, orgName);
+      }
+      const orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}');
+      const targetUser = profiles.find(p => p.id === profileId || (p.email && p.email.toLowerCase() === String(profileId).toLowerCase()));
+      if (targetUser?.email) {
+        if (!orgId) {
+          orgOverrides[targetUser.email.toLowerCase()] = 'No Organization';
+        } else {
+          orgOverrides[targetUser.email.toLowerCase()] = orgId;
+        }
+        localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgOverrides));
       }
     } catch (e) {}
 

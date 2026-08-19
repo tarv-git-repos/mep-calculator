@@ -418,19 +418,14 @@ export const api = {
     return { success: true };
   },
   async getOrgUsers() {
-    let usersList: any[] = [];
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/org/users`);
-      usersList = data.users || [];
+      if (data && data.success && Array.isArray(data.users)) {
+        return data.users;
+      }
     } catch (e) {
-      console.error(e);
-      usersList = [];
+      console.error('Error fetching org users:', e);
     }
-
-    let orgOverrides: Record<string, string> = {};
-    try {
-      orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}');
-    } catch(e) {}
 
     let cachedUsers: any[] = [];
     try {
@@ -438,30 +433,10 @@ export const api = {
       if (cachedStr) cachedUsers = JSON.parse(cachedStr);
     } catch (e) {}
 
-    usersList = usersList.filter(u => {
-      const uEmail = String(u.email || '').toLowerCase();
-      const uId = String(u.id || '').toLowerCase();
-
-      if (uEmail && orgOverrides[uEmail] !== undefined) {
-        const override = orgOverrides[uEmail];
-        if (!override || override === 'No Organization' || override === 'null') return false;
-      }
-      if (uId && orgOverrides[uId] !== undefined) {
-        const override = orgOverrides[uId];
-        if (!override || override === 'No Organization' || override === 'null') return false;
-      }
-
-      const c = cachedUsers.find((x: any) => 
-        (x.id && u.id && String(x.id).toLowerCase() === uId) || 
-        (x.email && u.email && String(x.email).toLowerCase() === uEmail)
-      );
-      if (c) {
-        return c.organization_id && c.organization_id !== '' && c.organization_id !== 'No Organization' && c.organization_id !== 'null';
-      }
-      return u.organization_id && u.organization_id !== '' && u.organization_id !== 'No Organization' && u.organization_id !== 'null';
+    return cachedUsers.filter(u => {
+      const uOrg = u.organization_id || u.company || u.organization;
+      return uOrg && uOrg !== '' && uOrg !== 'No Organization' && uOrg !== 'null';
     });
-
-    return usersList;
   },
   async inviteOrgUser(inviteData: { name: string; email: string; role: string }) {
     try {
