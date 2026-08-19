@@ -191,7 +191,7 @@ export function VentilationModule() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-3 pb-3 gap-3 h-full overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           {/* Breadcrumbs & Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
@@ -226,13 +226,13 @@ export function VentilationModule() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}
-            <div className="relative z-10 flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/50">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 {TABS.map((t) => {
                   const active = t.id === tab;
@@ -2513,9 +2513,9 @@ addSpace(newSpace);
   };
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
+    <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="relative z-10 flex items-center gap-1.5 px-3 min-h-10 py-1.5 bg-background shrink-0 flex-wrap no-print border-b border-border/50">
+      <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background shrink-0 flex-wrap no-print modal-blur-bg">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -2741,21 +2741,21 @@ addSpace(newSpace);
         </div>
 
         {/* Grid */}
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 flex flex-col">
           {spaces.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
               <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
                 <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
                   <Upload className="size-6" />
                 </div>
-                <h3 className="text-base font-bold text-foreground mb-1">No spaces in project</h3>
-                <p className="text-xs text-muted-foreground mb-6">
-                  Start by uploading your Revit/Excel space schedule or create spaces manually.
+                <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Loaded</h3>
+                <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                  Start by importing a Revit Excel space schedule sheet or manually add spaces. The system will automatically detect occupancy categories, target zone associations, and compute required airflows.
                 </p>
-                <div className="flex gap-3 w-full">
+                <div className="flex items-center gap-3 w-full">
                   <button
                     onClick={() => setImportOpen(true)}
-                    className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                    className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
                   >
                     <Upload className="size-3.5" /> Import Revit Excel
                   </button>
@@ -4252,6 +4252,70 @@ function ZonesView() {
     updateSpaces(updatedSpaces);
   };
 
+  const renameZoneById = async (zoneId: string, newNameRaw: string) => {
+    const newName = newNameRaw.trim();
+    if (!newName) return;
+    const zone = zones.find(z => z.id === zoneId);
+    if (!zone || zone.name === newName) return;
+
+    if (newName.toLowerCase() !== zone.name.toLowerCase()) {
+      const nameExists = zones.some(
+        z => z.id !== zoneId && z.name.toLowerCase() === newName.toLowerCase()
+      );
+      if (nameExists) {
+        await confirm(`Zone already exists with this name "${newName}".`, {
+          title: "Zone Already Exists",
+          confirmText: "OK",
+          hideCancel: true,
+        });
+        return;
+      }
+    }
+
+    const updatedZones = zones.map(z => {
+      if (z.id === zoneId) {
+        return { ...z, name: newName };
+      }
+      return z;
+    });
+
+    const updatedSpaces = spaces.map(s => {
+      if (s.zone === zoneId || s.zone === zone.name) {
+        return { ...s, zone: newName };
+      }
+      return s;
+    });
+
+    updateZones(updatedZones);
+    updateSpaces(updatedSpaces);
+  };
+
+  const addBlankSpaceToTargetZone = (targetZoneName: string) => {
+    const code = `SP-${String(spaces.length + 1).padStart(3, "0")}`;
+    const newSpace: Space = {
+      id: `space-${Date.now()}`,
+      code,
+      name: `Space ${spaces.length + 1}`,
+      building: selectedBuilding !== "ALL" ? selectedBuilding : "Tower A",
+      floor: selectedFloor !== "ALL" ? selectedFloor : "L01",
+      category: "",
+      area: 20,
+      occupancy: 0,
+      height: 3,
+      fixtures: 0,
+      multiplier: 1,
+      zone: targetZoneName,
+      equipment: "",
+      freshAir: 0,
+      extractAir: 0,
+      pressure: "Neutral",
+      status: "draft",
+      aiDetected: false,
+      pressureAutoDetected: false,
+    };
+    updateSpaces([...spaces, newSpace]);
+  };
+
   const handleCloseEditZone = () => {
     handleRenameZone();
     setEditZoneOpen(false);
@@ -4740,8 +4804,8 @@ function ZonesView() {
   );
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
-      <div className="relative z-10 flex items-center gap-1.5 px-3 min-h-10 py-1.5 shrink-0 flex-wrap bg-background no-print border-b border-border/50">
+    <div className="flex flex-col h-full">
+      <div className="relative flex items-center gap-1 px-3 h-10 shrink-0 flex-wrap bg-background no-print modal-blur-bg">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -4766,52 +4830,41 @@ function ZonesView() {
           onSelect={setSelectedPressure}
           options={uniquePressures}
         />
-        <div className="ml-auto flex items-center gap-1.5">
-          <button
-            onClick={() => {
-              const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
-              const newZone: Zone = {
-                id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
-                name,
-                building: "Tower A",
-                floor: "L01",
-                spaceCount: 0,
-                area: 0,
-                freshAir: 0,
-                extractAir: 0,
-                pressure: 0,
-                equipment: [],
-                pressureType: "neutral",
-                multiplier: 1,
-                faAssignedQty: 1,
-                eaAssignedQty: 1,
-              };
-              addZone(newZone);
-            }}
-            className="flex items-center gap-1 px-3 h-7 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-sm"
-          >
-            <Plus className="size-3.5" /> New Zone
-          </button>
+        <div className="ml-auto flex items-center gap-1">
+          <TBtn primary onClick={() => {
+            const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
+            const newZone: Zone = {
+              id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
+              name,
+              building: "Tower A",
+              floor: "L01",
+              spaceCount: 0,
+              area: 0,
+              freshAir: 0,
+              extractAir: 0,
+              pressure: 0,
+              equipment: [],
+              pressureType: "neutral",
+              multiplier: 1,
+              faAssignedQty: 1,
+              eaAssignedQty: 1,
+            };
+            addZone(newZone);
+          }}><Plus className="size-3.5" /> New Zone</TBtn>
         </div>
 
+        {/* Bulk actions bar overlay for zones */}
         {selectedZones.size > 0 && (
-          <div className="w-full bg-[#06456F]/10 border border-[#06456F]/25 dark:bg-[#0A7BC7]/15 dark:border-[#0A7BC7]/35 rounded-lg px-2.5 py-1 text-[11.5px] text-[#06456F] dark:text-[#0A7BC7] font-semibold flex items-center gap-2 mt-1 animate-fade-in shadow-xs">
-            <span className="bg-[#06456F] text-white dark:bg-[#0A7BC7] dark:text-zinc-950 font-bold px-1.5 py-0.5 rounded text-[10px]">
-              {selectedZones.size}
-            </span>
-            <span>zone(s) selected</span>
-            <div className="h-3 w-px bg-[#06456F]/20 dark:bg-[#0A7BC7]/30 mx-1" />
-            <button 
-              onClick={async () => {
-                if (await confirm(`Are you sure you want to dissolve the ${selectedZones.size} selected zones?`)) {
-                  selectedZones.forEach(id => deleteZone(id));
-                  setSelectedZones(new Set());
-                }
-              }}
-              className="hover:underline hover:text-[#06456F] font-bold text-destructive cursor-pointer"
-            >
-              Dissolve Selected
-            </button>
+          <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+            <span className="font-semibold">{selectedZones.size} selected</span>
+            <span className="text-primary/30">Â·</span>
+            <BulkBtn icon={Plus} onClick={() => setAssignZoneEquipOpen(true)}>Assign equipment</BulkBtn>
+            <BulkBtn icon={Trash2} onClick={async () => {
+              if (await confirm(`Are you sure you want to dissolve the ${selectedZones.size} selected zones?`)) {
+                selectedZones.forEach(id => deleteZone(id));
+                setSelectedZones(new Set());
+              }
+            }}>Dissolve Zones</BulkBtn>
             <button onClick={() => setSelectedZones(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded">
               <X className="size-3" /> Clear
             </button>
@@ -4836,317 +4889,117 @@ function ZonesView() {
         />
       </div>
 
-      {opened && (() => {
-        const faAssigns: [string, number][] = opened.faAssignments 
-          ? Object.entries(opened.faAssignments).map(([id, q]) => [id, Number(q)])
-          : opened.faAssignment 
-            ? [[opened.faAssignment, opened.faAssignedQty || 1]] 
-            : [];
-            
-        const eaAssigns: [string, number][] = opened.eaAssignments 
-          ? Object.entries(opened.eaAssignments).map(([id, q]) => [id, Number(q)])
-          : opened.eaAssignment 
-            ? [[opened.eaAssignment, opened.eaAssignedQty || 1]] 
-            : [];
-
-        const totalFAQty = faAssigns.reduce((sum, [_, q]) => sum + q, 0);
-        const totalEAQty = eaAssigns.reduce((sum, [_, q]) => sum + q, 0);
-        const remainingFA = Math.max(0, (opened.multiplier || 1) - totalFAQty);
-        const remainingEA = Math.max(0, (opened.multiplier || 1) - totalEAQty);
-
-        return (
+      {opened && (
+        <div 
+          onClick={() => setOpenId(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in"
+        >
           <div 
-            onClick={() => setOpenId(null)}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/10 dark:bg-black/30 p-4 animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-background border border-border rounded-xl shadow-xl flex flex-col w-full max-w-4xl max-h-[85vh] overflow-hidden"
           >
-            <div 
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white/70 dark:bg-neutral-950/70 backdrop-blur-2xl border border-white/50 dark:border-white/10 rounded-[24px] shadow-[0_30px_70px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.02)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)] flex flex-col w-full max-w-4xl max-h-[85vh] overflow-hidden"
-            >
-              {/* Header */}
-              <header className="px-6 h-[64px] flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/10 dark:bg-black/10 select-none">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">Spaces in Zone</span>
-                  <span className="font-mono font-bold text-primary text-[13px] bg-primary/10 px-2 py-0.5 rounded-lg">{opened.name}</span>
-                  <span className="text-[11px] font-semibold text-muted-foreground/60">({openedSpaces.length} spaces)</span>
-                  <button 
-                    onClick={() => {
-                      setEditingZoneId(opened.id);
-                      setEditZoneName(opened.name);
-                      setEditZoneOpen(true);
-                    }}
-                    className="text-[11px] text-primary hover:text-primary-strong bg-primary/10 hover:bg-primary/20 px-2.5 py-0.5 rounded-full font-semibold ml-2 transition-colors duration-150 cursor-pointer"
-                  >
-                    Edit Zone
-                  </button>
-                </div>
-                <button 
-                  onClick={() => setOpenId(null)} 
-                  className="text-muted-foreground hover:text-foreground cursor-pointer transition-colors p-1 rounded-full hover:bg-surface-3"
-                >
-                  <X className="size-4" />
-                </button>
-              </header>
+            {/* Header */}
+            <header className="px-6 py-3.5 flex items-center justify-between border-b border-border/80 shrink-0 bg-muted/20 select-none">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Spaces in Zone</span>
+                <InlineInput
+                  value={opened.name}
+                  onCommit={(val) => renameZoneById(opened.id, val)}
+                  className="font-semibold text-foreground text-[14px] bg-background border border-border/80 hover:border-border px-2.5 py-1 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary font-mono shadow-xs"
+                  placeholder="Zone name..."
+                />
+                <span className="text-[11.5px] font-medium text-muted-foreground">
+                  ({openedSpaces.length} {openedSpaces.length === 1 ? "space" : "spaces"})
+                </span>
 
-              {/* Equipment Assignments Section */}
-              <div className="flex flex-col gap-4 px-6 py-4 border-b border-black/5 dark:border-white/5 bg-white/40 dark:bg-black/10 shrink-0">
-                <div className="flex items-center justify-between select-none">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-500 dark:text-neutral-400">Equipment Assignments:</span>
-                  <div className="flex items-center gap-2 bg-neutral-100 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-full px-2.5 py-1">
-                    <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400 select-none">Zone Multiplier:</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => {
-                          const currentMult = opened.multiplier || 1;
-                          if (currentMult > 1) {
-                            const val = currentMult - 1;
-                            const updatedZones = zones.map((z) => z.id === opened.id ? { ...z, multiplier: val } : z);
-                            updateZones(updatedZones);
-                          }
-                        }}
-                        className="size-4.5 rounded-full bg-white dark:bg-white/10 shadow-sm flex items-center justify-center hover:bg-neutral-200 dark:hover:bg-white/20 text-foreground transition-all duration-100 cursor-pointer font-bold text-xs"
-                      >
-                        -
-                      </button>
-                      <input
-                        type="number"
-                        min={1}
-                        value={opened.multiplier || 1}
-                        onChange={(e) => {
-                          const val = Math.max(1, parseInt(e.target.value) || 1);
+                <div className="flex items-center gap-1.5 bg-background border border-border/80 rounded-lg px-2.5 py-1 ml-2 shadow-xs">
+                  <span className="text-[11px] font-medium text-muted-foreground select-none">Multiplier:</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentMult = opened.multiplier || 1;
+                        if (currentMult > 1) {
+                          const val = currentMult - 1;
                           const updatedZones = zones.map((z) => z.id === opened.id ? { ...z, multiplier: val } : z);
                           updateZones(updatedZones);
-                        }}
-                        className="w-7 bg-transparent text-center border-0 outline-none text-foreground font-mono font-bold text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <button
-                        onClick={() => {
-                          const currentMult = opened.multiplier || 1;
-                          const val = currentMult + 1;
-                          const updatedZones = zones.map((z) => z.id === opened.id ? { ...z, multiplier: val } : z);
-                          updateZones(updatedZones);
-                        }}
-                        className="size-4.5 rounded-full bg-white dark:bg-white/10 shadow-sm flex items-center justify-center hover:bg-neutral-200 dark:hover:bg-white/20 text-foreground transition-all duration-100 cursor-pointer font-bold text-xs"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* --- Fresh Air (FA) Assignments --- */}
-                  <div className="flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between border-b border-black/5 pb-1 dark:border-white/5">
-                      <span className="text-[11.5px] font-bold text-neutral-700 dark:text-neutral-300">Fresh Air (FA) Stream</span>
-                      <span className="text-[10.5px] text-muted-foreground font-mono">Assigned: {totalFAQty}/{opened.multiplier || 1}</span>
-                    </div>
-                    
-                    <div className="flex flex-col gap-2 max-h-[150px] overflow-y-auto pr-1">
-                      {faAssigns.map(([eqId, qty]) => (
-                        <div key={eqId} className="flex items-center gap-2 animate-fade-in">
-                          <select
-                            value={eqId}
-                            onChange={(e) => {
-                              const nextVal = e.target.value;
-                              if (!nextVal) {
-                                removeZoneFromEquipment(opened.id, eqId, "FA");
-                              } else {
-                                removeZoneFromEquipment(opened.id, eqId, "FA");
-                                assignZoneToEquipment(opened.id, nextVal, "FA", qty);
-                              }
-                            }}
-                            className="flex-1 bg-white/50 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-foreground font-semibold cursor-pointer transition-all"
-                          >
-                            {equipment
-                              .filter(e => e.type === "MAHU" || e.type === "Air Handling Unit" || (e.type === "FAHU" && (e.mode === "Fresh Air Only" || e.mode === "Fresh Air + Extract Air")) || e.id === eqId)
-                              .map(eq => (
-                                <option key={eq.id} value={eq.id}>{eq.tag} ({eq.type})</option>
-                              ))}
-                          </select>
-                          
-                          {(opened.multiplier || 1) > 1 && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              <span className="text-[10px] text-muted-foreground">Qty:</span>
-                              <input
-                                type="number"
-                                min={1}
-                                max={qty + remainingFA}
-                                value={qty}
-                                onChange={(e) => {
-                                  const val = Math.max(1, Math.min(qty + remainingFA, parseInt(e.target.value) || 1));
-                                  assignZoneToEquipment(opened.id, eqId, "FA", val);
-                                }}
-                                className="w-12 bg-white/50 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg px-1 py-1 text-[11px] text-center outline-none text-foreground font-semibold focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all"
-                              />
-                            </div>
-                          )}
-                          
-                          <button
-                            onClick={() => removeZoneFromEquipment(opened.id, eqId, "FA")}
-                            className="text-destructive hover:bg-destructive/10 p-1.5 rounded transition-colors cursor-pointer"
-                            title="Remove assignment"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      
-                      {faAssigns.length === 0 && (
-                        <div className="text-[11.5px] text-muted-foreground italic py-1">No Fresh Air unit assigned.</div>
-                      )}
-                    </div>
-                    
-                    {remainingFA > 0 && (
-                      <div className="flex items-center gap-2">
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val) {
-                              assignZoneToEquipment(opened.id, val, "FA", (opened.multiplier || 1) > 1 ? 1 : remainingFA);
-                            }
-                          }}
-                          className="w-full bg-white/30 dark:bg-white/5 hover:bg-white/60 dark:hover:bg-white/10 border border-dashed border-black/20 dark:border-white/20 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all"
-                        >
-                          <option value="">+ Assign Fresh Air (FA) Unit...</option>
-                          {equipment
-                            .filter(e => e.type === "MAHU" || e.type === "Air Handling Unit" || (e.type === "FAHU" && (e.mode === "Fresh Air Only" || e.mode === "Fresh Air + Extract Air")))
-                            .filter(e => !faAssigns.some(([eqId]) => eqId === e.id))
-                            .map(eq => (
-                              <option key={eq.id} value={eq.id}>{eq.tag} ({eq.type})</option>
-                            ))}
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* --- Extract Air (EA) Assignments --- */}
-                  <div className="flex flex-col gap-2.5">
-                    <div className="flex items-center justify-between border-b border-black/5 pb-1 dark:border-white/5">
-                      <span className="text-[11.5px] font-bold text-neutral-700 dark:text-neutral-300">Extract Air (EA) Stream</span>
-                      <span className="text-[10.5px] text-muted-foreground font-mono">Assigned: {totalEAQty}/{opened.multiplier || 1}</span>
-                    </div>
-                    
-                    <div className="flex flex-col gap-2 max-h-[150px] overflow-y-auto pr-1">
-                      {eaAssigns.map(([eqId, qty]) => (
-                        <div key={eqId} className="flex items-center gap-2 animate-fade-in">
-                          <select
-                            value={eqId}
-                            onChange={(e) => {
-                              const nextVal = e.target.value;
-                              if (!nextVal) {
-                                removeZoneFromEquipment(opened.id, eqId, "EA");
-                              } else {
-                                removeZoneFromEquipment(opened.id, eqId, "EA");
-                                assignZoneToEquipment(opened.id, nextVal, "EA", qty);
-                              }
-                            }}
-                            className="flex-1 bg-white/50 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-foreground font-semibold cursor-pointer transition-all"
-                          >
-                            {equipment
-                              .filter(e => e.type === "Ecology" || (e.type === "FAHU" && (e.mode === "Extract Air Only" || e.mode === "Fresh Air + Extract Air")) || e.id === eqId)
-                              .map(eq => (
-                                <option key={eq.id} value={eq.id}>{eq.tag} ({eq.type})</option>
-                              ))}
-                          </select>
-                          
-                          {(opened.multiplier || 1) > 1 && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              <span className="text-[10px] text-muted-foreground">Qty:</span>
-                              <input
-                                type="number"
-                                min={1}
-                                max={qty + remainingEA}
-                                value={qty}
-                                onChange={(e) => {
-                                  const val = Math.max(1, Math.min(qty + remainingEA, parseInt(e.target.value) || 1));
-                                  assignZoneToEquipment(opened.id, eqId, "EA", val);
-                                }}
-                                className="w-12 bg-white/50 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg px-1 py-1 text-[11px] text-center outline-none text-foreground font-semibold focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all"
-                              />
-                            </div>
-                          )}
-                          
-                          <button
-                            onClick={() => removeZoneFromEquipment(opened.id, eqId, "EA")}
-                            className="text-destructive hover:bg-destructive/10 p-1.5 rounded transition-colors cursor-pointer"
-                            title="Remove assignment"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      
-                      {eaAssigns.length === 0 && (
-                        <div className="text-[11.5px] text-muted-foreground italic py-1">No Extract Air unit assigned.</div>
-                      )}
-                    </div>
-                    
-                    {remainingEA > 0 && (
-                      <div className="flex items-center gap-2">
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val) {
-                              assignZoneToEquipment(opened.id, val, "EA", (opened.multiplier || 1) > 1 ? 1 : remainingEA);
-                            }
-                          }}
-                          className="w-full bg-white/30 dark:bg-white/5 hover:bg-white/60 dark:hover:bg-white/10 border border-dashed border-black/20 dark:border-white/20 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all"
-                        >
-                          <option value="">+ Assign Extract Air (EA) Unit...</option>
-                          {equipment
-                            .filter(e => e.type === "Ecology" || (e.type === "FAHU" && (e.mode === "Extract Air Only" || e.mode === "Fresh Air + Extract Air")))
-                            .filter(e => !eaAssigns.some(([eqId]) => eqId === e.id))
-                            .map(eq => (
-                              <option key={eq.id} value={eq.id}>{eq.tag} ({eq.type})</option>
-                            ))}
-                        </select>
-                      </div>
-                    )}
+                        }
+                      }}
+                      className="size-4.5 rounded bg-muted hover:bg-muted/80 flex items-center justify-center text-foreground transition-colors cursor-pointer font-bold text-xs"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      value={opened.multiplier || 1}
+                      onChange={(e) => {
+                        const val = Math.max(1, parseInt(e.target.value) || 1);
+                        const updatedZones = zones.map((z) => z.id === opened.id ? { ...z, multiplier: val } : z);
+                        updateZones(updatedZones);
+                      }}
+                      className="w-7 bg-transparent text-center border-0 outline-none text-foreground font-mono font-bold text-[11px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentMult = opened.multiplier || 1;
+                        const val = currentMult + 1;
+                        const updatedZones = zones.map((z) => z.id === opened.id ? { ...z, multiplier: val } : z);
+                        updateZones(updatedZones);
+                      }}
+                      className="size-4.5 rounded bg-muted hover:bg-muted/80 flex items-center justify-center text-foreground transition-colors cursor-pointer font-bold text-xs"
+                    >
+                      +
+                    </button>
                   </div>
                 </div>
               </div>
               
-              {/* Scrollable Spaces Table */}
-              <div className="flex-1 overflow-auto">
-                <table className="w-full text-[12.5px]">
-                  <thead className="bg-header-bg sticky top-0 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 z-10 select-none">
+              <button 
+                onClick={() => setOpenId(null)} 
+                className="text-muted-foreground hover:text-foreground cursor-pointer transition-colors p-1.5 rounded-lg hover:bg-muted/60 ml-2"
+                title="Close"
+              >
+                <X className="size-4" />
+              </button>
+            </header>
+
+            {/* Scrollable Spaces Table */}
+            <div className="flex-1 overflow-auto">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-muted/40 sticky top-0 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/60 z-10 select-none">
+                  <tr>
+                    <th className="px-5 py-3 text-left font-semibold">Space Name</th>
+                    <th className="px-5 py-3 text-left font-semibold">Category</th>
+                    <th className="px-5 py-3 text-right font-semibold">Area (m²)</th>
+                    <th className="px-5 py-3 text-right font-semibold">Fresh Given</th>
+                    <th className="px-5 py-3 text-right font-semibold">Extract Taken</th>
+                    <th className="px-5 py-3 text-center font-semibold w-16">Edit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {openedSpaces.length === 0 ? (
                     <tr>
-                      <th className="px-6 py-3 text-left font-bold">ID</th>
-                      <th className="px-6 py-3 text-left font-bold">Name</th>
-                      <th className="px-6 py-3 text-left font-bold">Category</th>
-                      <th className="px-6 py-3 text-right font-bold">Area (mÂ²)</th>
-                      <th className="px-6 py-3 text-right font-bold">Fresh Given</th>
-                      <th className="px-6 py-3 text-right font-bold">Extract Taken</th>
-                      <th className="px-6 py-3 text-center font-bold w-12">Edit</th>
+                      <td colSpan={6} className="px-5 py-8 text-center text-muted-foreground text-xs italic">
+                        No spaces currently in this zone. Click "Add Space" below to create one.
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {openedSpaces.map((s) => (
+                  ) : (
+                    openedSpaces.map((s) => (
                       <tr 
                         key={s.id} 
                         onDoubleClick={() => setEditingSpace(s)}
-                        className="border-b border-border/40 hover:bg-row-hover/50 cursor-pointer select-none text-[12px] transition-colors animate-fade-in"
+                        className="hover:bg-muted/30 select-none text-[12px] transition-colors"
                       >
-                        <td 
-                          className="px-6 py-2.5 font-mono text-primary font-bold hover:underline cursor-pointer" 
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            setEditingSpace(s); 
-                          }}
-                        >
-                          {s.code}
-                        </td>
-                        <td className="px-6 py-2.5 font-semibold text-foreground">
+                        <td className="px-5 py-2.5 font-medium text-foreground">
                           <InlineInput
                             value={s.name}
                             onCommit={(val) => bulkUpdateSpaces([s.id], { name: val.trim() || s.name })}
-                            className="font-semibold text-[12px]"
+                            className="font-medium text-[12px] hover:bg-muted/50 focus:bg-background px-1.5 py-0.5 rounded border border-transparent focus:border-border"
                           />
                         </td>
-                        <td className="px-6 py-2.5 text-muted-foreground">
+                        <td className="px-5 py-2.5 text-muted-foreground">
                           <span className="inline-flex items-center gap-1.5 w-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
                             <span
                               title={s.aiDetected ? "Automatically identified" : undefined}
@@ -5246,7 +5099,7 @@ function ZonesView() {
                                     });
                                   }
                                 }}
-                                className={`flex items-center justify-center p-1 rounded-md hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors shrink-0 cursor-pointer ${
+                                className={`flex items-center justify-center p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0 cursor-pointer ${
                                   (s.category === "Rest Room / Changing Room" || (s.category && s.category.endsWith(" (Custom)")))
                                     ? "opacity-100"
                                     : "opacity-0 pointer-events-none"
@@ -5258,7 +5111,7 @@ function ZonesView() {
                             </div>
                           </span>
                         </td>
-                        <td className="px-6 py-2.5 text-right font-mono tabular">
+                        <td className="px-5 py-2.5 text-right font-mono tabular">
                           <InlineInput
                             type="number"
                             step="0.1"
@@ -5270,38 +5123,64 @@ function ZonesView() {
                                 bulkUpdateSpaces([s.id], { area: num });
                               }
                             }}
-                            className="font-mono tabular text-[12px] text-center"
+                            className="font-mono tabular text-[12px] text-center hover:bg-muted/50 focus:bg-background px-1 py-0.5 rounded border border-transparent focus:border-border"
                           />
                         </td>
-                        <td className="px-6 py-2.5 text-right font-mono font-semibold text-primary tabular-nums">{s.freshAir.toLocaleString()} L/s</td>
-                        <td className="px-6 py-2.5 text-right font-mono font-semibold text-pink-600 dark:text-pink-400 tabular-nums">{s.extractAir.toLocaleString()} L/s</td>
-                        <td className="px-6 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => setEditingSpace(s)}
-                            title="Edit Space Parameters"
-                            className="p-1 rounded hover:bg-surface-3 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                          >
-                            <Edit3 className="size-3.5" />
-                          </button>
+                        <td className="px-5 py-2.5 text-right font-mono font-medium text-foreground tabular-nums">{s.freshAir.toLocaleString()} L/s</td>
+                        <td className="px-5 py-2.5 text-right font-mono font-medium text-foreground tabular-nums">{s.extractAir.toLocaleString()} L/s</td>
+                        <td className="px-5 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => setEditingSpace(s)}
+                              title="Edit Space Parameters"
+                              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                            >
+                              <Edit3 className="size-3.5" />
+                            </button>
+                            <button
+                              onClick={() => bulkUpdateSpaces([s.id], { zone: "" })}
+                              title="Remove from zone"
+                              className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {/* Footer */}
-              <footer className="px-6 py-4 border-t border-black/5 dark:border-white/5 flex items-center justify-end bg-white/10 dark:bg-black/10 shrink-0">
-                <button 
-                  onClick={() => setOpenId(null)} 
-                  className="bg-primary text-primary-foreground text-xs font-semibold px-5 py-2 rounded-xl hover:bg-primary/95 transition-all duration-150 cursor-pointer shadow-md shadow-primary/10"
-                >
-                  Close
-                </button>
-              </footer>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
+
+            {/* Footer */}
+            <footer className="px-6 py-3 border-t border-border/80 flex items-center justify-between bg-muted/20 shrink-0 select-none">
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <button 
+                  onClick={() => addBlankSpaceToTargetZone(opened.name)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground bg-background hover:bg-muted border border-border/80 px-3 py-1.5 rounded-lg shadow-xs transition-colors cursor-pointer"
+                >
+                  <Plus className="size-3.5" /> Add Space
+                </button>
+                <div className="hidden sm:flex items-center gap-3 text-[11.5px] font-mono">
+                  <span>Total Area: <strong className="text-foreground font-semibold">{openedSpaces.reduce((acc, sp) => acc + (sp.area || 0), 0).toLocaleString()} m²</strong></span>
+                  <span>•</span>
+                  <span>Total Fresh: <strong className="text-foreground font-semibold">{openedSpaces.reduce((acc, sp) => acc + (sp.freshAir || 0), 0).toLocaleString()} L/s</strong></span>
+                  <span>•</span>
+                  <span>Total Extract: <strong className="text-foreground font-semibold">{openedSpaces.reduce((acc, sp) => acc + (sp.extractAir || 0), 0).toLocaleString()} L/s</strong></span>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setOpenId(null)} 
+                className="bg-primary text-primary-foreground text-xs font-semibold px-6 py-2 rounded-lg hover:opacity-90 transition-all cursor-pointer shadow-xs"
+              >
+                Done
+              </button>
+            </footer>
           </div>
-        );
-      })()}
+        </div>
+      )}
       {/* ─── Shared Assignment Modal ─── */}
       <SharedAssignmentModal
         isOpen={zoneAllocOpen}
@@ -6115,8 +5994,8 @@ function EquipmentView() {
   );
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden select-none">
-      <div className="relative z-10 flex items-center gap-1.5 px-3 min-h-10 py-1.5 shrink-0 bg-background no-print border-b border-border/50">
+    <div className="flex flex-col h-full select-none">
+      <div className="relative flex items-center gap-1 px-3 h-10 shrink-0 bg-background no-print modal-blur-bg">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}

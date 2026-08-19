@@ -52,6 +52,20 @@ function saveLocalOrgs(orgs) {
   try { fs.writeFileSync(ORGS_FILE, JSON.stringify(orgs, null, 2), 'utf8'); } catch (e) {}
 }
 
+const orgLicenseSessions = new Map();
+
+function cleanStaleLicenseSessions(orgId) {
+  const sessionsMap = orgLicenseSessions.get(orgId);
+  if (!sessionsMap) return [];
+  const now = Date.now();
+  for (const [uid, sess] of sessionsMap.entries()) {
+    if (now - sess.lastPing > 20000) {
+      sessionsMap.delete(uid);
+    }
+  }
+  return Array.from(sessionsMap.values());
+}
+
 function readOrgSettings() {
   try { return JSON.parse(fs.readFileSync(ORG_SETTINGS_FILE, 'utf8') || '{}'); } catch (e) { return {}; }
 }
@@ -899,29 +913,11 @@ const server = http.createServer(async (req, res) => {
     
     let filteredUsers = users;
     if (user.role !== 'SUPER_ADMIN') {
-      const visibleUserIds = new Set(users.filter(u => u.organization_id && u.organization_id === user.organization_id).map(u => u.id));
-      
-      const { data: projects } = await supabase.from('projects').select('created_by, project_users(user_id), project_teams(team_id)');
-      if (projects) {
-        const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
-        const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
-        const projectTeamIds = new Set();
-
-        projects.forEach(p => {
-          const isUserInProject = p.created_by === user.id || (user.role === 'ORG_ADMIN' && visibleUserIds.has(p.created_by)) || p.project_users?.some(pu => pu.user_id === user.id) || p.project_teams?.some(pt => myTeamIds.includes(pt.team_id));
-          if (isUserInProject) {
-            p.project_users?.forEach(pu => visibleUserIds.add(pu.user_id));
-            p.project_teams?.forEach(pt => projectTeamIds.add(pt.team_id));
-          }
-        });
-
-        if (projectTeamIds.size > 0) {
-           const { data: teamMembers } = await supabase.from('team_members').select('user_id').in('team_id', Array.from(projectTeamIds));
-           if (teamMembers) teamMembers.forEach(tm => visibleUserIds.add(tm.user_id));
-        }
-      }
-      
-      filteredUsers = users.filter(u => visibleUserIds.has(u.id));
+      // Non-Super-Admins (e.g. Org Admins) must ONLY see non-Super-Admin members belonging to their organization
+      filteredUsers = users.filter(u => 
+        u.role !== 'SUPER_ADMIN' && 
+        (user.organization_id ? u.organization_id === user.organization_id : u.id === user.id)
+      );
     }
     
     const safeUsers = filteredUsers.map(u => ({ 
@@ -945,7 +941,12 @@ const server = http.createServer(async (req, res) => {
     if (!name) return sendJSON(res, 400, { success: false, message: 'Team name required' });
     
     const teamId = `team_${Date.now()}`;
-    const { error } = await supabase.from('teams').insert({ id: teamId, name: name.trim(), created_by: user.id });
+    const { error } = await supabase.from('teams').insert({
+      id: teamId,
+      name: name.trim(),
+      created_by: user.id,
+      organization_id: user.organization_id || null
+    });
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
     return sendJSON(res, 200, { success: true, message: 'Team created', team: { id: teamId, name } });
   }
@@ -954,9 +955,29 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/teams/list') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-    const { data: teams, error } = await supabase.from('teams').select('*, team_members(user_id)');
+    const { data: rawTeams, error } = await supabase.from('teams').select('*, team_members(user_id)');
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
-    return sendJSON(res, 200, { success: true, teams: teams || [] });
+
+    const allUsers = await readUsers();
+    const superAdminIds = new Set(allUsers.filter(u => u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai').map(u => u.id));
+    const orgUserIds = new Set(user.organization_id ? allUsers.filter(u => u.organization_id === user.organization_id).map(u => u.id) : [user.id]);
+
+    let teamsList = rawTeams || [];
+    if (user.role !== 'SUPER_ADMIN') {
+      // Non-Super-Admins see only teams created by their organization or created by org members
+      teamsList = teamsList.filter(t => 
+        (t.organization_id && user.organization_id && t.organization_id === user.organization_id) ||
+        (t.created_by && orgUserIds.has(t.created_by))
+      );
+    }
+
+    // Strip Super Admin accounts from team_members when requested by non-Super-Admins
+    const cleanedTeams = teamsList.map(t => {
+      const filteredMembers = (t.team_members || []).filter(tm => !superAdminIds.has(tm.user_id));
+      return { ...t, team_members: filteredMembers };
+    });
+
+    return sendJSON(res, 200, { success: true, teams: cleanedTeams });
   }
 
   // D. ADD USER TO TEAM
@@ -1697,7 +1718,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && url === '/api/admin/organizations') {
     const user = await getUserFromReq(req);
-    const { name, subscription_plan, max_users } = await getRequestBody(req);
+    const { name, subscription_plan, max_users, license_key, max_concurrent_users } = await getRequestBody(req);
     if (!name || !name.trim()) return sendJSON(res, 400, { success: false, message: 'Organization name required' });
 
     const newOrg = {
@@ -1705,6 +1726,8 @@ const server = http.createServer(async (req, res) => {
       name: name.trim(),
       subscription_plan: subscription_plan || 'ENTERPRISE',
       max_users: parseInt(max_users) || 10,
+      license_key: license_key || `MEP-LIC-${Math.floor(1000 + Math.random() * 9000)}-PRO`,
+      max_concurrent_users: max_concurrent_users !== undefined ? parseInt(max_concurrent_users) : 1,
       created_at: new Date().toISOString()
     };
 
@@ -1727,23 +1750,27 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url === '/api/admin/organizations/update') {
     const user = await getUserFromReq(req);
     if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
-    const { orgId, name, subscription_plan, max_users } = await getRequestBody(req);
+    const { orgId, name, subscription_plan, max_users, license_key, max_concurrent_users } = await getRequestBody(req);
     
     const localOrgs = readLocalOrgs();
     const orgIndex = localOrgs.findIndex(o => o.id === orgId);
     if (orgIndex === -1) return sendJSON(res, 404, { success: false, message: 'Organization not found' });
     
-    if (name) localOrgs[orgIndex].name = name;
-    if (subscription_plan) localOrgs[orgIndex].subscription_plan = subscription_plan;
-    if (max_users !== undefined) localOrgs[orgIndex].max_users = max_users;
+    if (name !== undefined) localOrgs[orgIndex].name = name;
+    if (subscription_plan !== undefined) localOrgs[orgIndex].subscription_plan = subscription_plan;
+    if (max_users !== undefined) localOrgs[orgIndex].max_users = parseInt(max_users);
+    if (license_key !== undefined) localOrgs[orgIndex].license_key = license_key;
+    if (max_concurrent_users !== undefined) localOrgs[orgIndex].max_concurrent_users = parseInt(max_concurrent_users);
     
     saveLocalOrgs(localOrgs);
 
     try {
       const updateData = {};
-      if (name) updateData.name = name;
-      if (subscription_plan) updateData.subscription_plan = subscription_plan;
-      if (max_users !== undefined) updateData.max_users = max_users;
+      if (name !== undefined) updateData.name = name;
+      if (subscription_plan !== undefined) updateData.subscription_plan = subscription_plan;
+      if (max_users !== undefined) updateData.max_users = parseInt(max_users);
+      if (license_key !== undefined) updateData.license_key = license_key;
+      if (max_concurrent_users !== undefined) updateData.max_concurrent_users = parseInt(max_concurrent_users);
       await supabase.from('organizations').update(updateData).eq('id', orgId);
     } catch (e) {
       console.warn('Supabase org update warning:', e);
@@ -1751,6 +1778,96 @@ const server = http.createServer(async (req, res) => {
 
     logActivity(user, 'UPDATE_ORGANIZATION', { orgId, name });
     return sendJSON(res, 200, { success: true, organization: localOrgs[orgIndex] });
+  }
+
+  // -------------------------------------------------------------
+  // LICENSE SESSION SEAT CHECK & HEARTBEAT ENDPOINTS
+  // -------------------------------------------------------------
+  if (req.method === 'POST' && url === '/api/license/session/heartbeat') {
+    const { userId, email, orgId } = await getRequestBody(req);
+    if (!orgId || !userId) {
+      return sendJSON(res, 200, { success: true, allowed: true });
+    }
+
+    const localOrgs = readLocalOrgs();
+    let orgObj = localOrgs.find(o => o.id === orgId);
+    if (!orgObj) {
+      try {
+        const { data } = await supabase.from('organizations').select('*').eq('id', orgId).single();
+        if (data) orgObj = data;
+      } catch(e) {}
+    }
+
+    if (!orgObj) {
+      return sendJSON(res, 200, { success: true, allowed: true });
+    }
+
+    const licenseKey = orgObj.license_key || '';
+    const maxConcurrent = parseInt(orgObj.max_concurrent_users) || 1;
+
+    cleanStaleLicenseSessions(orgId);
+    if (!orgLicenseSessions.has(orgId)) {
+      orgLicenseSessions.set(orgId, new Map());
+    }
+
+    const activeMap = orgLicenseSessions.get(orgId);
+
+    // If user already holds a seat, refresh timestamp
+    if (activeMap.has(userId)) {
+      activeMap.set(userId, { userId, email: email || activeMap.get(userId).email, lastPing: Date.now() });
+      const activeList = Array.from(activeMap.values()).map(s => s.email);
+      return sendJSON(res, 200, {
+        success: true,
+        allowed: true,
+        licenseKey,
+        maxConcurrent,
+        activeUsers: activeList,
+        orgName: orgObj.name
+      });
+    }
+
+    // If new user requesting a seat
+    if (activeMap.size >= maxConcurrent) {
+      const activeList = Array.from(activeMap.values()).map(s => s.email);
+      return sendJSON(res, 200, {
+        success: true,
+        allowed: false,
+        licenseKey,
+        maxConcurrent,
+        activeUsers: activeList,
+        orgName: orgObj.name,
+        message: `License seat limit reached for "${orgObj.name}". Occupied by ${activeList.join(', ')}.`
+      });
+    }
+
+    // Capacity available, register seat!
+    activeMap.set(userId, { userId, email, lastPing: Date.now() });
+    const activeList = Array.from(activeMap.values()).map(s => s.email);
+    return sendJSON(res, 200, {
+      success: true,
+      allowed: true,
+      licenseKey,
+      maxConcurrent,
+      activeUsers: activeList,
+      orgName: orgObj.name
+    });
+  }
+
+  if (req.method === 'POST' && url === '/api/license/session/release') {
+    const { userId, orgId } = await getRequestBody(req);
+    if (orgId && userId && orgLicenseSessions.has(orgId)) {
+      orgLicenseSessions.get(orgId).delete(userId);
+    }
+    return sendJSON(res, 200, { success: true });
+  }
+
+  if (req.method === 'GET' && url.startsWith('/api/admin/organizations/active-sessions')) {
+    const activeData = {};
+    for (const [oId, map] of orgLicenseSessions.entries()) {
+      cleanStaleLicenseSessions(oId);
+      activeData[oId] = Array.from(map.values());
+    }
+    return sendJSON(res, 200, { success: true, activeSessions: activeData });
   }
 
   if (req.method === 'POST' && url === '/api/admin/organizations/delete') {
@@ -1785,12 +1902,10 @@ const server = http.createServer(async (req, res) => {
     
     if (!orgId && user.role !== 'SUPER_ADMIN') return sendJSON(res, 400, { success: false, message: 'Organization ID missing' });
     
-    let query = supabase.from('custom_users').select('*');
-    if (orgId) {
-      query = query.eq('organization_id', orgId);
-    }
-    const { data } = await query;
-    const formattedUsers = await Promise.all((data || []).map(u => formatUser(u)));
+    const allUsers = await readUsers();
+    // Filter users strictly by matching organization_id (excluding null, empty or removed users)
+    const orgUsers = allUsers.filter(u => u.organization_id && String(u.organization_id) === String(orgId));
+    const formattedUsers = await Promise.all(orgUsers.map(u => formatUser(u)));
     return sendJSON(res, 200, { success: true, users: formattedUsers });
   }
 

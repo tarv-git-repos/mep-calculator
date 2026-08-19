@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Users, Plus, Shield, ShieldAlert, Mail, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +20,25 @@ function TeamsPage() {
   
   const [teams, setTeams] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+
+  const assignableUsers = useMemo(() => {
+    if (profile?.role === 'SUPER_ADMIN') {
+      return users;
+    }
+    const myOrgId = profile?.organization_id;
+    return users.filter(u => 
+      u.role !== 'SUPER_ADMIN' && 
+      (!myOrgId || u.organization_id === myOrgId || !u.organization_id)
+    );
+  }, [users, profile?.role, profile?.organization_id]);
+
+  const assignableTeams = useMemo(() => {
+    if (profile?.role === 'SUPER_ADMIN') {
+      return teams;
+    }
+    const myOrgId = profile?.organization_id;
+    return teams.filter(t => !myOrgId || t.organization_id === myOrgId || !t.organization_id);
+  }, [teams, profile?.role, profile?.organization_id]);
   
   const [newTeamName, setNewTeamName] = useState("");
   const [selectedUser, setSelectedUser] = useState("");
@@ -155,7 +174,7 @@ function TeamsPage() {
                         className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-primary"
                      >
                         <option value="">Select User...</option>
-                        {users.map(u => (
+                        {assignableUsers.map(u => (
                            <option key={u.id} value={u.id}>{u.name}</option>
                         ))}
                      </select>
@@ -175,19 +194,19 @@ function TeamsPage() {
                    <div className="size-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                    Loading teams...
                  </div>
-               ) : teams.length === 0 ? (
+               ) : assignableTeams.length === 0 ? (
                  <div className="p-8 text-center bg-card border border-border border-dashed rounded-2xl text-muted-foreground text-sm">
                     No teams created yet.
                  </div>
                ) : (
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {teams.map(team => (
+                    {assignableTeams.map(team => (
                        <div key={team.id} className="bg-card border border-border p-5 rounded-2xl shadow-sm flex flex-col gap-4 group/team">
                           <div className="flex justify-between items-center">
                              <h4 className="font-bold text-foreground">{team.name}</h4>
                              <div className="flex items-center gap-2">
                                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
-                                  {team.team_members?.length || 0} Members
+                                  {(team.team_members || []).filter((tm: any) => assignableUsers.some(u => u.id === tm.user_id && u.role !== 'SUPER_ADMIN')).length} Members
                                </span>
                                <button
                                  onClick={() => handleDeleteTeam(team.id)}
@@ -200,8 +219,8 @@ function TeamsPage() {
                           </div>
                         <div className="flex flex-col gap-2 border-t border-border/50 pt-3 mt-1">
                            {team.team_members?.map((tm: any) => {
-                              const user = users.find(u => u.id === tm.user_id);
-                              if (!user) return null;
+                              const user = assignableUsers.find(u => u.id === tm.user_id);
+                              if (!user || user.role === 'SUPER_ADMIN' || user.email === 'admin@tarv.ai') return null;
                               return (
                                  <div key={user.id} className="flex items-center gap-2 text-xs group">
                                     <div className="size-6 bg-slate-200 dark:bg-zinc-800 rounded-full flex items-center justify-center shrink-0">

@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
-  return import.meta.env.VITE_API_URL || 'http://localhost:4000';
+  return import.meta.env.VITE_API_URL || 'https://universal-mep-calculator.onrender.com';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header

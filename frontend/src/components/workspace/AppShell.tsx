@@ -416,12 +416,70 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return [];
   });
 
+  const [deletedNotifIds, setDeletedNotifIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_deleted_notif_ids");
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {}
+    }
+    return [];
+  });
+
   const markNotifAsRead = (id: string) => {
     setReadNotifIds(prev => {
       if (prev.includes(id)) return prev;
       const updated = [...prev, id];
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_read_notif_ids", JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  const deleteNotification = (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setDeletedNotifIds(prev => {
+      const updated = Array.from(new Set([...prev, id]));
+      if (typeof window !== "undefined") {
+        localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    const currentProj = useWorkspace.getState().project;
+    if (currentProj?.workspace_data) {
+      const wdata = currentProj.workspace_data;
+      let changed = false;
+      const updatedWdata = { ...wdata };
+      if (Array.isArray(wdata.rejection_notifs) && wdata.rejection_notifs.some((n: any) => n.id === id)) {
+        updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => n.id !== id);
+        changed = true;
+      }
+      if (Array.isArray(wdata.coord_notifs) && wdata.coord_notifs.some((n: any) => n.id === id)) {
+        updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => n.id !== id);
+        changed = true;
+      }
+      if (changed) {
+        api.saveWorkspace(currentProj.id, updatedWdata).catch(console.error);
+        useWorkspace.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
+      }
+    }
+  };
+
+  const clearAllNotifications = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const allIds = myNotifications.map((n: any) => n.id).filter(Boolean);
+    setDeletedNotifIds(prev => {
+      const updated = Array.from(new Set([...prev, ...allIds]));
+      if (typeof window !== "undefined") {
+        localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
       }
       return updated;
     });
@@ -559,8 +617,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       } catch (e) {}
     }
 
-
-
     // 3. Approval Notifications for Discipline Coordinator / Admin
     if (isCoordinatorOrAdmin) {
       try {
@@ -616,9 +672,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       } catch(e) {}
     }
     
-    notifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    return notifs;
-  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin]);
+    const filtered = notifs.filter(n => !n.id || !deletedNotifIds.includes(n.id));
+    filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return filtered;
+  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds]);
 
   const unreadNotifications = useMemo(() => {
     return myNotifications.filter(n => n.id && !readNotifIds.includes(n.id));
@@ -792,6 +849,52 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   }, [project?.id, userData?.name, profile?.name]);
 
 
+
+  // Organization License Seat Heartbeat & Guard
+  const [isSeatBlocked, setIsSeatBlocked] = useState(false);
+  const [seatBlockedDetails, setSeatBlockedDetails] = useState<{ activeUsers?: string[]; limit?: number; licenseKey?: string; orgName?: string; message?: string } | null>(null);
+
+  const runLicenseSeatHeartbeat = useCallback(async () => {
+    if (!userId) return;
+    if (userData?.role === 'SUPER_ADMIN' || profile?.role === 'SUPER_ADMIN') {
+      setIsSeatBlocked(false);
+      return;
+    }
+
+    const orgId = userData?.organization_id || profile?.organization_id;
+    if (!orgId) {
+      setIsSeatBlocked(false);
+      return;
+    }
+
+    const userEmail = userData?.email || profile?.email || myEmail;
+    const res = await api.checkLicenseSession({ userId, email: userEmail, orgId });
+    if (res && res.allowed === false) {
+      setIsSeatBlocked(true);
+      setSeatBlockedDetails(res);
+    } else {
+      setIsSeatBlocked(false);
+    }
+  }, [userId, userData?.role, userData?.organization_id, userData?.email, profile?.role, profile?.organization_id, profile?.email, myEmail]);
+
+  useEffect(() => {
+    runLicenseSeatHeartbeat();
+    const interval = setInterval(runLicenseSeatHeartbeat, 8000);
+
+    const handleUnload = () => {
+      const orgId = userData?.organization_id || profile?.organization_id;
+      if (userId && orgId) {
+        api.releaseLicenseSession({ userId, orgId });
+      }
+    };
+
+    window.addEventListener('beforeunload', handleUnload);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleUnload);
+      handleUnload();
+    };
+  }, [runLicenseSeatHeartbeat, userId, userData?.organization_id, profile?.organization_id]);
 
   useEffect(() => {
     // Expose for export scripts outside React context
@@ -1028,8 +1131,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     if (!isEffectiveReadOnly) return;
 
     const isAllowedInteractive = (target: HTMLElement) => {
-      // Header, Sidebar, Navigation links, Tab switching buttons, and Modals are always allowed
-      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content")) return true;
+      // Header, Sidebar, Navigation links, Tab switching buttons, Modals, Review Bar, and Assign Comment Modals are always allowed
+      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content, .calculation-review-bar, .review-modal, .assign-comment-modal")) return true;
       
       const btn = target.closest("button, [role='button'], a, [role='tab']");
       if (!btn) return false;
@@ -1052,6 +1155,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const target = e.target as HTMLElement;
       if (!target) return;
 
+      if (isAllowedInteractive(target)) return;
+
       const isEditableInput = target.closest("input, select, textarea, [contenteditable='true']");
       const isMutationBtn = target.closest("button, [role='button']");
 
@@ -1063,7 +1168,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         return;
       }
 
-      if (isMutationBtn && !isAllowedInteractive(target)) {
+      if (isMutationBtn) {
         // Prevent clicking data-mutation buttons (like + New Space, Import, Auto-Zone, Delete)
         e.preventDefault();
         e.stopPropagation();
@@ -1079,10 +1184,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       // Safe check for closest and tagName
       const isElement = typeof target.closest === 'function' && typeof target.tagName === 'string';
       
-      if (isElement) {
-        // Allow key events in header (e.g. search bar), sidebar, and modals
-        if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content, [role='menu']")) return;
-      }
+      if (isElement && isAllowedInteractive(target)) return;
       
       const tagName = isElement ? target.tagName.toLowerCase() : '';
       const isEditable = target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
@@ -1120,6 +1222,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const handleReadOnlyChange = (e: Event) => {
       const target = e.target as HTMLElement;
       if (!target) return;
+      if (isAllowedInteractive(target)) return;
       const tagName = target.tagName.toLowerCase();
       if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
         e.preventDefault();
@@ -1585,26 +1688,43 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     )}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-80 bg-popover border border-border rounded-lg shadow-lg font-sans">
-                  <div className="flex items-center justify-between font-bold text-sm border-b border-border/50 p-2">
-                    <span>Notifications</span>
-                    {unreadCount > 0 && (
-                      <button 
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          markAllNotifsAsRead();
-                        }}
-                        className="text-[11px] font-medium text-primary hover:underline cursor-pointer"
-                      >
-                        Mark all read
-                      </button>
-                    )}
+                <DropdownMenuContent align="end" className="w-[440px] sm:w-[480px] bg-popover border border-border rounded-xl shadow-xl font-sans p-0 overflow-hidden">
+                  <div className="flex items-center justify-between font-bold text-sm border-b border-border/50 px-4 py-3 bg-surface-2/60">
+                    <div className="flex items-center gap-2">
+                      <span className="text-foreground font-bold">Notifications</span>
+                      {myNotifications.length > 0 && (
+                        <span className="px-2 py-0.5 text-[11px] bg-primary/10 text-primary font-bold rounded-full">
+                          {myNotifications.length}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {unreadCount > 0 && (
+                        <button 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            markAllNotifsAsRead();
+                          }}
+                          className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                      {myNotifications.length > 0 && (
+                        <button
+                          onClick={clearAllNotifications}
+                          className="text-[11px] font-bold text-muted-foreground hover:text-red-500 hover:underline cursor-pointer transition-colors"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {myNotifications.length === 0 ? (
-                    <div className="py-6 text-center text-sm text-muted-foreground">No new notifications</div>
+                    <div className="py-8 text-center text-xs text-muted-foreground font-medium">No new notifications</div>
                   ) : (
-                    <div className="max-h-72 overflow-y-auto custom-scrollbar">
+                    <div className="max-h-80 overflow-y-auto custom-scrollbar divide-y divide-border/30">
                       {myNotifications.map((notif, i) => {
                         const isUnread = notif.id && !readNotifIds.includes(notif.id);
                         const handleClick = () => {
@@ -1628,30 +1748,39 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                           }, 400);
                         };
                         return (
-                          <DropdownMenuItem
-                            key={i}
-                            onSelect={handleClick}
-                            className={`flex flex-col items-start p-3 border-b border-border/30 last:border-0 hover:bg-surface-2 dark:hover:bg-white/5 transition-colors cursor-pointer focus:bg-surface-2 dark:focus:bg-white/5 outline-none rounded-md ${
-                              isUnread ? "bg-primary/5 dark:bg-primary/10 font-semibold" : "opacity-75"
+                          <div
+                            key={notif.id || i}
+                            className={`group relative flex items-start justify-between p-3.5 hover:bg-surface-2 dark:hover:bg-white/5 transition-colors cursor-pointer ${
+                              isUnread ? "bg-primary/5 dark:bg-primary/10 font-medium" : "opacity-80"
                             }`}
+                            onClick={handleClick}
                           >
-                            <div className="flex justify-between items-start w-full mb-1">
-                              <div className="flex items-center gap-1.5 truncate max-w-[170px]">
-                                {isUnread && <span className="size-2 rounded-full bg-primary inline-block shrink-0" title="Unread" />}
-                                <span className="text-xs font-semibold text-foreground/90 truncate">{notif.authorName}</span>
+                            <div className="flex-1 min-w-0 pr-3">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <div className="flex items-center gap-1.5 truncate">
+                                  {isUnread && <span className="size-2 rounded-full bg-primary inline-block shrink-0" title="Unread" />}
+                                  <span className="text-xs font-bold text-foreground truncate">{notif.authorName}</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
+                                  {new Date(notif.timestamp).toLocaleDateString()}
+                                </span>
                               </div>
-                              <span className="text-[10px] text-muted-foreground shrink-0">
-                                {new Date(notif.timestamp).toLocaleDateString()}
-                              </span>
+                              <p className="text-xs font-medium leading-relaxed mb-2 text-foreground/90 text-left break-words">{notif.text}</p>
+                              <div className="text-[10.5px] text-muted-foreground font-medium flex flex-wrap items-center gap-1.5 w-full">
+                                <span className="px-1.5 py-0.5 bg-primary/10 text-primary font-bold rounded-md text-[10px] uppercase tracking-wider">{notif.targetType}</span>
+                                <span className="truncate max-w-[150px]">{notif.targetName}</span>
+                                <span className="text-muted-foreground/60 text-[10px]">in</span>
+                                <span className="truncate max-w-[130px] font-bold text-primary" title={notif.projectName}>{notif.projectName}</span>
+                              </div>
                             </div>
-                            <p className="text-[13px] font-medium leading-tight mb-1.5 text-left">{notif.text}</p>
-                            <div className="text-[10.5px] text-muted-foreground font-semibold flex flex-wrap items-center gap-1.5 w-full">
-                              <span className="px-1.5 py-0.5 bg-primary/10 text-primary rounded-sm uppercase tracking-wider">{notif.targetType}</span>
-                              <span className="truncate max-w-[120px]">{notif.targetName}</span>
-                              <span className="text-muted-foreground/60 text-[9px]">in</span>
-                              <span className="truncate max-w-[100px] text-primary" title={notif.projectName}>{notif.projectName}</span>
-                            </div>
-                          </DropdownMenuItem>
+                            <button
+                              onClick={(e) => deleteNotification(notif.id, e)}
+                              className="p-1.5 text-muted-foreground/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all shrink-0 cursor-pointer self-start"
+                              title="Delete notification"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -2003,6 +2132,50 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         userName={userData?.name || profile?.name || 'Engineer'}
         pioneerNumber={userData?.pioneer_number || 1}
       />
+
+      {isSeatBlocked && (
+        <div className="fixed inset-0 z-[999999] bg-slate-950/95 backdrop-blur-2xl flex items-center justify-center p-6 text-white text-center">
+          <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-6">
+            <div className="size-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-center justify-center mx-auto shadow-inner">
+              <Lock size={32} />
+            </div>
+            <div>
+              <span className="px-3.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase tracking-wider">
+                Organization License Seat Occupied
+              </span>
+              <h2 className="text-2xl font-extrabold mt-3 tracking-tight">Calculator Seat In Use</h2>
+              <p className="text-sm text-slate-400 mt-2 leading-relaxed">
+                Only <strong className="text-white">{seatBlockedDetails?.limit || 1} user</strong> in <strong className="text-white">{seatBlockedDetails?.orgName || "your organization"}</strong> can open or use the MEP Calculator at once.
+              </p>
+            </div>
+
+            <div className="p-4.5 rounded-2xl bg-slate-800/80 border border-slate-700/60 text-left space-y-2.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Assigned License Key:</span>
+                <span className="font-mono font-bold text-indigo-400">{seatBlockedDetails?.licenseKey || "Assigned"}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">Currently Active User:</span>
+                <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-amber-400 animate-pulse" />
+                  {seatBlockedDetails?.activeUsers?.[0] || "Another Organization Member"}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-normal">
+              Please wait until {seatBlockedDetails?.activeUsers?.[0] || "the active user"} closes their session, or contact your Super Admin to upgrade organization license seats.
+            </p>
+
+            <button
+              onClick={runLicenseSeatHeartbeat}
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-xl transition shadow-lg cursor-pointer flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={16} /> Refresh License Seat Status
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

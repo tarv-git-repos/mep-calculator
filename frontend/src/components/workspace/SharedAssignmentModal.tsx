@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { X, Search, ChevronDown, ChevronUp, ChevronRight, Plus, Fan, Check, Edit3 } from "lucide-react";
 import { useWorkspace, type Equipment, type Zone } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
@@ -49,11 +49,12 @@ export function SharedAssignmentModal({
   const [newMode, setNewMode] = useState<"Fresh Air Only" | "Extract Air Only" | "Fresh Air + Extract Air">("Fresh Air Only");
   const [newCapacity, setNewCapacity] = useState<number>(2500);
 
-  // Sync initial selection state
+  const prevIsOpenRef = useRef(false);
+
+  // Sync initial selection state only when modal transitions to open
   useEffect(() => {
-    if (isOpen) {
-      console.log("SharedAssignmentModal: isOpen=true, initialZoneId=", initialZoneId, "initialZoneIds=", initialZoneIds);
-      setShowAddEquip(false);
+    if (isOpen && !prevIsOpenRef.current) {
+      setShowAddEquip(!!initialShowAddEquip);
       if (initialEquipmentId) {
         setSelectedEquipId(initialEquipmentId);
         const eq = equipment.find((e) => e.id === initialEquipmentId);
@@ -77,10 +78,9 @@ export function SharedAssignmentModal({
           });
           setSelectedInstances(instances);
         }
-      } else if (initialZoneId || initialZoneIds) {
+      } else if (initialZoneId || (initialZoneIds && initialZoneIds.length > 0)) {
         setSelectedEquipId(null);
         const targetIds = initialZoneIds && initialZoneIds.length > 0 ? Array.from(initialZoneIds) : initialZoneId ? [initialZoneId] : [];
-        console.log("SharedAssignmentModal: targetIds=", targetIds);
         const instances = new Set<string>();
         const expanded = new Set<string>();
         targetIds.forEach((id) => {
@@ -100,7 +100,8 @@ export function SharedAssignmentModal({
         setSelectedInstances(new Set());
       }
     }
-  }, [isOpen, initialEquipmentId, initialZoneId, initialZoneIds, initialShowAddEquip, zones, equipment]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, initialEquipmentId, initialZoneId, initialZoneIds, initialShowAddEquip]);
 
   // Handle equipment selection
   const handleEquipSelect = (eqId: string) => {

@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check } from "lucide-react"
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3 } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -118,6 +118,57 @@ export function SuperAdminDashboard() {
   const [bulkTargetOrgId, setBulkTargetOrgId] = useState<string>('')
   const [userSearchQuery, setUserSearchQuery] = useState<string>('')
 
+  const [editingSeatsForOrg, setEditingSeatsForOrg] = useState<boolean>(false)
+  const [newSeatsValue, setNewSeatsValue] = useState<number>(5)
+
+  const handleUpdateMaxSeats = async (orgId: string, newMax: number) => {
+    if (isNaN(newMax) || newMax < 1) {
+      toast.error("Seats limit must be at least 1");
+      return;
+    }
+    try {
+      await api.updateOrganization({ orgId, max_users: newMax });
+      setOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, max_users: newMax } : o));
+      if (selectedOrgForManagement && selectedOrgForManagement.id === orgId) {
+        setSelectedOrgForManagement((prev: any) => prev ? { ...prev, max_users: newMax } : null);
+      }
+      setEditingSeatsForOrg(false);
+      toast.success(`Member seats limit updated to ${newMax} for organization!`);
+    } catch (err) {
+      console.error("Failed to update seat limit", err);
+      toast.error("Failed to update seat limit.");
+    }
+  };
+
+  const [editingLicenseKey, setEditingLicenseKey] = useState<boolean>(false)
+  const [newLicenseKeyVal, setNewLicenseKeyVal] = useState<string>('')
+  const [editingConcurrentLimit, setEditingConcurrentLimit] = useState<boolean>(false)
+  const [newConcurrentVal, setNewConcurrentVal] = useState<number>(1)
+
+  const handleUpdateOrgLicense = async (orgId: string, licenseKey: string, maxConcurrent: number) => {
+    try {
+      const res = await api.updateOrganization({
+        orgId,
+        license_key: licenseKey,
+        max_concurrent_users: maxConcurrent
+      });
+      if (res && res.success) {
+        setOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, license_key: licenseKey, max_concurrent_users: maxConcurrent } : o));
+        if (selectedOrgForManagement && selectedOrgForManagement.id === orgId) {
+          setSelectedOrgForManagement((prev: any) => prev ? { ...prev, license_key: licenseKey, max_concurrent_users: maxConcurrent } : null);
+        }
+        setEditingLicenseKey(false);
+        setEditingConcurrentLimit(false);
+        toast.success(`License key & concurrent user limit updated for organization!`);
+      } else {
+        toast.error((res && res.message) || "Failed to update organization license.");
+      }
+    } catch (err) {
+      console.error("Failed to update org license", err);
+      toast.error("Failed to update organization license.");
+    }
+  };
+
   const handleBulkAssignToOrg = async (targetOrgId: string, targetOrgName: string) => {
     if (selectedUserIds.length === 0) {
       toast.error("Please select at least one user first.");
@@ -125,6 +176,19 @@ export function SuperAdminDashboard() {
     }
     if (!targetOrgId) {
       toast.error("Please select an organization.");
+      return;
+    }
+
+    const targetOrg = organizations.find((o: any) => o.id === targetOrgId);
+    const maxUsers = targetOrg?.max_users || 5;
+    const currentMemberCount = profiles.filter(p => p.organization_id === targetOrgId).length;
+    const usersToAssignNotInOrg = selectedUserIds.filter(id => {
+      const p = profiles.find(pr => pr.id === id);
+      return p?.organization_id !== targetOrgId;
+    });
+
+    if (currentMemberCount + usersToAssignNotInOrg.length > maxUsers) {
+      toast.error(`Seat limit reached for "${targetOrgName}" (${currentMemberCount}/${maxUsers} Seats Used)! Adding ${usersToAssignNotInOrg.length} more user(s) exceeds the ${maxUsers} seat limit. Please click "Edit Seats" to increase the seat limit first.`);
       return;
     }
 
@@ -519,6 +583,19 @@ export function SuperAdminDashboard() {
   const assignOrganization = async (profileId: string, orgId: string) => {
     const orgObj = organizations.find((o: any) => o.id === orgId);
     const orgName = orgObj ? orgObj.name : "";
+
+    // Seat limit check when assigning user to a non-empty organization
+    if (orgId && orgObj) {
+      const targetUser = profiles.find(p => p.id === profileId);
+      if (targetUser && targetUser.organization_id !== orgId) {
+        const currentMembers = profiles.filter(p => p.organization_id === orgId);
+        const maxUsers = orgObj.max_users || 5;
+        if (currentMembers.length >= maxUsers) {
+          toast.error(`Cannot assign user. Organization "${orgName}" has reached its maximum limit of ${maxUsers} seats (${currentMembers.length}/${maxUsers} Used). Please edit/increase max seats first.`);
+          return;
+        }
+      }
+    }
     
     // Update local state instantly
     setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, organization_id: orgId || undefined, company: orgName } : p));
@@ -995,79 +1072,271 @@ export function SuperAdminDashboard() {
             {activeTab === 'organizations' && (
               <div className="p-6">
                 {selectedOrgForManagement ? (
-                  <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+                  <div className="bg-card border border-border/80 rounded-2xl p-6 shadow-sm space-y-6 animate-fade-in">
                     {/* Organization Manager Header */}
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/60 pb-5">
+                      <div className="flex items-center gap-3.5">
                         <button 
-                          onClick={() => setSelectedOrgForManagement(null)}
-                          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                          onClick={() => {
+                            setSelectedOrgForManagement(null);
+                            setEditingSeatsForOrg(false);
+                          }}
+                          className="p-2.5 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground transition-colors cursor-pointer border border-border/60"
                           title="Back to Organizations List"
                         >
                           <ArrowLeft size={18} />
                         </button>
                         <div>
-                          <div className="flex items-center gap-2">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">{selectedOrgForManagement.name}</h2>
-                            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
-                              {selectedOrgForManagement.subscription_plan}
+                          <div className="flex items-center gap-2.5">
+                            <h2 className="text-xl font-extrabold text-foreground tracking-tight">{selectedOrgForManagement.name}</h2>
+                            <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20 uppercase tracking-wider">
+                              {selectedOrgForManagement.subscription_plan || "PRO PLAN"}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          <p className="text-xs text-muted-foreground mt-1">
                             Manage members, assign existing users, change member roles, or delete users for this organization.
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-300">
-                          👥 {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length} / {selectedOrgForManagement.max_users} Seats Used
-                        </span>
+
+                      {/* EDITABLE SEATS ALLOCATION DISPLAY */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        {editingSeatsForOrg ? (
+                          <div className="flex items-center gap-2 bg-surface-2 border border-primary/40 p-1.5 rounded-xl shadow-xs">
+                            <span className="text-xs font-bold text-foreground pl-2">Max Seats:</span>
+                            <input
+                              type="number"
+                              min={1}
+                              value={newSeatsValue}
+                              onChange={(e) => setNewSeatsValue(parseInt(e.target.value) || 1)}
+                              className="w-20 px-2.5 py-1 text-xs font-bold bg-background border border-border rounded-lg text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+                            />
+                            <button
+                              onClick={() => handleUpdateMaxSeats(selectedOrgForManagement.id, newSeatsValue)}
+                              className="px-3 py-1 bg-primary text-primary-foreground font-bold text-xs rounded-lg transition cursor-pointer shadow-xs hover:bg-primary/90"
+                            >
+                              Save Seats
+                            </button>
+                            <button
+                              onClick={() => setEditingSeatsForOrg(false)}
+                              className="px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className={`flex items-center gap-3.5 border px-4 py-2 rounded-xl shadow-xs ${
+                            profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5)
+                              ? 'bg-amber-500/10 border-amber-500/40'
+                              : 'bg-surface-2 border-border/80'
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              <Users size={16} className={profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) ? "text-amber-600" : "text-primary"} />
+                              <div className="text-xs font-bold text-foreground">
+                                <span>{profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length}</span>
+                                <span className="text-muted-foreground font-normal"> / </span>
+                                <span className="text-primary font-extrabold">{selectedOrgForManagement.max_users || 5}</span>
+                                <span className="text-muted-foreground font-semibold"> Seats Used</span>
+                                {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) && (
+                                  <span className="ml-1.5 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 font-extrabold text-[10px] uppercase">
+                                    Full (Limit Reached)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setNewSeatsValue(selectedOrgForManagement.max_users || 5);
+                                setEditingSeatsForOrg(true);
+                              }}
+                              className="px-2.5 py-1 bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-bold rounded-lg border border-primary/20 transition cursor-pointer flex items-center gap-1.5"
+                              title="Increase or edit member seat limit"
+                            >
+                              <Edit3 size={13} />
+                              <span>Edit Seats</span>
+                            </button>
+                          </div>
+                        )}
+
                         <button 
-                          onClick={() => setSelectedOrgForManagement(null)}
-                          className="text-xs font-semibold text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                          onClick={() => {
+                            setSelectedOrgForManagement(null);
+                            setEditingSeatsForOrg(false);
+                            setEditingLicenseKey(false);
+                            setEditingConcurrentLimit(false);
+                          }}
+                          className="text-xs font-bold text-muted-foreground hover:text-foreground px-3.5 py-2.5 rounded-xl bg-surface-2 hover:bg-surface-3 transition cursor-pointer border border-border/60"
                         >
                           Close Manager ✕
                         </button>
                       </div>
                     </div>
 
-                    {/* Section: Add Existing Application Users to this Organization (Multi-Select) */}
-                    <div className="p-5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-4">
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-700/60 pb-3">
+                    {/* Organization License Key & Concurrent Session Controls */}
+                    <div className="p-4 bg-primary/5 rounded-2xl border border-primary/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="size-10 rounded-xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-center shrink-0">
+                          <Key size={18} />
+                        </div>
                         <div>
-                          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                            <UserPlus size={16} className="text-indigo-600 dark:text-indigo-400" />
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-extrabold uppercase text-foreground">Assigned License Key String:</span>
+                            {editingLicenseKey ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={newLicenseKeyVal}
+                                  onChange={(e) => setNewLicenseKeyVal(e.target.value)}
+                                  className="px-2.5 py-1 text-xs font-mono font-bold bg-background border border-border rounded-lg text-foreground outline-none focus:ring-2 focus:ring-primary/20 w-56"
+                                  placeholder="Enter License Key string..."
+                                />
+                                <button
+                                  onClick={() => handleUpdateOrgLicense(selectedOrgForManagement.id, newLicenseKeyVal, selectedOrgForManagement.max_concurrent_users || 1)}
+                                  className="px-3 py-1 bg-primary text-primary-foreground text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                                >
+                                  Save Key
+                                </button>
+                                <button
+                                  onClick={() => setEditingLicenseKey(false)}
+                                  className="text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-extrabold text-primary bg-primary/10 border border-primary/20 px-2.5 py-0.5 rounded-lg text-xs">
+                                  {selectedOrgForManagement.license_key || "MEP-LIC-ORG-PRO"}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setNewLicenseKeyVal(selectedOrgForManagement.license_key || `MEP-LIC-${selectedOrgForManagement.name.substring(0, 3).toUpperCase()}-2026`);
+                                    setEditingLicenseKey(true);
+                                  }}
+                                  className="text-xs text-muted-foreground hover:text-primary font-bold underline flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Edit3 size={12} /> Assign / Edit Key
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            Assigned license string in Supabase / Database for this organization.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* CONCURRENT ACTIVE CALCULATOR USERS LIMIT */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        <div className="bg-background border border-border/80 px-4 py-2 rounded-xl shadow-2xs">
+                          <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Simultaneous Active Seat Count</div>
+                          {editingConcurrentLimit ? (
+                            <div className="flex items-center gap-2 mt-1">
+                              <input
+                                type="number"
+                                min={1}
+                                value={newConcurrentVal}
+                                onChange={(e) => setNewConcurrentVal(parseInt(e.target.value) || 1)}
+                                className="w-16 px-2 py-0.5 text-xs font-bold bg-background border border-border rounded text-foreground outline-none focus:ring-1 focus:ring-primary"
+                              />
+                              <button
+                                onClick={() => handleUpdateOrgLicense(selectedOrgForManagement.id, selectedOrgForManagement.license_key || 'MEP-LIC-ORG-PRO', newConcurrentVal)}
+                                className="px-2.5 py-0.5 bg-primary text-primary-foreground text-xs font-bold rounded shadow-2xs cursor-pointer"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingConcurrentLimit(false)}
+                                className="text-xs text-muted-foreground cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-xs font-extrabold text-foreground">
+                                ⚡ {selectedOrgForManagement.max_concurrent_users || 1} User{(selectedOrgForManagement.max_concurrent_users || 1) === 1 ? '' : 's'} at once
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setNewConcurrentVal(selectedOrgForManagement.max_concurrent_users || 1);
+                                  setEditingConcurrentLimit(true);
+                                }}
+                                className="text-[11px] text-primary font-bold hover:underline cursor-pointer ml-1 flex items-center gap-1"
+                              >
+                                <Edit3 size={11} /> Change Limit
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section: Add Existing Application Users to this Organization (Multi-Select) */}
+                    <div className="p-5 bg-surface-2/60 rounded-2xl border border-border/70 space-y-4">
+                      {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) && (
+                        <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-300 text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                          <div className="flex items-center gap-2">
+                            <ShieldAlert size={18} className="text-amber-600 shrink-0" />
+                            <span>Seat limit reached ({profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length}/{selectedOrgForManagement.max_users || 5} Seats Used). No additional member can be added until the limit is increased.</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setNewSeatsValue(selectedOrgForManagement.max_users || 5);
+                              setEditingSeatsForOrg(true);
+                            }}
+                            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] transition cursor-pointer shrink-0 flex items-center gap-1"
+                          >
+                            <Edit3 size={12} />
+                            Increase Seat Limit
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-border/60 pb-3.5">
+                        <div>
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                            <UserPlus size={16} className="text-primary" />
                             Select Users to Add to {selectedOrgForManagement.name}
                           </h3>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             Check all the users you want to assign below, then click "Add Selected to Organization".
                           </p>
                         </div>
 
                         <div className="flex items-center gap-3">
                           <div className="relative">
-                            <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                            <Search size={14} className="absolute left-3 top-2.5 text-muted-foreground" />
                             <input 
                               type="text"
                               placeholder="Search available users..."
                               value={userSearchQuery}
                               onChange={(e) => setUserSearchQuery(e.target.value)}
-                              className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 w-52 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                              className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-border bg-background text-foreground w-56 outline-none focus:ring-2 focus:ring-primary/20"
                             />
                           </div>
                           <button
-                            disabled={selectedUserIds.length === 0}
+                            disabled={
+                              selectedUserIds.length === 0 || 
+                              profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) ||
+                              profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length + selectedUserIds.length > (selectedOrgForManagement.max_users || 5)
+                            }
                             onClick={() => handleBulkAssignToOrg(selectedOrgForManagement.id, selectedOrgForManagement.name)}
-                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+                            className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer"
                           >
                             <UserCheck size={16} />
-                            Add ({selectedUserIds.length}) Selected to {selectedOrgForManagement.name}
+                            {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5)
+                              ? `Seat Limit Full (${selectedOrgForManagement.max_users} Seats)`
+                              : profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length + selectedUserIds.length > (selectedOrgForManagement.max_users || 5)
+                                ? `Exceeds Seat Limit (${profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length + selectedUserIds.length}/${selectedOrgForManagement.max_users})`
+                                : `Add (${selectedUserIds.length}) Selected to ${selectedOrgForManagement.name}`
+                            }
                           </button>
                         </div>
                       </div>
 
                       {/* Multi-Select Users Grid */}
-                      <div className="max-h-60 overflow-y-auto pr-1">
+                      <div className="max-h-60 overflow-y-auto pr-1 custom-scrollbar">
                         {(() => {
                           const availableUsers = profiles.filter(p => 
                             p.organization_id !== selectedOrgForManagement.id && 
@@ -1079,7 +1348,7 @@ export function SuperAdminDashboard() {
 
                           if (availableUsers.length === 0) {
                             return (
-                              <p className="text-xs text-slate-500 italic py-4 text-center">
+                              <p className="text-xs text-muted-foreground italic py-4 text-center">
                                 {userSearchQuery ? "No matching available users found." : "All application users are already members of this organization!"}
                               </p>
                             );
@@ -1087,7 +1356,7 @@ export function SuperAdminDashboard() {
 
                           return (
                             <div className="space-y-2">
-                              <div className="flex items-center justify-between px-3 py-1.5 bg-slate-200/60 dark:bg-slate-900/60 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300">
+                              <div className="flex items-center justify-between px-3 py-2 bg-surface-3/60 rounded-xl text-xs font-bold text-foreground">
                                 <label className="flex items-center gap-2 cursor-pointer select-none">
                                   <input
                                     type="checkbox"
@@ -1100,16 +1369,16 @@ export function SuperAdminDashboard() {
                                         setSelectedUserIds(prev => prev.filter(id => !availIds.has(id)));
                                       }
                                     }}
-                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                                    className="rounded border-border text-primary focus:ring-primary w-4 h-4 cursor-pointer"
                                   />
                                   <span>Select All Available Users ({availableUsers.length})</span>
                                 </label>
-                                <span className="text-[11px] text-slate-400 font-normal">
+                                <span className="text-[11px] text-muted-foreground font-normal">
                                   {selectedUserIds.length} users selected
                                 </span>
                               </div>
 
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 pt-1">
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
                                 {availableUsers.map(u => {
                                   const isSelected = selectedUserIds.includes(u.id);
                                   return (
@@ -1118,10 +1387,10 @@ export function SuperAdminDashboard() {
                                       onClick={() => {
                                         setSelectedUserIds(prev => isSelected ? prev.filter(id => id !== u.id) : [...prev, u.id]);
                                       }}
-                                      className={`p-2.5 rounded-lg border text-xs flex items-center justify-between cursor-pointer transition-all ${
+                                      className={`p-3 rounded-xl border text-xs flex items-center justify-between cursor-pointer transition-all ${
                                         isSelected 
-                                          ? 'bg-indigo-500/10 border-indigo-500/60 text-indigo-900 dark:text-indigo-200 shadow-xs font-semibold' 
-                                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:border-slate-400'
+                                          ? 'bg-primary/10 border-primary text-foreground shadow-xs font-semibold' 
+                                          : 'bg-background border-border/80 text-foreground hover:border-border'
                                       }`}
                                     >
                                       <div className="flex items-center gap-2.5 truncate">
@@ -1129,16 +1398,16 @@ export function SuperAdminDashboard() {
                                           type="checkbox"
                                           checked={isSelected}
                                           onChange={() => {}} // Handled by parent div
-                                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                                          className="rounded border-border text-primary focus:ring-primary w-4 h-4 cursor-pointer"
                                         />
                                         <div className="truncate">
-                                          <p className="font-semibold truncate">{u.email}</p>
-                                          <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                          <p className="font-semibold truncate text-foreground">{u.email}</p>
+                                          <p className="text-[10px] text-muted-foreground truncate">
                                             {u.role} • {u.organization_id ? 'In another org' : 'Unassigned'}
                                           </p>
                                         </div>
                                       </div>
-                                      {isSelected && <Check size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0 ml-1" />}
+                                      {isSelected && <Check size={14} className="text-primary shrink-0 ml-1" />}
                                     </div>
                                   );
                                 })}
@@ -1151,25 +1420,25 @@ export function SuperAdminDashboard() {
 
                     {/* Section: Organization Members Table */}
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2">
-                        <Users size={16} className="text-indigo-600 dark:text-indigo-400" />
+                      <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
+                        <Users size={16} className="text-primary" />
                         Current Organization Members ({profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length})
                       </h3>
 
-                      <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                      <div className="overflow-x-auto rounded-2xl border border-border/80 bg-card shadow-xs">
                         <table className="w-full text-left border-collapse">
                           <thead>
-                            <tr className="bg-slate-100 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-xs font-bold tracking-wider text-slate-500 dark:text-slate-400 uppercase">
-                              <th className="py-3 px-4">User Email</th>
-                              <th className="py-3 px-4">Role</th>
-                              <th className="py-3 px-4">Status</th>
-                              <th className="py-3 px-4 text-right">Actions</th>
+                            <tr className="bg-surface-2/80 border-b border-border text-[11px] font-extrabold tracking-wider text-muted-foreground uppercase">
+                              <th className="py-3.5 px-4">User Email</th>
+                              <th className="py-3.5 px-4">Role</th>
+                              <th className="py-3.5 px-4">Status</th>
+                              <th className="py-3.5 px-4 text-right">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="text-sm divide-y divide-slate-100 dark:divide-slate-800">
+                          <tbody className="text-xs divide-y divide-border/40">
                             {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length === 0 ? (
                               <tr>
-                                <td colSpan={4} className="py-8 text-center text-slate-500 dark:text-slate-400 italic">
+                                <td colSpan={4} className="py-8 text-center text-muted-foreground italic">
                                   No members in this organization yet. Select an existing user above to add them!
                                 </td>
                               </tr>
@@ -1177,8 +1446,8 @@ export function SuperAdminDashboard() {
                               profiles
                                 .filter(p => p.organization_id === selectedOrgForManagement.id)
                                 .map(user => (
-                                  <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                    <td className="py-3 px-4 font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                  <tr key={user.id} className="hover:bg-surface-2/60 transition-colors">
+                                    <td className="py-3 px-4 font-semibold text-foreground flex items-center gap-2">
                                       {user.role === 'ORG_ADMIN' && <Crown size={15} className="text-amber-500 shrink-0" title="Organization Admin Representative" />}
                                       <span>{user.email}</span>
                                     </td>
@@ -1186,7 +1455,7 @@ export function SuperAdminDashboard() {
                                       <select
                                         value={user.role || 'Design Engineer'}
                                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                                        className="text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer shadow-xs focus:ring-2 focus:ring-indigo-500 max-w-[170px]"
+                                        className="text-xs p-2 rounded-xl border border-border bg-background font-semibold text-foreground cursor-pointer shadow-2xs focus:ring-2 focus:ring-primary/20 max-w-[180px] outline-none"
                                       >
                                         <option value="SUPER_ADMIN">⚡ SUPER_ADMIN</option>
                                         <option value="ORG_ADMIN">👑 ORG_ADMIN</option>
@@ -1203,7 +1472,7 @@ export function SuperAdminDashboard() {
                                       </select>
                                     </td>
                                     <td className="py-3 px-4">
-                                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                      <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                         {user.status || 'ACTIVE'}
                                       </span>
                                     </td>
@@ -1213,14 +1482,14 @@ export function SuperAdminDashboard() {
                                           await assignOrganization(user.id, '');
                                           toast.info(`Removed ${user.email} from ${selectedOrgForManagement.name}`);
                                         }}
-                                        className="px-3 py-1 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700/50 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                                        className="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer"
                                         title="Remove user from this organization"
                                       >
                                         Remove from Org
                                       </button>
                                       <button
                                         onClick={() => deleteUser(user.id, user.email)}
-                                        className="px-3 py-1 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700/50 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                                        className="px-3.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer"
                                         title="Permanently delete user"
                                       >
                                         Delete User

@@ -128,10 +128,12 @@ export function CalculationReviewBar({
 
   // Modal States
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   
   const [srComments, setSrComments] = useState("");
+  const [approveComments, setApproveComments] = useState("");
   const [rejectReason, setRejectReason] = useState("");
 
   // Sync state when storageKey changes
@@ -296,11 +298,13 @@ export function CalculationReviewBar({
   // Action 2: Discipline Coordinator Hits "Approve"
   const handleCoordinatorApprove = async () => {
     const timestamp = new Date().toLocaleString();
+    const commentText = approveComments.trim() || "Calculation Approved";
     const updated: CalculationReviewState = {
       ...reviewState,
       status: "APPROVED",
       approvedBy: currentUserName,
       approvedAt: timestamp,
+      reviewerComments: approveComments.trim() || reviewState.reviewerComments,
       history: [
         ...(reviewState.history || []),
         {
@@ -308,17 +312,20 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Discipline Coordinator",
           timestamp,
-          comment: "Calculation Approved"
+          comment: commentText
         }
       ]
     };
 
     updateReviewState(updated);
+    setShowApproveModal(false);
+    setApproveComments("");
 
     try {
       await api.logActivity("CALCULATION_APPROVED", {
         calculatorTitle,
-        approvedBy: currentUserName
+        approvedBy: currentUserName,
+        comment: commentText
       });
       
       // Auto-save version
@@ -421,7 +428,7 @@ export function CalculationReviewBar({
   };
 
   return (
-    <div className="no-print select-none inline-flex items-center gap-3">
+    <div className="calculation-review-bar no-print select-none inline-flex items-center gap-3">
       {/* 1. DIRECT HEADER ACTION BUTTONS (Rendered on Left) */}
       <div className="inline-flex items-center gap-2 shrink-0">
         {/* SR. DESIGN ENGINEER ACTION BUTTON */}
@@ -439,7 +446,7 @@ export function CalculationReviewBar({
         {userRole === "Discipline Coordinator" && (
           <div className="inline-flex items-center gap-2 shrink-0">
             <button
-              onClick={handleCoordinatorApprove}
+              onClick={() => setShowApproveModal(true)}
               disabled={reviewState.status === "APPROVED"}
               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
             >
@@ -520,7 +527,7 @@ export function CalculationReviewBar({
 
       {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
       {showReviewModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
             <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
               <ShieldCheck className="size-5 text-indigo-500" />
@@ -555,9 +562,46 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* MODAL 2: Discipline Coordinator Reject Modal (Mandatory Rejection Description) */}
+      {/* MODAL 2: Discipline Coordinator Approve Modal */}
+      {showApproveModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
+          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
+            <h3 className="text-base font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2 mb-2">
+              <CheckCircle2 className="size-5 text-emerald-500" />
+              Approve Calculation
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              You are approving the calculation for <span className="font-bold text-foreground">{calculatorTitle}</span>. You can optionally add approval notes or instructions for the team.
+            </p>
+            <textarea
+              value={approveComments}
+              onChange={(e) => setApproveComments(e.target.value)}
+              placeholder="Add optional approval comments or notes…"
+              rows={4}
+              className="w-full p-3 bg-surface-2 border border-emerald-300 dark:border-emerald-900/50 rounded-xl text-xs font-medium outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 text-foreground resize-none"
+            />
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowApproveModal(false)}
+                className="px-4 py-2 border border-border text-xs font-semibold rounded-xl hover:bg-surface-2 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCoordinatorApprove}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="size-3.5" />
+                Confirm & Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Discipline Coordinator Reject Modal (Mandatory Rejection Description) */}
       {showRejectModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
             <h3 className="text-base font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-2">
               <AlertTriangle className="size-5 text-red-500" />
@@ -592,9 +636,9 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* MODAL 3: View Reviewer Notes Modal */}
+      {/* MODAL 4: View Reviewer Notes Modal */}
       {showCommentsModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
             <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
               <MessageSquare className="size-5 text-primary" />

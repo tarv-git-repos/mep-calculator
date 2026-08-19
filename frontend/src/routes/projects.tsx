@@ -76,6 +76,25 @@ function ProjectsPage() {
     return cached ? JSON.parse(cached) : [];
   });
 
+  const assignableUsers = useMemo(() => {
+    if (profile?.role === 'SUPER_ADMIN') {
+      return allUsers;
+    }
+    const myOrgId = profile?.organization_id;
+    return allUsers.filter(u => 
+      u.role !== 'SUPER_ADMIN' && 
+      (!myOrgId || u.organization_id === myOrgId || !u.organization_id)
+    );
+  }, [allUsers, profile?.role, profile?.organization_id]);
+
+  const assignableTeams = useMemo(() => {
+    if (profile?.role === 'SUPER_ADMIN') {
+      return allTeams;
+    }
+    const myOrgId = profile?.organization_id;
+    return allTeams.filter(t => !myOrgId || t.organization_id === myOrgId || !t.organization_id);
+  }, [allTeams, profile?.role, profile?.organization_id]);
+
   const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem(`pinned_projects_${profile?.id}`) || "[]");
@@ -838,7 +857,7 @@ function ProjectsPage() {
                            }}
                            className="w-full bg-background border border-border/70 rounded-xl px-3 py-2 text-[12px] h-24 custom-scrollbar outline-none focus:border-primary"
                         >
-                           {allUsers.map(u => (
+                           {assignableUsers.map(u => (
                               <option key={u.id} value={u.id}>{u.name}</option>
                            ))}
                         </select>
@@ -856,7 +875,7 @@ function ProjectsPage() {
                            }}
                            className="w-full bg-background border border-border/70 rounded-xl px-3 py-2 text-[12px] h-24 custom-scrollbar outline-none focus:border-primary"
                         >
-                           {allTeams.map(t => (
+                           {assignableTeams.map(t => (
                               <option key={t.id} value={t.id}>{t.name}</option>
                            ))}
                         </select>
@@ -961,7 +980,7 @@ function ProjectsPage() {
                   defaultValue=""
                 >
                   <option value="" disabled>Select User to add...</option>
-                  {allUsers.filter(u => !(editingProj as any).project_users?.some((pu: any) => pu.user_id === u.id)).map(u => (
+                  {assignableUsers.filter(u => !(editingProj as any).project_users?.some((pu: any) => pu.user_id === u.id)).map(u => (
                     <option key={u.id} value={u.id}>{u.name}</option>
                   ))}
                 </select>

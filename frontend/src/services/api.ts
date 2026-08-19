@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
-  return import.meta.env.VITE_API_URL || 'http://localhost:4000';
+  return import.meta.env.VITE_API_URL || 'https://universal-mep-calculator.onrender.com';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -43,6 +43,9 @@ axios.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+let isHeartbeatEndpointAvailable = true;
+
 export const api = {
   // USERS
   async getUsers() {
@@ -325,7 +328,7 @@ export const api = {
     return { success: true, organization: fallbackOrg };
   },
 
-  async updateOrganization(orgData: { orgId: string; name?: string; subscription_plan?: string; max_users?: number }) {
+  async updateOrganization(orgData: { orgId: string; name?: string; subscription_plan?: string; max_users?: number; license_key?: string; max_concurrent_users?: number }) {
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/admin/organizations/update`, orgData);
       if (data.success) {
@@ -341,6 +344,39 @@ export const api = {
       return data;
     } catch (e: any) {
       return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+
+  async checkLicenseSession(sessionData: { userId: string; email: string; orgId: string }) {
+    if (!isHeartbeatEndpointAvailable) return { success: true, allowed: true };
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/heartbeat`, sessionData);
+      return data;
+    } catch (e: any) {
+      if (e.response && e.response.status === 404) {
+        // Render backend does not have the heartbeat route deployed yet; try local or disable pings
+        try {
+          const { data } = await axios.post(`http://localhost:4000/api/license/session/heartbeat`, sessionData);
+          return data;
+        } catch (localErr) {
+          isHeartbeatEndpointAvailable = false;
+        }
+      }
+      return { success: true, allowed: true };
+    }
+  },
+
+  async releaseLicenseSession(sessionData: { userId: string; orgId: string }) {
+    if (!isHeartbeatEndpointAvailable) return { success: true };
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/release`, sessionData);
+      return data;
+    } catch (e: any) {
+      try {
+        const { data } = await axios.post(`http://localhost:4000/api/license/session/release`, sessionData);
+        return data;
+      } catch (localErr) {}
+      return { success: true };
     }
   },
 
@@ -364,13 +400,31 @@ export const api = {
     return { success: true };
   },
   async getOrgUsers() {
+    let usersList: any[] = [];
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/org/users`);
-      return data.users || [];
+      usersList = data.users || [];
     } catch (e) {
       console.error(e);
-      return [];
+      usersList = [];
     }
+
+    try {
+      const cachedStr = localStorage.getItem('mep_local_users');
+      if (cachedStr) {
+        const cachedUsers = JSON.parse(cachedStr);
+        const cachedMap = new Map(cachedUsers.map((u: any) => [u.id, u]));
+        usersList = usersList.filter(u => {
+          const c = cachedMap.get(u.id);
+          if (c) {
+            return c.organization_id && c.organization_id !== '' && c.organization_id !== 'No Organization';
+          }
+          return u.organization_id && u.organization_id !== '' && u.organization_id !== 'No Organization';
+        });
+      }
+    } catch (e) {}
+
+    return usersList;
   },
   async inviteOrgUser(inviteData: { name: string; email: string; role: string }) {
     try {
