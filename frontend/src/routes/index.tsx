@@ -232,7 +232,7 @@ export function VentilationModule() {
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50">
+            <div className="relative z-10 flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/50">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 {TABS.map((t) => {
                   const active = t.id === tab;
@@ -2513,9 +2513,9 @@ addSpace(newSpace);
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
       {/* Toolbar */}
-      <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background shrink-0 flex-wrap no-print border-b border-border/50">
+      <div className="relative z-10 flex items-center gap-1.5 px-3 min-h-10 py-1.5 bg-background shrink-0 flex-wrap no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -4740,8 +4740,8 @@ function ZonesView() {
   );
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="relative flex items-center gap-1.5 px-3 py-2 shrink-0 flex-wrap bg-background no-print border-b border-border/50">
+    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
+      <div className="relative z-10 flex items-center gap-1.5 px-3 min-h-10 py-1.5 shrink-0 flex-wrap bg-background no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -6115,8 +6115,8 @@ function EquipmentView() {
   );
 
   return (
-    <div className="flex flex-col h-full select-none">
-      <div className="relative flex items-center gap-1.5 px-3 py-2 shrink-0 bg-background no-print border-b border-border/50">
+    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden select-none">
+      <div className="relative z-10 flex items-center gap-1.5 px-3 min-h-10 py-1.5 shrink-0 bg-background no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
