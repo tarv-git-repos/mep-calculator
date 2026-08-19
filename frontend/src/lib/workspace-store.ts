@@ -395,16 +395,27 @@ export const workspaceStore = {
     
     if (res.success) {
       const newProj = res.project;
-      projects.unshift(newProj);
+      
+      try {
+        const cloudProjects = await api.getProjects();
+        if (cloudProjects && cloudProjects.length > 0) {
+          projects = cloudProjects;
+        } else {
+          projects = [newProj, ...projects];
+        }
+      } catch (e) {
+        projects = [newProj, ...projects];
+      }
       
       saveState();
       clearHistory();
       
-      currentProject = newProj;
-      activeProjectId = newProj.id;
+      const targetProj = projects.find(p => p.id === newProj.id) || newProj;
+      currentProject = targetProj;
+      activeProjectId = targetProj.id;
       if (typeof localStorage !== "undefined") {
-        localStorage.setItem("mep_active_project_id", newProj.id);
-        localStorage.setItem("mep_last_worked_project_id", newProj.id);
+        localStorage.setItem("mep_active_project_id", targetProj.id);
+        localStorage.setItem("mep_last_worked_project_id", targetProj.id);
       }
       currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
       

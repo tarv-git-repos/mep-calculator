@@ -559,6 +559,8 @@ function ProjectsPage() {
           assigned_users: [],
           assigned_teams: [],
         });
+        setIsCreateOpen(false);
+        await refreshProjects();
       } else {
         toast.error(res?.message || "Failed to create project");
       }
