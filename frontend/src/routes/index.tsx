@@ -226,13 +226,13 @@ export function VentilationModule() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+          <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 {TABS.map((t) => {
                   const active = t.id === tab;
@@ -2515,7 +2515,7 @@ addSpace(newSpace);
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background shrink-0 flex-wrap no-print modal-blur-bg">
+      <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background shrink-0 flex-wrap no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -2741,21 +2741,21 @@ addSpace(newSpace);
         </div>
 
         {/* Grid */}
-        <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {spaces.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
               <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
                 <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
                   <Upload className="size-6" />
                 </div>
-                <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Loaded</h3>
-                <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
-                  Start by importing a Revit Excel space schedule sheet or manually add spaces. The system will automatically detect occupancy categories, target zone associations, and compute required airflows.
+                <h3 className="text-base font-bold text-foreground mb-1">No spaces in project</h3>
+                <p className="text-xs text-muted-foreground mb-6">
+                  Start by uploading your Revit/Excel space schedule or create spaces manually.
                 </p>
-                <div className="flex items-center gap-3 w-full">
+                <div className="flex gap-3 w-full">
                   <button
                     onClick={() => setImportOpen(true)}
-                    className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                    className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer shadow-sm"
                   >
                     <Upload className="size-3.5" /> Import Revit Excel
                   </button>
@@ -2784,6 +2784,7 @@ addSpace(newSpace);
               onRowDoubleClick={(r) => setEditingSpace(r)}
               activeRowId={editingSpace?.id}
               rowClassName={(r) => spaceRowClasses[r.id] || ""}
+              stickyHeaderTop={89}
             />
           )}
         </div>
@@ -4741,7 +4742,7 @@ function ZonesView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="relative flex items-center gap-1 px-3 h-10 shrink-0 flex-wrap bg-background no-print modal-blur-bg">
+      <div className="sticky top-[49px] z-28 flex items-center gap-1 px-3 py-1.5 shrink-0 flex-wrap bg-card/95 backdrop-blur-md no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -4766,41 +4767,52 @@ function ZonesView() {
           onSelect={setSelectedPressure}
           options={uniquePressures}
         />
-        <div className="ml-auto flex items-center gap-1">
-          <TBtn primary onClick={() => {
-            const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
-            const newZone: Zone = {
-              id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
-              name,
-              building: "Tower A",
-              floor: "L01",
-              spaceCount: 0,
-              area: 0,
-              freshAir: 0,
-              extractAir: 0,
-              pressure: 0,
-              equipment: [],
-              pressureType: "neutral",
-              multiplier: 1,
-              faAssignedQty: 1,
-              eaAssignedQty: 1,
-            };
-            addZone(newZone);
-          }}><Plus className="size-3.5" /> New Zone</TBtn>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            onClick={() => {
+              const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
+              const newZone: Zone = {
+                id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
+                name,
+                building: "Tower A",
+                floor: "L01",
+                spaceCount: 0,
+                area: 0,
+                freshAir: 0,
+                extractAir: 0,
+                pressure: 0,
+                equipment: [],
+                pressureType: "neutral",
+                multiplier: 1,
+                faAssignedQty: 1,
+                eaAssignedQty: 1,
+              };
+              addZone(newZone);
+            }}
+            className="flex items-center gap-1 px-3 h-7 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-sm"
+          >
+            <Plus className="size-3.5" /> New Zone
+          </button>
         </div>
 
-        {/* Bulk actions bar overlay for zones */}
         {selectedZones.size > 0 && (
-          <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
-            <span className="font-semibold">{selectedZones.size} selected</span>
-            <span className="text-primary/30">Â·</span>
-            <BulkBtn icon={Plus} onClick={() => setAssignZoneEquipOpen(true)}>Assign equipment</BulkBtn>
-            <BulkBtn icon={Trash2} onClick={async () => {
-              if (await confirm(`Are you sure you want to dissolve the ${selectedZones.size} selected zones?`)) {
-                selectedZones.forEach(id => deleteZone(id));
-                setSelectedZones(new Set());
-              }
-            }}>Dissolve Zones</BulkBtn>
+          <div className="w-full bg-[#06456F]/10 border border-[#06456F]/25 dark:bg-[#0A7BC7]/15 dark:border-[#0A7BC7]/35 rounded-lg px-2.5 py-1 text-[11.5px] text-[#06456F] dark:text-[#0A7BC7] font-semibold flex items-center gap-2 mt-1 animate-fade-in shadow-xs">
+            <span className="bg-[#06456F] text-white dark:bg-[#0A7BC7] dark:text-zinc-950 font-bold px-1.5 py-0.5 rounded text-[10px]">
+              {selectedZones.size}
+            </span>
+            <span>zone(s) selected</span>
+            <div className="h-3 w-px bg-[#06456F]/20 dark:bg-[#0A7BC7]/30 mx-1" />
+            <button 
+              onClick={async () => {
+                if (await confirm(`Are you sure you want to dissolve the ${selectedZones.size} selected zones?`)) {
+                  selectedZones.forEach(id => deleteZone(id));
+                  setSelectedZones(new Set());
+                }
+              }}
+              className="hover:underline hover:text-[#06456F] font-bold text-destructive cursor-pointer"
+            >
+              Dissolve Selected
+            </button>
             <button onClick={() => setSelectedZones(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded">
               <X className="size-3" /> Clear
             </button>
@@ -4808,7 +4820,7 @@ function ZonesView() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+      <div className="flex-1 flex flex-col">
         <DataGrid
           rows={rows}
           columns={columns}
@@ -4822,6 +4834,7 @@ function ZonesView() {
             setZoneAllocOpen(true);
           }}
           rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
+          stickyHeaderTop={89}
         />
       </div>
 
@@ -6105,7 +6118,7 @@ function EquipmentView() {
 
   return (
     <div className="flex flex-col h-full select-none">
-      <div className="relative flex items-center gap-1 px-3 h-10 shrink-0 bg-background no-print modal-blur-bg">
+      <div className="sticky top-[49px] z-28 flex items-center gap-1 px-3 py-1.5 shrink-0 bg-card/95 backdrop-blur-md no-print border-b border-border/50">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -6166,6 +6179,7 @@ function EquipmentView() {
           renderContextMenu={renderEquipmentContextMenu}
           onRowDoubleClick={handleEquipmentDoubleClicked}
           rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
+          stickyHeaderTop={89}
         />
       </div>
       <SharedAssignmentModal
