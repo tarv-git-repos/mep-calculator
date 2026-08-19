@@ -73,7 +73,25 @@ export function OrgAdminDashboard() {
 
   const fetchUsers = async () => {
     setLoading(true)
-    const fetchedUsers = await api.getOrgUsers()
+    let fetchedUsers = await api.getOrgUsers()
+    
+    // Strict org filtering: only include users matching Org Admin's organization_id or company
+    const myOrgId = currentUserProfile?.organization_id;
+    const myCompany = currentUserProfile?.company || currentUserProfile?.organization;
+
+    if (fetchedUsers && fetchedUsers.length > 0) {
+      fetchedUsers = fetchedUsers.filter((u: any) => {
+        if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+        if (myOrgId && u.organization_id) {
+          return String(u.organization_id) === String(myOrgId);
+        }
+        if (myCompany && (u.company || u.organization)) {
+          return u.company === myCompany || u.organization === myCompany;
+        }
+        return true;
+      });
+    }
+
     setUsers(fetchedUsers || [])
     setLoading(false)
   }

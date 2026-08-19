@@ -597,11 +597,16 @@ export function SuperAdminDashboard() {
       }
     }
     
-    // Update local state instantly
-    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, organization_id: orgId || undefined, company: orgName } : p));
-    if (profileId && typeof window !== 'undefined') {
-      localStorage.setItem(`mep_user_company_${profileId}`, orgName);
-    }
+    // Update local state & local storage instantly
+    const updatedProfiles = profiles.map(p => p.id === profileId ? { ...p, organization_id: orgId || '', company: orgName, organization: orgName } : p);
+    setProfiles(updatedProfiles);
+    try {
+      localStorage.setItem('mep_local_users', JSON.stringify(updatedProfiles));
+      localStorage.setItem('cachedAllUsers', JSON.stringify(updatedProfiles));
+      if (profileId) {
+        localStorage.setItem(`mep_user_company_${profileId}`, orgName);
+      }
+    } catch (e) {}
 
     const res = await api.adminUpdateProfile(profileId, { 
       organization_id: orgId || null,
