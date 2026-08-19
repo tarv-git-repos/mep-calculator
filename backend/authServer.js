@@ -1034,20 +1034,35 @@ const server = http.createServer(async (req, res) => {
     const { error } = await supabase.from('projects').insert(dbProject);
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
-    // Always assign creator
-    if (!assigned_users.includes(user.id)) assigned_users.push(user.id);
-    if (user.email && !assigned_users.includes(user.email)) assigned_users.push(user.email);
+    // Always assign creator (deduplicated)
+    const rawUserIds = [...assigned_users, user.id, user.email].filter(Boolean);
+    const cleanUserIds = Array.from(new Set(rawUserIds.map(x => String(x).trim())));
+    const cleanTeamIds = Array.from(new Set(assigned_teams.filter(Boolean).map(x => String(x).trim())));
 
-    // Insert access rules
-    if (assigned_users.length > 0) {
-      await supabase.from('project_users').insert(assigned_users.map(uid => ({ project_id: projectId, user_id: uid })));
-    }
-    if (assigned_teams.length > 0) {
-      await supabase.from('project_teams').insert(assigned_teams.map(tid => ({ project_id: projectId, team_id: tid })));
+    // Insert access rules safely using upsert to handle any pre-existing or duplicate entries
+    if (cleanUserIds.length > 0) {
+      const puPayload = cleanUserIds.map(uid => ({ project_id: projectId, user_id: uid }));
+      const { error: puErr } = await supabase.from('project_users').upsert(puPayload, { onConflict: 'project_id,user_id', ignoreDuplicates: true });
+      if (puErr) {
+        // Fallback: insert individually if batch upsert fails
+        for (const uid of cleanUserIds) {
+          try { await supabase.from('project_users').upsert({ project_id: projectId, user_id: uid }); } catch (e) {}
+        }
+      }
     }
 
-    const projectUsers = assigned_users.map(uid => ({ project_id: projectId, user_id: uid }));
-    const projectTeams = assigned_teams.map(tid => ({ project_id: projectId, team_id: tid }));
+    if (cleanTeamIds.length > 0) {
+      const ptPayload = cleanTeamIds.map(tid => ({ project_id: projectId, team_id: tid }));
+      const { error: ptErr } = await supabase.from('project_teams').upsert(ptPayload, { onConflict: 'project_id,team_id', ignoreDuplicates: true });
+      if (ptErr) {
+        for (const tid of cleanTeamIds) {
+          try { await supabase.from('project_teams').upsert({ project_id: projectId, team_id: tid }); } catch (e) {}
+        }
+      }
+    }
+
+    const projectUsers = cleanUserIds.map(uid => ({ project_id: projectId, user_id: uid }));
+    const projectTeams = cleanTeamIds.map(tid => ({ project_id: projectId, team_id: tid }));
 
     return sendJSON(res, 200, { 
       success: true, 

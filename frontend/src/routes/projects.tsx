@@ -871,24 +871,31 @@ function ProjectsPage() {
                             </span>
                           );
                         })}
-                        {(p as any).project_users?.map((pu: any) => {
-                          const puId = String(pu.user_id || pu.id || '').toLowerCase();
-                          const user = allUsers.find(u => 
-                            String(u.id || '').toLowerCase() === puId || 
-                            String(u.email || '').toLowerCase() === puId
-                          );
-                          const userName = user?.name || (pu.user_id && String(pu.user_id).includes('@') ? String(pu.user_id).split('@')[0] : 'User');
-                          return (
-                            <span key={`u-${pu.user_id}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
-                              <User className="size-3 text-muted-foreground" /> {userName}
-                              {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
-                                <button onClick={() => handleRemoveUserFromProject(p.id, pu.user_id)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
-                                  <X className="size-2.5" />
-                                </button>
-                              )}
-                            </span>
-                          );
-                        })}
+                        {(() => {
+                          const seenUserNames = new Set<string>();
+                          return (p as any).project_users?.map((pu: any) => {
+                            const puId = String(pu.user_id || pu.id || '').toLowerCase();
+                            const user = allUsers.find(u => 
+                              String(u.id || '').toLowerCase() === puId || 
+                              String(u.email || '').toLowerCase() === puId ||
+                              (u.email && String(u.email || '').toLowerCase().split('@')[0] === puId)
+                            );
+                            const userName = user?.name || (pu.user_id && String(pu.user_id).includes('@') ? String(pu.user_id).split('@')[0] : (pu.user_id || 'User'));
+                            if (seenUserNames.has(userName.toLowerCase())) return null;
+                            seenUserNames.add(userName.toLowerCase());
+
+                            return (
+                              <span key={`u-${pu.user_id}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
+                                <User className="size-3 text-muted-foreground" /> {userName}
+                                {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
+                                  <button onClick={() => handleRemoveUserFromProject(p.id, pu.user_id)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
+                                    <X className="size-2.5" />
+                                  </button>
+                                )}
+                              </span>
+                            );
+                          });
+                        })()}
                       </div>
                     )}
                   </div>
