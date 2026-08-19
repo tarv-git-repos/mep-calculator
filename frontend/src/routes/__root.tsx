@@ -359,6 +359,7 @@ function DirtyWatcher() {
   return null;
 }
 
+import { NetworkConnectionGuard } from "@/components/NetworkConnectionGuard";
 import { workspaceStore } from "@/lib/workspace-store";
 
 function RootComponent() {
@@ -370,20 +371,22 @@ function RootComponent() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ConfirmProvider>
-          <ThemeWatcher />
-          <DirtyWatcher />
-          <AutoUpdaterPopup />
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <AuthGuard>
-            <Outlet />
-          </AuthGuard>
-          <Toaster />
-        </ConfirmProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <NetworkConnectionGuard>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ConfirmProvider>
+            <ThemeWatcher />
+            <DirtyWatcher />
+            <AutoUpdaterPopup />
+            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+            <AuthGuard>
+              <Outlet />
+            </AuthGuard>
+            <Toaster />
+          </ConfirmProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </NetworkConnectionGuard>
   );
 }
 
