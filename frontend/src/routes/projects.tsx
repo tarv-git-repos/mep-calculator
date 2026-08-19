@@ -77,11 +77,14 @@ function MemberAssignmentPicker({
   }, [assignableTeams, search]);
 
   const toggleUser = (userObj: any) => {
-    const targetId = userObj.id || userObj.email;
-    if (selectedUsers.includes(targetId) || selectedUsers.includes(userObj.email)) {
-      onChangeUsers(selectedUsers.filter((id) => id !== targetId && id !== userObj.email && id !== userObj.id));
+    const idVal = userObj.id || userObj.email;
+    const emailVal = userObj.email || userObj.id;
+    const isCurrentlySelected = selectedUsers.includes(idVal) || selectedUsers.includes(emailVal);
+    if (isCurrentlySelected) {
+      onChangeUsers(selectedUsers.filter((id) => id !== idVal && id !== emailVal));
     } else {
-      onChangeUsers([...selectedUsers, targetId]);
+      const next = Array.from(new Set([...selectedUsers, idVal, emailVal].filter(Boolean)));
+      onChangeUsers(next);
     }
   };
 
@@ -1176,8 +1179,8 @@ function ProjectsPage() {
                       assignableTeams={assignableTeams}
                       selectedUsers={newProject.assigned_users}
                       selectedTeams={newProject.assigned_teams}
-                      onChangeUsers={(users) => setNewProject({ ...newProject, assigned_users: users })}
-                      onChangeTeams={(teams) => setNewProject({ ...newProject, assigned_teams: teams })}
+                      onChangeUsers={(users) => setNewProject((prev) => ({ ...prev, assigned_users: users }))}
+                      onChangeTeams={(teams) => setNewProject((prev) => ({ ...prev, assigned_teams: teams }))}
                     />
                   </div>
                 )}
