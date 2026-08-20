@@ -1,6 +1,7 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -1823,7 +1824,7 @@ const server = http.createServer(async (req, res) => {
     if (!name || !name.trim()) return sendJSON(res, 400, { success: false, message: 'Organization name required' });
 
     const newOrg = {
-      id: `org_${Date.now()}`,
+      id: crypto.randomUUID(),
       name: name.trim(),
       subscription_plan: subscription_plan || 'ENTERPRISE',
       max_users: parseInt(max_users) || 10,
