@@ -372,6 +372,7 @@ function SpacesView() {
     spaces,
     zones,
     equipment,
+    activeProjectId,
     updateSpaces,
     addSpace,
     addZone,
@@ -2486,10 +2487,9 @@ function SpacesView() {
       e.preventDefault();
       e.stopPropagation();
     }
-    const currentProjId = useWorkspace.getState().activeProjectId;
-    if (currentProjId && typeof window !== 'undefined') {
+    if (activeProjectId && typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem(`mep_calc_review_${currentProjId}_/ventilation`);
+        const saved = localStorage.getItem(`mep_calc_review_${activeProjectId}_/ventilation`);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed.status === "APPROVED") {
