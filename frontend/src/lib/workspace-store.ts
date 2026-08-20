@@ -623,6 +623,10 @@ export const workspaceStore = {
   },
 
   addSpace(newSpace: Space) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     const nextSpace = { ...newSpace };
     if (!nextSpace.category && nextSpace.name) {
@@ -670,6 +674,10 @@ export const workspaceStore = {
   },
 
   addSpacesBulk(newSpaces: Space[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     const existingZoneNames = new Set(
       currentWorkspaceState.zones.map((z) => z.name.toLowerCase())
@@ -726,6 +734,10 @@ export const workspaceStore = {
   },
 
   deleteSpaces(idsToDelete: string[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     
     // Find the names/ids of the zones assigned to the spaces we are deleting
@@ -764,6 +776,10 @@ export const workspaceStore = {
   },
 
   bulkUpdateSpaces(ids: string[], updates: Partial<Space>) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     const nextSpaces = currentWorkspaceState.spaces.map((s) => {
       if (ids.includes(s.id)) {

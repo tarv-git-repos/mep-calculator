@@ -11,9 +11,12 @@ interface CategorySelectProps {
   className?: string;
   triggerClassName?: string;
   hideChevron?: boolean;
+  disabled?: boolean;
 }
 
-export function CategorySelect({ value, onChange, className, triggerClassName, hideChevron }: CategorySelectProps) {
+export function CategorySelect({ value, onChange, className, triggerClassName, hideChevron, disabled }: CategorySelectProps) {
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+  const isEffectiveDisabled = disabled || isReadOnly;
   const [open, setOpen] = useState(false);
   const categories = getOccupancyCategories();
 
@@ -23,16 +26,22 @@ export function CategorySelect({ value, onChange, className, triggerClassName, h
 
   return (
     <div className={cn("relative w-full min-w-0", className)}>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={isEffectiveDisabled ? false : open} onOpenChange={(val) => { if (!isEffectiveDisabled) setOpen(val); }}>
         <PopoverTrigger asChild>
           <button
             type="button"
+            disabled={isEffectiveDisabled}
             className={cn(
-              "flex items-center justify-between w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[13px] cursor-pointer min-w-0 transition-all",
+              "flex items-center justify-between w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[13px] min-w-0 transition-all",
+              isEffectiveDisabled ? "cursor-not-allowed opacity-75 pointer-events-none hover:bg-transparent" : "cursor-pointer",
               triggerClassName
             )}
             onClick={(e) => {
               e.stopPropagation();
+              if (isEffectiveDisabled) {
+                e.preventDefault();
+                toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+              }
             }}
           >
             <span className="truncate mr-1.5">{triggerText}</span>

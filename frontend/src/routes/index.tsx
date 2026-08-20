@@ -326,9 +326,12 @@ interface InlineInputProps {
   step?: string;
   min?: number;
   placeholder?: string;
+  disabled?: boolean;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder }: InlineInputProps) {
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled }: InlineInputProps) {
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+  const isEffectiveDisabled = disabled || isReadOnly;
   const [localVal, setLocalVal] = useState(String(value));
 
   useEffect(() => {
@@ -349,18 +352,36 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
+      disabled={isEffectiveDisabled}
       placeholder={placeholder}
       value={localVal}
-      onChange={(e) => setLocalVal(e.target.value)}
+      onChange={(e) => {
+        if (isEffectiveDisabled) return;
+        setLocalVal(e.target.value);
+      }}
       onBlur={() => {
+        if (isEffectiveDisabled) {
+          setLocalVal(String(value));
+          return;
+        }
         if (localVal !== String(value)) {
           onCommit(localVal);
         }
       }}
       onKeyDown={handleKeyDown}
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (isEffectiveDisabled) {
+          e.preventDefault();
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        }
+      }}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text ${className}`}
+      className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
+        isEffectiveDisabled 
+          ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent" 
+          : "hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 cursor-text"
+      } ${className}`}
     />
   );
 }
@@ -2198,15 +2219,22 @@ function SpacesView() {
             className={`size-1.5 rounded-full shrink-0 ml-5 ${r.pressureAutoDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
           />
           <select
+            disabled={isReadOnly}
             value={displayVal}
             onChange={(e) => {
+              if (isReadOnly) {
+                toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                return;
+              }
               const newVal = REVERSE_PRESSURE_MAP[e.target.value] || "Positive";
               bulkUpdateSpaces(getSpaceEditIds(r.id), { 
                 pressure: newVal, 
                 pressureAutoDetected: false 
               });
             }}
-            className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent cursor-pointer focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${
+            className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${
+              isReadOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+            } ${
               r.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
               r.pressure === "Negative" ? "bg-destructive/20 text-destructive dark:bg-destructive/20 dark:text-red-400" :
               r.pressure === "Critical" ? "bg-warning/20 text-warning dark:bg-warning/20 dark:text-amber-400" :

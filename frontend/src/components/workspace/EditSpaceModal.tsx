@@ -821,6 +821,11 @@ export function EditSpaceModal({
           </button>
           <button
             onClick={() => {
+              const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+              if (isReadOnly) {
+                toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                return;
+              }
               let finalSpace = { ...tempSpace };
               if (
                 finalSpace.multiplier === undefined ||
