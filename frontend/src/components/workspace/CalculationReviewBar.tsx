@@ -58,35 +58,56 @@ export function CalculationReviewBar({
   const userRole = useMemo<WorkflowRole>(() => {
     const activeProfile = profile || userData || {};
     
-    // Extract role and designation strings from profile and userData
+    // Extract exact role strings
     const roleVal = String(activeProfile.role || userData?.role || "").trim();
     const desVal = String(activeProfile.designation || userData?.designation || "").trim();
     const metaRole = String(userData?.user_metadata?.role || "").trim();
     
-    const combinedStr = `${roleVal} ${desVal} ${metaRole}`.toLowerCase();
+    const roleUpper = roleVal.toUpperCase();
+    const metaUpper = metaRole.toUpperCase();
 
-    // Priority 1: DISCIPLINE COORDINATOR check FIRST!
-    // Must contain "discipline coordinator" or "coordinator" (excluding BIM coordinator)
-    const isCoordinator = combinedStr.includes("discipline coordinator") || 
-                          (combinedStr.includes("coordinator") && !combinedStr.includes("bim coordinator") && !combinedStr.includes("bim_coordinator"));
+    // 1. ABSOLUTE GUARD: If account system role is ORG_ADMIN, SUPER_ADMIN, PROJECT_MANAGER, or VIEWER:
+    // They are NOT a Discipline Coordinator and MUST NEVER see Approve/Reject buttons!
+    if (
+      roleUpper === "ORG_ADMIN" || 
+      roleUpper === "SUPER_ADMIN" || 
+      roleUpper === "PROJECT_MANAGER" ||
+      roleUpper === "VIEWER" ||
+      metaUpper === "ORG_ADMIN" ||
+      metaUpper === "SUPER_ADMIN" ||
+      metaUpper === "PROJECT_MANAGER" ||
+      metaUpper === "VIEWER"
+    ) {
+      return "Jr. / Design Engineer";
+    }
 
-    if (isCoordinator) {
+    // 2. DISCIPLINE COORDINATOR: ONLY if role or designation is explicitly "Discipline Coordinator"
+    const isExplicitCoordinator = 
+      roleVal === "Discipline Coordinator" ||
+      desVal === "Discipline Coordinator" ||
+      roleVal.toLowerCase() === "discipline coordinator" ||
+      desVal.toLowerCase() === "discipline coordinator";
+
+    if (isExplicitCoordinator) {
       return "Discipline Coordinator";
     }
 
-    // Priority 2: SR. DESIGN ENGINEER check
-    const isSenior = combinedStr.includes("sr. design engineer") || 
-                     combinedStr.includes("senior design engineer") ||
-                     combinedStr.includes("sr. engineer") || 
-                     combinedStr.includes("senior engineer") ||
-                     combinedStr.includes("sr design") ||
-                     combinedStr.includes("senior design");
+    // 3. SR. DESIGN ENGINEER: ONLY if role or designation is explicitly "Sr. Design Engineer" / "Senior Design Engineer"
+    const isExplicitSenior = 
+      roleVal === "Sr. Design Engineer" ||
+      desVal === "Sr. Design Engineer" ||
+      roleVal === "Senior Design Engineer" ||
+      desVal === "Senior Design Engineer" ||
+      roleVal.toLowerCase().includes("senior") ||
+      desVal.toLowerCase().includes("senior") ||
+      roleVal.toLowerCase().includes("sr.") ||
+      desVal.toLowerCase().includes("sr.");
 
-    if (isSenior) {
+    if (isExplicitSenior) {
       return "Sr. Design Engineer";
     }
 
-    // Default fallback: Jr. / Design Engineer (includes Org Admin, Super Admin, Project Manager, Viewers, etc.)
+    // Default fallback: Jr. / Design Engineer
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
