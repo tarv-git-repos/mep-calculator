@@ -2486,9 +2486,18 @@ function SpacesView() {
       e.preventDefault();
       e.stopPropagation();
     }
-    if (isApprovedLocked) {
-      toast.error("Calculation is APPROVED (Official Record). Editing is locked until the Discipline Coordinator rejects.");
-      return;
+    const currentProjId = useWorkspace.getState().activeProjectId;
+    if (currentProjId && typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`mep_calc_review_${currentProjId}_/ventilation`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.status === "APPROVED") {
+            toast.error("Calculation is APPROVED (Official Record). Editing is locked until the Discipline Coordinator rejects.");
+            return;
+          }
+        }
+      } catch(err) {}
     }
     const defaultNum = spaces.length + 1;
     const newSpace: Space = {
