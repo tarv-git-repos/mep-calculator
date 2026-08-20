@@ -147,41 +147,43 @@ export function getSignatureBlockDetails(
   }
 
   // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = project creation date
-  const originatedName = getExporterUserName(exporterName);
-  const originatedDate = projectCreatedDateStr;
+  // Current calculation review status
+  const currentStatus = reviewState?.status || "DRAFT";
 
-  // 2. Reviewed By: Find the LATEST reviewed action
+  // 2. Reviewed By: ONLY populate if current status is REVIEWED or APPROVED
   let reviewerName = "";
   let reviewerDate = "";
 
-  if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
-    const revItem = [...reviewState.history].reverse().find((h: any) => h.action === "REVIEWED");
-    if (revItem) {
-      reviewerName = revItem.user;
-      reviewerDate = formatDateStr(revItem.timestamp);
+  if (currentStatus === "REVIEWED" || currentStatus === "APPROVED") {
+    if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
+      const revItem = [...reviewState.history].reverse().find((h: any) => h.action === "REVIEWED");
+      if (revItem) {
+        reviewerName = revItem.user;
+        reviewerDate = formatDateStr(revItem.timestamp);
+      }
+    }
+    if (!reviewerName && reviewState?.reviewedBy) {
+      reviewerName = reviewState.reviewedBy;
+      reviewerDate = formatDateStr(reviewState.reviewedAt);
     }
   }
 
-  if (!reviewerName && reviewState?.reviewedBy) {
-    reviewerName = reviewState.reviewedBy;
-    reviewerDate = formatDateStr(reviewState.reviewedAt);
-  }
-
-  // 3. Approved By: Find the LATEST approved action
+  // 3. Approved By: ONLY populate if current status is APPROVED
   let approverName = "";
   let approverDate = "";
 
-  if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
-    const appItem = [...reviewState.history].reverse().find((h: any) => h.action === "APPROVED");
-    if (appItem) {
-      approverName = appItem.user;
-      approverDate = formatDateStr(appItem.timestamp);
+  if (currentStatus === "APPROVED") {
+    if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
+      const appItem = [...reviewState.history].reverse().find((h: any) => h.action === "APPROVED");
+      if (appItem) {
+        approverName = appItem.user;
+        approverDate = formatDateStr(appItem.timestamp);
+      }
     }
-  }
-
-  if (!approverName && reviewState?.status === "APPROVED" && reviewState?.approvedBy) {
-    approverName = reviewState.approvedBy;
-    approverDate = formatDateStr(reviewState.approvedAt);
+    if (!approverName && reviewState?.approvedBy) {
+      approverName = reviewState.approvedBy;
+      approverDate = formatDateStr(reviewState.approvedAt);
+    }
   }
 
   return {

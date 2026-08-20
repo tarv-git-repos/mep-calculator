@@ -365,6 +365,8 @@ export function CalculationReviewBar({
       rejectedBy: currentUserName,
       rejectedAt: timestamp,
       rejectionDescription: rejectReason.trim(),
+      approvedBy: undefined,
+      approvedAt: undefined,
       history: [
         ...(reviewState.history || []),
         {

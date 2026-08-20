@@ -7,7 +7,7 @@ import {
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
   Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2
 } from "lucide-react";
-import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
+import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { toast } from "sonner";
@@ -1042,38 +1042,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return () => clearInterval(autoSaveTimer);
   }, [activeProjectId, project?.id]);
 
-  const lockOwnerObj = getLockOwner(pathname);
-  const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
-  const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
-
-  // 1-Second High-Frequency Cloud Auto-Save & Auto-Refresh Engine
-  const [, setAutoRefreshTick] = useState(0);
-
-  useEffect(() => {
-    const refreshTimer = setInterval(() => {
-      // 1. Re-evaluate lock handoff state every 1s
-      setAutoRefreshTick((prev) => prev + 1);
-
-      if (!project?.id) return;
-
-      const isEffectiveReadOnly = isReadOnly || isLockedByOther || isViewerRole;
-      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
-      const isUserTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable') === 'true');
-
-      if (!isEffectiveReadOnly) {
-        // EDITOR MODE: Auto-save workspace changes to cloud every 1 second
-        workspaceStore.forceSaveToCloud();
-      } else {
-        // READ-ONLY / VIEWER MODE: Auto-refresh workspace data from cloud every 1 second
-        if (!isUserTyping) {
-          workspaceStore.syncFromCloud();
-        }
-      }
-    }, 1000);
-
-    return () => clearInterval(refreshTimer);
-  }, [project?.id, isReadOnly, isLockedByOther, isViewerRole]);
-
   useEffect(() => {
     // Expose for export scripts outside React context
     if (typeof window !== 'undefined') {
@@ -1095,6 +1063,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       navigate({ to: '/privacy' });
     }
   }, [pathname, navigate, userData?.privacyPolicyAccepted]);
+
+  const lockOwnerObj = getLockOwner(pathname);
+  const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
+  const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
 
   // Restore inputs on project/route change
   useEffect(() => {
