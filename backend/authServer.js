@@ -1164,6 +1164,23 @@ const server = http.createServer(async (req, res) => {
     const { project_id, workspace_data } = await getRequestBody(req);
 
     const nowIso = new Date().toISOString();
+    
+    // Server-side Future-Proofing: Sanitize workspace spaces before saving to DB
+    if (workspace_data && Array.isArray(workspace_data.spaces)) {
+      workspace_data.spaces = workspace_data.spaces.map((s, idx) => {
+        let nameStr = String(s.name || '').trim();
+        if (!s.name || nameStr === '' || nameStr === 'undefined' || nameStr === 'null') {
+          if (s.zone && s.zone !== 'Default' && s.zone !== 'Unzoned' && !String(s.zone).startsWith('zone-')) {
+            s.name = String(s.zone).trim();
+            s.zone = 'Default';
+          } else {
+            s.name = s.spaceName || s.roomName || s.title || (s.code && s.code !== 'undefined' ? s.code : `Space ${idx + 1}`);
+          }
+        }
+        return s;
+      });
+    }
+
     const { error } = await supabase.from('projects').update({ 
       workspace_data, 
       last_modified: nowIso 

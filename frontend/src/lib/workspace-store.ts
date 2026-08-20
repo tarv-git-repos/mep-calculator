@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { calculateVentilation, setGlobalRoundOffPreset, type Space, type Zone, type Equipment, type ZoneInstanceAssignment } from "./ventilation-calc";
+import { calculateVentilation, setGlobalRoundOffPreset, sanitizeSpaceRecord, type Space, type Zone, type Equipment, type ZoneInstanceAssignment } from "./ventilation-calc";
 export type { ZoneInstanceAssignment };
 import { predictOccupancyCategory, predictSpacePressure } from "./ai-occupancy";
 import { api } from "../services/api";
@@ -55,27 +55,17 @@ export function sanitizeWorkspaceState(state: any) {
 
   // Always resolve space.name and space.zone to clean human-readable names
   if (Array.isArray(state.spaces)) {
-    state.spaces = state.spaces.map((s: any) => {
-      // Fix missing/corrupted/literal "undefined" space name
-      const nameStr = String(s.name || "").trim();
-      if (!s.name || nameStr === "" || nameStr === "undefined" || nameStr === "null") {
-        if (s.zone && s.zone !== "Default" && s.zone !== "Unzoned" && !s.zone.startsWith("zone-")) {
-          s.name = s.zone;
-          s.zone = "Default";
-        } else {
-          const fallbackName = s.spaceName || s.roomName || s.title || (s.code && s.code !== "undefined" ? s.code : null);
-          s.name = fallbackName || `Space ${s.id ? String(s.id).replace('pending-', '').slice(-4) : '1'}`;
-        }
-      }
-      if (s.zone) {
-        const cleanName = zoneNameMap.get(s.zone) || zoneNameMap.get(s.zone.toLowerCase());
+    state.spaces = state.spaces.map((s: any, idx: number) => {
+      const sanitized = sanitizeSpaceRecord(s, idx + 1);
+      if (sanitized.zone) {
+        const cleanName = zoneNameMap.get(sanitized.zone) || zoneNameMap.get(sanitized.zone.toLowerCase());
         if (cleanName) {
-          s.zone = cleanName;
-        } else if (s.zone.startsWith("zone-")) {
-          s.zone = "Default";
+          sanitized.zone = cleanName;
+        } else if (sanitized.zone.startsWith("zone-")) {
+          sanitized.zone = "Default";
         }
       }
-      return s;
+      return sanitized;
     });
   }
 

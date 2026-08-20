@@ -10,6 +10,75 @@ export interface TaskComment {
   timestamp: string;
 }
 
+export function sanitizeSpaceRecord(s: any, defaultIndex = 1): Space {
+  if (!s || typeof s !== 'object') {
+    return {
+      id: `space-${Date.now()}-${defaultIndex}`,
+      code: `SP-${String(defaultIndex).padStart(3, '0')}`,
+      name: `Space ${defaultIndex}`,
+      building: 'Tower A',
+      floor: 'L01',
+      zone: 'Default',
+      category: '',
+      area: 10,
+      occupancy: 0,
+      freshAir: 0,
+      extractAir: 0,
+      pressure: 'Neutral',
+      equipment: '',
+      status: 'draft',
+      multiplier: 1,
+    };
+  }
+
+  const cleanId = String(s.id || `space-${Date.now()}-${defaultIndex}`);
+
+  // Resolve space name with 100% future-proof fallback hierarchy
+  let rawName = String(s.name || '').trim();
+  if (!rawName || rawName === 'undefined' || rawName === 'null') {
+    const rawSpaceName = String(s.spaceName || s.roomName || s.title || '').trim();
+    if (rawSpaceName && rawSpaceName !== 'undefined' && rawSpaceName !== 'null') {
+      rawName = rawSpaceName;
+    } else if (s.zone && s.zone !== 'Default' && s.zone !== 'Unzoned' && !String(s.zone).startsWith('zone-')) {
+      rawName = String(s.zone).trim();
+      s.zone = 'Default';
+    } else if (s.code && s.code !== 'undefined' && s.code !== 'null') {
+      rawName = String(s.code).trim();
+    } else {
+      rawName = `Space ${defaultIndex}`;
+    }
+  }
+
+  const cleanCode = (!s.code || s.code === 'undefined' || s.code === 'null')
+    ? `SP-${String(defaultIndex).padStart(3, '0')}`
+    : String(s.code).trim();
+
+  const cleanBuilding = (!s.building || s.building === 'undefined' || s.building === 'null')
+    ? 'Tower A'
+    : String(s.building).trim();
+
+  const cleanFloor = (!s.floor || s.floor === 'undefined' || s.floor === 'null')
+    ? 'L01'
+    : String(s.floor).trim();
+
+  const cleanZone = (!s.zone || s.zone === 'undefined' || s.zone === 'null')
+    ? 'Default'
+    : String(s.zone).trim();
+
+  return {
+    ...s,
+    id: cleanId,
+    code: cleanCode,
+    name: rawName,
+    building: cleanBuilding,
+    floor: cleanFloor,
+    zone: cleanZone,
+    category: s.category || '',
+    area: typeof s.area === 'number' && !isNaN(s.area) ? s.area : parseFloat(String(s.area || 0)) || 0,
+    multiplier: typeof s.multiplier === 'number' && s.multiplier > 0 ? s.multiplier : parseInt(String(s.multiplier || 1)) || 1,
+  };
+}
+
 export interface Space {
   id: string;
   code: string;
