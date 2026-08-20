@@ -2011,6 +2011,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     <Settings className="size-4 mr-2 text-muted-foreground" />
                     Profile Settings
                   </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onSelect={() => {
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('mep_check_updates_manual'));
+                      }
+                    }}
+                    className="py-2 px-3 cursor-pointer focus:bg-accent/40 font-medium"
+                  >
+                    <RefreshCw className="size-4 mr-2 text-muted-foreground" />
+                    Check for Updates
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     className="py-2 px-3 text-red-500 cursor-pointer focus:bg-red-50 dark:focus:bg-red-950 focus:text-red-600 font-semibold"

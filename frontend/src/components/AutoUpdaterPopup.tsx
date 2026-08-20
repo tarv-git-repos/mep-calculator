@@ -4,33 +4,54 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
+import { toast } from 'sonner';
+
 export function AutoUpdaterPopup() {
   const [isOpen, setIsOpen] = useState(false);
   const [update, setUpdate] = useState<any>(null);
   const [status, setStatus] = useState<string>('');
   const [isInstalling, setIsInstalling] = useState(false);
 
-  useEffect(() => {
-    const checkForUpdates = async () => {
-      // Only run in Tauri environment
-      if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
-
-      try {
-        const foundUpdate = await check();
-        if (foundUpdate) {
-          const ignoredVersion = localStorage.getItem('ignored_update_version');
-          // If the user hasn't ignored this specific version, show the popup
-          if (ignoredVersion !== foundUpdate.version) {
-            setUpdate(foundUpdate);
-            setIsOpen(true);
-          }
-        }
-      } catch (e) {
-        console.error('Auto update check failed on startup:', e);
+  const checkForUpdates = async (isManual = false) => {
+    if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) {
+      if (isManual) {
+        toast.info("Web version updates automatically on page refresh.");
       }
+      return;
+    }
+
+    try {
+      if (isManual) {
+        setStatus("Checking for updates...");
+      }
+      const foundUpdate = await check();
+      if (foundUpdate) {
+        const ignoredVersion = localStorage.getItem('ignored_update_version');
+        if (isManual || ignoredVersion !== foundUpdate.version) {
+          setUpdate(foundUpdate);
+          setIsOpen(true);
+        }
+      } else if (isManual) {
+        toast.success("You are using the latest version!");
+      }
+    } catch (e: any) {
+      console.error('Auto update check failed:', e);
+      if (isManual) {
+        toast.error(`Update check failed: ${e?.message || String(e)}`);
+      }
+    }
+  };
+
+  useEffect(() => {
+    checkForUpdates(false);
+
+    const handleManualCheck = () => {
+      localStorage.removeItem('ignored_update_version');
+      checkForUpdates(true);
     };
 
-    checkForUpdates();
+    window.addEventListener('mep_check_updates_manual', handleManualCheck);
+    return () => window.removeEventListener('mep_check_updates_manual', handleManualCheck);
   }, []);
 
   const handleSkip = () => {
