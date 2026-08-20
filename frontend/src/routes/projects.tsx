@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import {
-  FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, FileCode,
+  FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, UserPlus, FileCode,
   MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search, ShieldCheck,
   Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, Pin, Check
 } from "lucide-react";
@@ -1001,9 +1001,9 @@ function ProjectsPage() {
                     <button
                       onClick={() => setEditingProj(p)}
                       className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center justify-center transition-all cursor-pointer"
-                      title="Edit Details"
+                      title="Add Members & Edit Details"
                     >
-                      <Edit3 className="size-3.5" />
+                      <UserPlus className="size-3.5" />
                     </button>
                     {(p.created_by === profile?.id || profile?.role === 'SUPER_ADMIN') && (
                       <button
