@@ -60,9 +60,14 @@ export function SuperAdminDashboard() {
   const confirm = useConfirm()
   const navigate = useNavigate()
   
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [checking, setChecking] = useState(true)
-  const [activeTab, setActiveTab] = useState<'users' | 'organizations' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'organizations' | 'projects' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>('users')
+  
+  // Projects Explorer State for Super Admin
+  const [allProjectsList, setAllProjectsList] = useState<any[]>([])
+  const [loadingProjects, setLoadingProjects] = useState<boolean>(false)
+  const [selectedOrgForProjects, setSelectedOrgForProjects] = useState<string>('ALL')
+  const [projectSearchQuery, setProjectSearchQuery] = useState<string>('')
+  const [inspectingProject, setInspectingProject] = useState<any | null>(null)
   
   // License management state
   const [licensesList, setLicensesList] = useState<any[]>([])
@@ -362,6 +367,18 @@ export function SuperAdminDashboard() {
     }
   };
 
+  const fetchAllProjects = async () => {
+    setLoadingProjects(true);
+    try {
+      const projects = await api.getProjects();
+      setAllProjectsList(projects || []);
+    } catch (e) {
+      toast.error("Failed to load organization projects");
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'activity') {
       fetchActivityLogs();
@@ -371,6 +388,7 @@ export function SuperAdminDashboard() {
     if (activeTab === 'broadcasts') fetchAnnouncements()
     if (activeTab === 'licenses') fetchAdminLicenses()
     if (activeTab === 'organizations') fetchOrganizations()
+    if (activeTab === 'projects') fetchAllProjects()
     if (activeTab === 'storage') fetchOrgBackupSettings()
   }, [activeTab])
 
@@ -724,6 +742,13 @@ export function SuperAdminDashboard() {
             >
               <Users size={18} />
               Organizations
+            </button>
+            <button 
+              onClick={() => setActiveTab('projects')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'projects' ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+            >
+              <FolderOpen size={18} />
+              Organization Projects
             </button>
             <button 
               onClick={() => setActiveTab('broadcasts')}
@@ -2093,6 +2118,231 @@ export function SuperAdminDashboard() {
               </div>
             )}
 
+            {activeTab === 'projects' && (
+              <div className="p-6 space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      <FolderOpen className="text-purple-600 dark:text-purple-400" size={24} />
+                      Organization Projects & Workspaces
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Inspect projects created across all organizations using the platform. Click on an organization card to view projects belonging strictly to that organization.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={fetchAllProjects}
+                      className="px-3.5 py-1.5 text-xs font-semibold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-lg transition shadow-2xs cursor-pointer"
+                    >
+                      Refresh Projects List
+                    </button>
+                  </div>
+                </div>
+
+                {/* Organization Selection Cards Grid */}
+                <div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                    Select Organization ({organizations.length} Registered Organizations)
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* ALL ORGANIZATIONS CARD */}
+                    <button
+                      onClick={() => setSelectedOrgForProjects('ALL')}
+                      className={`p-4 rounded-xl border text-left transition-all cursor-pointer shadow-2xs flex flex-col justify-between ${
+                        selectedOrgForProjects === 'ALL'
+                          ? 'border-purple-600 bg-purple-50/80 dark:bg-purple-900/30 ring-2 ring-purple-500/20'
+                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 hover:border-purple-300 dark:hover:border-purple-800'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="size-9 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-sm">
+                          ALL
+                        </div>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">
+                          {allProjectsList.length} Total Projects
+                        </span>
+                      </div>
+                      <div className="mt-3">
+                        <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">All Organizations</h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">View all projects platform-wide</p>
+                      </div>
+                    </button>
+
+                    {/* INDIVIDUAL ORGANIZATIONS CARDS */}
+                    {organizations.map((org) => {
+                      const orgUsers = profiles.filter(u => u.organization_id === org.id).map(u => u.id);
+                      const orgProjects = allProjectsList.filter(p => (p.organization_id && p.organization_id === org.id) || orgUsers.includes(p.created_by));
+                      const orgAdmin = profiles.find(p => p.organization_id === org.id && p.role === 'ORG_ADMIN');
+
+                      return (
+                        <button
+                          key={org.id}
+                          onClick={() => setSelectedOrgForProjects(org.id)}
+                          className={`p-4 rounded-xl border text-left transition-all cursor-pointer shadow-2xs flex flex-col justify-between ${
+                            selectedOrgForProjects === org.id
+                              ? 'border-purple-600 bg-purple-50/80 dark:bg-purple-900/30 ring-2 ring-purple-500/20'
+                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 hover:border-purple-300 dark:hover:border-purple-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="size-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
+                              {(org.name || 'OR').substring(0, 2).toUpperCase()}
+                            </div>
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">
+                              {orgProjects.length} Project{orgProjects.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                          <div className="mt-3">
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">{org.name}</h4>
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                {org.subscription_plan || 'PRO'}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                              Admin: {orgAdmin ? orgAdmin.email : 'No Org Admin'}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Filter Controls & Search */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                  <div className="relative w-full sm:w-80">
+                    <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search projects by name, code, or client..."
+                      value={projectSearchQuery}
+                      onChange={(e) => setProjectSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-purple-500/20"
+                    />
+                  </div>
+                  <div className="text-xs font-semibold text-slate-500">
+                    Showing projects for: <strong className="text-purple-600 dark:text-purple-400">
+                      {selectedOrgForProjects === 'ALL'
+                        ? 'All Organizations'
+                        : (organizations.find(o => o.id === selectedOrgForProjects)?.name || 'Selected Organization')}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Projects Display Grid */}
+                {loadingProjects ? (
+                  <div className="py-12 text-center space-y-2">
+                    <Loader2 className="size-8 text-purple-600 animate-spin mx-auto" />
+                    <p className="text-xs text-slate-500">Loading organization projects...</p>
+                  </div>
+                ) : (() => {
+                  const filteredProjects = allProjectsList.filter(p => {
+                    if (selectedOrgForProjects !== 'ALL') {
+                      const orgUsers = profiles.filter(u => u.organization_id === selectedOrgForProjects).map(u => u.id);
+                      const isMatchingOrg = (p.organization_id && p.organization_id === selectedOrgForProjects) || orgUsers.includes(p.created_by);
+                      if (!isMatchingOrg) return false;
+                    }
+
+                    if (projectSearchQuery.trim()) {
+                      const q = projectSearchQuery.toLowerCase();
+                      const matchName = p.name?.toLowerCase().includes(q);
+                      const matchCode = p.code?.toLowerCase().includes(q);
+                      const matchClient = p.client?.toLowerCase().includes(q);
+                      if (!matchName && !matchCode && !matchClient) return false;
+                    }
+
+                    return true;
+                  });
+
+                  if (filteredProjects.length === 0) {
+                    return (
+                      <div className="py-12 text-center bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
+                        <FolderOpen className="size-12 text-slate-400 mx-auto mb-2" />
+                        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No Projects Found</h3>
+                        <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                          {selectedOrgForProjects === 'ALL'
+                            ? 'No projects have been created across any organization yet.'
+                            : 'This organization has not created any projects yet.'}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredProjects.map((proj) => {
+                        const creatorProfile = profiles.find(u => u.id === proj.created_by || u.email === proj.created_by);
+                        const matchedOrgId = proj.organization_id || creatorProfile?.organization_id;
+                        const matchedOrg = organizations.find(o => o.id === matchedOrgId);
+                        const spacesCount = proj.workspace_data?.spaces?.length || 0;
+                        const zonesCount = proj.workspace_data?.zones?.length || 0;
+                        const equipCount = proj.workspace_data?.equipment?.length || 0;
+
+                        return (
+                          <div
+                            key={proj.id}
+                            className="bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 shadow-2xs hover:shadow-md transition flex flex-col justify-between space-y-4"
+                          >
+                            <div className="space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="px-2.5 py-0.5 text-[10px] font-mono font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded-md border border-purple-200 dark:border-purple-800">
+                                  {proj.code || 'NO-CODE'}
+                                </span>
+                                {matchedOrg && (
+                                  <span className="px-2.5 py-0.5 text-[10px] font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                                    🏢 {matchedOrg.name}
+                                  </span>
+                                )}
+                              </div>
+
+                              <h3 className="text-base font-extrabold text-slate-900 dark:text-white leading-snug">
+                                {proj.name}
+                              </h3>
+
+                              {proj.client && (
+                                <p className="text-xs text-slate-500 font-medium">
+                                  Client: <strong className="text-slate-700 dark:text-slate-300">{proj.client}</strong>
+                                  {proj.location ? ` | ${proj.location}` : ''}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="bg-slate-50 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 grid grid-cols-3 gap-2 text-center text-xs">
+                              <div>
+                                <span className="block text-[10px] text-slate-400 font-bold uppercase">Spaces</span>
+                                <span className="font-extrabold text-purple-600 dark:text-purple-400">{spacesCount}</span>
+                              </div>
+                              <div>
+                                <span className="block text-[10px] text-slate-400 font-bold uppercase">Zones</span>
+                                <span className="font-extrabold text-indigo-600 dark:text-indigo-400">{zonesCount}</span>
+                              </div>
+                              <div>
+                                <span className="block text-[10px] text-slate-400 font-bold uppercase">Equipment</span>
+                                <span className="font-extrabold text-blue-600 dark:text-blue-400">{equipCount}</span>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
+                              <span>By: {creatorProfile?.email || proj.created_by || 'Unknown'}</span>
+                              <button
+                                onClick={() => setInspectingProject(proj)}
+                                className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-lg transition shadow-2xs cursor-pointer flex items-center gap-1"
+                              >
+                                Inspect Details
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {activeTab === 'licenses' && (
               <div className="p-6 space-y-6">
                 <div className="flex items-center justify-between">
@@ -2336,6 +2586,95 @@ export function SuperAdminDashboard() {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Project Inspector Modal */}
+      {inspectingProject && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-6 animate-scale-in">
+            <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 text-xs font-mono font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 rounded border border-purple-200 dark:border-purple-800">
+                    {inspectingProject.code || 'NO-CODE'}
+                  </span>
+                  <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                    {inspectingProject.name}
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Client: <strong className="text-slate-700 dark:text-slate-300">{inspectingProject.client || 'N/A'}</strong>
+                  {inspectingProject.location ? ` | Location: ${inspectingProject.location}` : ''}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setInspectingProject(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Created By User</span>
+                <p className="font-bold text-slate-900 dark:text-white">
+                  {profiles.find(u => u.id === inspectingProject.created_by || u.email === inspectingProject.created_by)?.email || inspectingProject.created_by || 'N/A'}
+                </p>
+              </div>
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Organization Tag</span>
+                <p className="font-bold text-indigo-600 dark:text-indigo-400">
+                  {organizations.find(o => o.id === (inspectingProject.organization_id || profiles.find(u => u.id === inspectingProject.created_by)?.organization_id))?.name || 'Standard Organization'}
+                </p>
+              </div>
+            </div>
+
+            {inspectingProject.description && (
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Description</h4>
+                <p className="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl">
+                  {inspectingProject.description}
+                </p>
+              </div>
+            )}
+
+            {/* Workspace Elements Summary */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Workspace Contents</h4>
+              <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                <div className="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-900/30 rounded-xl">
+                  <span className="block text-[10px] font-bold text-purple-600 dark:text-purple-300 uppercase">Spaces Configured</span>
+                  <span className="text-lg font-black text-purple-700 dark:text-purple-200">
+                    {inspectingProject.workspace_data?.spaces?.length || 0}
+                  </span>
+                </div>
+                <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-900/30 rounded-xl">
+                  <span className="block text-[10px] font-bold text-indigo-600 dark:text-indigo-300 uppercase">Thermal Zones</span>
+                  <span className="text-lg font-black text-indigo-700 dark:text-indigo-200">
+                    {inspectingProject.workspace_data?.zones?.length || 0}
+                  </span>
+                </div>
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/30 rounded-xl">
+                  <span className="block text-[10px] font-bold text-blue-600 dark:text-blue-300 uppercase">Equipment Schedules</span>
+                  <span className="text-lg font-black text-blue-700 dark:text-blue-200">
+                    {inspectingProject.workspace_data?.equipment?.length || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+              <button
+                onClick={() => setInspectingProject(null)}
+                className="px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close Inspector
               </button>
             </div>
           </div>
