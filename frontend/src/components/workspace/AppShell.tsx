@@ -1367,24 +1367,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
 
-    const handleReadOnlyContextMenu = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target && typeof target.closest === 'function') {
-        if (target.closest("input, select, textarea, [contenteditable='true']")) {
-          // Allow default context menu for inputs (cut/copy/paste)
-          return;
-        }
-      }
-      // Block context menu on read-only areas
-      e.preventDefault();
-      e.stopPropagation();
-      toast.info("Workspace is in Read-Only mode. Context menus are disabled.", { id: "readonly-notice" });
-    };
-
     if (isEffectiveReadOnly) {
       document.addEventListener("mousedown", handleReadOnlyClick, true);
       document.addEventListener("keydown", handleReadOnlyKeyDown, true);
-      document.addEventListener("contextmenu", handleReadOnlyContextMenu, true);
       document.addEventListener("change", handleReadOnlyChange, true);
     }
     
