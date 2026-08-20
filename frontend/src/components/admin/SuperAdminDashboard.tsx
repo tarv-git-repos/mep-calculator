@@ -60,6 +60,8 @@ export function SuperAdminDashboard() {
   const confirm = useConfirm()
   const navigate = useNavigate()
   
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [checking, setChecking] = useState(true)
   const [activeTab, setActiveTab] = useState<'users' | 'organizations' | 'projects' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>('users')
   
   // Projects Explorer State for Super Admin
