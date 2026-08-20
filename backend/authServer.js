@@ -1031,6 +1031,7 @@ const server = http.createServer(async (req, res) => {
       location: projectData.location || '',
       description: projectData.description || '',
       notes: projectData.notes || '',
+      organization_id: user.organization_id || null,
       created_by: user.id,
       created_at: nowIso,
       last_modified: nowIso,
@@ -1119,6 +1120,7 @@ const server = http.createServer(async (req, res) => {
         const users = await readUsers();
         const orgUserIds = new Set(users.filter(u => u.organization_id === user.organization_id).flatMap(u => [u.id, u.email].filter(Boolean)));
         visibleProjects = projects.filter(p => 
+          (p.organization_id && user.organization_id && p.organization_id === user.organization_id) ||
           orgUserIds.has(p.created_by) ||
           (Array.isArray(p.project_users) && p.project_users.some(pu => orgUserIds.has(pu.user_id)))
         );
