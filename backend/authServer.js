@@ -81,6 +81,28 @@ function writeOrgSettings(settings) {
   try { fs.writeFileSync(ORG_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8'); } catch (e) {}
 }
 
+function parseOrgStatus(statusStr) {
+  if (!statusStr) return { state: 'active', max_concurrent_users: 1, license_key: 'MEP-LIC-ORG-PRO' };
+  try {
+    if (typeof statusStr === 'string' && statusStr.trim().startsWith('{')) {
+      const parsed = JSON.parse(statusStr);
+      return {
+        state: parsed.state || 'active',
+        max_concurrent_users: parsed.max_concurrent_users !== undefined && parsed.max_concurrent_users !== null ? parseInt(parsed.max_concurrent_users) : 1,
+        license_key: parsed.license_key || 'MEP-LIC-ORG-PRO'
+      };
+    }
+  } catch (e) {}
+  return { state: typeof statusStr === 'string' ? statusStr : 'active', max_concurrent_users: 1, license_key: 'MEP-LIC-ORG-PRO' };
+}
+
+function encodeOrgStatus(existingStatusStr, newMaxConcurrent, newLicenseKey) {
+  const current = parseOrgStatus(existingStatusStr);
+  if (newMaxConcurrent !== undefined && newMaxConcurrent !== null) current.max_concurrent_users = parseInt(newMaxConcurrent);
+  if (newLicenseKey !== undefined && newLicenseKey !== null) current.license_key = newLicenseKey;
+  return JSON.stringify(current);
+}
+
 function logActivity(user, action_type, details) {
   if (!user) return;
   const logs = readActivityLogs();
@@ -1833,11 +1855,20 @@ const server = http.createServer(async (req, res) => {
     
     orgs.forEach(o => {
       const existingLocal = map.get(o.id) || {};
+      const parsedStatus = parseOrgStatus(o.status);
+      
+      const maxConcurrent = (parsedStatus.max_concurrent_users !== undefined && parsedStatus.max_concurrent_users !== null && !isNaN(parsedStatus.max_concurrent_users))
+        ? parsedStatus.max_concurrent_users
+        : (existingLocal.max_concurrent_users !== undefined ? parseInt(existingLocal.max_concurrent_users) : (fileSettings[o.id]?.max_concurrent_users !== undefined ? parseInt(fileSettings[o.id].max_concurrent_users) : 1));
+
+      const licKey = parsedStatus.license_key || existingLocal.license_key || fileSettings[o.id]?.license_key || 'MEP-LIC-ORG-PRO';
+
       map.set(o.id, {
         ...existingLocal,
         ...o,
-        license_key: o.license_key || existingLocal.license_key || fileSettings[o.id]?.license_key || 'MEP-LIC-ORG-PRO',
-        max_concurrent_users: o.max_concurrent_users !== undefined && o.max_concurrent_users !== null ? parseInt(o.max_concurrent_users) : (existingLocal.max_concurrent_users !== undefined ? parseInt(existingLocal.max_concurrent_users) : (fileSettings[o.id]?.max_concurrent_users !== undefined ? parseInt(fileSettings[o.id].max_concurrent_users) : 1))
+        status: parsedStatus.state,
+        license_key: licKey,
+        max_concurrent_users: maxConcurrent
       });
     });
     
@@ -1849,13 +1880,17 @@ const server = http.createServer(async (req, res) => {
     const { name, subscription_plan, max_users, license_key, max_concurrent_users } = await getRequestBody(req);
     if (!name || !name.trim()) return sendJSON(res, 400, { success: false, message: 'Organization name required' });
 
+    const newOrgId = crypto.randomUUID();
+    const concurrentLimit = max_concurrent_users !== undefined ? parseInt(max_concurrent_users) : 1;
+    const licKey = license_key || `MEP-LIC-${Math.floor(1000 + Math.random() * 9000)}-PRO`;
+
     const newOrg = {
-      id: crypto.randomUUID(),
+      id: newOrgId,
       name: name.trim(),
       subscription_plan: subscription_plan || 'ENTERPRISE',
       max_users: parseInt(max_users) || 10,
-      license_key: license_key || `MEP-LIC-${Math.floor(1000 + Math.random() * 9000)}-PRO`,
-      max_concurrent_users: max_concurrent_users !== undefined ? parseInt(max_concurrent_users) : 1,
+      license_key: licKey,
+      max_concurrent_users: concurrentLimit,
       created_at: new Date().toISOString()
     };
 
@@ -1871,12 +1906,15 @@ const server = http.createServer(async (req, res) => {
     };
     writeOrgSettings(fileSettings);
 
+    const encodedStatus = encodeOrgStatus('active', concurrentLimit, licKey);
+
     try {
       await supabase.from('organizations').insert([{
         id: newOrg.id,
         name: newOrg.name,
         subscription_plan: newOrg.subscription_plan,
-        max_users: newOrg.max_users
+        max_users: newOrg.max_users,
+        status: encodedStatus
       }]);
     } catch (e) {
       console.warn('Supabase org insert warning:', e);
@@ -1896,14 +1934,14 @@ const server = http.createServer(async (req, res) => {
     let localOrgs = readLocalOrgs();
     let orgIndex = localOrgs.findIndex(o => o.id === orgId);
     
-    if (orgIndex === -1) {
-      let fetchedOrg = null;
-      try {
-        const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
-        if (data) fetchedOrg = data;
-      } catch (e) {}
+    let existingSupabaseOrg = null;
+    try {
+      const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
+      if (data) existingSupabaseOrg = data;
+    } catch (e) {}
 
-      const newOrg = fetchedOrg ? { ...fetchedOrg } : {
+    if (orgIndex === -1) {
+      const newOrg = existingSupabaseOrg ? { ...existingSupabaseOrg } : {
         id: orgId,
         name: name || 'Organization',
         subscription_plan: subscription_plan || 'PRO',
@@ -1931,8 +1969,11 @@ const server = http.createServer(async (req, res) => {
     };
     writeOrgSettings(fileSettings);
 
+    const currentStatusStr = existingSupabaseOrg?.status || localOrgs[orgIndex].status || 'active';
+    const updatedEncodedStatus = encodeOrgStatus(currentStatusStr, localOrgs[orgIndex].max_concurrent_users, localOrgs[orgIndex].license_key);
+
     try {
-      const updateData = { id: orgId };
+      const updateData = { id: orgId, status: updatedEncodedStatus };
       if (name !== undefined) updateData.name = name;
       if (subscription_plan !== undefined) updateData.subscription_plan = subscription_plan;
       if (max_users !== undefined) updateData.max_users = parseInt(max_users);
@@ -1955,22 +1996,23 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: true, allowed: true });
     }
 
+    let orgObj = null;
+    try {
+      const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
+      if (data) orgObj = data;
+    } catch(e) {}
+
+    if (!orgObj) {
+      const localOrgs = readLocalOrgs();
+      orgObj = localOrgs.find(o => o.id === orgId) || { id: orgId, name: 'Organization' };
+    }
+
+    const parsedStatus = parseOrgStatus(orgObj.status);
     const fileSettings = readOrgSettings();
-    const localOrgs = readLocalOrgs();
-    let orgObj = localOrgs.find(o => o.id === orgId);
-    if (!orgObj) {
-      try {
-        const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
-        if (data) orgObj = data;
-      } catch(e) {}
-    }
-
-    if (!orgObj) {
-      orgObj = { id: orgId, name: 'Organization' };
-    }
-
-    const licenseKey = fileSettings[orgId]?.license_key || orgObj.license_key || 'MEP-LIC-ORG-PRO';
-    const maxConcurrent = fileSettings[orgId]?.max_concurrent_users !== undefined ? parseInt(fileSettings[orgId].max_concurrent_users) : (orgObj.max_concurrent_users !== undefined && orgObj.max_concurrent_users !== null ? parseInt(orgObj.max_concurrent_users) : 1);
+    const licenseKey = parsedStatus.license_key || fileSettings[orgId]?.license_key || orgObj.license_key || 'MEP-LIC-ORG-PRO';
+    const maxConcurrent = parsedStatus.max_concurrent_users !== undefined && parsedStatus.max_concurrent_users !== null && !isNaN(parsedStatus.max_concurrent_users)
+      ? parsedStatus.max_concurrent_users
+      : (fileSettings[orgId]?.max_concurrent_users !== undefined ? parseInt(fileSettings[orgId].max_concurrent_users) : (orgObj.max_concurrent_users !== undefined ? parseInt(orgObj.max_concurrent_users) : 1));
 
     cleanStaleLicenseSessions(orgId);
     if (!orgLicenseSessions.has(orgId)) {
