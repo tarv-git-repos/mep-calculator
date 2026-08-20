@@ -1,10 +1,10 @@
 {
   "version": "2.0.13",
-  "notes": "Update to version 2.0.13 - Auto-update & space calculation enhancements.",
-  "pub_date": "2026-08-20T17:15:00Z",
+  "notes": "Update to version 2.0.13 - Auto-update & workspace fixes.",
+  "pub_date": "2026-08-20T17:47:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocDloNzRma3dla0dxWmxrT01ETUNLU2F2WW5wOG1PM3lnZnJGSURoaWxDWHE5Q0xvMzZsSStYNGlqTTgwQW5Fb1p0aU1qdFAwSXVDU1diQjIzUXk0OGcwPQ==",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocHdjcUY4Yk5XQ2UxOWQ4WmF6WnVqbExJaEV1QS9tRzF3d1YxVC9CWGNDanZPU0NaMWR2WmlsdTUraTl5eTU5dkZVRVd2VDI4Zk9JeG9RMm5OWVJhWmdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjI4MjY3CWZpbGU6TUVQIENhbGN1bGF0b3JfMi4wLjEzX3g2NC1zZXR1cC5leGUKSFlTN09kNTcwTDVPWWk1SnZQaTgyN1JvdkFFT3lVRWY0YkVpd1UwLzRZR1pJSFBlVkU0REFiZWdBNStRY0UyMVV1MkZKQURXenJQVXdKVVVVMnVZRGc9PQo=",
       "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/windows-x86_64/MEP_Calculator_2.0.13_x64-setup.exe"
     }
   }
