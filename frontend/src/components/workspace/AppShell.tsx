@@ -663,9 +663,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   projectName: targetProj?.name || cn.projectName || "Project",
                   projectId: cn.projectId || "none",
                   calculatorPath: cn.calculatorPath || "/ventilation",
-                  targetId: cn.id
                 });
               }
+            });
           }
         }
       } catch (e) {}
