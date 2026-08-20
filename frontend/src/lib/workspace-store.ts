@@ -57,9 +57,15 @@ export function sanitizeWorkspaceState(state: any) {
   if (Array.isArray(state.spaces)) {
     state.spaces = state.spaces.map((s: any) => {
       // Fix missing/corrupted/literal "undefined" space name
-      if (!s.name || s.name === "undefined" || s.name === "null" || String(s.name).trim() === "") {
-        const fallbackName = s.spaceName || s.roomName || s.title || (s.code && s.code !== "undefined" ? s.code : null);
-        s.name = fallbackName || (s.zone && s.zone !== "Default" && s.zone !== "Unzoned" ? s.zone : `Space ${s.id ? String(s.id).replace('pending-', '').slice(-4) : '1'}`);
+      const nameStr = String(s.name || "").trim();
+      if (!s.name || nameStr === "" || nameStr === "undefined" || nameStr === "null") {
+        if (s.zone && s.zone !== "Default" && s.zone !== "Unzoned" && !s.zone.startsWith("zone-")) {
+          s.name = s.zone;
+          s.zone = "Default";
+        } else {
+          const fallbackName = s.spaceName || s.roomName || s.title || (s.code && s.code !== "undefined" ? s.code : null);
+          s.name = fallbackName || `Space ${s.id ? String(s.id).replace('pending-', '').slice(-4) : '1'}`;
+        }
       }
       if (s.zone) {
         const cleanName = zoneNameMap.get(s.zone) || zoneNameMap.get(s.zone.toLowerCase());
