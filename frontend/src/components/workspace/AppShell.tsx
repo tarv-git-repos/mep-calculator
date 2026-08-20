@@ -20,7 +20,7 @@ import { supabase } from "@/lib/supabase";
 import { Megaphone, X as XIcon } from "lucide-react";
 import { PricingModal } from "./PricingModal";
 import { fetchLicenseStatus, type LicenseStatusInfo } from "@/lib/license";
-import { getHardwareFingerprint } from "@/lib/hardwareFingerprint";
+import { getHardwareFingerprint, getOrCreateDeviceId } from "@/lib/hardwareFingerprint";
 import { authService } from "@/services/authService";
 import { api } from "@/services/api";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
@@ -856,11 +856,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   const runLicenseSeatHeartbeat = useCallback(async () => {
     if (!userId) return;
-    if (userData?.role === 'SUPER_ADMIN' || profile?.role === 'SUPER_ADMIN') {
-      setIsSeatBlocked(false);
-      return;
-    }
-
     const orgId = userData?.organization_id || profile?.organization_id;
     if (!orgId) {
       setIsSeatBlocked(false);
@@ -868,14 +863,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
 
     const userEmail = userData?.email || profile?.email || myEmail;
-    const res = await api.checkLicenseSession({ userId, email: userEmail, orgId });
+    const deviceId = getOrCreateDeviceId();
+    const res = await api.checkLicenseSession({ userId, email: userEmail, orgId, deviceId });
     if (res && res.allowed === false) {
       setIsSeatBlocked(true);
       setSeatBlockedDetails(res);
     } else {
       setIsSeatBlocked(false);
     }
-  }, [userId, userData?.role, userData?.organization_id, userData?.email, profile?.role, profile?.organization_id, profile?.email, myEmail]);
+  }, [userId, userData?.organization_id, userData?.email, profile?.organization_id, profile?.email, myEmail]);
 
   useEffect(() => {
     runLicenseSeatHeartbeat();
@@ -884,7 +880,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const handleUnload = () => {
       const orgId = userData?.organization_id || profile?.organization_id;
       if (userId && orgId) {
-        api.releaseLicenseSession({ userId, orgId });
+        api.releaseLicenseSession({ userId, orgId, deviceId: getOrCreateDeviceId() });
       }
     };
 

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
+import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
   return import.meta.env.VITE_API_URL || 'https://universal-mep-calculator.onrender.com';
@@ -379,35 +379,28 @@ export const api = {
     }
   },
 
-  async checkLicenseSession(sessionData: { userId: string; email: string; orgId: string }) {
-    if (!isHeartbeatEndpointAvailable) return { success: true, allowed: true };
+  async checkLicenseSession(sessionData: { userId: string; email: string; orgId: string; deviceId?: string }) {
+    const payload = {
+      ...sessionData,
+      deviceId: sessionData.deviceId || getOrCreateDeviceId(),
+    };
     try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/heartbeat`, sessionData);
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/heartbeat`, payload);
       return data;
     } catch (e: any) {
-      if (e.response && e.response.status === 404) {
-        // Render backend does not have the heartbeat route deployed yet; try local or disable pings
-        try {
-          const { data } = await axios.post(`http://localhost:4000/api/license/session/heartbeat`, sessionData);
-          return data;
-        } catch (localErr) {
-          isHeartbeatEndpointAvailable = false;
-        }
-      }
       return { success: true, allowed: true };
     }
   },
 
-  async releaseLicenseSession(sessionData: { userId: string; orgId: string }) {
-    if (!isHeartbeatEndpointAvailable) return { success: true };
+  async releaseLicenseSession(sessionData: { userId: string; orgId: string; deviceId?: string }) {
+    const payload = {
+      ...sessionData,
+      deviceId: sessionData.deviceId || getOrCreateDeviceId(),
+    };
     try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/release`, sessionData);
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/release`, payload);
       return data;
     } catch (e: any) {
-      try {
-        const { data } = await axios.post(`http://localhost:4000/api/license/session/release`, sessionData);
-        return data;
-      } catch (localErr) {}
       return { success: true };
     }
   },

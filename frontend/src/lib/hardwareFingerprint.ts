@@ -53,3 +53,25 @@ export function getHardwareFingerprint(): string {
     return "HWID-FALLBACK-DEVICE-0001";
   }
 }
+
+export function getOrCreateDeviceId(): string {
+  if (typeof window === "undefined") {
+    return "SERVER_DEV_ID";
+  }
+  try {
+    let id = sessionStorage.getItem("mep_session_device_id");
+    if (!id) {
+      id = localStorage.getItem("mep_persistent_device_id");
+    }
+    if (!id) {
+      const hwid = getHardwareFingerprint();
+      const randomSuffix = Math.random().toString(36).substring(2, 9);
+      id = `${hwid}_${Date.now()}_${randomSuffix}`;
+      localStorage.setItem("mep_persistent_device_id", id);
+      sessionStorage.setItem("mep_session_device_id", id);
+    }
+    return id;
+  } catch (e) {
+    return getHardwareFingerprint();
+  }
+}

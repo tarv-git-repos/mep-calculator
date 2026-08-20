@@ -1901,18 +1901,21 @@ const server = http.createServer(async (req, res) => {
   // LICENSE SESSION SEAT CHECK & HEARTBEAT ENDPOINTS
   // -------------------------------------------------------------
   if (req.method === 'POST' && url === '/api/license/session/heartbeat') {
-    const { userId, email, orgId } = await getRequestBody(req);
+    const { userId, email, orgId, deviceId } = await getRequestBody(req);
     if (!orgId || !userId) {
       return sendJSON(res, 200, { success: true, allowed: true });
     }
 
-    const localOrgs = readLocalOrgs();
-    let orgObj = localOrgs.find(o => o.id === orgId);
+    // Always fetch latest org settings (Supabase first, then localOrgs)
+    let orgObj = null;
+    try {
+      const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
+      if (data) orgObj = data;
+    } catch(e) {}
+
     if (!orgObj) {
-      try {
-        const { data } = await supabase.from('organizations').select('*').eq('id', orgId).single();
-        if (data) orgObj = data;
-      } catch(e) {}
+      const localOrgs = readLocalOrgs();
+      orgObj = localOrgs.find(o => o.id === orgId);
     }
 
     if (!orgObj) {
@@ -1920,7 +1923,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     const licenseKey = orgObj.license_key || '';
-    const maxConcurrent = parseInt(orgObj.max_concurrent_users) || 1;
+    const maxConcurrent = orgObj.max_concurrent_users !== undefined && orgObj.max_concurrent_users !== null ? parseInt(orgObj.max_concurrent_users) : 1;
 
     cleanStaleLicenseSessions(orgId);
     if (!orgLicenseSessions.has(orgId)) {
@@ -1928,10 +1931,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     const activeMap = orgLicenseSessions.get(orgId);
+    const sessionKey = deviceId ? `${userId}_${deviceId}` : userId;
 
-    // If user already holds a seat, refresh timestamp
-    if (activeMap.has(userId)) {
-      activeMap.set(userId, { userId, email: email || activeMap.get(userId).email, lastPing: Date.now() });
+    // If this session key already holds a seat, refresh timestamp
+    if (activeMap.has(sessionKey)) {
+      activeMap.set(sessionKey, { sessionKey, userId, email: email || activeMap.get(sessionKey).email, lastPing: Date.now() });
       const activeList = Array.from(activeMap.values()).map(s => s.email);
       return sendJSON(res, 200, {
         success: true,
@@ -1943,7 +1947,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // If new user requesting a seat
+    // If new session requesting a seat and capacity is full
     if (activeMap.size >= maxConcurrent) {
       const activeList = Array.from(activeMap.values()).map(s => s.email);
       return sendJSON(res, 200, {
@@ -1953,12 +1957,12 @@ const server = http.createServer(async (req, res) => {
         maxConcurrent,
         activeUsers: activeList,
         orgName: orgObj.name,
-        message: `License seat limit reached for "${orgObj.name}". Occupied by ${activeList.join(', ')}.`
+        message: `License seat limit (${maxConcurrent} active seat${maxConcurrent === 1 ? '' : 's'}) reached for "${orgObj.name}". Occupied by ${activeList.join(', ')}.`
       });
     }
 
     // Capacity available, register seat!
-    activeMap.set(userId, { userId, email, lastPing: Date.now() });
+    activeMap.set(sessionKey, { sessionKey, userId, email, lastPing: Date.now() });
     const activeList = Array.from(activeMap.values()).map(s => s.email);
     return sendJSON(res, 200, {
       success: true,
@@ -1971,9 +1975,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && url === '/api/license/session/release') {
-    const { userId, orgId } = await getRequestBody(req);
+    const { userId, orgId, deviceId } = await getRequestBody(req);
     if (orgId && userId && orgLicenseSessions.has(orgId)) {
-      orgLicenseSessions.get(orgId).delete(userId);
+      const activeMap = orgLicenseSessions.get(orgId);
+      const sessionKey = deviceId ? `${userId}_${deviceId}` : userId;
+      activeMap.delete(sessionKey);
+      activeMap.delete(userId);
     }
     return sendJSON(res, 200, { success: true });
   }
