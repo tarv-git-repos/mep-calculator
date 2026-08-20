@@ -2123,6 +2123,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     <RefreshCw className="size-4 mr-2 text-muted-foreground" />
                     Check for Updates
                   </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onSelect={() => navigate({ to: "/privacy" })}
+                    className="py-2 px-3 cursor-pointer focus:bg-accent/40 font-medium"
+                  >
+                    <FileText className="size-4 mr-2 text-muted-foreground" />
+                    Privacy Policy & Terms
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     className="py-2 px-3 text-red-500 cursor-pointer focus:bg-red-50 dark:focus:bg-red-950 focus:text-red-600 font-semibold"

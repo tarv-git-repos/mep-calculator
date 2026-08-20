@@ -1154,6 +1154,13 @@ export function SettingsPage() {
                     {isCheckingUpdate ? "Installing..." : "Install & Restart"}
                   </TBtn>
                 )}
+                <TBtn 
+                  onClick={() => navigate({ to: '/privacy' })}
+                  className="px-4"
+                >
+                  <FileText className="size-3.5 text-muted-foreground" />
+                  View Terms & Privacy Policy
+                </TBtn>
               </div>
 
               {updateStatus && (
