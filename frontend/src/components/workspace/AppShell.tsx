@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Sun, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network
+  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network, Clock
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -2010,13 +2010,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </div>
             ) : isFeatureLocked(pathname, profile) ? (
               <div className="flex flex-col items-center justify-center flex-1 text-center p-8 bg-surface dark:bg-[#121212]">
-                <div className="w-full max-w-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-2xl p-8 flex flex-col items-center shadow-sm">
-                  <div className="w-20 h-20 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center mb-6 shadow-inner text-red-500 dark:text-red-400">
-                    <Lock className="w-8 h-8" />
+                <div className="w-full max-w-md bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 rounded-2xl p-8 flex flex-col items-center shadow-2xs">
+                  <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/40 rounded-full flex items-center justify-center mb-5 text-amber-600 dark:text-amber-400">
+                    <Clock className="w-8 h-8 animate-pulse" />
                   </div>
-                  <h2 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-3 tracking-tight">Warning</h2>
-                  <p className="text-red-600/80 dark:text-red-400/80 text-sm leading-relaxed">
-                    This calculator is currently locked or under development for your account. Please contact your administrator for access.
+                  <h2 className="text-xl font-extrabold text-amber-900 dark:text-amber-300 mb-2 tracking-tight">Coming Soon</h2>
+                  <p className="text-amber-800/80 dark:text-amber-400/80 text-xs font-semibold leading-relaxed">
+                    This calculation module is under development and will be available soon!
                   </p>
                 </div>
               </div>
