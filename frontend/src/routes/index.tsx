@@ -2007,23 +2007,33 @@ function SpacesView() {
   };
 
   const columns: Column<Space>[] = [
-    { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => (
-      <div className="flex items-center gap-1.5 w-full">
-        {r.comments && r.comments.length > 0 && (
-          <span 
-            title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`} 
-            className="inline-flex items-center justify-center p-1 rounded bg-primary/10 text-primary shrink-0 cursor-help"
-          >
-            <MessageSquare className="size-3.5" />
-          </span>
-        )}
-        <InlineInput
-          value={r.name}
-          onCommit={(val) => bulkUpdateSpaces(getSpaceEditIds(r.id), { name: val.trim() || r.name })}
-          className="font-medium text-[13.5px] flex-1 min-w-0"
-        />
-      </div>
-    ) },
+    { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => {
+      const displayName = (!r.name || r.name === "undefined" || r.name === "null" || String(r.name).trim() === "")
+        ? (r.zone && r.zone !== "Default" && r.zone !== "Unzoned" ? r.zone : `Space ${r.code || (r.id ? String(r.id).slice(-4) : '')}`)
+        : r.name;
+      return (
+        <div className="flex items-center gap-1.5 w-full">
+          {r.comments && r.comments.length > 0 && (
+            <span 
+              title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`} 
+              className="inline-flex items-center justify-center p-1 rounded bg-primary/10 text-primary shrink-0 cursor-help"
+            >
+              <MessageSquare className="size-3.5" />
+            </span>
+          )}
+          <InlineInput
+            value={displayName}
+            onCommit={(val) => {
+              const cleanVal = val.trim();
+              if (cleanVal && cleanVal !== "undefined" && cleanVal !== "null") {
+                bulkUpdateSpaces(getSpaceEditIds(r.id), { name: cleanVal });
+              }
+            }}
+            className="font-medium text-[13.5px] flex-1 min-w-0"
+          />
+        </div>
+      );
+    } },
     { key: "zone", header: "Zone", width: 200, mono: true, editable: true, render: (r) => {
       const matchingZone = zones.find((z) => z.id === r.zone || z.name === r.zone);
       const zoneName = matchingZone ? matchingZone.name : (r.zone || "");

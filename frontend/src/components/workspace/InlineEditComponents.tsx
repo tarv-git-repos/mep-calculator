@@ -14,11 +14,16 @@ export function InlineInput({
   placeholder?: string;
   type?: string;
 }) {
-  const [val, setVal] = useState<string>(String(value ?? ""));
+  const getCleanVal = (v: any) => {
+    if (v === undefined || v === null || v === "undefined" || v === "null") return "";
+    return String(v);
+  };
+
+  const [val, setVal] = useState<string>(getCleanVal(value));
   const [editing, setEditing] = useState(false);
 
   useEffect(() => {
-    setVal(String(value ?? ""));
+    setVal(getCleanVal(value));
   }, [value]);
 
   const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);

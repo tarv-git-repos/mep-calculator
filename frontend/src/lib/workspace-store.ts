@@ -53,9 +53,14 @@ export function sanitizeWorkspaceState(state: any) {
     return z;
   });
 
-  // Always resolve space.zone to clean human-readable zone.name, NEVER raw zone-xxxx
+  // Always resolve space.name and space.zone to clean human-readable names
   if (Array.isArray(state.spaces)) {
     state.spaces = state.spaces.map((s: any) => {
+      // Fix missing/corrupted/literal "undefined" space name
+      if (!s.name || s.name === "undefined" || s.name === "null" || String(s.name).trim() === "") {
+        const fallbackName = s.spaceName || s.roomName || s.title || (s.code && s.code !== "undefined" ? s.code : null);
+        s.name = fallbackName || (s.zone && s.zone !== "Default" && s.zone !== "Unzoned" ? s.zone : `Space ${s.id ? String(s.id).replace('pending-', '').slice(-4) : '1'}`);
+      }
       if (s.zone) {
         const cleanName = zoneNameMap.get(s.zone) || zoneNameMap.get(s.zone.toLowerCase());
         if (cleanName) {
