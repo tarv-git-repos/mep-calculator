@@ -429,8 +429,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const [deletedNotifIds, setDeletedNotifIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("mep_deleted_notif_ids");
-        return saved ? JSON.parse(saved) : [];
+        const saved1 = localStorage.getItem("mep_deleted_notif_ids");
+        const list1 = saved1 ? JSON.parse(saved1) : [];
+        const uId = userData?.id || profile?.id;
+        const saved2 = uId ? localStorage.getItem(`mep_deleted_notif_ids_${uId}`) : null;
+        const list2 = saved2 ? JSON.parse(saved2) : [];
+        return Array.from(new Set([...list1, ...list2]));
       } catch (e) {}
     }
     return [];
@@ -462,32 +466,66 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.preventDefault();
       e.stopPropagation();
     }
+    if (!id) return;
+
+    // 1. Update state & localStorage permanently
     setDeletedNotifIds(prev => {
       const updated = Array.from(new Set([...prev, id]));
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
+        if (userId) {
+          localStorage.setItem(`mep_deleted_notif_ids_${userId}`, JSON.stringify(updated));
+        }
       }
       return updated;
     });
 
-    const currentProj = useWorkspace.getState().project;
-    if (currentProj?.workspace_data) {
-      const wdata = currentProj.workspace_data;
-      let changed = false;
-      const updatedWdata = { ...wdata };
-      if (Array.isArray(wdata.rejection_notifs) && wdata.rejection_notifs.some((n: any) => n.id === id)) {
-        updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => n.id !== id);
-        changed = true;
-      }
-      if (Array.isArray(wdata.coord_notifs) && wdata.coord_notifs.some((n: any) => n.id === id)) {
-        updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => n.id !== id);
-        changed = true;
-      }
-      if (changed) {
-        api.saveWorkspace(currentProj.id, updatedWdata).catch(console.error);
-        useWorkspace.getState().updateProject({ ...currentProj, workspace_data: updatedWdata });
-      }
+    // 2. Remove from LocalStorage caches (coord & rejection notifs)
+    if (typeof localStorage !== "undefined") {
+      ['mep_calc_coord_notifs', 'mep_calc_rejection_notifs'].forEach(key => {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter((n: any) => n.id !== id);
+              localStorage.setItem(key, JSON.stringify(filtered));
+            }
+          } catch(err) {}
+        }
+      });
     }
+
+    // 3. Remove from ALL projects' workspace_data on backend DB and state
+    const allProjects = useWorkspace.getState().projects || [];
+    allProjects.forEach(proj => {
+      if (proj.workspace_data) {
+        let changed = false;
+        let wdata = proj.workspace_data;
+        if (typeof wdata === 'string') {
+          try { wdata = JSON.parse(wdata); } catch(e) {}
+        }
+        const updatedWdata = { ...wdata };
+
+        if (Array.isArray(wdata.rejection_notifs) && wdata.rejection_notifs.some((n: any) => n.id === id)) {
+          updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => n.id !== id);
+          changed = true;
+        }
+        if (Array.isArray(wdata.coord_notifs) && wdata.coord_notifs.some((n: any) => n.id === id)) {
+          updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => n.id !== id);
+          changed = true;
+        }
+        if (Array.isArray(wdata.task_completion_notifs) && wdata.task_completion_notifs.some((n: any) => n.id === id)) {
+          updatedWdata.task_completion_notifs = wdata.task_completion_notifs.filter((n: any) => n.id !== id);
+          changed = true;
+        }
+
+        if (changed) {
+          api.saveWorkspace(proj.id, updatedWdata).catch(console.error);
+          useWorkspace.getState().updateProject({ ...proj, workspace_data: updatedWdata });
+        }
+      }
+    });
   };
 
   const clearAllNotifications = (e?: React.MouseEvent) => {
@@ -496,13 +534,68 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.stopPropagation();
     }
     const allIds = myNotifications.map((n: any) => n.id).filter(Boolean);
+    if (allIds.length === 0) return;
+
+    // 1. Update state & localStorage permanently
     setDeletedNotifIds(prev => {
       const updated = Array.from(new Set([...prev, ...allIds]));
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
+        if (userId) {
+          localStorage.setItem(`mep_deleted_notif_ids_${userId}`, JSON.stringify(updated));
+        }
       }
       return updated;
     });
+
+    // 2. Clear LocalStorage notification caches
+    if (typeof localStorage !== "undefined") {
+      ['mep_calc_coord_notifs', 'mep_calc_rejection_notifs'].forEach(key => {
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              const filtered = parsed.filter((n: any) => !allIds.includes(n.id));
+              localStorage.setItem(key, JSON.stringify(filtered));
+            }
+          } catch(err) {}
+        }
+      });
+    }
+
+    // 3. Purge from ALL projects' workspace_data on backend DB and state
+    const allProjects = useWorkspace.getState().projects || [];
+    allProjects.forEach(proj => {
+      if (proj.workspace_data) {
+        let changed = false;
+        let wdata = proj.workspace_data;
+        if (typeof wdata === 'string') {
+          try { wdata = JSON.parse(wdata); } catch(e) {}
+        }
+        const updatedWdata = { ...wdata };
+
+        if (Array.isArray(wdata.rejection_notifs) && wdata.rejection_notifs.some((n: any) => allIds.includes(n.id))) {
+          updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => !allIds.includes(n.id));
+          changed = true;
+        }
+        if (Array.isArray(wdata.coord_notifs) && wdata.coord_notifs.some((n: any) => allIds.includes(n.id))) {
+          updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => !allIds.includes(n.id));
+          changed = true;
+        }
+        if (Array.isArray(wdata.task_completion_notifs) && wdata.task_completion_notifs.some((n: any) => allIds.includes(n.id))) {
+          updatedWdata.task_completion_notifs = wdata.task_completion_notifs.filter((n: any) => !allIds.includes(n.id));
+          changed = true;
+        }
+
+        if (changed) {
+          api.saveWorkspace(proj.id, updatedWdata).catch(console.error);
+          useWorkspace.getState().updateProject({ ...proj, workspace_data: updatedWdata });
+        }
+      }
+    });
+
+    toast.success("All notifications cleared.");
   };
 
   const completeTaskAndNotifyAuthor = async (notif: any, e?: React.MouseEvent) => {
