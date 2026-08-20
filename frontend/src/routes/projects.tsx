@@ -1236,20 +1236,6 @@ function ProjectsPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 mt-2">
-                  <label className="text-primary font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans">
-                    Assign Members & Teams to Workspace
-                  </label>
-                  <MemberAssignmentPicker
-                    assignableUsers={assignableUsers}
-                    assignableTeams={assignableTeams}
-                    selectedUsers={newProject.assigned_users}
-                    selectedTeams={newProject.assigned_teams}
-                    onChangeUsers={(users) => setNewProject((prev) => ({ ...prev, assigned_users: users }))}
-                    onChangeTeams={(teams) => setNewProject((prev) => ({ ...prev, assigned_teams: teams }))}
-                  />
-                </div>
-
               </div>
               
               <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-end gap-3 bg-card/60 backdrop-blur-xs shrink-0">
