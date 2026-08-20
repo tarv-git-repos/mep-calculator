@@ -30,7 +30,8 @@ let lastRevokedEventTime = 0;
 axios.interceptors.response.use(
   (response) => {
     if (response.data && response.data.sessionRevoked) {
-      if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
+      const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
+      if (typeof window !== 'undefined' && !isLoginPage && Date.now() - lastRevokedEventTime > 5000) {
         lastRevokedEventTime = Date.now();
         window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: response.data.message }));
       }
@@ -38,7 +39,11 @@ axios.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.status === 401) {
+    const url = error.config?.url || '';
+    const isAuthEndpoint = url.includes('/api/auth/login') || url.includes('/api/auth/register') || url.includes('/api/auth/is-auth');
+    const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
+
+    if (error.response?.status === 401 && !isAuthEndpoint && !isLoginPage) {
       if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
         lastRevokedEventTime = Date.now();
         const msg = error.response?.data?.message || 'Session expired or unauthorized. Please log in again.';
