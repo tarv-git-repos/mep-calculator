@@ -1261,7 +1261,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
   useEffect(() => {
-    const isEffectiveReadOnly = isReadOnly || isLockedByOther;
+    const isEffectiveReadOnly = isReadOnly;
     (window as any).__mep_is_readonly = isEffectiveReadOnly;
     
     if (!isEffectiveReadOnly) return;
