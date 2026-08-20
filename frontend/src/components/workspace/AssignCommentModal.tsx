@@ -43,6 +43,12 @@ export function AssignCommentModal({
       return;
     }
 
+    if (isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
+      onClose();
+      return;
+    }
+
     const fetchAssignees = async () => {
       if (availableUsers.length === 0) {
         setIsLoading(true);
@@ -88,6 +94,12 @@ export function AssignCommentModal({
   if (!isOpen) return null;
 
   const handleSave = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
+      onClose();
+      return;
+    }
+
     if (!commentText.trim() && selectedUsers.length === 0 && selectedTeams.length === 0) {
       toast.error("Please enter a comment description or select an assignee.");
       return;

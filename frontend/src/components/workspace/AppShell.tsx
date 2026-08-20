@@ -7,7 +7,7 @@ import {
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
   Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2
 } from "lucide-react";
-import { useWorkspace } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { toast } from "sonner";
@@ -1042,6 +1042,38 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return () => clearInterval(autoSaveTimer);
   }, [activeProjectId, project?.id]);
 
+  const lockOwnerObj = getLockOwner(pathname);
+  const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
+  const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
+
+  // 1-Second High-Frequency Cloud Auto-Save & Auto-Refresh Engine
+  const [, setAutoRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const refreshTimer = setInterval(() => {
+      // 1. Re-evaluate lock handoff state every 1s
+      setAutoRefreshTick((prev) => prev + 1);
+
+      if (!project?.id) return;
+
+      const isEffectiveReadOnly = isReadOnly || isLockedByOther || isViewerRole;
+      const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+      const isUserTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable') === 'true');
+
+      if (!isEffectiveReadOnly) {
+        // EDITOR MODE: Auto-save workspace changes to cloud every 1 second
+        workspaceStore.forceSaveToCloud();
+      } else {
+        // READ-ONLY / VIEWER MODE: Auto-refresh workspace data from cloud every 1 second
+        if (!isUserTyping) {
+          workspaceStore.syncFromCloud();
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(refreshTimer);
+  }, [project?.id, isReadOnly, isLockedByOther, isViewerRole]);
+
   useEffect(() => {
     // Expose for export scripts outside React context
     if (typeof window !== 'undefined') {
@@ -1063,10 +1095,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       navigate({ to: '/privacy' });
     }
   }, [pathname, navigate, userData?.privacyPolicyAccepted]);
-
-  const lockOwnerObj = getLockOwner(pathname);
-  const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
-  const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
 
   // Restore inputs on project/route change
   useEffect(() => {
@@ -1277,15 +1305,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     if (!isEffectiveReadOnly) return;
 
     const isAllowedInteractive = (target: HTMLElement) => {
-      // 1. Review, Approve, Reject (CalculationReviewBar & Review Modals) are ALWAYS allowed
+      // Calculation Review Bar buttons (Review, Approve, Reject) and Review Modals are ALWAYS allowed in Read-Only mode
       if (target.closest(".calculation-review-bar, .review-modal")) return true;
 
-      // 2. Comments (Assign Comment Modal & Add Comment triggers) are ALWAYS allowed
-      if (target.closest(".assign-comment-modal, [data-comment-trigger]")) return true;
-      const contextItem = target.closest("[role='menuitem']");
-      if (contextItem && (contextItem.textContent || "").toLowerCase().includes("comment")) {
-        return true;
-      }
+      // Assign comment modal is strictly blocked in read-only mode
+      if (target.closest(".assign-comment-modal")) return false;
 
       const isNavOrHeader = target.closest(".appshell-header, .appshell-sidebar, header:not(.calculator-header), aside, nav");
 
@@ -1322,6 +1346,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     ["spaces", "zones", "equipment", "report", "schedule", "sld", "calculator", "summary"].includes(btnText);
 
       return isTab;
+    };
+
+    const handleReadOnlyContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+      if (target.closest(".appshell-sidebar, nav")) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      toast.info("Workspace is in Read-Only mode. Context menu is disabled.", { id: "readonly-notice" });
     };
 
     const handleReadOnlyClick = (e: MouseEvent) => {
@@ -1391,32 +1425,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
 
-    const handleReadOnlyContextMenu = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target) return;
-
-      if (isAllowedInteractive(target)) return;
-
-      const isEditableInput = target.closest("input, select, textarea, [contenteditable='true']");
-      if (isEditableInput) {
-        e.preventDefault();
-        e.stopPropagation();
-        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-      }
-    };
-
     if (isEffectiveReadOnly) {
       document.addEventListener("mousedown", handleReadOnlyClick, true);
-      document.addEventListener("contextmenu", handleReadOnlyContextMenu, true);
       document.addEventListener("keydown", handleReadOnlyKeyDown, true);
       document.addEventListener("change", handleReadOnlyChange, true);
+      document.addEventListener("contextmenu", handleReadOnlyContextMenu, true);
     }
     
     return () => {
       document.removeEventListener("mousedown", handleReadOnlyClick, true);
-      document.removeEventListener("contextmenu", handleReadOnlyContextMenu, true);
       document.removeEventListener("keydown", handleReadOnlyKeyDown, true);
       document.removeEventListener("change", handleReadOnlyChange, true);
+      document.removeEventListener("contextmenu", handleReadOnlyContextMenu, true);
     };
   }, [isReadOnly, isLockedByOther, isViewerRole]);
 

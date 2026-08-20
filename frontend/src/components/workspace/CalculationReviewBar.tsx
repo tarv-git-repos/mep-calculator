@@ -204,7 +204,7 @@ export function CalculationReviewBar({
   const handleSrReviewSubmit = async () => {
     const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
     if (isViewer) {
-      toast.info("Viewer role cannot submit reviews.", { id: "readonly-notice" });
+      toast.info("Viewer role cannot submit review actions.", { id: "readonly-notice" });
       setShowReviewModal(false);
       return;
     }
@@ -305,7 +305,7 @@ export function CalculationReviewBar({
   const handleCoordinatorApprove = async () => {
     const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
     if (isViewer) {
-      toast.info("Viewer role cannot approve calculations.", { id: "readonly-notice" });
+      toast.info("Viewer role cannot submit review actions.", { id: "readonly-notice" });
       setShowApproveModal(false);
       return;
     }
@@ -354,7 +354,7 @@ export function CalculationReviewBar({
   const handleCoordinatorRejectSubmit = async () => {
     const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
     if (isViewer) {
-      toast.info("Viewer role cannot reject calculations.", { id: "readonly-notice" });
+      toast.info("Viewer role cannot submit review actions.", { id: "readonly-notice" });
       setShowRejectModal(false);
       return;
     }

@@ -4,8 +4,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { getOccupancyCategories, getCategoryDisplayName } from "@/lib/ashrae-data";
 import { cn } from "@/lib/utils";
-import { useWorkspace } from "@/lib/workspace-store";
-import { toast } from "sonner";
 
 interface CategorySelectProps {
   value: string;
@@ -17,8 +15,7 @@ interface CategorySelectProps {
 }
 
 export function CategorySelect({ value, onChange, className, triggerClassName, hideChevron, disabled }: CategorySelectProps) {
-  const { isReadOnly: storeReadOnly } = useWorkspace();
-  const isReadOnly = storeReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
   const isEffectiveDisabled = disabled || isReadOnly;
   const [open, setOpen] = useState(false);
   const categories = getOccupancyCategories();
@@ -29,17 +26,7 @@ export function CategorySelect({ value, onChange, className, triggerClassName, h
 
   return (
     <div className={cn("relative w-full min-w-0", className)}>
-      <Popover 
-        open={isEffectiveDisabled ? false : open} 
-        onOpenChange={(val) => { 
-          if (isEffectiveDisabled) { 
-            setOpen(false); 
-            toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-            return; 
-          } 
-          setOpen(val); 
-        }}
-      >
+      <Popover open={isEffectiveDisabled ? false : open} onOpenChange={(val) => { if (!isEffectiveDisabled) setOpen(val); }}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -53,7 +40,6 @@ export function CategorySelect({ value, onChange, className, triggerClassName, h
               e.stopPropagation();
               if (isEffectiveDisabled) {
                 e.preventDefault();
-                setOpen(false);
                 toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
               }
             }}

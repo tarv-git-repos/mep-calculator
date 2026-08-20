@@ -137,9 +137,6 @@ export function VentilationModule() {
 
   useEffect(() => {
     setCalcReviewState(getSyncedReviewState);
-    if (typeof window !== 'undefined') {
-      (window as any).__mep_is_readonly = getSyncedReviewState.status === "APPROVED";
-    }
   }, [getSyncedReviewState]);
 
   useEffect(() => {
@@ -147,7 +144,6 @@ export function VentilationModule() {
     const handleUpdate = (e: CustomEvent) => {
       if (e.detail) {
         setCalcReviewState(e.detail);
-        (window as any).__mep_is_readonly = e.detail.status === "APPROVED";
       }
     };
     window.addEventListener("mep-review-state-updated" as any, handleUpdate);
@@ -185,9 +181,6 @@ export function VentilationModule() {
     const handleUpdate = (e: any) => {
       if (e.detail) {
         setCalcReviewState(e.detail);
-        if (typeof window !== 'undefined') {
-          (window as any).__mep_is_readonly = e.detail.status === "APPROVED";
-        }
       }
     };
     if (typeof window !== 'undefined') {
@@ -1490,7 +1483,7 @@ function SpacesView() {
         {isMulti ? (
           <ContextMenuItem
             onClick={() => {
-              if (isEffectiveReadOnly) {
+              if (isReadOnly) {
                 toast.info("Workspace is in Read-Only mode. Editing is locked.", { id: "readonly-notice" });
                 return;
               }
@@ -1528,7 +1521,7 @@ function SpacesView() {
         ) : (
           <ContextMenuItem
             onClick={() => {
-              if (isEffectiveReadOnly) {
+              if (isReadOnly) {
                 toast.info("Workspace is in Read-Only mode. Editing spaces is locked.", { id: "readonly-notice" });
                 return;
               }
@@ -1544,7 +1537,7 @@ function SpacesView() {
         
         <ContextMenuItem
           onClick={() => {
-            if (isEffectiveReadOnly) {
+            if (isReadOnly) {
               toast.info("Workspace is in Read-Only mode. Duplicating spaces is locked.", { id: "readonly-notice" });
               return;
             }
@@ -1571,6 +1564,10 @@ function SpacesView() {
 
         <ContextMenuItem
           onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
+              return;
+            }
             setCommentTarget({ id: row.id, name: row.name, type: 'space' });
             setAssignCommentOpen(true);
           }}
@@ -1584,7 +1581,7 @@ function SpacesView() {
         
         <ContextMenuItem
           onClick={async () => {
-            if (isEffectiveReadOnly) {
+            if (isReadOnly) {
               toast.info("Workspace is in Read-Only mode. Zone assignment is locked.", { id: "readonly-notice" });
               return;
             }
@@ -1623,7 +1620,7 @@ function SpacesView() {
         
         <ContextMenuItem
           onClick={() => {
-            if (isEffectiveReadOnly) {
+            if (isReadOnly) {
               toast.info("Workspace is in Read-Only mode. Equipment assignment is locked.", { id: "readonly-notice" });
               return;
             }
@@ -1640,7 +1637,7 @@ function SpacesView() {
         
         <ContextMenuItem
           onClick={() => {
-            if (isEffectiveReadOnly) {
+            if (isReadOnly) {
               toast.info("Workspace is in Read-Only mode. Auto-Zoning is locked.", { id: "readonly-notice" });
               return;
             }
@@ -1657,7 +1654,7 @@ function SpacesView() {
         <ContextMenuItem
           disabled={!isMulti}
           onClick={() => {
-            if (isEffectiveReadOnly) {
+            if (isReadOnly) {
               toast.info("Workspace is in Read-Only mode. Merging spaces is locked.", { id: "readonly-notice" });
               return;
             }
@@ -1676,7 +1673,7 @@ function SpacesView() {
         
         <ContextMenuItem
           onClick={async () => {
-            if (isEffectiveReadOnly) {
+            if (isReadOnly) {
               toast.info("Workspace is in Read-Only mode. Deleting spaces is locked.", { id: "readonly-notice" });
               return;
             }
@@ -2194,13 +2191,7 @@ function SpacesView() {
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (isEffectiveReadOnly) {
-                      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-                      return;
-                    }
-                    setRestroomModalSpace(r);
-                  }}
+                  onClick={() => setRestroomModalSpace(r)}
                   className="flex items-center justify-center p-1 rounded hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors cursor-pointer w-6 h-6 shrink-0 animate-fade-in"
                   title="Configure Rest Room subcategories"
                 >
@@ -5208,10 +5199,6 @@ function ZonesView() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (isEffectiveReadOnly) {
-                                    toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-                                    return;
-                                  }
                                   if (s.category === "Rest Room / Changing Room") {
                                     setRestroomModalSpace(s);
                                   } else {

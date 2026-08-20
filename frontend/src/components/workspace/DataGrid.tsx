@@ -500,7 +500,13 @@ export function DataGrid<T extends { id: string }>({
                           }
                           onRowDoubleClick?.(row);
                         }}
-                        onContextMenu={() => {
+                        onContextMenu={(e) => {
+                          if ((window as any).__mep_is_readonly) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toast.info("Workspace is in Read-Only mode. Context menu is disabled.", { id: "readonly-notice" });
+                            return;
+                          }
                           if (!selected.has(row.id)) {
                             onToggle(row.id, false, false);
                           }

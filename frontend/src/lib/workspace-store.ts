@@ -600,6 +600,10 @@ export const workspaceStore = {
   },
 
   addCommentToTarget(targetId: string, targetType: 'space' | 'zone' | 'equipment', comment: any) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     if (targetType === 'space') {
       const nextSpaces = currentWorkspaceState.spaces.map(s => {

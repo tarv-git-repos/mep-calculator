@@ -1973,24 +1973,12 @@ const server = http.createServer(async (req, res) => {
     const updatedEncodedStatus = encodeOrgStatus(currentStatusStr, localOrgs[orgIndex].max_concurrent_users, localOrgs[orgIndex].license_key);
 
     try {
-      const finalName = name !== undefined ? name : (existingSupabaseOrg?.name || localOrgs[orgIndex].name || 'Organization');
-      const finalPlan = subscription_plan !== undefined ? subscription_plan : (existingSupabaseOrg?.subscription_plan || localOrgs[orgIndex].subscription_plan || 'PRO');
-      const finalMaxUsers = max_users !== undefined ? parseInt(max_users) : (existingSupabaseOrg?.max_users || localOrgs[orgIndex].max_users || 5);
-
-      const updateData = {
-        id: orgId,
-        name: finalName,
-        subscription_plan: finalPlan,
-        max_users: finalMaxUsers,
-        status: updatedEncodedStatus
-      };
+      const updateData = { id: orgId, status: updatedEncodedStatus };
+      if (name !== undefined) updateData.name = name;
+      if (subscription_plan !== undefined) updateData.subscription_plan = subscription_plan;
+      if (max_users !== undefined) updateData.max_users = parseInt(max_users);
       
-      const { data: dbRes, error: dbErr } = await supabase.from('organizations').upsert(updateData, { onConflict: 'id' }).select();
-      if (dbErr) {
-        console.error('Supabase org update error:', dbErr);
-      } else {
-        console.log('Supabase org updated successfully:', dbRes);
-      }
+      await supabase.from('organizations').upsert(updateData, { onConflict: 'id' });
     } catch (e) {
       console.warn('Supabase org update warning:', e);
     }
