@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Sun, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network, Clock
+  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2
 } from "lucide-react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -485,6 +485,78 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     });
   };
 
+  const completeTaskAndNotifyAuthor = async (notif: any, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    const currentUserName = userData?.name || profile?.name || "Design Engineer";
+    const currentUserEmail = userData?.email || profile?.email || myEmail;
+    const currentUserId = userId || userData?.id;
+
+    if (notif.id) {
+      deleteNotification(notif.id);
+    }
+
+    const targetProjId = notif.projectId || project?.id;
+    const allProjs = useWorkspace.getState().projects;
+    const targetProj = allProjs.find((p: any) => p.id === targetProjId) || project;
+
+    if (targetProj && targetProj.workspace_data) {
+      let wdata = targetProj.workspace_data;
+      if (typeof wdata === 'string') {
+        try { wdata = JSON.parse(wdata); } catch (err) {}
+      }
+
+      const updatedWdata = { ...wdata };
+
+      const removeCommentFromList = (list: any[]) => {
+        if (!Array.isArray(list)) return list;
+        return list.map((item: any) => {
+          if (item.id === notif.targetId && Array.isArray(item.comments)) {
+            const nextComments = item.comments.filter((c: any) => c.id !== notif.id && c.text !== notif.text);
+            return { ...item, comments: nextComments };
+          }
+          return item;
+        });
+      };
+
+      if (updatedWdata.spaces) updatedWdata.spaces = removeCommentFromList(updatedWdata.spaces);
+      if (updatedWdata.zones) updatedWdata.zones = removeCommentFromList(updatedWdata.zones);
+      if (updatedWdata.equipment) updatedWdata.equipment = removeCommentFromList(updatedWdata.equipment);
+
+      const recipientUser = notif.authorEmail || notif.authorName || notif.authorId || "Comment Author";
+      const completionNotif = {
+        id: `taskdone_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        authorName: currentUserName,
+        authorEmail: currentUserEmail,
+        authorId: currentUserId,
+        recipientUser: recipientUser,
+        text: `✅ TASK COMPLETED: Task is done on ${notif.targetType || "location"} "${notif.targetName || "Target"}"! (Re: "${notif.text}")`,
+        timestamp: new Date().toISOString(),
+        targetType: notif.targetType || "Location",
+        targetName: notif.targetName || "Location",
+        projectName: notif.projectName || targetProj.name,
+        projectId: targetProj.id,
+        calculatorPath: notif.calculatorPath || "/ventilation",
+        targetId: notif.targetId
+      };
+
+      const existingDoneNotifs = Array.isArray(updatedWdata.task_completion_notifs) ? updatedWdata.task_completion_notifs : [];
+      updatedWdata.task_completion_notifs = [completionNotif, ...existingDoneNotifs];
+
+      try {
+        await api.saveWorkspace(targetProj.id, updatedWdata);
+        useWorkspace.getState().updateProject({ ...targetProj, workspace_data: updatedWdata });
+      } catch (err) {
+        console.error("Failed to save task completion:", err);
+      }
+    }
+
+    toast.success(`Task completed! Notification sent to ${notif.authorName || "author"} confirming work is done.`);
+  };
+
   const myNotifications = useMemo(() => {
     const currentId = userId || userData?.id;
     const currentName = (userData?.name || profile?.name || "").toLowerCase().trim();
@@ -663,44 +735,47 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   projectName: targetProj?.name || cn.projectName || "Project",
                   projectId: cn.projectId || "none",
                   calculatorPath: cn.calculatorPath || "/ventilation",
+                  targetId: cn.id
                 });
               }
             });
           }
         }
-      } catch (e) {}
+      } catch(e) {}
     }
-
-    // 4. Task Completion Notifications (Task marked done on a space/zone/equipment by engineer)
+    
+    // 4. Task Completion Notifications (received when assigned engineer clicks tick)
     try {
-      const savedTaskNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_task_done_notifs") : null;
-      if (savedTaskNotifs) {
-        const parsed = JSON.parse(savedTaskNotifs);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((tn: any) => {
-            const isTargetAuthor = Array.isArray(tn.assignedUsers) && tn.assignedUsers.some((u: any) => {
-              const uStr = String(u).toLowerCase().trim();
-              return uStr === String(currentId).toLowerCase() || (currentName && uStr === currentName) || (currentEmail && uStr === currentEmail);
-            });
-            if (isTargetAuthor && tn.id && !notifs.some(n => n.id === tn.id)) {
+      projects.forEach(p => {
+        let wdata = p.workspace_data || {};
+        if (typeof wdata === 'string') {
+          try { wdata = JSON.parse(wdata); } catch(e) {}
+        }
+        const doneNotifs = Array.isArray(wdata.task_completion_notifs) ? wdata.task_completion_notifs : [];
+        doneNotifs.forEach((dn: any) => {
+          if (dn.id && !notifs.some(n => n.id === dn.id)) {
+            const rec = String(dn.recipientUser || "").toLowerCase().trim();
+            const matchesMe = !rec || rec === currentId || rec === currentName || rec === currentEmail || (currentName && rec.includes(currentName)) || (currentEmail && rec.includes(currentEmail));
+            if (matchesMe) {
               notifs.push({
-                id: tn.id,
-                authorName: tn.completedBy || "Design Engineer",
-                text: tn.text || `✅ Task done on ${tn.targetName || "location"}!`,
-                timestamp: tn.timestamp,
-                targetType: tn.targetType || "Space",
-                targetName: tn.targetName || "Location",
-                projectName: tn.projectName || "Project",
-                projectId: tn.projectId || "none",
-                calculatorPath: tn.calculatorPath || "/ventilation",
-                targetId: tn.id
+                id: dn.id,
+                authorName: dn.authorName || "Design Engineer",
+                text: dn.text,
+                timestamp: dn.timestamp,
+                targetType: dn.targetType || "Location",
+                targetName: dn.targetName || "Location",
+                projectName: p.name || dn.projectName || "Project",
+                projectId: p.id,
+                calculatorPath: dn.calculatorPath || "/ventilation",
+                targetId: dn.targetId,
+                isCompletionNotif: true
               });
             }
-          });
-        }
-      }
+          }
+        });
+      });
     } catch(e) {}
-    
+
     const filtered = notifs.filter(n => !n.id || !deletedNotifIds.includes(n.id));
     filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return filtered;
@@ -1816,13 +1891,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                                 <span className="truncate max-w-[130px] font-bold text-primary" title={notif.projectName}>{notif.projectName}</span>
                               </div>
                             </div>
-                            <button
-                              onClick={(e) => deleteNotification(notif.id, e)}
-                              className="p-1.5 text-muted-foreground/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all shrink-0 cursor-pointer self-start"
-                              title="Delete notification"
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
+                            <div className="flex items-center gap-1 shrink-0 self-start">
+                              {!notif.isCompletionNotif && (
+                                <button
+                                  onClick={(e) => completeTaskAndNotifyAuthor(notif, e)}
+                                  className="p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-all cursor-pointer"
+                                  title="Mark task done & send notification to author"
+                                >
+                                  <CheckCircle2 className="size-4 text-emerald-500" />
+                                </button>
+                              )}
+                              <button
+                                onClick={(e) => deleteNotification(notif.id, e)}
+                                className="p-1.5 text-muted-foreground/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
+                                title="Delete notification"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            </div>
                           </div>
                         );
                       })}

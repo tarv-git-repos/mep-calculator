@@ -8,16 +8,14 @@ const getBackendUrl = () => {
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
 
 axios.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-    const token = localStorage.getItem('auth_token');
-    if (config.headers) {
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      const hwid = getHardwareFingerprint();
-      if (hwid) {
-        config.headers['x-hwid'] = hwid;
-      }
+  const token = localStorage.getItem('auth_token');
+  if (config.headers) {
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    const hwid = getHardwareFingerprint();
+    if (hwid) {
+      config.headers['x-hwid'] = hwid;
     }
   }
   return config;
