@@ -2481,14 +2481,18 @@ function SpacesView() {
     redo,
   ]);
 
-  const handleNewSpace = () => {
+  const handleNewSpace = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (isApprovedLocked) {
       toast.error("Calculation is APPROVED (Official Record). Editing is locked until the Discipline Coordinator rejects.");
       return;
     }
     const defaultNum = spaces.length + 1;
     const newSpace: Space = {
-      id: `sp-${Date.now()}`,
+      id: `sp-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       code: `T-L01-${String(defaultNum).padStart(3, "0")}`,
       name: `New Space ${defaultNum}`,
       building: "Tower A",
@@ -2508,8 +2512,9 @@ function SpacesView() {
       aiDetected: false,
       pressureAutoDetected: false,
     };
-addSpace(newSpace);
+    addSpace(newSpace);
     setEditingSpace(newSpace); // Open the editor modal immediately!
+    toast.success(`New Space "${newSpace.name}" created! Edit details below.`);
   };
 
   return (
