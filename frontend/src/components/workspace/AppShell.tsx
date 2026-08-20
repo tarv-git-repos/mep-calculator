@@ -426,6 +426,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return [];
   });
 
+  const [completedNotifIds, setCompletedNotifIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_completed_notif_ids");
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {}
+    }
+    return [];
+  });
+
   const markNotifAsRead = (id: string) => {
     setReadNotifIds(prev => {
       if (prev.includes(id)) return prev;
@@ -496,7 +506,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const currentUserId = userId || userData?.id;
 
     if (notif.id) {
-      deleteNotification(notif.id);
+      setCompletedNotifIds(prev => {
+        const set = new Set([...prev, notif.id]);
+        const updated = Array.from(set);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("mep_completed_notif_ids", JSON.stringify(updated));
+        }
+        return updated;
+      });
+      markNotifAsRead(notif.id);
     }
 
     const targetProjId = notif.projectId || project?.id;
@@ -533,7 +551,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         authorEmail: currentUserEmail,
         authorId: currentUserId,
         recipientUser: recipientUser,
-        text: `✅ TASK COMPLETED: Task is done on ${notif.targetType || "location"} "${notif.targetName || "Target"}"! (Re: "${notif.text}")`,
+        text: `✅ TASK COMPLETED: Comment worked on & task completed on ${notif.targetType || "location"} "${notif.targetName || "Target"}"! (Re: "${notif.text}")`,
         timestamp: new Date().toISOString(),
         targetType: notif.targetType || "Location",
         targetName: notif.targetName || "Location",
@@ -554,7 +572,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     }
 
-    toast.success(`Task completed! Notification sent to ${notif.authorName || "author"} confirming work is done.`);
+    toast.success(`Task completed! Comment box removed & notification sent to ${notif.authorName || "author"}.`);
   };
 
   const myNotifications = useMemo(() => {
@@ -1845,6 +1863,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     <div className="max-h-80 overflow-y-auto custom-scrollbar divide-y divide-border/30">
                       {myNotifications.map((notif, i) => {
                         const isUnread = notif.id && !readNotifIds.includes(notif.id);
+                        const isCompleted = notif.id && completedNotifIds.includes(notif.id);
                         const handleClick = () => {
                           if (notif.id) {
                             markNotifAsRead(notif.id);
@@ -1869,24 +1888,37 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                           <div
                             key={notif.id || i}
                             className={`group relative flex items-start justify-between p-3.5 hover:bg-surface-2 dark:hover:bg-white/5 transition-colors cursor-pointer ${
-                              isUnread ? "bg-primary/5 dark:bg-primary/10 font-medium" : "opacity-80"
+                              isCompleted 
+                                ? "bg-emerald-500/5 dark:bg-emerald-500/10 opacity-70" 
+                                : isUnread 
+                                ? "bg-primary/5 dark:bg-primary/10 font-medium" 
+                                : "opacity-80"
                             }`}
                             onClick={handleClick}
                           >
                             <div className="flex-1 min-w-0 pr-3">
                               <div className="flex items-center justify-between gap-2 mb-1">
                                 <div className="flex items-center gap-1.5 truncate">
-                                  {isUnread && <span className="size-2 rounded-full bg-primary inline-block shrink-0" title="Unread" />}
-                                  <span className="text-xs font-bold text-foreground truncate">{notif.authorName}</span>
+                                  {isUnread && !isCompleted && <span className="size-2 rounded-full bg-primary inline-block shrink-0" title="Unread" />}
+                                  {isCompleted && (
+                                    <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold rounded text-[9.5px] uppercase tracking-wider">
+                                      DONE
+                                    </span>
+                                  )}
+                                  <span className={`text-xs font-bold text-foreground truncate ${isCompleted ? 'line-through text-muted-foreground' : ''}`}>
+                                    {notif.authorName}
+                                  </span>
                                 </div>
                                 <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
                                   {new Date(notif.timestamp).toLocaleDateString()}
                                 </span>
                               </div>
-                              <p className="text-xs font-medium leading-relaxed mb-2 text-foreground/90 text-left break-words">{notif.text}</p>
+                              <p className={`text-xs font-medium leading-relaxed mb-2 text-foreground/90 text-left break-words ${isCompleted ? 'line-through text-muted-foreground/70' : ''}`}>
+                                {notif.text}
+                              </p>
                               <div className="text-[10.5px] text-muted-foreground font-medium flex flex-wrap items-center gap-1.5 w-full">
                                 <span className="px-1.5 py-0.5 bg-primary/10 text-primary font-bold rounded-md text-[10px] uppercase tracking-wider">{notif.targetType}</span>
-                                <span className="truncate max-w-[150px]">{notif.targetName}</span>
+                                <span className={`truncate max-w-[150px] ${isCompleted ? 'line-through' : ''}`}>{notif.targetName}</span>
                                 <span className="text-muted-foreground/60 text-[10px]">in</span>
                                 <span className="truncate max-w-[130px] font-bold text-primary" title={notif.projectName}>{notif.projectName}</span>
                               </div>
@@ -1895,8 +1927,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                               {!notif.isCompletionNotif && (
                                 <button
                                   onClick={(e) => completeTaskAndNotifyAuthor(notif, e)}
-                                  className="p-1.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-all cursor-pointer"
-                                  title="Mark task done & send notification to author"
+                                  disabled={isCompleted}
+                                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                                    isCompleted 
+                                      ? "text-emerald-500 bg-emerald-500/10 cursor-default opacity-80" 
+                                      : "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                                  }`}
+                                  title={isCompleted ? "Task completed (Strikethrough active)" : "Mark task done & send notification to author"}
                                 >
                                   <CheckCircle2 className="size-4 text-emerald-500" />
                                 </button>
