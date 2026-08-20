@@ -355,7 +355,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const searchObj = useRouterState({ select: (s) => s.location.search }) as Record<string, any>;
   const activeName = searchObj?.name;
   const navigate = useNavigate();
-  const { project, projects, selectProject, refreshProjects, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, syncFromCloud, isInitializing, spaces, zones, equipment } = useWorkspace();
+  const { project, projects, activeProjectId, selectProject, refreshProjects, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, syncFromCloud, isInitializing, spaces, zones, equipment } = useWorkspace();
   const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
   const activeUsers = useCollaboration(s => s.activeUsers);
   const [myEmail, setMyEmail] = useState<string>("unknown");
@@ -897,17 +897,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const isAutoSaveActive = localStorage.getItem('mep_auto_save_enabled') !== 'false';
     const intervalMinutes = parseInt(localStorage.getItem('mep_auto_save_interval') || '10') || 10;
     const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000;
+    const targetProjId = activeProjectId || project?.id;
 
     if (!isAutoSaveActive) return;
 
     const autoSaveTimer = setInterval(() => {
-      if (activeProjectId) {
+      if (targetProjId) {
         workspaceStore.forceSaveToCloud();
       }
     }, intervalMs);
 
     return () => clearInterval(autoSaveTimer);
-  }, [activeProjectId]);
+  }, [activeProjectId, project?.id]);
 
   useEffect(() => {
     // Expose for export scripts outside React context

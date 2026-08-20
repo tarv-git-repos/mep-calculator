@@ -338,7 +338,7 @@ export function SettingsPage() {
   // Browse Directory Handler (Tauri Desktop or Fallback)
   const handleBrowseFolder = async () => {
     try {
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && ((window as any).__TAURI_IPC__ || (window as any).__TAURI__)) {
         const { open: openFileDialog } = await import('@tauri-apps/plugin-dialog');
         const selected = await openFileDialog({
           directory: true,
