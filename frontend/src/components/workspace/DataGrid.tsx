@@ -491,6 +491,10 @@ export function DataGrid<T extends { id: string }>({
                           }
                         }}
                         onDoubleClick={() => {
+                          if ((window as any).__mep_is_readonly) {
+                            toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                            return;
+                          }
                           if (!selected.has(row.id)) {
                             onToggle(row.id, false, false);
                           }
@@ -545,6 +549,10 @@ export function DataGrid<T extends { id: string }>({
                     }
                   }}
                   onDoubleClick={() => {
+                    if ((window as any).__mep_is_readonly) {
+                      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                      return;
+                    }
                     if (!selected.has(row.id)) {
                       onToggle(row.id, false, false);
                     }

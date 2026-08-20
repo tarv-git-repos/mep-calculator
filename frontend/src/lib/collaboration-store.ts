@@ -121,9 +121,9 @@ export const useCollaboration = create<CollaborationState>((set, get) => ({
         if (!oldestUser) {
           oldestUser = state;
         } else {
-          // Compare joined_module_at, fallback to session_id string compare to be completely deterministic
-          const timeA = state.joined_module_at || 0;
-          const timeB = oldestUser.joined_module_at || 0;
+          // Compare joined_module_at (must be valid positive timestamp), fallback to MAX_SAFE_INTEGER so untracked/invalid timestamps never steal lock
+          const timeA = state.joined_module_at && state.joined_module_at > 0 ? state.joined_module_at : Number.MAX_SAFE_INTEGER;
+          const timeB = oldestUser.joined_module_at && oldestUser.joined_module_at > 0 ? oldestUser.joined_module_at : Number.MAX_SAFE_INTEGER;
           if (timeA < timeB) {
             oldestUser = state;
           } else if (timeA === timeB && state.session_id < oldestUser.session_id) {

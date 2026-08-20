@@ -517,6 +517,10 @@ export const workspaceStore = {
   },
 
   updateSpaces(updatedSpaces: Space[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     const spaceMap = new Map(updatedSpaces.map((s) => [s.id, s]));
     const nextSpaces = currentWorkspaceState.spaces.map((s) => {
@@ -547,6 +551,10 @@ export const workspaceStore = {
   },
 
   updateZones(updatedZones: Zone[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     const zoneMap = new Map(updatedZones.map((z) => [z.id, z]));
     const nextZones = currentWorkspaceState.zones.map((z) => {
@@ -575,6 +583,10 @@ export const workspaceStore = {
 
 
   updateEquipment(updatedEquip: Equipment[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
     const balanced = calculateVentilation(
       currentWorkspaceState.spaces,

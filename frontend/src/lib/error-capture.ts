@@ -5,6 +5,7 @@ let lastCapturedError: { error: unknown; at: number } | undefined;
 const TTL_MS = 5_000;
 
 function record(error: unknown) {
+  console.error("=== CAPTURED UNHANDLED SSR ERROR ===", error);
   lastCapturedError = { error, at: Date.now() };
 }
 

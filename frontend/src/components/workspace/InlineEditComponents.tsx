@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 export function InlineInput({
   value,
@@ -20,12 +21,20 @@ export function InlineInput({
     setVal(String(value ?? ""));
   }, [value]);
 
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+
   if (!editing) {
     return (
       <span
-        onDoubleClick={() => setEditing(true)}
+        onDoubleClick={() => {
+          if (isReadOnly) {
+            toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+            return;
+          }
+          setEditing(true);
+        }}
         className={`cursor-pointer hover:bg-primary/10 rounded px-1.5 py-0.5 transition-colors ${className}`}
-        title="Double-click to edit"
+        title={isReadOnly ? "Read-Only mode" : "Double-click to edit"}
       >
         {val || placeholder || "-"}
       </span>
@@ -67,11 +76,19 @@ export function InlineSelect({
   onCommit: (val: string) => void;
   className?: string;
 }) {
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
   return (
     <select
       value={value}
-      onChange={(e) => onCommit(e.target.value)}
-      className={`bg-surface-2 border border-border/60 rounded px-2 py-1 outline-none text-xs cursor-pointer ${className}`}
+      disabled={isReadOnly}
+      onChange={(e) => {
+        if (isReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+        onCommit(e.target.value);
+      }}
+      className={`bg-surface-2 border border-border/60 rounded px-2 py-1 outline-none text-xs ${isReadOnly ? "cursor-not-allowed opacity-75 pointer-events-none" : "cursor-pointer"} ${className}`}
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>

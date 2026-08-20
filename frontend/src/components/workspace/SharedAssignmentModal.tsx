@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import { X, Search, ChevronDown, ChevronUp, ChevronRight, Plus, Fan, Check, Edit3 } from "lucide-react";
 import { useWorkspace, type Equipment, type Zone } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
@@ -53,6 +54,12 @@ export function SharedAssignmentModal({
 
   // Sync initial selection state only when modal transitions to open
   useEffect(() => {
+    const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+    if (isOpen && isReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      onClose();
+      return;
+    }
     if (isOpen && !prevIsOpenRef.current) {
       setShowAddEquip(!!initialShowAddEquip);
       if (initialEquipmentId) {

@@ -202,6 +202,12 @@ export function CalculationReviewBar({
 
   // Action 1: Sr. Design Engineer Hits "Reviewed"
   const handleSrReviewSubmit = async () => {
+    const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
+    if (isViewer) {
+      toast.info("Viewer role cannot submit reviews.", { id: "readonly-notice" });
+      setShowReviewModal(false);
+      return;
+    }
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
       ...reviewState,
@@ -297,6 +303,12 @@ export function CalculationReviewBar({
 
   // Action 2: Discipline Coordinator Hits "Approve"
   const handleCoordinatorApprove = async () => {
+    const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
+    if (isViewer) {
+      toast.info("Viewer role cannot approve calculations.", { id: "readonly-notice" });
+      setShowApproveModal(false);
+      return;
+    }
     const timestamp = new Date().toLocaleString();
     const commentText = approveComments.trim() || "Calculation Approved";
     const updated: CalculationReviewState = {
@@ -340,11 +352,12 @@ export function CalculationReviewBar({
 
   // Action 3: Discipline Coordinator Hits "Reject"
   const handleCoordinatorRejectSubmit = async () => {
-    if (!rejectReason.trim()) {
-      toast.error("Please enter a description/reason for rejection.");
+    const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
+    if (isViewer) {
+      toast.info("Viewer role cannot reject calculations.", { id: "readonly-notice" });
+      setShowRejectModal(false);
       return;
     }
-
     const timestamp = new Date().toLocaleString();
     const updated: CalculationReviewState = {
       ...reviewState,

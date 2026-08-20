@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import { X, Info, CheckCircle } from "lucide-react";
 import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
 import { calculateVentilation, type Space } from "@/lib/ventilation-calc";
@@ -37,6 +38,14 @@ export function EditSpaceModal({
   const [showPreview, setShowPreview] = useState(false);
   const [showRestroomModal, setShowRestroomModal] = useState(false);
   const categories = getOccupancyCategories();
+
+  useEffect(() => {
+    const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+    if (isReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      onClose();
+    }
+  }, [onClose]);
 
   // Run a live local calculation simulation for preview
   const calculatedPreview = useMemo(() => {

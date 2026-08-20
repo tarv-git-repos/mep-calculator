@@ -24,7 +24,8 @@ export function AssignCommentModal({
   onSave
 }: AssignCommentModalProps) {
   const { userData, profile } = useAuth();
-  const { project } = useWorkspace();
+  const { project, isReadOnly } = useWorkspace();
+  const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
   
   const [commentText, setCommentText] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -82,7 +83,7 @@ export function AssignCommentModal({
     };
 
     fetchAssignees();
-  }, [isOpen, project?.id]);
+  }, [isOpen, project?.id, isEffectiveReadOnly]);
 
   if (!isOpen) return null;
 

@@ -379,6 +379,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     );
   }, [roleVal, rawRole, des]);
 
+  const isViewerRole = useMemo(() => {
+    return roleVal === "VIEWER" || rawRole === "viewer" || rawRole.includes("viewer");
+  }, [roleVal, rawRole]);
+
+  useEffect(() => {
+    if (isViewerRole && !isReadOnly) {
+      setReadOnly(true);
+    }
+  }, [isViewerRole, isReadOnly, setReadOnly]);
+
   const isJrDesignEngineer = useMemo(() => {
     return (
       roleVal === "Jr. Design Engineer" ||
@@ -1261,15 +1271,42 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
   useEffect(() => {
-    const isEffectiveReadOnly = isReadOnly;
+    const isEffectiveReadOnly = isReadOnly || isLockedByOther || isViewerRole;
     (window as any).__mep_is_readonly = isEffectiveReadOnly;
     
     if (!isEffectiveReadOnly) return;
 
     const isAllowedInteractive = (target: HTMLElement) => {
-      // Header, Sidebar, Navigation links, Tab switching buttons, Modals, Review Bar, and Assign Comment Modals are always allowed
-      if (target.closest(".appshell-header, .appshell-sidebar, header, aside, nav, .no-print, [role='dialog'], [role='alertdialog'], .radix-dialog-content, .calculation-review-bar, .review-modal, .assign-comment-modal")) return true;
-      
+      // 1. Review, Approve, Reject (CalculationReviewBar & Review Modals) are ALWAYS allowed
+      if (target.closest(".calculation-review-bar, .review-modal")) return true;
+
+      // 2. Comments (Assign Comment Modal & Add Comment triggers) are ALWAYS allowed
+      if (target.closest(".assign-comment-modal, [data-comment-trigger]")) return true;
+      const contextItem = target.closest("[role='menuitem']");
+      if (contextItem && (contextItem.textContent || "").toLowerCase().includes("comment")) {
+        return true;
+      }
+
+      const isNavOrHeader = target.closest(".appshell-header, .appshell-sidebar, header:not(.calculator-header), aside, nav");
+
+      const isEditableInput = target.closest("input, select, textarea, [contenteditable='true']");
+      if (isEditableInput) {
+        // Allow header/sidebar search bar inputs ONLY
+        const isSearch = (isEditableInput as HTMLInputElement).type === 'search' || 
+                         isEditableInput.classList.contains('search-input') ||
+                         isEditableInput.getAttribute('placeholder')?.toLowerCase().includes('search');
+        if (isSearch && isNavOrHeader) return true;
+        return false;
+      }
+
+      // Sidebar and nav links are always allowed
+      if (target.closest(".appshell-sidebar, nav")) return true;
+
+      // AppShell Header (excluding review bar actions)
+      if (target.closest(".appshell-header") && !target.closest(".calculation-review-bar")) {
+        return true;
+      }
+
       const btn = target.closest("button, [role='button'], a, [role='tab']");
       if (!btn) return false;
 
@@ -1277,7 +1314,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       // Explicitly block checkboxes and switches
       if (role === "checkbox" || role === "switch") return false;
 
-      // Tab buttons, tab triggers, view mode toggles, accordion headers, search filter inputs are allowed
+      // Tab buttons, tab triggers, view mode toggles, accordion headers are allowed
       const btnText = (btn.textContent || "").trim().toLowerCase();
       const isTab = role === "tab" || 
                     btn.classList.contains("tab-btn") || 
@@ -1296,16 +1333,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const isEditableInput = target.closest("input, select, textarea, [contenteditable='true']");
       const isMutationBtn = target.closest("button, [role='button']");
 
-      if (isEditableInput) {
-        // Prevent focusing/editing input fields
-        e.preventDefault();
-        e.stopPropagation();
-        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-        return;
-      }
-
-      if (isMutationBtn) {
-        // Prevent clicking data-mutation buttons (like + New Space, Import, Auto-Zone, Delete)
+      if (isEditableInput || isMutationBtn) {
         e.preventDefault();
         e.stopPropagation();
         toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
@@ -1317,7 +1345,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const target = e.target as HTMLElement;
       if (!target) return;
       
-      // Safe check for closest and tagName
       const isElement = typeof target.closest === 'function' && typeof target.tagName === 'string';
       
       if (isElement && isAllowedInteractive(target)) return;
@@ -1325,7 +1352,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const tagName = isElement ? target.tagName.toLowerCase() : '';
       const isEditable = target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
       
-      // Allow navigation keys, copy (Ctrl+C / Cmd+C), select all (Ctrl+A), Tab, Escape, Arrows, PageUp/Down
       const isCopyCombo = (e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C' || e.key === 'a' || e.key === 'A');
       const isNavKey = ['Tab', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.key);
 
@@ -1336,7 +1362,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         return;
       }
       
-      // Block global mutation shortcuts like Delete, Backspace, or Enter on non-allowed targets
       if (['Delete', 'Backspace'].includes(e.key)) {
         e.preventDefault();
         e.stopPropagation();
@@ -1345,7 +1370,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
       
       if (e.key === 'Enter') {
-        // If it's an element and allowed interactive, let Enter pass
         if (isElement && isAllowedInteractive(target)) return;
         
         e.preventDefault();
@@ -1367,19 +1391,34 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
 
+    const handleReadOnlyContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+
+      if (isAllowedInteractive(target)) return;
+
+      const isEditableInput = target.closest("input, select, textarea, [contenteditable='true']");
+      if (isEditableInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      }
+    };
+
     if (isEffectiveReadOnly) {
       document.addEventListener("mousedown", handleReadOnlyClick, true);
+      document.addEventListener("contextmenu", handleReadOnlyContextMenu, true);
       document.addEventListener("keydown", handleReadOnlyKeyDown, true);
       document.addEventListener("change", handleReadOnlyChange, true);
     }
     
     return () => {
       document.removeEventListener("mousedown", handleReadOnlyClick, true);
-      document.removeEventListener("keydown", handleReadOnlyKeyDown, true);
       document.removeEventListener("contextmenu", handleReadOnlyContextMenu, true);
+      document.removeEventListener("keydown", handleReadOnlyKeyDown, true);
       document.removeEventListener("change", handleReadOnlyChange, true);
     };
-  }, [isReadOnly, isLockedByOther]);
+  }, [isReadOnly, isLockedByOther, isViewerRole]);
 
   const handleKeepValuesAsIs = () => {
     if (!pendingUnitToggle) return;
@@ -1743,13 +1782,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               </button>
 
               <button
-                onClick={() => setReadOnly(!isReadOnly)}
+                onClick={() => {
+                  if (isViewerRole) {
+                    toast.info("Viewer role accounts are locked in Read-Only mode.", { id: "readonly-notice" });
+                    return;
+                  }
+                  setReadOnly(!isReadOnly);
+                }}
                 className={`size-10 rounded-full flex items-center justify-center transition-colors border ${
                   isReadOnly 
                     ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
                     : "bg-surface-2 dark:bg-white/5 text-muted-foreground border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10"
                 }`}
-                title={isReadOnly ? "Unlock Editing" : "Lock Read-Only Mode"}
+                title={isViewerRole ? "Read-Only mode is required for Viewer role" : isReadOnly ? "Unlock Editing" : "Lock Read-Only Mode"}
               >
                 {isReadOnly ? <Lock className="size-4" /> : <Edit3 className="size-4" />}
               </button>
