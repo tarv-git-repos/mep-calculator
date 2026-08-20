@@ -389,6 +389,7 @@ function SpacesView() {
     setWorkspaceState,
     undo,
     redo,
+    removeCommentFromTarget,
   } = useWorkspace();
 
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
@@ -1933,16 +1934,79 @@ function SpacesView() {
     return selected.has(rId) ? Array.from(selected) : [rId];
   };
 
+  const handleCompleteComment = (targetId: string, targetType: 'space' | 'zone' | 'equipment', locationName: string, comment: any) => {
+    if (removeCommentFromTarget) {
+      removeCommentFromTarget(targetId, targetType, comment.id);
+    }
+
+    const newNotif = {
+      id: `task_done_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      completedBy: userData?.name || profile?.name || "Design Engineer",
+      text: `✅ Task is done on ${locationName}! Comment: "${comment.text}" resolved.`,
+      timestamp: new Date().toISOString(),
+      targetType: targetType === 'space' ? 'Space' : targetType === 'zone' ? 'Zone' : 'Equipment',
+      targetName: locationName,
+      assignedUsers: [comment.authorId, comment.authorName].filter(Boolean),
+      projectId: activeProjectId,
+      calculatorPath: '/ventilation'
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('mep_task_done_notifs') || '[]');
+      existing.unshift(newNotif);
+      localStorage.setItem('mep_task_done_notifs', JSON.stringify(existing));
+      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+    } catch (e) {}
+
+    toast.success(`✅ Task marked as done on "${locationName}"! Comment removed & author notified.`);
+  };
+
   const columns: Column<Space>[] = [
     { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => (
       <div className="flex items-center gap-1.5 w-full">
         {r.comments && r.comments.length > 0 && (
-          <span 
-            title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`} 
-            className="inline-flex items-center justify-center p-1 rounded bg-primary/10 text-primary shrink-0 cursor-help"
-          >
-            <MessageSquare className="size-3.5" />
-          </span>
+          <div className="relative group/comment inline-flex items-center shrink-0">
+            <span 
+              className="inline-flex items-center justify-center p-1 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/80 dark:border-blue-900/60 cursor-pointer shadow-2xs hover:bg-blue-100 dark:hover:bg-blue-900/80 transition-colors"
+            >
+              <MessageSquare className="size-3.5" />
+            </span>
+
+            <div className="absolute left-0 top-full mt-1.5 hidden group-hover/comment:flex group-focus-within/comment:flex flex-col z-[99999] w-72 bg-white dark:bg-[#1e1e20] border border-border dark:border-slate-800 rounded-xl shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between border-b border-border/50 pb-2 mb-2">
+                <span className="text-[11px] font-bold tracking-wider uppercase text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                  <MessageSquare className="size-3" /> Comments ({r.comments.length})
+                </span>
+                <span className="text-[10px] text-muted-foreground font-medium">Click ✓ when done</span>
+              </div>
+
+              <div className="flex flex-col gap-2 max-h-48 overflow-y-auto custom-scrollbar">
+                {r.comments.map((comment: any) => (
+                  <div key={comment.id} className="flex items-start justify-between gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900/70 border border-slate-200/60 dark:border-slate-800 text-xs">
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{comment.authorName || "Team Member"}</span>
+                        <span className="text-[9.5px] text-slate-400 shrink-0">{comment.timestamp ? new Date(comment.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 text-[11.5px] leading-snug break-words">{comment.text}</p>
+                    </div>
+
+                    <button
+                      type="button"
+                      title="Mark Task Done & Remove Comment"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCompleteComment(r.id, 'space', r.name, comment);
+                      }}
+                      className="p-1.5 rounded-md bg-emerald-100 hover:bg-emerald-600 text-emerald-700 hover:text-white dark:bg-emerald-950/60 dark:hover:bg-emerald-600 dark:text-emerald-400 dark:hover:text-white transition-all cursor-pointer shrink-0 shadow-2xs group/tick"
+                    >
+                      <Check className="size-4 stroke-[2.5]" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
         <InlineInput
           value={r.name}

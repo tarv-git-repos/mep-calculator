@@ -622,6 +622,41 @@ export const workspaceStore = {
     notify();
   },
 
+  removeCommentFromTarget(targetId: string, targetType: 'space' | 'zone' | 'equipment', commentId: string) {
+    pushHistory();
+    if (targetType === 'space') {
+      const nextSpaces = currentWorkspaceState.spaces.map(s => {
+        if (s.id === targetId) {
+          const comments = (s.comments || []).filter(c => c.id !== commentId);
+          return { ...s, comments };
+        }
+        return s;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, spaces: nextSpaces };
+    } else if (targetType === 'zone') {
+      const nextZones = currentWorkspaceState.zones.map(z => {
+        if (z.id === targetId) {
+          const comments = (z.comments || []).filter(c => c.id !== commentId);
+          return { ...z, comments };
+        }
+        return z;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, zones: nextZones };
+    } else if (targetType === 'equipment') {
+      const nextEquip = currentWorkspaceState.equipment.map(e => {
+        if (e.id === targetId) {
+          const comments = (e.comments || []).filter(c => c.id !== commentId);
+          return { ...e, comments };
+        }
+        return e;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, equipment: nextEquip };
+    }
+    saveState();
+    logCalculatorUpdate('Ventilation', `Removed comment from ${targetType}`);
+    notify();
+  },
+
   addSpace(newSpace: Space) {
     pushHistory();
     const nextSpace = { ...newSpace };
@@ -1365,6 +1400,8 @@ export function useWorkspace() {
     isReadOnly: state.isReadOnly,
     setReadOnly: (val: boolean) => workspaceStore.setReadOnly(val),
     saveAsRevision: (name: string) => workspaceStore.saveAsRevision(name),
+    addCommentToTarget: (targetId: string, targetType: 'space' | 'zone' | 'equipment', comment: any) => workspaceStore.addCommentToTarget(targetId, targetType, comment),
+    removeCommentFromTarget: (targetId: string, targetType: 'space' | 'zone' | 'equipment', commentId: string) => workspaceStore.removeCommentFromTarget(targetId, targetType, commentId),
   };
 }
 

@@ -669,8 +669,35 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             });
           }
         }
-      } catch(e) {}
-    }
+      // 4. Task Completion Notifications (Task marked done on a space/zone/equipment by engineer)
+    try {
+      const savedTaskNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_task_done_notifs") : null;
+      if (savedTaskNotifs) {
+        const parsed = JSON.parse(savedTaskNotifs);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((tn: any) => {
+            const isTargetAuthor = Array.isArray(tn.assignedUsers) && tn.assignedUsers.some((u: any) => {
+              const uStr = String(u).toLowerCase().trim();
+              return uStr === String(currentId).toLowerCase() || (currentName && uStr === currentName) || (currentEmail && uStr === currentEmail);
+            });
+            if (isTargetAuthor && tn.id && !notifs.some(n => n.id === tn.id)) {
+              notifs.push({
+                id: tn.id,
+                authorName: tn.completedBy || "Design Engineer",
+                text: tn.text || `✅ Task done on ${tn.targetName || "location"}!`,
+                timestamp: tn.timestamp,
+                targetType: tn.targetType || "Space",
+                targetName: tn.targetName || "Location",
+                projectName: tn.projectName || "Project",
+                projectId: tn.projectId || "none",
+                calculatorPath: tn.calculatorPath || "/ventilation",
+                targetId: tn.id
+              });
+            }
+          });
+        }
+      }
+    } catch(e) {}
     
     const filtered = notifs.filter(n => !n.id || !deletedNotifIds.includes(n.id));
     filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
