@@ -93,7 +93,7 @@ export function VentilationModule() {
 
   const [tab, setTab] = useState<Tab>("spaces");
   const [intelOpen, setIntelOpen] = useState(false);
-  const { spaces, zones, equipment, activeProjectId, roundOffPreset, setRoundOffPreset } = useWorkspace();
+  const { project, spaces, zones, equipment, activeProjectId, roundOffPreset, setRoundOffPreset } = useWorkspace();
 
   const totalArea = Math.round(spaces.reduce((sum, s) => sum + ((s.area || 0) * (s.multiplier || 1)), 0));
   const totalMinFresh = Math.round(spaces.reduce((sum, s) => sum + (s.minOA || 0), 0));
@@ -104,38 +104,55 @@ export function VentilationModule() {
   const netFlow = actualFA - actualEA;
   const avgPressure = totalArea > 0 ? (netFlow / totalArea) * 5.6 : 0;
 
-  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
-    if (typeof window !== 'undefined' && activeProjectId) {
+  const getSyncedReviewState = useMemo(() => {
+    if (!activeProjectId) return { status: "DRAFT" };
+    const storageKey = `mep_calc_review_${activeProjectId}_/ventilation`;
+    
+    if (project?.workspace_data) {
+      let wdata = project.workspace_data;
+      if (typeof wdata === 'string') {
+        try { wdata = JSON.parse(wdata); } catch(e) {}
+      }
+      if (wdata?.review_states?.[storageKey]) {
+        const stateFromDb = wdata.review_states[storageKey];
+        if (typeof window !== 'undefined') {
+          try { localStorage.setItem(storageKey, JSON.stringify(stateFromDb)); } catch(e) {}
+        }
+        return stateFromDb;
+      }
+    }
+
+    if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem(`mep_calc_review_${activeProjectId}_/ventilation`);
+        const saved = localStorage.getItem(storageKey);
         if (saved) return JSON.parse(saved);
       } catch(e) {}
     }
     return { status: "DRAFT" };
-  });
+  }, [project, activeProjectId]);
+
+  const [calcReviewState, setCalcReviewState] = useState<any>(getSyncedReviewState);
 
   const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
 
   useEffect(() => {
+    setCalcReviewState(getSyncedReviewState);
     if (typeof window !== 'undefined') {
-      if (!activeProjectId) {
-        setCalcReviewState({ status: "DRAFT" });
-        (window as any).__mep_is_readonly = false;
-        return;
-      }
-      try {
-        const saved = localStorage.getItem(`mep_calc_review_${activeProjectId}_/ventilation`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          setCalcReviewState(parsed);
-          (window as any).__mep_is_readonly = parsed.status === "APPROVED";
-        } else {
-          setCalcReviewState({ status: "DRAFT" });
-          (window as any).__mep_is_readonly = false;
-        }
-      } catch(e) {}
+      (window as any).__mep_is_readonly = getSyncedReviewState.status === "APPROVED";
     }
-  }, [activeProjectId]);
+  }, [getSyncedReviewState]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleUpdate = (e: CustomEvent) => {
+      if (e.detail) {
+        setCalcReviewState(e.detail);
+        (window as any).__mep_is_readonly = e.detail.status === "APPROVED";
+      }
+    };
+    window.addEventListener("mep-review-state-updated" as any, handleUpdate);
+    return () => window.removeEventListener("mep-review-state-updated" as any, handleUpdate);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
