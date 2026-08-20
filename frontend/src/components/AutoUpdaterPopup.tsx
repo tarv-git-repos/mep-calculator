@@ -13,12 +13,7 @@ export function AutoUpdaterPopup() {
   const [isInstalling, setIsInstalling] = useState(false);
 
   const checkForUpdates = async (isManual = false) => {
-    if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) {
-      if (isManual) {
-        toast.info("Web version updates automatically on page refresh.");
-      }
-      return;
-    }
+    if (typeof window === 'undefined') return;
 
     try {
       if (isManual) {
@@ -37,7 +32,7 @@ export function AutoUpdaterPopup() {
     } catch (e: any) {
       console.error('Auto update check failed:', e);
       if (isManual) {
-        toast.error(`Update check failed: ${e?.message || String(e)}`);
+        toast.info("Web version updates automatically on page refresh.");
       }
     }
   };

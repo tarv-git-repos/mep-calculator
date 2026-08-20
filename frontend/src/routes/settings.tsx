@@ -549,6 +549,9 @@ export function SettingsPage() {
     try {
       setIsCheckingUpdate(true);
       setUpdateStatus("Checking for updates...");
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mep_check_updates_manual'));
+      }
       const { check } = await import('@tauri-apps/plugin-updater');
       const update = await check();
       if (update) {
