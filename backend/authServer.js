@@ -42,7 +42,13 @@ function saveLocalUsers(users) {
 }
 
 const ORGS_FILE = path.join(DATA_DIR, 'organizations.json');
-if (!fs.existsSync(ORGS_FILE)) fs.writeFileSync(ORGS_FILE, JSON.stringify([]), 'utf8');
+try { if (!fs.existsSync(ORGS_FILE)) fs.writeFileSync(ORGS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+
+const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
+try { if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+
+const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
+try { if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
 
 function readLocalOrgs() {
   try { return JSON.parse(fs.readFileSync(ORGS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
@@ -1360,12 +1366,6 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // HARDWARE FINGERPRINTED TRIAL & UNIQUE LICENSING
   // ==========================================
-
-  const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
-  const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
-
-  if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8');
-  if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8');
   
   // POST log activity
   if (req.method === 'POST' && url === '/api/activity/log') {
@@ -1840,26 +1840,55 @@ const server = http.createServer(async (req, res) => {
     if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     const { orgId, name, subscription_plan, max_users, license_key, max_concurrent_users } = await getRequestBody(req);
     
-    const localOrgs = readLocalOrgs();
-    const orgIndex = localOrgs.findIndex(o => o.id === orgId);
-    if (orgIndex === -1) return sendJSON(res, 404, { success: false, message: 'Organization not found' });
+    if (!orgId) return sendJSON(res, 400, { success: false, message: 'Organization ID required' });
+
+    let localOrgs = readLocalOrgs();
+    let orgIndex = localOrgs.findIndex(o => o.id === orgId);
     
+    if (orgIndex === -1) {
+      // Try to fetch existing org from Supabase
+      let fetchedOrg = null;
+      try {
+        const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
+        if (data) fetchedOrg = data;
+      } catch (e) {}
+
+      if (fetchedOrg) {
+        localOrgs.push(fetchedOrg);
+        orgIndex = localOrgs.length - 1;
+      } else {
+        // Create entry in localOrgs for valid organization being updated
+        const newOrg = {
+          id: orgId,
+          name: name || 'Organization',
+          subscription_plan: subscription_plan || 'PRO',
+          max_users: max_users ? parseInt(max_users) : 5,
+          license_key: license_key || 'MEP-LIC-ORG-PRO',
+          max_concurrent_users: max_concurrent_users !== undefined ? parseInt(max_concurrent_users) : 1,
+          created_at: new Date().toISOString()
+        };
+        localOrgs.push(newOrg);
+        orgIndex = localOrgs.length - 1;
+      }
+    }
+
     if (name !== undefined) localOrgs[orgIndex].name = name;
     if (subscription_plan !== undefined) localOrgs[orgIndex].subscription_plan = subscription_plan;
     if (max_users !== undefined) localOrgs[orgIndex].max_users = parseInt(max_users);
     if (license_key !== undefined) localOrgs[orgIndex].license_key = license_key;
     if (max_concurrent_users !== undefined) localOrgs[orgIndex].max_concurrent_users = parseInt(max_concurrent_users);
-    
+
     saveLocalOrgs(localOrgs);
 
     try {
-      const updateData = {};
+      const updateData = { id: orgId };
       if (name !== undefined) updateData.name = name;
       if (subscription_plan !== undefined) updateData.subscription_plan = subscription_plan;
       if (max_users !== undefined) updateData.max_users = parseInt(max_users);
       if (license_key !== undefined) updateData.license_key = license_key;
       if (max_concurrent_users !== undefined) updateData.max_concurrent_users = parseInt(max_concurrent_users);
-      await supabase.from('organizations').update(updateData).eq('id', orgId);
+      
+      await supabase.from('organizations').upsert(updateData, { onConflict: 'id' });
     } catch (e) {
       console.warn('Supabase org update warning:', e);
     }

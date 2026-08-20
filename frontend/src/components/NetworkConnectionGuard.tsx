@@ -17,10 +17,7 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
 
   const getBackendUrl = () => {
-    if (typeof window !== "undefined" && (window as any).import?.meta?.env?.VITE_API_URL) {
-      return (window as any).import.meta.env.VITE_API_URL;
-    }
-    return "http://localhost:4000";
+    return import.meta.env.VITE_API_URL || "https://universal-mep-calculator.onrender.com";
   };
 
   const checkConnectivity = useCallback(async () => {

@@ -14,10 +14,15 @@ export default defineConfig({
       host: true,
       port: 8081,
       strictPort: true,
+      fs: {
+        strict: false,
+        allow: ['.', '..'],
+      },
       proxy: {
         '/api': {
-          target: 'http://localhost:4000',
+          target: 'https://universal-mep-calculator.onrender.com',
           changeOrigin: true,
+          secure: false,
         },
       },
       watch: {

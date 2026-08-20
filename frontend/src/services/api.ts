@@ -367,8 +367,10 @@ export const api = {
           const idx = existing.findIndex((o: any) => o.id === orgData.orgId);
           if (idx !== -1) {
             existing[idx] = { ...existing[idx], ...orgData };
-            localStorage.setItem('mep_local_organizations', JSON.stringify(existing));
+          } else {
+            existing.push({ id: orgData.orgId, ...orgData });
           }
+          localStorage.setItem('mep_local_organizations', JSON.stringify(existing));
         } catch(e) {}
       }
       return data;
