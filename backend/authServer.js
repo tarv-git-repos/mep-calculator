@@ -1061,7 +1061,12 @@ const server = http.createServer(async (req, res) => {
       workspace_data: projectData.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
     };
 
-    const { error } = await supabase.from('projects').insert(dbProject);
+    let { error } = await supabase.from('projects').insert(dbProject);
+    if (error && error.message && error.message.includes('organization_id')) {
+      delete dbProject.organization_id;
+      const retry = await supabase.from('projects').insert(dbProject);
+      error = retry.error;
+    }
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
     const allDbUsers = await readUsers();
