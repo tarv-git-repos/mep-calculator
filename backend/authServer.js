@@ -710,7 +710,14 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/user/data') {
     const user = await getUserFromReq(req);
     if (!user) {
-      return sendJSON(res, 200, { success: false, message: 'User not logged in' });
+      return sendJSON(res, 401, { success: false, message: 'User not logged in' });
+    }
+    if (user.isDeactivated || user.isDeleted || user.status === 'deactivated' || user.status === 'deleted') {
+      return sendJSON(res, 403, {
+        success: false,
+        accountDeactivated: true,
+        message: 'Your account has been deleted or deactivated by an administrator.'
+      });
     }
     if (user.sessionRevoked) {
       return sendJSON(res, 401, {

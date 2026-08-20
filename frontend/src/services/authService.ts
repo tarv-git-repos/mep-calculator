@@ -215,7 +215,10 @@ export const authService = {
       return data;
     } catch (error: any) {
       if (error.response?.data?.sessionRevoked || error.response?.data?.message?.includes('another device')) {
-        return { success: false, message: error.response.data.message || 'Your account was logged in on another device.' };
+        return { success: false, sessionRevoked: true, message: error.response.data.message || 'Your account was logged in on another device.' };
+      }
+      if (error.response?.data?.accountDeactivated || error.response?.data?.accountDeleted) {
+        return { success: false, accountDeactivated: true, message: 'Your account has been deleted or deactivated by an administrator.' };
       }
       return { success: false };
     }

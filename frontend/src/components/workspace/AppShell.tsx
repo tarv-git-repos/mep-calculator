@@ -986,17 +986,25 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }, [userData?.is_founding_pioneer, userData?.pioneer_number, userId]);
 
-  // Periodic session heartbeat to instantly log out accounts deleted by Super Admin / Org Admin
+  // Periodic session heartbeat to check explicitly deactivated accounts
   useEffect(() => {
     if (!userId) return;
     const interval = setInterval(async () => {
-      const res = await authService.getUserData();
-      if (res && res.success === false && res.message && !res.message.includes('Network Error')) {
-        toast.error("Your account has been deleted or deactivated by an administrator.");
-        logout();
-        navigate({ to: '/login' });
-      }
-    }, 5000);
+      try {
+        const res = await authService.getUserData();
+        if (res && res.success === false) {
+          if (res.accountDeactivated || res.accountDeleted) {
+            toast.error("Your account has been deleted or deactivated by an administrator.");
+            logout();
+            navigate({ to: '/login' });
+          } else if (res.sessionRevoked) {
+            toast.error("Your session has been transferred to another device. You are now logged out.");
+            logout();
+            navigate({ to: '/login' });
+          }
+        }
+      } catch (err) {}
+    }, 15000);
     return () => clearInterval(interval);
   }, [userId, logout, navigate]);
 
