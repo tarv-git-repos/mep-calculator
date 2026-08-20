@@ -57,49 +57,36 @@ export function CalculationReviewBar({
   // 1. Workflow Role derived automatically from admin-assigned designation & profile role
   const userRole = useMemo<WorkflowRole>(() => {
     const activeProfile = profile || userData || {};
-    const roleVal = String(activeProfile.role || userData?.user_metadata?.role || userData?.role || "").trim();
-    const des = String(activeProfile.designation || "").toLowerCase().trim();
-    const rawRole = roleVal.toLowerCase();
+    
+    // Extract role and designation strings from profile and userData
+    const roleVal = String(activeProfile.role || userData?.role || "").trim();
+    const desVal = String(activeProfile.designation || userData?.designation || "").trim();
+    const metaRole = String(userData?.user_metadata?.role || "").trim();
+    
+    const combinedStr = `${roleVal} ${desVal} ${metaRole}`.toLowerCase();
 
-    // First priority: Explicit Junior / Design Engineer check (Must NEVER get Review or Approve buttons)
-    if (
-      roleVal === "Jr. Design Engineer" ||
-      roleVal === "Junior Design Engineer" ||
-      roleVal === "Design Engineer" ||
-      roleVal === "jr. Design Engineer" ||
-      rawRole.includes("junior") ||
-      rawRole.includes("jr.") ||
-      des.includes("junior") ||
-      des.includes("jr.")
-    ) {
-      return "Jr. / Design Engineer";
-    }
+    // Priority 1: DISCIPLINE COORDINATOR check FIRST!
+    // Must contain "discipline coordinator" or "coordinator" (excluding BIM coordinator)
+    const isCoordinator = combinedStr.includes("discipline coordinator") || 
+                          (combinedStr.includes("coordinator") && !combinedStr.includes("bim coordinator") && !combinedStr.includes("bim_coordinator"));
 
-    // Second priority: Discipline Coordinator check ONLY (ONLY Discipline Coordinator gets Approve & Reject buttons)
-    if (
-      roleVal === "Discipline Coordinator" ||
-      rawRole === "discipline coordinator" ||
-      rawRole.includes("coordinator") ||
-      des.includes("coordinator")
-    ) {
+    if (isCoordinator) {
       return "Discipline Coordinator";
     }
 
-    // Third priority: Sr. Design Engineer check (ONLY role that gets the Review button)
-    if (
-      roleVal === "Sr. Design Engineer" ||
-      roleVal === "Senior Design Engineer" ||
-      rawRole.includes("senior") ||
-      rawRole.includes("sr.") ||
-      rawRole === "sr" ||
-      des.includes("senior") ||
-      des.includes("sr.") ||
-      des === "sr"
-    ) {
+    // Priority 2: SR. DESIGN ENGINEER check
+    const isSenior = combinedStr.includes("sr. design engineer") || 
+                     combinedStr.includes("senior design engineer") ||
+                     combinedStr.includes("sr. engineer") || 
+                     combinedStr.includes("senior engineer") ||
+                     combinedStr.includes("sr design") ||
+                     combinedStr.includes("senior design");
+
+    if (isSenior) {
       return "Sr. Design Engineer";
     }
 
-    // Default fallback: Jr. / Design Engineer
+    // Default fallback: Jr. / Design Engineer (includes Org Admin, Super Admin, Project Manager, Viewers, etc.)
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
@@ -365,8 +352,6 @@ export function CalculationReviewBar({
       rejectedBy: currentUserName,
       rejectedAt: timestamp,
       rejectionDescription: rejectReason.trim(),
-      approvedBy: undefined,
-      approvedAt: undefined,
       history: [
         ...(reviewState.history || []),
         {

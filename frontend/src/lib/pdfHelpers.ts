@@ -147,43 +147,41 @@ export function getSignatureBlockDetails(
   }
 
   // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = project creation date
-  // Current calculation review status
-  const currentStatus = reviewState?.status || "DRAFT";
+  const originatedName = getExporterUserName(exporterName);
+  const originatedDate = projectCreatedDateStr;
 
-  // 2. Reviewed By: ONLY populate if current status is REVIEWED or APPROVED
+  // 2. Reviewed By: Find the LATEST reviewed action
   let reviewerName = "";
   let reviewerDate = "";
 
-  if (currentStatus === "REVIEWED" || currentStatus === "APPROVED") {
-    if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
-      const revItem = [...reviewState.history].reverse().find((h: any) => h.action === "REVIEWED");
-      if (revItem) {
-        reviewerName = revItem.user;
-        reviewerDate = formatDateStr(revItem.timestamp);
-      }
-    }
-    if (!reviewerName && reviewState?.reviewedBy) {
-      reviewerName = reviewState.reviewedBy;
-      reviewerDate = formatDateStr(reviewState.reviewedAt);
+  if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
+    const revItem = [...reviewState.history].reverse().find((h: any) => h.action === "REVIEWED");
+    if (revItem) {
+      reviewerName = revItem.user;
+      reviewerDate = formatDateStr(revItem.timestamp);
     }
   }
 
-  // 3. Approved By: ONLY populate if current status is APPROVED
+  if (!reviewerName && reviewState?.reviewedBy) {
+    reviewerName = reviewState.reviewedBy;
+    reviewerDate = formatDateStr(reviewState.reviewedAt);
+  }
+
+  // 3. Approved By: Find the LATEST approved action
   let approverName = "";
   let approverDate = "";
 
-  if (currentStatus === "APPROVED") {
-    if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
-      const appItem = [...reviewState.history].reverse().find((h: any) => h.action === "APPROVED");
-      if (appItem) {
-        approverName = appItem.user;
-        approverDate = formatDateStr(appItem.timestamp);
-      }
+  if (reviewState?.history && Array.isArray(reviewState.history) && reviewState.history.length > 0) {
+    const appItem = [...reviewState.history].reverse().find((h: any) => h.action === "APPROVED");
+    if (appItem) {
+      approverName = appItem.user;
+      approverDate = formatDateStr(appItem.timestamp);
     }
-    if (!approverName && reviewState?.approvedBy) {
-      approverName = reviewState.approvedBy;
-      approverDate = formatDateStr(reviewState.approvedAt);
-    }
+  }
+
+  if (!approverName && reviewState?.status === "APPROVED" && reviewState?.approvedBy) {
+    approverName = reviewState.approvedBy;
+    approverDate = formatDateStr(reviewState.approvedAt);
   }
 
   return {
