@@ -268,6 +268,14 @@ export const workspaceStore = {
     if (cloudInitDone) return;
     cloudInitDone = true;
     
+    // Safety fallback: Ensure workspace initialization never locks UI for more than 2.5 seconds
+    const initTimer = setTimeout(() => {
+      if (isInitializing) {
+        isInitializing = false;
+        notify();
+      }
+    }, 2500);
+
     try {
       supabase
         .channel('public:projects')
@@ -276,7 +284,11 @@ export const workspaceStore = {
         })
         .subscribe();
 
-      const cloudProjects = await api.getProjects();
+      const cloudProjects = await Promise.race([
+        api.getProjects(),
+        new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2000))
+      ]).catch(() => []);
+
       projects = cloudProjects || [];
       
       if (projects.length > 0) {
@@ -312,6 +324,7 @@ export const workspaceStore = {
     } catch (err) {
       console.error("Workspace init failed:", err);
     } finally {
+      clearTimeout(initTimer);
       isInitializing = false;
       notify();
     }
