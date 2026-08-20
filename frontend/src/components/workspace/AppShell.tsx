@@ -666,10 +666,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   targetId: cn.id
                 });
               }
-            });
           }
         }
-      // 4. Task Completion Notifications (Task marked done on a space/zone/equipment by engineer)
+      } catch (e) {}
+    }
+
+    // 4. Task Completion Notifications (Task marked done on a space/zone/equipment by engineer)
     try {
       const savedTaskNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_task_done_notifs") : null;
       if (savedTaskNotifs) {
