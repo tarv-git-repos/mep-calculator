@@ -1797,9 +1797,20 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {}
     
     const localOrgs = readLocalOrgs();
+    const fileSettings = readOrgSettings();
     const map = new Map();
-    localOrgs.forEach(o => map.set(o.id, o));
-    orgs.forEach(o => map.set(o.id, o));
+    
+    localOrgs.forEach(o => map.set(o.id, { ...o }));
+    
+    orgs.forEach(o => {
+      const existingLocal = map.get(o.id) || {};
+      map.set(o.id, {
+        ...existingLocal,
+        ...o,
+        license_key: o.license_key || existingLocal.license_key || fileSettings[o.id]?.license_key || 'MEP-LIC-ORG-PRO',
+        max_concurrent_users: o.max_concurrent_users !== undefined && o.max_concurrent_users !== null ? parseInt(o.max_concurrent_users) : (existingLocal.max_concurrent_users !== undefined ? parseInt(existingLocal.max_concurrent_users) : (fileSettings[o.id]?.max_concurrent_users !== undefined ? parseInt(fileSettings[o.id].max_concurrent_users) : 1))
+      });
+    });
     
     return sendJSON(res, 200, { success: true, organizations: Array.from(map.values()) });
   }
@@ -1819,14 +1830,25 @@ const server = http.createServer(async (req, res) => {
       created_at: new Date().toISOString()
     };
 
-    // Save locally first
     const localOrgs = readLocalOrgs();
     localOrgs.push(newOrg);
     saveLocalOrgs(localOrgs);
 
-    // Try Supabase insert
+    const fileSettings = readOrgSettings();
+    fileSettings[newOrg.id] = {
+      license_key: newOrg.license_key,
+      max_concurrent_users: newOrg.max_concurrent_users,
+      updated_at: new Date().toISOString()
+    };
+    writeOrgSettings(fileSettings);
+
     try {
-      await supabase.from('organizations').insert([newOrg]);
+      await supabase.from('organizations').insert([{
+        id: newOrg.id,
+        name: newOrg.name,
+        subscription_plan: newOrg.subscription_plan,
+        max_users: newOrg.max_users
+      }]);
     } catch (e) {
       console.warn('Supabase org insert warning:', e);
     }
@@ -1846,30 +1868,21 @@ const server = http.createServer(async (req, res) => {
     let orgIndex = localOrgs.findIndex(o => o.id === orgId);
     
     if (orgIndex === -1) {
-      // Try to fetch existing org from Supabase
       let fetchedOrg = null;
       try {
         const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
         if (data) fetchedOrg = data;
       } catch (e) {}
 
-      if (fetchedOrg) {
-        localOrgs.push(fetchedOrg);
-        orgIndex = localOrgs.length - 1;
-      } else {
-        // Create entry in localOrgs for valid organization being updated
-        const newOrg = {
-          id: orgId,
-          name: name || 'Organization',
-          subscription_plan: subscription_plan || 'PRO',
-          max_users: max_users ? parseInt(max_users) : 5,
-          license_key: license_key || 'MEP-LIC-ORG-PRO',
-          max_concurrent_users: max_concurrent_users !== undefined ? parseInt(max_concurrent_users) : 1,
-          created_at: new Date().toISOString()
-        };
-        localOrgs.push(newOrg);
-        orgIndex = localOrgs.length - 1;
-      }
+      const newOrg = fetchedOrg ? { ...fetchedOrg } : {
+        id: orgId,
+        name: name || 'Organization',
+        subscription_plan: subscription_plan || 'PRO',
+        max_users: max_users ? parseInt(max_users) : 5,
+        created_at: new Date().toISOString()
+      };
+      localOrgs.push(newOrg);
+      orgIndex = localOrgs.length - 1;
     }
 
     if (name !== undefined) localOrgs[orgIndex].name = name;
@@ -1880,13 +1893,20 @@ const server = http.createServer(async (req, res) => {
 
     saveLocalOrgs(localOrgs);
 
+    const fileSettings = readOrgSettings();
+    fileSettings[orgId] = {
+      ...fileSettings[orgId],
+      license_key: localOrgs[orgIndex].license_key,
+      max_concurrent_users: localOrgs[orgIndex].max_concurrent_users,
+      updated_at: new Date().toISOString()
+    };
+    writeOrgSettings(fileSettings);
+
     try {
       const updateData = { id: orgId };
       if (name !== undefined) updateData.name = name;
       if (subscription_plan !== undefined) updateData.subscription_plan = subscription_plan;
       if (max_users !== undefined) updateData.max_users = parseInt(max_users);
-      if (license_key !== undefined) updateData.license_key = license_key;
-      if (max_concurrent_users !== undefined) updateData.max_concurrent_users = parseInt(max_concurrent_users);
       
       await supabase.from('organizations').upsert(updateData, { onConflict: 'id' });
     } catch (e) {
@@ -1906,24 +1926,22 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: true, allowed: true });
     }
 
-    // Always fetch latest org settings (Supabase first, then localOrgs)
-    let orgObj = null;
-    try {
-      const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
-      if (data) orgObj = data;
-    } catch(e) {}
-
+    const fileSettings = readOrgSettings();
+    const localOrgs = readLocalOrgs();
+    let orgObj = localOrgs.find(o => o.id === orgId);
     if (!orgObj) {
-      const localOrgs = readLocalOrgs();
-      orgObj = localOrgs.find(o => o.id === orgId);
+      try {
+        const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
+        if (data) orgObj = data;
+      } catch(e) {}
     }
 
     if (!orgObj) {
-      return sendJSON(res, 200, { success: true, allowed: true });
+      orgObj = { id: orgId, name: 'Organization' };
     }
 
-    const licenseKey = orgObj.license_key || '';
-    const maxConcurrent = orgObj.max_concurrent_users !== undefined && orgObj.max_concurrent_users !== null ? parseInt(orgObj.max_concurrent_users) : 1;
+    const licenseKey = fileSettings[orgId]?.license_key || orgObj.license_key || 'MEP-LIC-ORG-PRO';
+    const maxConcurrent = fileSettings[orgId]?.max_concurrent_users !== undefined ? parseInt(fileSettings[orgId].max_concurrent_users) : (orgObj.max_concurrent_users !== undefined && orgObj.max_concurrent_users !== null ? parseInt(orgObj.max_concurrent_users) : 1);
 
     cleanStaleLicenseSessions(orgId);
     if (!orgLicenseSessions.has(orgId)) {
@@ -1933,7 +1951,6 @@ const server = http.createServer(async (req, res) => {
     const activeMap = orgLicenseSessions.get(orgId);
     const sessionKey = deviceId ? `${userId}_${deviceId}` : userId;
 
-    // If this session key already holds a seat, refresh timestamp
     if (activeMap.has(sessionKey)) {
       activeMap.set(sessionKey, { sessionKey, userId, email: email || activeMap.get(sessionKey).email, lastPing: Date.now() });
       const activeList = Array.from(activeMap.values()).map(s => s.email);
@@ -1947,7 +1964,6 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // If new session requesting a seat and capacity is full
     if (activeMap.size >= maxConcurrent) {
       const activeList = Array.from(activeMap.values()).map(s => s.email);
       return sendJSON(res, 200, {
@@ -1961,7 +1977,6 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // Capacity available, register seat!
     activeMap.set(sessionKey, { sessionKey, userId, email, lastPing: Date.now() });
     const activeList = Array.from(activeMap.values()).map(s => s.email);
     return sendJSON(res, 200, {
