@@ -1136,13 +1136,39 @@ const server = http.createServer(async (req, res) => {
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     const { project_id, workspace_data } = await getRequestBody(req);
 
+    const nowIso = new Date().toISOString();
     const { error } = await supabase.from('projects').update({ 
       workspace_data, 
-      last_modified: new Date().toISOString() 
+      last_modified: nowIso 
     }).eq('id', project_id);
     
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
-    return sendJSON(res, 200, { success: true, message: 'Workspace saved successfully' });
+
+    // Auto-save file backup on server without requiring user interaction
+    try {
+      const fileSettings = readOrgSettings();
+      const orgId = user.organization_id;
+      const targetDir = (orgId && fileSettings[orgId]?.local_backup_path) 
+        ? fileSettings[orgId].local_backup_path 
+        : path.join(DATA_DIR, 'autosaves');
+
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      const backupFile = path.join(targetDir, `autosave_${project_id}.json`);
+      const backupData = {
+        project_id,
+        saved_by: user.email,
+        saved_at: nowIso,
+        workspace_data
+      };
+      fs.writeFileSync(backupFile, JSON.stringify(backupData, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('Auto-save file backup warning:', e.message);
+    }
+
+    return sendJSON(res, 200, { success: true, message: 'Workspace saved and backed up successfully' });
   }
 
   // G1. UPDATE PROJECT DETAILS

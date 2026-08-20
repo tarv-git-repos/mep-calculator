@@ -892,6 +892,23 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
   }, [runLicenseSeatHeartbeat, userId, userData?.organization_id, profile?.organization_id]);
 
+  // Automated Background Auto-Save based on configured Interval (1m, 5m, 10m, 15m, 30m, 60m)
+  useEffect(() => {
+    const isAutoSaveActive = localStorage.getItem('mep_auto_save_enabled') !== 'false';
+    const intervalMinutes = parseInt(localStorage.getItem('mep_auto_save_interval') || '10') || 10;
+    const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000;
+
+    if (!isAutoSaveActive) return;
+
+    const autoSaveTimer = setInterval(() => {
+      if (activeProjectId) {
+        workspaceStore.forceSaveToCloud();
+      }
+    }, intervalMs);
+
+    return () => clearInterval(autoSaveTimer);
+  }, [activeProjectId]);
+
   useEffect(() => {
     // Expose for export scripts outside React context
     if (typeof window !== 'undefined') {
