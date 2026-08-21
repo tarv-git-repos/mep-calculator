@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { History, Save, FolderOpen, Plus, List } from 'lucide-react';
+import { History, Save, FolderOpen, Plus, List, AlertCircle } from 'lucide-react';
 import { 
   DropdownMenu, 
   DropdownMenuTrigger, 
@@ -22,6 +22,10 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
   
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
+
+  // Restore prompt state
+  const [pendingRestoreItem, setPendingRestoreItem] = useState<any>(null);
+  const [isRestorePromptOpen, setIsRestorePromptOpen] = useState(false);
 
   const activeVersionKey = `mep_active_ver_${projectName.replace(/[<>:"/\\|?*]/g, '_')}_${calculatorName.replace(/[<>:"/\\|?*]/g, '_')}`;
   
@@ -65,6 +69,54 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       }
     }
     return data;
+  };
+
+  const saveActiveVersionState = async (verName: string) => {
+    try {
+      const userName = (userData?.name || "SystemAdmin");
+      const projectData = gatherProjectData();
+
+      const payload = {
+        _versionMetadata: {
+          version: verName,
+          description: `Updated calculation state for ${verName}`,
+          user: userName,
+          timestamp: new Date().toISOString()
+        },
+        data: projectData
+      };
+
+      // 1. Overwrite / sync to server database
+      try {
+        await api.saveVersionToServer(projectName, calculatorName, payload);
+      } catch (e) {
+        console.warn("Cloud version update warning:", e);
+      }
+
+      // 2. Overwrite / save to local disk if in desktop app
+      const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
+      if (isTauri && basePath) {
+        try {
+          const safeBasePath = basePath.replace(/['"]/g, '');
+          const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+          const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+          const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
+          if (!await exists(projectDir)) {
+            await mkdir(projectDir, { recursive: true });
+          }
+          const filePath = `${projectDir}\\${verName.toLowerCase()}.json`;
+          await invoke('save_backup', { 
+            path: filePath, 
+            content: JSON.stringify(payload, null, 2)
+          });
+        } catch (e) {
+          console.warn("Local active version save warning:", e);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to update active version:", err);
+    }
   };
 
   const handleSaveAsVersion = async () => {
@@ -197,6 +249,40 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
     setTimeout(() => window.location.reload(), 300);
   };
 
+  const handleInitiateRestore = (item: any) => {
+    if (activeVersionName && activeVersionName !== 'Versions') {
+      setPendingRestoreItem(item);
+      setIsRestorePromptOpen(true);
+    } else {
+      setIsHistoryOpen(false);
+      const dataToLoad = item.parsedData || item.data || item.payload;
+      loadVersionData(dataToLoad, item.version);
+    }
+  };
+
+  const confirmSaveActiveAndRestore = async () => {
+    if (!pendingRestoreItem) return;
+    setIsRestorePromptOpen(false);
+    setIsHistoryOpen(false);
+
+    if (activeVersionName && activeVersionName !== 'Versions') {
+      toast.info(`Saving current calculations to ${activeVersionName}...`);
+      await saveActiveVersionState(activeVersionName);
+    }
+
+    const dataToLoad = pendingRestoreItem.parsedData || pendingRestoreItem.data || pendingRestoreItem.payload;
+    loadVersionData(dataToLoad, pendingRestoreItem.version);
+  };
+
+  const confirmRestoreWithoutSaving = () => {
+    if (!pendingRestoreItem) return;
+    setIsRestorePromptOpen(false);
+    setIsHistoryOpen(false);
+
+    const dataToLoad = pendingRestoreItem.parsedData || pendingRestoreItem.data || pendingRestoreItem.payload;
+    loadVersionData(dataToLoad, pendingRestoreItem.version);
+  };
+
   const handleLoadVersion = async () => {
     const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
     if (!isTauri) {
@@ -239,7 +325,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
               description: item.description,
               user: item.user,
               timestamp: item.timestamp,
-              parsedData: item.parsedData
+              parsedData: item.data || item.parsedData || item.payload
             });
           });
         }
@@ -404,8 +490,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                         <button
                           onClick={() => {
                             if (!isActive) {
-                              setIsHistoryOpen(false);
-                              loadVersionData(item.parsedData, item.version);
+                              handleInitiateRestore(item);
                             }
                           }}
                           disabled={isActive}
@@ -418,6 +503,44 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                   })}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore Confirmation Modal */}
+      {isRestorePromptOpen && pendingRestoreItem && (
+        <div className="fixed inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-3 text-amber-500">
+              <AlertCircle className="w-6 h-6 shrink-0" />
+              <h3 className="text-lg font-bold text-foreground">Save Current Version Work?</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+              You are currently working on <strong className="text-foreground">{activeVersionName}</strong>. 
+              Do you want to update and save your current calculation changes to <strong className="text-foreground">{activeVersionName}</strong> before restoring <strong className="text-emerald-500">{pendingRestoreItem.version}</strong>?
+            </p>
+            
+            <div className="flex flex-col gap-2.5">
+              <button
+                onClick={confirmSaveActiveAndRestore}
+                className="w-full py-2.5 px-4 rounded-xl text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Yes, Save {activeVersionName} & Restore {pendingRestoreItem.version}</span>
+              </button>
+              <button
+                onClick={confirmRestoreWithoutSaving}
+                className="w-full py-2.5 px-4 rounded-xl text-sm font-medium bg-secondary hover:bg-secondary/80 text-secondary-foreground transition-all cursor-pointer"
+              >
+                No, Restore {pendingRestoreItem.version} Without Saving
+              </button>
+              <button
+                onClick={() => setIsRestorePromptOpen(false)}
+                className="w-full py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors mt-1 cursor-pointer"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

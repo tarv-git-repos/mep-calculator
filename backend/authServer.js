@@ -2827,12 +2827,43 @@ const server = http.createServer(async (req, res) => {
     const safeProjectName = String(projectName).trim();
     const safeCalculatorName = String(calculatorName).trim();
     
+    const existingIndex = versions.findIndex(v => 
+      v.projectName.toLowerCase() === safeProjectName.toLowerCase() && 
+      v.calculatorName.toLowerCase() === safeCalculatorName.toLowerCase() &&
+      v.version.toUpperCase() === String(version || '').toUpperCase()
+    );
+
     const existingForCalc = versions.filter(v => 
       v.projectName.toLowerCase() === safeProjectName.toLowerCase() && 
       v.calculatorName.toLowerCase() === safeCalculatorName.toLowerCase()
     );
 
     const versionNumber = version || `V${existingForCalc.length}`;
+    const timestamp = new Date().toISOString();
+
+    if (existingIndex >= 0) {
+      // Update existing version entry
+      versions[existingIndex].description = description || versions[existingIndex].description;
+      versions[existingIndex].user = user.name || user.email || 'System User';
+      versions[existingIndex].timestamp = timestamp;
+      versions[existingIndex].data = data;
+      writeVersionsData(versions);
+
+      try {
+        await supabase.from('project_versions')
+          .update({
+            description: description || versions[existingIndex].description,
+            user_name: user.name || user.email,
+            payload: data,
+            created_at: timestamp
+          })
+          .eq('id', versions[existingIndex].id);
+      } catch (e) {}
+
+      logActivity(user, 'UPDATE_VERSION', { projectName: safeProjectName, calculatorName: safeCalculatorName, version: versionNumber });
+      return sendJSON(res, 200, { success: true, message: `Version ${versionNumber} updated on server`, version: versions[existingIndex] });
+    }
+
     const id = `ver_${Date.now()}_${Math.floor(Math.random()*1000)}`;
 
     const newVersionItem = {
@@ -2845,7 +2876,7 @@ const server = http.createServer(async (req, res) => {
       userId: user.id,
       userEmail: user.email,
       organization_id: user.organization_id || null,
-      timestamp: new Date().toISOString(),
+      timestamp,
       data
     };
 
@@ -2863,7 +2894,7 @@ const server = http.createServer(async (req, res) => {
         user_email: user.email,
         organization_id: user.organization_id || null,
         payload: data,
-        created_at: newVersionItem.timestamp
+        created_at: timestamp
       }]);
     } catch (e) {}
 
