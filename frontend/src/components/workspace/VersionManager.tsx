@@ -15,6 +15,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
 import { workspaceStore } from '@/lib/workspace-store';
+import { dirtyStore } from '@/lib/dirty-store';
 
 export function VersionManager({ projectName, calculatorName = 'Unknown' }: { projectName: string, calculatorName?: string }) {
   const { userData } = useAuth();
@@ -236,6 +237,12 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       return;
     }
 
+    // Clear dirty flags so browser does not pop up 'Reload site? Changes you made may not be saved'
+    dirtyStore.set(false);
+    if (typeof window !== 'undefined') {
+      window.onbeforeunload = null;
+    }
+
     // Preserve active project ID and auth info so active project is never lost or deleted!
     const currentActiveProjId = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_active_project_id") : null;
     const currentLastWorkedProjId = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_last_worked_project_id") : null;
@@ -298,8 +305,12 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
     toast.success(`Version ${versionName || ''} restored successfully!`);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('mep_version_restored', { detail: data }));
+      setTimeout(() => {
+        dirtyStore.set(false);
+        window.onbeforeunload = null;
+        window.location.reload();
+      }, 100);
     }
-    setTimeout(() => window.location.reload(), 300);
   };
 
   const handleInitiateRestore = (item: any) => {
