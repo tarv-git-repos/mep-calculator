@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { WifiOff, RefreshCw, AlertTriangle, ShieldAlert, SignalHigh } from "lucide-react";
+import { WifiOff, RefreshCw, ShieldAlert } from "lucide-react";
 
 interface NetworkConnectionGuardProps {
   children?: React.ReactNode;
@@ -96,21 +96,17 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    // Initial check
+    // Initial check on mount
     checkConnectivity();
 
-    // Continuous polling: Check every 3s when offline/disconnected, every 15s when online
-    const intervalTime = isOnline ? 15000 : 3000;
-    const timer = setInterval(() => {
-      checkConnectivity();
-    }, intervalTime);
+    // NOTE: Auto-polling every 3s disabled as requested.
+    // Network check runs ONLY when browser detects online event or when user clicks "Retry Connection".
 
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
-      clearInterval(timer);
     };
-  }, [isOnline, checkConnectivity]);
+  }, [checkConnectivity]);
 
   return (
     <>
@@ -157,8 +153,8 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs font-medium text-slate-400">
-                <span>Auto-Reconnection:</span>
-                <span className="text-slate-300">Polling every 3 seconds...</span>
+                <span>Reconnection Mode:</span>
+                <span className="text-slate-300 font-semibold">Manual (Click Retry Connection)</span>
               </div>
               {failedAttempts > 0 && (
                 <div className="flex items-center justify-between text-xs font-medium text-slate-400">
@@ -172,15 +168,15 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
               <button
                 onClick={() => checkConnectivity()}
                 disabled={isChecking}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-500 active:scale-95 disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`h-4 w-4 ${isChecking ? "animate-spin" : ""}`} />
-                {isChecking ? "Checking Network..." : "Retry Connection Now"}
+                {isChecking ? "Checking Network..." : "Retry Connection"}
               </button>
             </div>
 
             <p className="pt-2 text-xs text-slate-500">
-              Please check your Wi-Fi, Ethernet cable, or router connection. Access will automatically resume as soon as a network is detected.
+              Please check your Wi-Fi, Ethernet cable, or router connection and click "Retry Connection".
             </p>
           </div>
         </div>
