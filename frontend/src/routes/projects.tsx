@@ -526,7 +526,7 @@ function ProjectsPage() {
   useEffect(() => {
     loadUsersAndTeams();
     refreshProjects();
-  }, [profile?.id, isCreateModalOpen, editingProj?.id]);
+  }, [profile?.id, editingProj?.id]);
 
   useEffect(() => {
     if (!profile?.id) return;
