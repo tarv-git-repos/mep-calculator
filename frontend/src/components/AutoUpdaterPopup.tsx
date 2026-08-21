@@ -13,7 +13,12 @@ export function AutoUpdaterPopup() {
   const [isInstalling, setIsInstalling] = useState(false);
 
   const checkForUpdates = async (isManual = false) => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) {
+      if (isManual) {
+        toast.info("Web version updates automatically on page refresh.");
+      }
+      return;
+    }
 
     try {
       if (isManual) {
