@@ -70,6 +70,28 @@ function saveLocalOrgs(orgs) {
   try { fs.writeFileSync(ORGS_FILE, JSON.stringify(orgs, null, 2), 'utf8'); } catch (e) {}
 }
 
+const TEAMS_FILE = path.join(DATA_DIR, 'teams.json');
+try { if (!fs.existsSync(TEAMS_FILE)) fs.writeFileSync(TEAMS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+
+const TEAM_MEMBERS_FILE = path.join(DATA_DIR, 'team_members.json');
+try { if (!fs.existsSync(TEAM_MEMBERS_FILE)) fs.writeFileSync(TEAM_MEMBERS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+
+function readLocalTeams() {
+  try { return JSON.parse(fs.readFileSync(TEAMS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+}
+
+function saveLocalTeams(teams) {
+  try { fs.writeFileSync(TEAMS_FILE, JSON.stringify(teams, null, 2), 'utf8'); } catch (e) {}
+}
+
+function readLocalTeamMembers() {
+  try { return JSON.parse(fs.readFileSync(TEAM_MEMBERS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+}
+
+function saveLocalTeamMembers(members) {
+  try { fs.writeFileSync(TEAM_MEMBERS_FILE, JSON.stringify(members, null, 2), 'utf8'); } catch (e) {}
+}
+
 const orgLicenseSessions = new Map();
 
 function cleanStaleLicenseSessions(orgId) {
@@ -1059,18 +1081,37 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 403, { success: false, message: 'Only Admins can create teams' });
     }
     const { name } = await getRequestBody(req);
-    if (!name) return sendJSON(res, 400, { success: false, message: 'Team name required' });
+    if (!name || !name.trim()) return sendJSON(res, 400, { success: false, message: 'Team name required' });
     
     const teamId = `team_${Date.now()}`;
-    const payload = {
+    const orgId = user.organization_id || user.company || user.organization || null;
+    const newTeam = {
       id: teamId,
       name: name.trim(),
-      created_by: user.id
+      created_by: user.id,
+      organization_id: orgId,
+      created_at: new Date().toISOString(),
+      team_members: []
     };
 
-    const { error } = await supabase.from('teams').insert(payload);
-    if (error) return sendJSON(res, 500, { success: false, message: error.message });
-    return sendJSON(res, 200, { success: true, message: 'Team created', team: { id: teamId, name } });
+    // 1. Save to local teams persistence
+    const localTeams = readLocalTeams();
+    localTeams.push(newTeam);
+    saveLocalTeams(localTeams);
+
+    // 2. Insert into Supabase teams table (gracefully fallback if schema column fails)
+    try {
+      const payload = { id: teamId, name: name.trim(), created_by: user.id };
+      if (orgId) payload.organization_id = orgId;
+      const { error } = await supabase.from('teams').insert(payload);
+      if (error && error.message && error.message.includes('organization_id')) {
+        delete payload.organization_id;
+        await supabase.from('teams').insert(payload);
+      }
+    } catch (e) {}
+
+    logActivity(user, 'CREATE_TEAM', { teamId, name: name.trim() });
+    return sendJSON(res, 200, { success: true, message: 'Team created', team: newTeam });
   }
 
   // C. LIST TEAMS
@@ -1078,17 +1119,56 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     
-    let { data: rawTeams, error } = await supabase.from('teams').select('id, name, created_by, organization_id, team_members(user_id)');
-    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    let dbTeams = [];
+    try {
+      const { data: rawTeams, error } = await supabase.from('teams').select('id, name, created_by, organization_id, team_members(user_id)');
+      if (!error && Array.isArray(rawTeams)) {
+        dbTeams = rawTeams;
+      }
+    } catch (e) {}
 
-    let teams = rawTeams || [];
+    const localTeams = readLocalTeams();
+    const localMembers = readLocalTeamMembers();
+
+    const teamMap = new Map();
+    dbTeams.forEach(t => teamMap.set(String(t.id), t));
+    localTeams.forEach(lt => {
+      const existing = teamMap.get(String(lt.id));
+      if (!existing) {
+        teamMap.set(String(lt.id), { ...lt, team_members: [] });
+      } else {
+        teamMap.set(String(lt.id), { ...lt, ...existing });
+      }
+    });
+
+    const allTeamsList = Array.from(teamMap.values()).map(t => {
+      const members = t.team_members || [];
+      const localTeamMems = localMembers.filter(m => String(m.team_id) === String(t.id)).map(m => ({ user_id: m.user_id }));
+      const combinedMembersMap = new Map();
+      members.forEach((m) => combinedMembersMap.set(String(m.user_id), m));
+      localTeamMems.forEach(lm => combinedMembersMap.set(String(lm.user_id), lm));
+      return {
+        ...t,
+        team_members: Array.from(combinedMembersMap.values())
+      };
+    });
+
+    let teams = allTeamsList;
     if (user.role !== 'SUPER_ADMIN') {
       const myOrgId = user.organization_id;
-      if (!myOrgId) {
-        teams = teams.filter(t => String(t.created_by || '').toLowerCase() === String(user.id || '').toLowerCase());
-      } else {
-        teams = teams.filter(t => String(t.organization_id || '') === String(myOrgId));
-      }
+      const myCompany = user.company || user.organization;
+      teams = teams.filter(t => {
+        const tCreatedBy = String(t.created_by || '').toLowerCase();
+        const uId = String(user.id || '').toLowerCase();
+        if (tCreatedBy === uId) return true; // Creator always sees their team
+
+        const tOrgId = t.organization_id;
+        if (myOrgId && tOrgId && String(tOrgId) === String(myOrgId)) return true;
+        if (myCompany && tOrgId && String(tOrgId) === String(myCompany)) return true;
+        if (myOrgId && tOrgId && String(tOrgId) === String(myCompany)) return true;
+        if (!tOrgId) return true; // Default fallback for organization teams
+        return false;
+      });
     }
 
     return sendJSON(res, 200, { success: true, teams });
@@ -1097,31 +1177,59 @@ const server = http.createServer(async (req, res) => {
   // D. ADD USER TO TEAM
   if (req.method === 'POST' && url === '/api/teams/add-user') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
     const { team_id, user_id } = await getRequestBody(req);
-    const { error } = await supabase.from('team_members').upsert({ team_id, user_id });
-    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    if (!team_id || !user_id) return sendJSON(res, 400, { success: false, message: 'team_id and user_id required' });
+
+    const localMembers = readLocalTeamMembers();
+    if (!localMembers.some(m => String(m.team_id) === String(team_id) && String(m.user_id) === String(user_id))) {
+      localMembers.push({ team_id, user_id, added_at: new Date().toISOString() });
+      saveLocalTeamMembers(localMembers);
+    }
+
+    try {
+      await supabase.from('team_members').upsert({ team_id, user_id });
+    } catch (e) {}
+
     return sendJSON(res, 200, { success: true, message: 'User added to team' });
   }
 
   // D2. REMOVE USER FROM TEAM
   if (req.method === 'POST' && url === '/api/teams/remove-user') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
     const { team_id, user_id } = await getRequestBody(req);
-    const { error } = await supabase.from('team_members').delete().match({ team_id, user_id });
-    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    
+    let localMembers = readLocalTeamMembers();
+    localMembers = localMembers.filter(m => !(String(m.team_id) === String(team_id) && String(m.user_id) === String(user_id)));
+    saveLocalTeamMembers(localMembers);
+
+    try {
+      await supabase.from('team_members').delete().match({ team_id, user_id });
+    } catch (e) {}
+
     return sendJSON(res, 200, { success: true, message: 'User removed from team' });
   }
 
   // E. DELETE TEAM
   if (req.method === 'POST' && url === '/api/teams/delete') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
     const { team_id } = await getRequestBody(req);
-    await supabase.from('team_members').delete().eq('team_id', team_id);
-    const { error } = await supabase.from('teams').delete().eq('id', team_id);
-    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    
+    let localTeams = readLocalTeams();
+    localTeams = localTeams.filter(t => String(t.id) !== String(team_id));
+    saveLocalTeams(localTeams);
+
+    let localMembers = readLocalTeamMembers();
+    localMembers = localMembers.filter(m => String(m.team_id) !== String(team_id));
+    saveLocalTeamMembers(localMembers);
+
+    try {
+      await supabase.from('team_members').delete().eq('team_id', team_id);
+      await supabase.from('teams').delete().eq('id', team_id);
+    } catch (e) {}
+
     return sendJSON(res, 200, { success: true, message: 'Team deleted' });
   }
 

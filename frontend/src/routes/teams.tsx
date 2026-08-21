@@ -104,13 +104,20 @@ function TeamsPage() {
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTeamName.trim()) return;
-    const res = await api.createTeam(newTeamName);
-    if (res.success) {
-       setNewTeamName("");
-       toast.success("Team created successfully!");
-       loadData();
-    } else {
-       toast.error(res.message || "Failed to create team");
+    setIsLoading(true);
+    try {
+      const res = await api.createTeam(newTeamName);
+      if (res.success) {
+        setNewTeamName("");
+        toast.success("Team created successfully!");
+        await loadData();
+      } else {
+        toast.error(res.message || "Failed to create team");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to create team");
+    } finally {
+      setIsLoading(false);
     }
   };
 
