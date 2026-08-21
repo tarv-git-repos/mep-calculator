@@ -1195,13 +1195,25 @@ const server = http.createServer(async (req, res) => {
 
     let projects = [];
     try {
-      let query = supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id, project_users(user_id), project_teams(team_id, teams(id, name))');
-      const { data, error } = await query;
-      if (!error && Array.isArray(data)) {
+      let { data, error } = await supabase
+        .from('projects')
+        .select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id, project_users(user_id), project_teams(team_id)');
+      
+      if (error || !Array.isArray(data)) {
+        console.warn('Primary projects list query error:', error?.message);
+        const retry = await supabase.from('projects').select('*');
+        data = retry.data;
+      }
+      
+      if (Array.isArray(data)) {
         projects = data;
       }
     } catch (e) {
       console.warn('Projects list query exception:', e);
+      try {
+        const { data: simpleData } = await supabase.from('projects').select('*');
+        if (Array.isArray(simpleData)) projects = simpleData;
+      } catch (err) {}
     }
 
     return sendJSON(res, 200, { success: true, projects });
@@ -1216,13 +1228,18 @@ const server = http.createServer(async (req, res) => {
     const id = parsedUrl.searchParams.get('id');
     if (!id) return sendJSON(res, 400, { success: false, message: 'Project ID required' });
 
-    const { data: proj, error } = await supabase
+    let { data: proj, error } = await supabase
       .from('projects')
-      .select('*, project_users(user_id), project_teams(team_id, teams(id, name))')
+      .select('*, project_users(user_id), project_teams(team_id)')
       .eq('id', id)
       .single();
 
-    if (error || !proj) return sendJSON(res, 404, { success: false, message: 'Project not found' });
+    if (error || !proj) {
+      const retry = await supabase.from('projects').select('*').eq('id', id).single();
+      proj = retry.data;
+    }
+
+    if (!proj) return sendJSON(res, 404, { success: false, message: 'Project not found' });
     return sendJSON(res, 200, { success: true, project: proj });
   }
 

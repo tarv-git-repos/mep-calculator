@@ -86,9 +86,26 @@ export interface Project {
   workspace_data?: any;
 }
 
-const IS_SERVER = typeof window === "undefined";
+function saveCachedProjects(projList: Project[]) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem("mep_cached_projects", JSON.stringify(projList));
+  } catch (e) {
+    console.warn("Failed to cache projects:", e);
+  }
+}
 
-let projects: Project[] = [];
+function loadCachedProjects(): Project[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const saved = localStorage.getItem("mep_cached_projects");
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+let projects: Project[] = loadCachedProjects();
 let activeProjectId: string = "";
 let currentProject: Project | undefined = undefined;
 
@@ -299,11 +316,16 @@ export const workspaceStore = {
   async refreshProjects() {
     try {
       const cloudProjects = await api.getProjects().catch(() => []);
-      if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
-        projects = cloudProjects.map(cp => {
-          const existing = projects.find(p => p.id === cp.id);
-          return existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp;
+      if (Array.isArray(cloudProjects)) {
+        const mergedMap = new Map<string, Project>();
+        // Add existing memory projects first
+        projects.forEach(p => mergedMap.set(p.id, p));
+        // Merge cloud projects
+        cloudProjects.forEach(cp => {
+          const existing = mergedMap.get(cp.id);
+          mergedMap.set(cp.id, existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp);
         });
+        projects = Array.from(mergedMap.values());
         saveCachedProjects(projects);
         if (activeProjectId) {
           const updatedActive = projects.find(p => p.id === activeProjectId);
