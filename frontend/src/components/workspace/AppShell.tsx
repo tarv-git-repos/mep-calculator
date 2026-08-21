@@ -1343,6 +1343,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       
       if (isCmdOrCtrl && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
+        e.stopPropagation();
         
         const isEffectiveReadOnly = isReadOnly || isLockedByOther;
         if (isEffectiveReadOnly) {
@@ -1352,18 +1353,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         
         if (project?.id) {
           savePageInputs(project.id, pathname);
-          triggerSave();
-          forceSaveToCloud();
-          const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
-          logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
-          toast.success("Calculations synced to cloud successfully!");
         }
+        triggerSave();
+        forceSaveToCloud();
+        workspaceStore.forceSaveToCloud(true);
+        const calcTitle = getCalculatorTitleFromPath(pathname) || 'Calculation';
+        logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
+        toast.success("💾 Saved successfully to Cloud & Disk! (Ctrl+S)", { id: "ctrl-s-save" });
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [project?.id, pathname, isReadOnly, isLockedByOther]);
 

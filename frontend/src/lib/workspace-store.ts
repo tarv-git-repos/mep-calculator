@@ -153,8 +153,46 @@ function notify() {
   listeners.forEach((l) => l());
 }
 
+function executeWorkspaceSave() {
+  if (!activeProjectId) return;
+  const lsState: Record<string, string> = {};
+  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && knownPrefixes.some(p => key.startsWith(p)) && !key.includes('clipboard')) {
+      lsState[key] = localStorage.getItem(key) || "";
+    }
+  }
+  
+  const nowIso = new Date().toISOString();
+  const existingWdata = currentProject ? (currentProject.workspace_data || {}) : {};
+  
+  const payload = {
+    ...existingWdata,
+    ...currentWorkspaceState,
+    localStorageCache: lsState
+  };
+  
+  if (currentProject) {
+    currentProject.workspace_data = payload;
+    (currentProject as any).updated_at = nowIso;
+    (currentProject as any).last_modified = nowIso;
+    currentProject.lastModified = nowIso;
+  }
+  const targetProj = projects.find(proj => proj.id === activeProjectId);
+  if (targetProj) {
+    targetProj.workspace_data = payload;
+    (targetProj as any).updated_at = nowIso;
+    (targetProj as any).last_modified = nowIso;
+    targetProj.lastModified = nowIso;
+  }
+  
+  api.saveWorkspace(activeProjectId, payload);
+  notify();
+}
+
 let saveTimeout: any = null;
-function saveState() {
+function saveState(immediate = false) {
   if (IS_SERVER) return;
   currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
   
@@ -173,49 +211,18 @@ function saveState() {
   }
 
   if (saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    if (activeProjectId) {
-      const lsState: Record<string, string> = {};
-      const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'customCableCatalog', 'customBusbarRatings'];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && knownPrefixes.some(p => key.startsWith(p)) && !key.includes('clipboard')) {
-          lsState[key] = localStorage.getItem(key) || "";
-        }
-      }
-      
-      const nowIso = new Date().toISOString();
-      const existingWdata = currentProject ? (currentProject.workspace_data || {}) : {};
-      
-      const payload = {
-        ...existingWdata,
-        ...currentWorkspaceState,
-        localStorageCache: lsState
-      };
-      
-      if (currentProject) {
-        currentProject.workspace_data = payload;
-        (currentProject as any).updated_at = nowIso;
-        (currentProject as any).last_modified = nowIso;
-        currentProject.lastModified = nowIso;
-      }
-      const targetProj = projects.find(proj => proj.id === activeProjectId);
-      if (targetProj) {
-        targetProj.workspace_data = payload;
-        (targetProj as any).updated_at = nowIso;
-        (targetProj as any).last_modified = nowIso;
-        targetProj.lastModified = nowIso;
-      }
-      
-      api.saveWorkspace(activeProjectId, payload);
-      notify();
-    }
-  }, 1000);
+  if (immediate) {
+    executeWorkspaceSave();
+  } else {
+    saveTimeout = setTimeout(() => {
+      executeWorkspaceSave();
+    }, 1000);
+  }
 }
 
 function injectLocalStorageCache(wdata: any) {
   if (typeof localStorage === "undefined") return;
-  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'customCableCatalog', 'customBusbarRatings'];
+  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
   const keysToRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
@@ -233,8 +240,8 @@ function injectLocalStorageCache(wdata: any) {
 }
 
 export const workspaceStore = {
-  forceSaveToCloud() {
-    saveState();
+  forceSaveToCloud(immediate = true) {
+    saveState(immediate);
   },
   async syncFromCloud() {
     const cloudProjects = await api.getProjects();
