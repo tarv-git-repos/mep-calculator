@@ -247,8 +247,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     window.addEventListener('mep_session_revoked', handleRevoked as EventListener);
+    const handleProfileUpdate = () => {
+      getUserData();
+    };
+    window.addEventListener('mep_user_profile_updated', handleProfileUpdate as EventListener);
+    window.addEventListener('storage', handleProfileUpdate);
+
     return () => {
       window.removeEventListener('mep_session_revoked', handleRevoked as EventListener);
+      window.removeEventListener('mep_user_profile_updated', handleProfileUpdate as EventListener);
+      window.removeEventListener('storage', handleProfileUpdate);
     };
   }, []);
 

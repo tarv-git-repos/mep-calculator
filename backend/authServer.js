@@ -175,21 +175,40 @@ async function readUsers(forceRefresh = false) {
   }
 
   try {
+    const localUsers = readLocalUsers();
+    const localMap = new Map();
+    (localUsers || []).forEach(u => {
+      if (u.id) localMap.set(String(u.id).toLowerCase(), u);
+      if (u.email) localMap.set(String(u.email).toLowerCase(), u);
+    });
+
     const { data, error } = await supabase.from('custom_users').select('*');
     let users = [];
     if (!error && Array.isArray(data)) {
-      users = data.map(u => ({
-        ...u,
-        company: u.company || u.features?.company || '',
-        designation: u.designation || u.features?.designation || '',
-        profile_photo: u.profile_photo || u.features?.profile_photo || '',
-        settings: u.settings || u.features?.settings || {},
-        active_hwid: u.features?.active_hwid || u.active_hwid || null,
-        subscription_expires: u.subscription_expires || u.features?.subscription_expires || null
-      }));
+      users = data.map(u => {
+        const loc = localMap.get(String(u.id || '').toLowerCase()) || localMap.get(String(u.email || '').toLowerCase()) || {};
+        const effRole = u.role || loc.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer');
+        const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
+        return {
+          ...loc,
+          ...u,
+          role: effRole,
+          company: u.company || loc.company || u.features?.company || '',
+          designation: u.designation || loc.designation || u.features?.designation || '',
+          profile_photo: u.profile_photo || loc.profile_photo || u.features?.profile_photo || '',
+          settings: u.settings || loc.settings || u.features?.settings || {},
+          active_hwid: u.features?.active_hwid || u.active_hwid || loc.active_hwid || null,
+          subscription_expires: expDate,
+          features: {
+            ...(loc.features || {}),
+            ...(u.features || {}),
+            subscription_expires: expDate
+          }
+        };
+      });
       saveLocalUsers(users);
     } else {
-      users = readLocalUsers();
+      users = localUsers;
     }
     
     const adminEmail = 'admin@tarv.ai';
@@ -1520,11 +1539,14 @@ const server = http.createServer(async (req, res) => {
 
       try {
         const dbPayload = {
-          features: updatedUser.features
+          features: updatedUser.features,
+          ...(updates.role ? { role: updates.role } : {}),
+          ...(updates.name ? { name: updates.name } : {}),
+          ...(updates.company !== undefined ? { company: updates.company } : {}),
+          ...(updates.designation !== undefined ? { designation: updates.designation } : {})
         };
         if (updates.organization_id !== undefined) {
           dbPayload.organization_id = updates.organization_id || null;
-          dbPayload.company = updates.company || '';
           dbPayload.organization = updates.organization || '';
         }
         if (newExp !== undefined) {

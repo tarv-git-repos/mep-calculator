@@ -1935,8 +1935,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 <Zap className="size-3.5" />
                 <span>
                   {!licenseInfo ? 'CHECKING LICENSE...' :
-                   licenseInfo.plan === 'PRO' ? 'PRO ACTIVE' :
-                   licenseInfo.plan === 'ENTERPRISE' ? 'ENTERPRISE' :
+                   licenseInfo.plan === 'PRO' ? `PRO (${computedRemainingDays} DAYS LEFT)` :
+                   licenseInfo.plan === 'ENTERPRISE' ? `ENTERPRISE (${computedRemainingDays} DAYS LEFT)` :
                    computedStatus === 'EXPIRED_TRIAL' ? 'TRIAL EXPIRED - UPGRADE' :
                    `TRIAL: ${computedRemainingDays} DAYS LEFT`}
                 </span>

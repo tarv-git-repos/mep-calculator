@@ -89,7 +89,7 @@ export const api = {
         });
         usersList = usersList.map(u => {
           const c = cachedMap.get(String(u.id || '').toLowerCase()) || cachedMap.get(String(u.email || '').toLowerCase());
-          return c ? { ...c, ...u } : u;
+          return c ? { ...u, ...c } : u;
         });
       }
       localStorage.setItem('mep_local_users', JSON.stringify(usersList));
@@ -118,6 +118,9 @@ export const api = {
       });
       localStorage.setItem('mep_local_users', JSON.stringify(users));
       localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, role: newRole } }));
+      }
     } catch (e) {}
 
     // 2. Async backend sync
@@ -175,6 +178,9 @@ export const api = {
 
       localStorage.setItem('mep_local_users', JSON.stringify(users));
       localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, updates } }));
+      }
     } catch (e) {}
 
     // 2. Async backend sync
