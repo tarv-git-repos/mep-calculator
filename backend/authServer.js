@@ -1197,19 +1197,17 @@ const server = http.createServer(async (req, res) => {
     try {
       let { data, error } = await supabase
         .from('projects')
-        .select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id, project_users(user_id), project_teams(team_id)');
+        .select('id, name, code, client, location, description, notes, created_at, created_by, status, project_users(user_id), project_teams(team_id)');
       
       if (error || !Array.isArray(data)) {
-        console.warn('Primary projects list query error:', error?.message);
-        const retry = await supabase.from('projects').select('*');
-        data = retry.data;
+        const retry = await supabase.from('projects').select('*, project_users(user_id), project_teams(team_id)');
+        data = retry.data || (await supabase.from('projects').select('*')).data;
       }
       
       if (Array.isArray(data)) {
         projects = data;
       }
     } catch (e) {
-      console.warn('Projects list query exception:', e);
       try {
         const { data: simpleData } = await supabase.from('projects').select('*');
         if (Array.isArray(simpleData)) projects = simpleData;
