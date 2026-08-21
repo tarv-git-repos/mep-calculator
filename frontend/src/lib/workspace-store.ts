@@ -8,6 +8,8 @@ import { getOccupancyData } from "./ashrae-data";
 import { logCalculatorUpdate, getCalculatorTitleFromPath } from "@/utils/logger";
 export type { Space, Zone, Equipment };
 export type { SpaceStatus } from "./mock-data";
+
+const IS_SERVER = typeof window === "undefined";
 export function checkIfSpaceMissingData(s: Space): boolean {
   const isNoArea = !s.area || parseFloat(String(s.area)) === 0 || isNaN(parseFloat(String(s.area)));
   const isNoCategory = !s.category || s.category.trim() === "" || s.category.toLowerCase().includes("select category");
