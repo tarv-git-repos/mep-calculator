@@ -10,7 +10,7 @@ interface UpdateInfo {
   mandatory?: boolean;
 }
 
-const CURRENT_VERSION = "0.0.1";
+const CURRENT_VERSION = "0.0.3";
 
 export const AutoUpdateModal: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
