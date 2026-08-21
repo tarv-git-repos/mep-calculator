@@ -1217,7 +1217,16 @@ const server = http.createServer(async (req, res) => {
         const retry = await supabase.from('projects').select('*, project_users(user_id), project_teams(team_id)');
         data = retry.data || (await supabase.from('projects').select('*')).data;
       }
-      
+      if (Array.isArray(data)) {
+        projects = data;
+      }
+    } catch (e) {
+      try {
+        const { data: simpleData } = await supabase.from('projects').select('*');
+        if (Array.isArray(simpleData)) projects = simpleData;
+      } catch (err) {}
+    }
+
     // Direct User & Team Membership Filtering:
     if (user.role !== 'SUPER_ADMIN') {
       const myUid = String(user.id || '').toLowerCase();
