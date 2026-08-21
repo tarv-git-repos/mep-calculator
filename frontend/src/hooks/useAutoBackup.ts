@@ -43,11 +43,19 @@ export function useAutoBackup() {
       }
     }
 
-    // PRODUCTION: 10 minutes (600000) and 1 hour (3600000)
+    const isEnabled = localStorage.getItem('mep_auto_save_enabled') !== 'false'
+    if (!isEnabled) return
+
+    const getIntervalMs = () => {
+      const saved = localStorage.getItem('mep_auto_save_interval')
+      const mins = saved ? parseInt(saved, 10) : 10
+      return (isNaN(mins) || mins < 1 ? 10 : mins) * 60 * 1000
+    }
+
     const localInterval = setInterval(() => {
-      const localPath = localStorage.getItem('localBackupPath')
+      const localPath = localStorage.getItem('localBackupPath') || 'C:\\MEP_Calculator_Autosaves'
       if (localPath) backupToPath(localPath, 'Local')
-    }, 600000)
+    }, getIntervalMs())
 
     const serverInterval = setInterval(() => {
       const serverPath = localStorage.getItem('serverBackupPath')
