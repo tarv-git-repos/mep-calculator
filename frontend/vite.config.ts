@@ -43,7 +43,7 @@ export default defineConfig({
       external: ['xlsx', 'jspdf', 'file-saver', 'jspdf-autotable', 'exceljs', 'iobuffer', 'dompurify', 'pako', '@tauri-apps/plugin-dialog', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process', '@tauri-apps/api'],
     },
     optimizeDeps: {
-      include: ['iobuffer', 'setimmediate', 'dompurify', 'pako'],
+      include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@tanstack/react-router', 'iobuffer', 'setimmediate', 'dompurify', 'pako'],
     },
   },
   nitro: {
