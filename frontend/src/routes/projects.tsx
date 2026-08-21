@@ -542,11 +542,51 @@ function ProjectsPage() {
     setIsCreateOpen(true);
   };
 
+  const userAssignedProjects = useMemo(() => {
+    if (!profile) return projects;
+    if (profile.role === 'SUPER_ADMIN' || profile.role === 'ORG_ADMIN') {
+      return projects;
+    }
+    const myId = String(profile.id || '').toLowerCase();
+    const myEmail = String(profile.email || '').toLowerCase();
+
+    return projects.filter((p: any) => {
+      // 1. User created the project
+      const creatorId = String(p.created_by || '').toLowerCase();
+      if (creatorId && (creatorId === myId || (myEmail && creatorId === myEmail))) return true;
+
+      // 2. User was added / assigned to the project
+      const pUsers = p.project_users || [];
+      const isUserAssigned = pUsers.some((pu: any) => {
+        const uId = String(pu.user_id || pu.id || '').toLowerCase();
+        return uId === myId || (myEmail && uId === myEmail);
+      });
+      if (isUserAssigned) return true;
+
+      // 3. User's team was assigned to the project
+      const pTeams = p.project_teams || [];
+      const myTeamIds = (allTeams || [])
+        .filter((t: any) => (t.members || []).some((m: any) => {
+          const mId = String(m.user_id || m.id || m).toLowerCase();
+          return mId === myId || (myEmail && mId === myEmail);
+        }))
+        .map((t: any) => String(t.id));
+
+      const isTeamAssigned = pTeams.some((pt: any) => {
+        const tId = String(pt.team_id || pt.id || '');
+        return myTeamIds.includes(tId);
+      });
+      if (isTeamAssigned) return true;
+
+      return false;
+    });
+  }, [projects, profile, allTeams]);
+
   const filteredProjects = useMemo(() => {
-    let result = projects;
+    let result = userAssignedProjects;
     const q = search.toLowerCase().trim();
     if (q) {
-      result = projects.filter(
+      result = userAssignedProjects.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.code.toLowerCase().includes(q) ||
@@ -563,7 +603,7 @@ function ProjectsPage() {
       const bTime = workspaceHistory[b.id] || new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
       return bTime - aTime;
     });
-  }, [projects, search, pinnedProjects, workspaceHistory]);
+  }, [userAssignedProjects, search, pinnedProjects, workspaceHistory]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

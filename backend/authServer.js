@@ -1204,14 +1204,40 @@ const server = http.createServer(async (req, res) => {
         data = retry.data || (await supabase.from('projects').select('*')).data;
       }
       
-      if (Array.isArray(data)) {
-        projects = data;
+    // Role & Membership Filtering:
+    if (user.role !== 'SUPER_ADMIN') {
+      const myUid = String(user.id || '').toLowerCase();
+      const myEmail = String(user.email || '').toLowerCase();
+      const userOrgId = user.organization_id;
+
+      if (user.role === 'ORG_ADMIN' && userOrgId) {
+        const allDbUsers = await readUsers();
+        const orgUserIds = allDbUsers
+          .filter(u => u.organization_id === userOrgId || String(u.id).toLowerCase() === myUid)
+          .map(u => String(u.id || '').toLowerCase());
+        
+        projects = projects.filter(p => {
+          const creator = String(p.created_by || '').toLowerCase();
+          if (orgUserIds.includes(creator)) return true;
+          if (p.organization_id && String(p.organization_id) === String(userOrgId)) return true;
+          const pUsers = p.project_users || [];
+          return pUsers.some(pu => orgUserIds.includes(String(pu.user_id || pu.id || '').toLowerCase()));
+        });
+      } else {
+        projects = projects.filter(p => {
+          const creator = String(p.created_by || '').toLowerCase();
+          if (creator === myUid || (myEmail && creator === myEmail)) return true;
+
+          const pUsers = p.project_users || [];
+          const isAssigned = pUsers.some(pu => {
+            const uId = String(pu.user_id || pu.id || '').toLowerCase();
+            return uId === myUid || (myEmail && uId === myEmail);
+          });
+          if (isAssigned) return true;
+
+          return false;
+        });
       }
-    } catch (e) {
-      try {
-        const { data: simpleData } = await supabase.from('projects').select('*');
-        if (Array.isArray(simpleData)) projects = simpleData;
-      } catch (err) {}
     }
 
     return sendJSON(res, 200, { success: true, projects });
