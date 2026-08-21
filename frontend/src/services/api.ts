@@ -358,19 +358,31 @@ export const api = {
 
   // ================= ORG API ENDPOINTS ================= //
   async getOrganizations() {
+    let orgs: any[] = [];
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/admin/organizations`);
       if (data.success && Array.isArray(data.organizations)) {
-        try { localStorage.setItem('mep_local_organizations', JSON.stringify(data.organizations)); } catch(e) {}
-        return data.organizations;
+        orgs = data.organizations;
       }
     } catch (e) {}
+
     try {
       const cached = localStorage.getItem('mep_local_organizations');
-      return cached ? JSON.parse(cached) : [];
+      if (cached) {
+        const localOrgs = JSON.parse(cached);
+        const map = new Map();
+        localOrgs.forEach((o: any) => { if (o.id) map.set(o.id, o); });
+        orgs = orgs.map(o => {
+          const loc = map.get(o.id);
+          return loc ? { ...o, ...loc } : o;
+        });
+        if (orgs.length === 0 && localOrgs.length > 0) orgs = localOrgs;
+      }
+      localStorage.setItem('mep_local_organizations', JSON.stringify(orgs));
     } catch {
-      return [];
+      return orgs;
     }
+    return orgs;
   },
   async createOrganization(orgData: { name: string; subscription_plan: string; max_users: number }) {
     try {

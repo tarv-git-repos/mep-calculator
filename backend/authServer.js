@@ -93,24 +93,28 @@ function writeOrgSettings(settings) {
 }
 
 function parseOrgStatus(statusStr) {
-  if (!statusStr) return { state: 'active', max_concurrent_users: 1, license_key: 'MEP-LIC-ORG-PRO' };
+  if (!statusStr) return { state: 'active' };
   try {
     if (typeof statusStr === 'string' && statusStr.trim().startsWith('{')) {
       const parsed = JSON.parse(statusStr);
       return {
         state: parsed.state || 'active',
-        max_concurrent_users: parsed.max_concurrent_users !== undefined && parsed.max_concurrent_users !== null ? parseInt(parsed.max_concurrent_users) : 1,
-        license_key: parsed.license_key || 'MEP-LIC-ORG-PRO'
+        max_concurrent_users: (parsed.max_concurrent_users !== undefined && parsed.max_concurrent_users !== null && !isNaN(parsed.max_concurrent_users)) ? parseInt(parsed.max_concurrent_users) : undefined,
+        license_key: parsed.license_key || undefined
       };
     }
   } catch (e) {}
-  return { state: typeof statusStr === 'string' ? statusStr : 'active', max_concurrent_users: 1, license_key: 'MEP-LIC-ORG-PRO' };
+  return { state: typeof statusStr === 'string' ? statusStr : 'active' };
 }
 
 function encodeOrgStatus(existingStatusStr, newMaxConcurrent, newLicenseKey) {
   const current = parseOrgStatus(existingStatusStr);
-  if (newMaxConcurrent !== undefined && newMaxConcurrent !== null) current.max_concurrent_users = parseInt(newMaxConcurrent);
-  if (newLicenseKey !== undefined && newLicenseKey !== null) current.license_key = newLicenseKey;
+  if (newMaxConcurrent !== undefined && newMaxConcurrent !== null && !isNaN(newMaxConcurrent)) {
+    current.max_concurrent_users = parseInt(newMaxConcurrent);
+  }
+  if (newLicenseKey !== undefined && newLicenseKey !== null && String(newLicenseKey).trim()) {
+    current.license_key = String(newLicenseKey).trim();
+  }
   return JSON.stringify(current);
 }
 
@@ -2227,18 +2231,25 @@ const server = http.createServer(async (req, res) => {
     
     orgs.forEach(o => {
       const existingLocal = map.get(o.id) || {};
+      const fileSetting = fileSettings[o.id] || {};
       const parsedStatus = parseOrgStatus(o.status);
       
-      const maxConcurrent = (parsedStatus.max_concurrent_users !== undefined && parsedStatus.max_concurrent_users !== null && !isNaN(parsedStatus.max_concurrent_users))
-        ? parsedStatus.max_concurrent_users
-        : (existingLocal.max_concurrent_users !== undefined ? parseInt(existingLocal.max_concurrent_users) : (fileSettings[o.id]?.max_concurrent_users !== undefined ? parseInt(fileSettings[o.id].max_concurrent_users) : 1));
+      const maxConcurrent = existingLocal.max_concurrent_users !== undefined && existingLocal.max_concurrent_users !== null
+        ? parseInt(existingLocal.max_concurrent_users)
+        : (fileSetting.max_concurrent_users !== undefined && fileSetting.max_concurrent_users !== null
+          ? parseInt(fileSetting.max_concurrent_users)
+          : (parsedStatus.max_concurrent_users !== undefined && parsedStatus.max_concurrent_users !== null
+            ? parseInt(parsedStatus.max_concurrent_users)
+            : (o.max_concurrent_users !== undefined && o.max_concurrent_users !== null
+              ? parseInt(o.max_concurrent_users)
+              : 5)));
 
-      const licKey = parsedStatus.license_key || existingLocal.license_key || fileSettings[o.id]?.license_key || 'MEP-LIC-ORG-PRO';
+      const licKey = existingLocal.license_key || fileSetting.license_key || parsedStatus.license_key || o.license_key || 'MEP-LIC-ORG-PRO';
 
       map.set(o.id, {
         ...existingLocal,
         ...o,
-        status: parsedStatus.state,
+        status: parsedStatus.state || 'active',
         license_key: licKey,
         max_concurrent_users: maxConcurrent
       });
