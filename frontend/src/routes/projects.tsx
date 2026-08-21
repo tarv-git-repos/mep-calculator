@@ -1236,11 +1236,55 @@ function ProjectsPage() {
                   </div>
                 </div>
 
-                {/* Multi-Select Engineer & Team Assignment in Create Workspace */}
+                {/* 2 SECTIONS CARD SELECTION IN CREATE WORKSPACE */}
+                {/* SECTION 1: TEAMS CARDS */}
                 <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
                   <div className="flex items-center justify-between">
-                    <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">
-                      Assign Engineers / Team Members
+                    <label className="text-muted-foreground font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans flex items-center gap-1.5">
+                      <Users className="size-3.5 text-primary" /> Assign Teams
+                    </label>
+                    <span className="text-[10px] text-muted-foreground font-semibold">
+                      {newProject.assigned_teams.length} selected
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-1 custom-scrollbar">
+                    {allTeams.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground italic">No teams created yet.</p>
+                    ) : (
+                      allTeams.map(t => {
+                        const isSelected = newProject.assigned_teams.includes(t.id);
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => {
+                              setNewProject(prev => ({
+                                ...prev,
+                                assigned_teams: isSelected
+                                  ? prev.assigned_teams.filter(id => id !== t.id)
+                                  : [...prev.assigned_teams, t.id]
+                              }));
+                            }}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11.5px] font-semibold transition-all cursor-pointer border ${
+                              isSelected 
+                                ? 'bg-primary/15 border-primary text-primary shadow-xs' 
+                                : 'bg-slate-100 dark:bg-zinc-900 border-border/80 text-muted-foreground hover:text-foreground hover:border-primary/50'
+                            }`}
+                          >
+                            {isSelected ? <Check className="size-3.5 stroke-[3]" /> : <Plus className="size-3.5" />}
+                            <span>{t.name}</span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* SECTION 2: ENGINEERS & USERS CARDS */}
+                <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <label className="text-muted-foreground font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans flex items-center gap-1.5">
+                      <User className="size-3.5 text-emerald-500" /> Assign Engineers & Users
                     </label>
                     <div className="flex items-center gap-2">
                       <button
@@ -1256,46 +1300,39 @@ function ProjectsPage() {
                         onClick={() => setNewProject(prev => ({ ...prev, assigned_users: [] }))}
                         className="text-[10px] text-muted-foreground hover:underline font-medium cursor-pointer"
                       >
-                        Clear All
+                        Clear
                       </button>
                     </div>
                   </div>
 
-                  <div className="max-h-36 overflow-y-auto rounded-2xl border border-border/70 bg-background/50 p-1.5 space-y-1 custom-scrollbar">
+                  <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-1 custom-scrollbar">
                     {assignableUsers.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground p-2 text-center">No other engineers found in organization.</p>
+                      <p className="text-[11px] text-muted-foreground italic">No engineers found in organization.</p>
                     ) : (
                       assignableUsers.map(u => {
-                        const isAssigned = newProject.assigned_users.includes(u.id);
+                        const isSelected = newProject.assigned_users.includes(u.id);
                         return (
-                          <div
+                          <button
                             key={u.id}
+                            type="button"
                             onClick={() => {
-                              setNewProject(prev => {
-                                const nextUsers = isAssigned
+                              setNewProject(prev => ({
+                                ...prev,
+                                assigned_users: isSelected
                                   ? prev.assigned_users.filter(id => id !== u.id)
-                                  : [...prev.assigned_users, u.id];
-                                return { ...prev, assigned_users: nextUsers };
-                              });
+                                  : [...prev.assigned_users, u.id]
+                              }));
                             }}
-                            className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl text-[12px] cursor-pointer transition-all ${
-                              isAssigned 
-                                ? 'bg-primary/10 border border-primary/30 text-foreground font-semibold' 
-                                : 'hover:bg-surface-2 text-muted-foreground'
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11.5px] font-semibold transition-all cursor-pointer border ${
+                              isSelected 
+                                ? 'bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-xs' 
+                                : 'bg-slate-100 dark:bg-zinc-900 border-border/80 text-muted-foreground hover:text-foreground hover:border-emerald-500/50'
                             }`}
                           >
-                            <div className="flex items-center gap-2">
-                              <div className={`size-4 rounded border flex items-center justify-center transition-all ${
-                                isAssigned ? 'bg-primary border-primary text-primary-foreground' : 'border-border/80 bg-background'
-                              }`}>
-                                {isAssigned && <Check className="size-3 stroke-[3]" />}
-                              </div>
-                              <User className="size-3 text-muted-foreground" />
-                              <span>{u.name}</span>
-                              <span className="text-[10px] opacity-60">({u.email || u.role})</span>
-                            </div>
-                            {isAssigned && <span className="text-[10px] font-bold text-primary">Assigned</span>}
-                          </div>
+                            {isSelected ? <Check className="size-3.5 stroke-[3]" /> : <Plus className="size-3.5" />}
+                            <span>{u.name}</span>
+                            <span className="text-[9.5px] opacity-60 font-normal">({u.email || u.role})</span>
+                          </button>
                         );
                       })
                     )}
@@ -1374,27 +1411,54 @@ function ProjectsPage() {
                   className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                 />
               </div>
-              <div>
-                <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">Add Team</label>
-                <select
-                  onChange={(e) => {
-                    handleAddTeamToProject(editingProj.id, e.target.value);
-                    e.target.value = "";
-                  }}
-                  className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
-                  defaultValue=""
-                >
-                  <option value="" disabled>Select Team to add...</option>
-                  {allTeams.filter(t => !(editingProj as any).project_teams?.some((pt: any) => pt.team_id === t.id)).map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
+              {/* 2 SECTIONS CARD SELECTION IN EDIT WORKSPACE DETAILS */}
+              {/* SECTION 1: TEAMS CARDS */}
+              <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                <div className="flex items-center justify-between">
+                  <label className="text-muted-foreground font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans flex items-center gap-1.5">
+                    <Users className="size-3.5 text-primary" /> Assign Teams
+                  </label>
+                  <span className="text-[10px] text-muted-foreground font-semibold">
+                    {((editingProj as any).project_teams || []).length} assigned
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-1 custom-scrollbar">
+                  {allTeams.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground italic">No teams created yet.</p>
+                  ) : (
+                    allTeams.map(t => {
+                      const isAssigned = (editingProj as any).project_teams?.some((pt: any) => String(pt.team_id || pt.id) === String(t.id));
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            if (isAssigned) {
+                              handleRemoveTeamFromProject(editingProj.id, t.id);
+                            } else {
+                              handleAddTeamToProject(editingProj.id, t.id);
+                            }
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11.5px] font-semibold transition-all cursor-pointer border ${
+                            isAssigned 
+                              ? 'bg-primary/15 border-primary text-primary shadow-xs' 
+                              : 'bg-slate-100 dark:bg-zinc-900 border-border/80 text-muted-foreground hover:text-foreground hover:border-primary/50'
+                          }`}
+                        >
+                          {isAssigned ? <Check className="size-3.5 stroke-[3]" /> : <Plus className="size-3.5" />}
+                          <span>{t.name}</span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-              {/* Multi-Select Engineer Checklist in Edit Modal */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">
-                    Assign Engineers & Members
+
+              {/* SECTION 2: ENGINEERS & USERS CARDS */}
+              <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                <div className="flex items-center justify-between">
+                  <label className="text-muted-foreground font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans flex items-center gap-1.5">
+                    <User className="size-3.5 text-emerald-500" /> Assign Engineers & Users
                   </label>
                   <button
                     type="button"
@@ -1415,17 +1479,18 @@ function ProjectsPage() {
                   </button>
                 </div>
 
-                <div className="max-h-40 overflow-y-auto rounded-2xl border border-border/70 bg-background/50 p-1.5 space-y-1 custom-scrollbar mb-2">
+                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1 custom-scrollbar">
                   {assignableUsers.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground p-2 text-center">No other engineers found.</p>
+                    <p className="text-[11px] text-muted-foreground italic">No other engineers found.</p>
                   ) : (
                     assignableUsers.map(u => {
                       const isAssigned = (editingProj as any).project_users?.some(
                         (pu: any) => String(pu.user_id || pu.id).toLowerCase() === String(u.id).toLowerCase() || String(pu.user_id).toLowerCase() === String(u.email).toLowerCase()
                       );
                       return (
-                        <div
+                        <button
                           key={u.id}
+                          type="button"
                           onClick={() => {
                             if (isAssigned) {
                               handleRemoveUserFromProject(editingProj.id, u.id);
@@ -1433,50 +1498,23 @@ function ProjectsPage() {
                               handleAddUserToProject(editingProj.id, u.id);
                             }
                           }}
-                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl text-[12px] cursor-pointer transition-all ${
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11.5px] font-semibold transition-all cursor-pointer border ${
                             isAssigned 
-                              ? 'bg-primary/10 border border-primary/30 text-foreground font-semibold' 
-                              : 'hover:bg-surface-2 text-muted-foreground'
+                              ? 'bg-emerald-500/15 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-xs' 
+                              : 'bg-slate-100 dark:bg-zinc-900 border-border/80 text-muted-foreground hover:text-foreground hover:border-emerald-500/50'
                           }`}
                         >
-                          <div className="flex items-center gap-2">
-                            <div className={`size-4 rounded border flex items-center justify-center transition-all ${
-                              isAssigned ? 'bg-primary border-primary text-primary-foreground' : 'border-border/80 bg-background'
-                            }`}>
-                              {isAssigned && <Check className="size-3 stroke-[3]" />}
-                            </div>
-                            <User className="size-3 text-muted-foreground" />
-                            <span>{u.name}</span>
-                            <span className="text-[10px] opacity-60">({u.email || u.role})</span>
-                          </div>
-                          {isAssigned ? (
-                            <span className="text-[10px] font-bold text-primary">Assigned ✓</span>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground hover:text-foreground">+ Add</span>
-                          )}
-                        </div>
+                          {isAssigned ? <Check className="size-3.5 stroke-[3]" /> : <Plus className="size-3.5" />}
+                          <span>{u.name}</span>
+                          <span className="text-[9.5px] opacity-60 font-normal">({u.email || u.role})</span>
+                        </button>
                       );
                     })
                   )}
                 </div>
-
-                {/* Active Team Assignments Badge List */}
-                {(editingProj as any).project_teams?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50 mt-2">
-                    {(editingProj as any).project_teams?.map((pt: any) => {
-                      const team = allTeams.find(t => String(t.id) === String(pt.team_id) || String(t.id) === String(pt.id));
-                      const teamName = team?.name || pt.teams?.name || pt.team_name || pt.name || 'Team';
-                      return (
-                        <span key={`t-${pt.team_id || pt.id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
-                          <Users className="size-3" /> {teamName}
-                          <button onClick={() => handleRemoveTeamFromProject(editingProj.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
-                            <X className="size-2.5" />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
+                <p className="text-[10.5px] text-muted-foreground">
+                  {((editingProj as any).project_users || []).length} of {assignableUsers.length} engineer(s) assigned
+                </p>
               </div>
             </div>
             <footer className="px-6 py-5 border-t border-border/50 flex items-center justify-end gap-3 bg-card/60 backdrop-blur-xs">
