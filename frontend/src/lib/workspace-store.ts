@@ -149,10 +149,6 @@ if (typeof window !== "undefined") {
   });
 }
 
-function notify() {
-  listeners.forEach((l) => l());
-}
-
 function executeWorkspaceSave() {
   if (!activeProjectId) return;
   const lsState: Record<string, string> = {};
@@ -188,6 +184,7 @@ function executeWorkspaceSave() {
   }
   
   api.saveWorkspace(activeProjectId, payload);
+  saveCachedProjects(projects);
   notify();
 }
 
@@ -245,8 +242,12 @@ export const workspaceStore = {
   },
   async syncFromCloud() {
     let cloudProjects = await api.getProjects();
-    if (!cloudProjects || cloudProjects.length === 0) {
-      cloudProjects = [
+    if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
+      projects = cloudProjects;
+      saveCachedProjects(projects);
+    }
+    if (projects.length === 0) {
+      projects = [
         {
           id: "proj_default_mep",
           name: "Default MEP Project",
@@ -259,8 +260,8 @@ export const workspaceStore = {
           status: "active"
         }
       ];
+      saveCachedProjects(projects);
     }
-    projects = cloudProjects;
     const lastActive = typeof localStorage !== "undefined"
       ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id") || activeProjectId)
       : activeProjectId;
@@ -270,6 +271,7 @@ export const workspaceStore = {
       if (fullProj && fullProj.workspace_data) {
         target = { ...target, ...fullProj };
         projects = projects.map(p => p.id === target.id ? target : p);
+        saveCachedProjects(projects);
       }
     } catch(e) {}
     activeProjectId = target.id;
@@ -293,36 +295,20 @@ export const workspaceStore = {
   async refreshProjects() {
     try {
       let cloudProjects = await api.getProjects();
-      if (!cloudProjects || cloudProjects.length === 0) {
-        if (projects.length === 0) {
-          cloudProjects = [
-            {
-              id: "proj_default_mep",
-              name: "Default MEP Project",
-              code: "MEP-2026-001",
-              client: "Standard Client",
-              location: "Main Building",
-              description: "Default MEP Calculation Workspace",
-              createdDate: new Date().toISOString(),
-              lastModified: new Date().toISOString(),
-              status: "active"
-            }
-          ];
-        } else {
-          return;
+      if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
+        projects = cloudProjects.map(cp => {
+          const existing = projects.find(p => p.id === cp.id);
+          return existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp;
+        });
+        saveCachedProjects(projects);
+        if (activeProjectId) {
+          const updatedActive = projects.find(p => p.id === activeProjectId);
+          if (updatedActive) {
+            currentProject = updatedActive;
+          }
         }
+        notify();
       }
-      projects = cloudProjects.map(cp => {
-        const existing = projects.find(p => p.id === cp.id);
-        return existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp;
-      });
-      if (activeProjectId) {
-        const updatedActive = projects.find(p => p.id === activeProjectId);
-        if (updatedActive) {
-          currentProject = updatedActive;
-        }
-      }
-      notify();
     } catch (err) {
       console.error("Failed to refresh projects list:", err);
     }
@@ -356,6 +342,7 @@ export const workspaceStore = {
               if (activeProjectId === updatedId && currentProject) {
                 currentProject = { ...currentProject, ...updated };
               }
+              saveCachedProjects(projects);
               notify();
               return;
             }
@@ -364,12 +351,12 @@ export const workspaceStore = {
         })
         .subscribe();
 
-      const cloudProjects = await Promise.race([
-        api.getProjects(),
-        new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 2000))
-      ]).catch(() => []);
+      const cloudProjects = await api.getProjects().catch(() => []);
 
-      projects = cloudProjects || [];
+      if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
+        projects = cloudProjects;
+        saveCachedProjects(projects);
+      }
       
       if (projects.length > 0) {
          let lastActive = typeof localStorage !== "undefined"
@@ -380,11 +367,15 @@ export const workspaceStore = {
            const found = projects.find(p => p.id === lastActive || p.code === lastActive);
            if (found) target = found;
          }
-         const fullActive = await api.getProject(target.id);
-         if (fullActive && fullActive.workspace_data) {
-           target = { ...target, ...fullActive };
-           projects = projects.map(p => p.id === target.id ? target : p);
-         }
+         try {
+           const fullActive = await api.getProject(target.id);
+           if (fullActive && fullActive.workspace_data) {
+             target = { ...target, ...fullActive };
+             projects = projects.map(p => p.id === target.id ? target : p);
+             saveCachedProjects(projects);
+           }
+         } catch (e) {}
+
          activeProjectId = target.id;
          currentProject = target;
          if (typeof localStorage !== "undefined") {
