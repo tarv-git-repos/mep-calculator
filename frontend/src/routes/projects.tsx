@@ -421,9 +421,10 @@ function ProjectsPage() {
       return allUsers;
     }
     const myOrgId = profile?.organization_id;
+    if (!myOrgId) return [];
     return allUsers.filter(u => 
       u.role !== 'SUPER_ADMIN' && 
-      (!myOrgId || u.organization_id === myOrgId || !u.organization_id)
+      String(u.organization_id || '') === String(myOrgId)
     );
   }, [allUsers, profile?.role, profile?.organization_id]);
 
@@ -432,7 +433,8 @@ function ProjectsPage() {
       return allTeams;
     }
     const myOrgId = profile?.organization_id;
-    return allTeams.filter(t => !myOrgId || t.organization_id === myOrgId || !t.organization_id);
+    if (!myOrgId) return [];
+    return allTeams.filter(t => String(t.organization_id || '') === String(myOrgId));
   }, [allTeams, profile?.role, profile?.organization_id]);
 
   const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => {
@@ -544,11 +546,27 @@ function ProjectsPage() {
 
   const userAssignedProjects = useMemo(() => {
     if (!profile) return projects;
-    if (profile.role === 'SUPER_ADMIN' || profile.role === 'ORG_ADMIN') {
+    if (profile.role === 'SUPER_ADMIN') {
       return projects;
     }
     const myId = String(profile.id || '').toLowerCase();
     const myEmail = String(profile.email || '').toLowerCase();
+    const myOrgId = profile.organization_id;
+
+    if (profile.role === 'ORG_ADMIN') {
+      if (!myOrgId) return projects;
+      const orgUserIds = (allUsers || [])
+        .filter((u: any) => String(u.organization_id || '') === String(myOrgId))
+        .map((u: any) => String(u.id || '').toLowerCase());
+
+      return projects.filter((p: any) => {
+        if (p.organization_id && String(p.organization_id) === String(myOrgId)) return true;
+        const creatorId = String(p.created_by || '').toLowerCase();
+        if (orgUserIds.includes(creatorId)) return true;
+        const pUsers = p.project_users || [];
+        return pUsers.some((pu: any) => orgUserIds.includes(String(pu.user_id || pu.id || '').toLowerCase()));
+      });
+    }
 
     return projects.filter((p: any) => {
       // 1. User created the project
@@ -580,7 +598,7 @@ function ProjectsPage() {
 
       return false;
     });
-  }, [projects, profile, allTeams]);
+  }, [projects, profile, allTeams, allUsers]);
 
   const filteredProjects = useMemo(() => {
     let result = userAssignedProjects;

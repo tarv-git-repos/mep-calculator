@@ -1020,11 +1020,15 @@ const server = http.createServer(async (req, res) => {
     
     let filteredUsers = users;
     if (user.role !== 'SUPER_ADMIN') {
-      // Non-Super-Admins can see non-Super-Admin members belonging to their organization, or all non-super-admin members if org_id is not set
-      filteredUsers = users.filter(u => 
-        u.role !== 'SUPER_ADMIN' && 
-        (!user.organization_id || !u.organization_id || u.organization_id === user.organization_id)
-      );
+      const myOrgId = user.organization_id;
+      if (!myOrgId) {
+        filteredUsers = users.filter(u => String(u.id).toLowerCase() === String(user.id).toLowerCase());
+      } else {
+        filteredUsers = users.filter(u => 
+          u.role !== 'SUPER_ADMIN' && 
+          String(u.organization_id || '') === String(myOrgId)
+        );
+      }
     }
     
     const safeUsers = filteredUsers.map(u => ({ 
@@ -1066,10 +1070,20 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     
-    let { data: rawTeams, error } = await supabase.from('teams').select('id, name, created_by, team_members(user_id)');
+    let { data: rawTeams, error } = await supabase.from('teams').select('id, name, created_by, organization_id, team_members(user_id)');
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
-    return sendJSON(res, 200, { success: true, teams: rawTeams || [] });
+    let teams = rawTeams || [];
+    if (user.role !== 'SUPER_ADMIN') {
+      const myOrgId = user.organization_id;
+      if (!myOrgId) {
+        teams = teams.filter(t => String(t.created_by || '').toLowerCase() === String(user.id || '').toLowerCase());
+      } else {
+        teams = teams.filter(t => String(t.organization_id || '') === String(myOrgId));
+      }
+    }
+
+    return sendJSON(res, 200, { success: true, teams });
   }
 
   // D. ADD USER TO TEAM
