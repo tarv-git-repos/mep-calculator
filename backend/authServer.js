@@ -1328,6 +1328,9 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url === '/api/projects/remove-user') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    if (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Only Organization Admins can manage project members.' });
+    }
     const { project_id, user_id } = await getRequestBody(req);
 
     const { error } = await supabase.from('project_users').delete().match({ project_id, user_id });
@@ -1339,6 +1342,9 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url === '/api/projects/add-user') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    if (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Only Organization Admins can manage project members.' });
+    }
     const { project_id, user_id } = await getRequestBody(req);
 
     const allDbUsers = await readUsers();
