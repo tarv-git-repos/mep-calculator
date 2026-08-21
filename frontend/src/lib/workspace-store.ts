@@ -298,13 +298,7 @@ export const workspaceStore = {
   },
   async refreshProjects() {
     try {
-      let cloudProjects = await api.getProjects().catch(() => []);
-      if (!Array.isArray(cloudProjects) || cloudProjects.length === 0) {
-        const { data: supaData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id');
-        if (Array.isArray(supaData) && supaData.length > 0) {
-          cloudProjects = supaData;
-        }
-      }
+      const cloudProjects = await api.getProjects().catch(() => []);
       if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
         projects = cloudProjects.map(cp => {
           const existing = projects.find(p => p.id === cp.id);
@@ -324,9 +318,6 @@ export const workspaceStore = {
     }
   },
   async initCloud() {
-    if (cloudInitDone) return;
-    cloudInitDone = true;
-    
     // Safety fallback: Ensure workspace initialization never locks UI for more than 2.5 seconds
     const initTimer = setTimeout(() => {
       if (isInitializing) {
@@ -336,39 +327,34 @@ export const workspaceStore = {
     }, 2500);
 
     try {
-      supabase
-        .channel('public:projects')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload: any) => {
-          // Targeted Realtime metadata update without re-downloading heavy project list
-          if (payload && payload.eventType === 'UPDATE' && payload.new && payload.new.id) {
-            const updatedId = payload.new.id;
-            const existing = projects.find(p => p.id === updatedId);
-            if (existing) {
-              const updated = { ...existing, ...payload.new };
-              if (existing.workspace_data) {
-                updated.workspace_data = existing.workspace_data;
+      if (!cloudInitDone) {
+        cloudInitDone = true;
+        supabase
+          .channel('public:projects')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload: any) => {
+            if (payload && payload.eventType === 'UPDATE' && payload.new && payload.new.id) {
+              const updatedId = payload.new.id;
+              const existing = projects.find(p => p.id === updatedId);
+              if (existing) {
+                const updated = { ...existing, ...payload.new };
+                if (existing.workspace_data) {
+                  updated.workspace_data = existing.workspace_data;
+                }
+                projects = projects.map(p => p.id === updatedId ? updated : p);
+                if (activeProjectId === updatedId && currentProject) {
+                  currentProject = { ...currentProject, ...updated };
+                }
+                saveCachedProjects(projects);
+                notify();
+                return;
               }
-              projects = projects.map(p => p.id === updatedId ? updated : p);
-              if (activeProjectId === updatedId && currentProject) {
-                currentProject = { ...currentProject, ...updated };
-              }
-              saveCachedProjects(projects);
-              notify();
-              return;
             }
-          }
-          workspaceStore.refreshProjects();
-        })
-        .subscribe();
-
-      let cloudProjects = await api.getProjects().catch(() => []);
-      if (!Array.isArray(cloudProjects) || cloudProjects.length === 0) {
-        const { data: supaData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id');
-        if (Array.isArray(supaData) && supaData.length > 0) {
-          cloudProjects = supaData;
-        }
+            workspaceStore.refreshProjects();
+          })
+          .subscribe();
       }
 
+      const cloudProjects = await api.getProjects().catch(() => []);
       if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
         projects = cloudProjects;
         saveCachedProjects(projects);

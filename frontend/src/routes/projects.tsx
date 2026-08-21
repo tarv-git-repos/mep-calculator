@@ -509,7 +509,7 @@ function ProjectsPage() {
   useEffect(() => {
     loadUsersAndTeams();
     refreshProjects();
-  }, []);
+  }, [profile?.id]);
 
   useEffect(() => {
     if (!profile?.id) return;
