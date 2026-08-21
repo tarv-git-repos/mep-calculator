@@ -1066,32 +1066,10 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     
-    // Select explicit existing columns to avoid schema cache error on missing organization_id column
     let { data: rawTeams, error } = await supabase.from('teams').select('id, name, created_by, team_members(user_id)');
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
-    const allUsers = await readUsers();
-    const superAdminIds = new Set(allUsers.filter(u => u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai').map(u => u.id));
-    const userOrg = user.organization_id || user.company || user.organization;
-    const orgUserIds = new Set(userOrg ? allUsers.filter(u => 
-      (u.organization_id && String(u.organization_id) === String(userOrg)) ||
-      (u.company && u.company === userOrg) ||
-      (u.organization && u.organization === userOrg)
-    ).map(u => u.id) : [user.id]);
-
-    let teamsList = rawTeams || [];
-    if (user.role !== 'SUPER_ADMIN') {
-      // Non-Super-Admins see teams created by their organization or created by org members
-      teamsList = teamsList.filter(t => t.created_by && orgUserIds.has(t.created_by));
-    }
-
-    // Strip Super Admin accounts from team_members when requested by non-Super-Admins
-    const cleanedTeams = teamsList.map(t => {
-      const filteredMembers = (t.team_members || []).filter(tm => !superAdminIds.has(tm.user_id));
-      return { ...t, team_members: filteredMembers };
-    });
-
-    return sendJSON(res, 200, { success: true, teams: cleanedTeams });
+    return sendJSON(res, 200, { success: true, teams: rawTeams || [] });
   }
 
   // D. ADD USER TO TEAM
@@ -1114,93 +1092,18 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, message: 'User removed from team' });
   }
 
-  // E. CREATE PROJECT
-  if (req.method === 'POST' && url === '/api/projects/create') {
+  // E. DELETE TEAM
+  if (req.method === 'POST' && url === '/api/teams/delete') {
     const user = await getUserFromReq(req);
-    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-    const { projectData, assigned_users = [], assigned_teams = [] } = await getRequestBody(req);
-    
-    if (!projectData.name || !projectData.code) return sendJSON(res, 400, { success: false, message: 'Name and Code required' });
-    
-    const projectId = `proj_${Date.now()}`;
-    const nowIso = new Date().toISOString();
-    const dbProject = {
-      id: projectId,
-      name: projectData.name,
-      code: projectData.code,
-      client: projectData.client || '',
-      location: projectData.location || '',
-      description: projectData.description || '',
-      notes: projectData.notes || '',
-      organization_id: user.organization_id || null,
-      created_by: user.id,
-      created_at: nowIso,
-      last_modified: nowIso,
-      workspace_data: projectData.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
-    };
-
-    let { error } = await supabase.from('projects').insert(dbProject);
-    if (error && error.message && error.message.includes('organization_id')) {
-      delete dbProject.organization_id;
-      const retry = await supabase.from('projects').insert(dbProject);
-      error = retry.error;
-    }
+    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
+    const { team_id } = await getRequestBody(req);
+    await supabase.from('team_members').delete().eq('team_id', team_id);
+    const { error } = await supabase.from('teams').delete().eq('id', team_id);
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
-
-    const allDbUsers = await readUsers();
-    const resolveUserId = (input) => {
-      if (!input) return null;
-      const str = String(input).trim();
-      const match = allDbUsers.find(u => 
-        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) || 
-        (u.email && String(u.email).toLowerCase() === str.toLowerCase())
-      );
-      return match ? match.id : str;
-    };
-
-    // Always assign creator (deduplicated by canonical user.id)
-    const rawUserIds = [...assigned_users, user.id].map(resolveUserId).filter(Boolean);
-    const cleanUserIds = Array.from(new Set(rawUserIds));
-    const cleanTeamIds = Array.from(new Set(assigned_teams.filter(Boolean).map(x => String(x).trim())));
-
-    // Insert access rules safely using upsert to handle any pre-existing or duplicate entries
-    if (cleanUserIds.length > 0) {
-      const puPayload = cleanUserIds.map(uid => ({ project_id: projectId, user_id: uid }));
-      const { error: puErr } = await supabase.from('project_users').upsert(puPayload, { onConflict: 'project_id,user_id', ignoreDuplicates: true });
-      if (puErr) {
-        // Fallback: insert individually if batch upsert fails
-        for (const uid of cleanUserIds) {
-          try { await supabase.from('project_users').upsert({ project_id: projectId, user_id: uid }); } catch (e) {}
-        }
-      }
-    }
-
-    if (cleanTeamIds.length > 0) {
-      const ptPayload = cleanTeamIds.map(tid => ({ project_id: projectId, team_id: tid }));
-      const { error: ptErr } = await supabase.from('project_teams').upsert(ptPayload, { onConflict: 'project_id,team_id', ignoreDuplicates: true });
-      if (ptErr) {
-        for (const tid of cleanTeamIds) {
-          try { await supabase.from('project_teams').upsert({ project_id: projectId, team_id: tid }); } catch (e) {}
-        }
-      }
-    }
-
-    const projectUsers = cleanUserIds.map(uid => ({ project_id: projectId, user_id: uid }));
-    const projectTeams = cleanTeamIds.map(tid => ({ project_id: projectId, team_id: tid }));
-
-    return sendJSON(res, 200, { 
-      success: true, 
-      project: { 
-        ...dbProject, 
-        project_users: projectUsers,
-        project_teams: projectTeams,
-        createdDate: nowIso, 
-        lastModified: nowIso 
-      } 
-    });
+    return sendJSON(res, 200, { success: true, message: 'Team deleted' });
   }
 
-  // F. LIST PROJECTS (METADATA ONLY)
+  // F. LIST PROJECTS
   if (req.method === 'GET' && url === '/api/projects/list') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
@@ -1211,57 +1114,12 @@ const server = http.createServer(async (req, res) => {
       const { data, error } = await query;
       if (!error && Array.isArray(data)) {
         projects = data;
-      } else {
-        const { data: fallbackData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id');
-        if (Array.isArray(fallbackData)) projects = fallbackData;
       }
     } catch (e) {
       console.warn('Projects list query exception:', e);
     }
 
-    // Filter projects the user is allowed to see
-    let visibleProjects = projects;
-    if (user.role !== 'SUPER_ADMIN') {
-      try {
-        const users = await readUsers();
-        const orgUserIds = new Set(
-          users
-            .filter(u => user.organization_id && u.organization_id === user.organization_id)
-            .flatMap(u => [u.id, u.email].filter(Boolean))
-        );
-
-        let myTeamIds = [];
-        try {
-          const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
-          myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
-        } catch(e) {}
-
-        visibleProjects = projects.filter(p => {
-          // 1. Same organization
-          if (p.organization_id && user.organization_id && p.organization_id === user.organization_id) return true;
-          // 2. Created by someone in same organization
-          if (p.created_by && orgUserIds.has(p.created_by)) return true;
-          // 3. Created by this user directly
-          if (p.created_by && (p.created_by === user.id || p.created_by === user.email)) return true;
-          // 4. Assigned in project_users
-          if (Array.isArray(p.project_users) && p.project_users.some(pu => pu.user_id === user.id || pu.user_id === user.email || orgUserIds.has(pu.user_id))) return true;
-          // 5. Assigned in project_teams
-          if (Array.isArray(p.project_teams) && p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
-          // 6. Global project without explicit org restriction
-          if (!p.organization_id) return true;
-          return false;
-        });
-
-        // Fallback: If no specific filter matched, return all available projects so user is never locked out
-        if (visibleProjects.length === 0 && projects.length > 0) {
-          visibleProjects = projects;
-        }
-      } catch (e) {
-        visibleProjects = projects;
-      }
-    }
-
-    return sendJSON(res, 200, { success: true, projects: visibleProjects });
+    return sendJSON(res, 200, { success: true, projects });
   }
 
   // F2. GET SINGLE PROJECT WITH WORKSPACE DATA

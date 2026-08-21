@@ -318,34 +318,36 @@ function TeamsPage() {
                           <div className="flex justify-between items-center">
                              <h4 className="font-bold text-foreground">{team.name}</h4>
                              <div className="flex items-center gap-2">
-                               <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
-                                  {(team.team_members || []).filter((tm: any) => assignableUsers.some(u => u.id === tm.user_id && u.role !== 'SUPER_ADMIN')).length} Members
-                               </span>
-                               <button
-                                 onClick={() => handleDeleteTeam(team.id)}
-                                 className="opacity-0 group-hover/team:opacity-100 p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all"
-                                 title="Delete Team"
-                               >
-                                 <Trash2 className="size-4" />
-                               </button>
+                                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                                   {(team.team_members || []).length} Members
+                                </span>
+                                <button
+                                  onClick={() => handleDeleteTeam(team.id)}
+                                  className="opacity-0 group-hover/team:opacity-100 p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
+                                  title="Delete Team"
+                                >
+                                  <Trash2 className="size-4" />
+                                </button>
                              </div>
                           </div>
                         <div className="flex flex-col gap-2 border-t border-border/50 pt-3 mt-1">
                            {team.team_members?.map((tm: any) => {
-                              const user = assignableUsers.find(u => u.id === tm.user_id);
-                              if (!user || user.role === 'SUPER_ADMIN' || user.email === 'admin@tarv.ai') return null;
+                              const rawId = tm.user_id || tm.id;
+                              const user = users.find(u => String(u.id).toLowerCase() === String(rawId).toLowerCase() || String(u.email).toLowerCase() === String(rawId).toLowerCase());
+                              const displayName = user?.name || rawId;
+                              const displayEmail = user?.email || user?.role || '';
                               return (
-                                 <div key={user.id} className="flex items-center gap-2 text-xs group">
-                                    <div className="size-6 bg-slate-200 dark:bg-zinc-800 rounded-full flex items-center justify-center shrink-0">
-                                       {user.name.charAt(0).toUpperCase()}
+                                 <div key={rawId} className="flex items-center gap-2 text-xs group">
+                                    <div className="size-6 bg-slate-200 dark:bg-zinc-800 rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold text-foreground">
+                                       {displayName.charAt(0).toUpperCase()}
                                     </div>
                                     <div className="flex flex-col flex-1">
-                                       <span className="font-bold text-foreground leading-none">{user.name}</span>
-                                       <span className="text-[9px] text-muted-foreground">{user.email}</span>
+                                       <span className="font-bold text-foreground leading-none">{displayName}</span>
+                                       {displayEmail && <span className="text-[9px] text-muted-foreground">{displayEmail}</span>}
                                     </div>
                                     <button 
-                                      onClick={() => handleRemoveUser(team.id, user.id)}
-                                      className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-rose-500 transition-all p-1"
+                                      onClick={() => handleRemoveUser(team.id, rawId)}
+                                      className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-rose-500 transition-all p-1 cursor-pointer"
                                       title="Remove User"
                                     >
                                       <Trash2 className="size-3" />
