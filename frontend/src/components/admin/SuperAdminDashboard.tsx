@@ -134,13 +134,13 @@ export function SuperAdminDashboard() {
       return;
     }
     try {
-      await api.updateOrganization({ orgId, max_users: newMax });
-      setOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, max_users: newMax } : o));
+      await api.updateOrganization({ orgId, max_users: newMax, max_concurrent_users: newMax });
+      setOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, max_users: newMax, max_concurrent_users: newMax } : o));
       if (selectedOrgForManagement && selectedOrgForManagement.id === orgId) {
-        setSelectedOrgForManagement((prev: any) => prev ? { ...prev, max_users: newMax } : null);
+        setSelectedOrgForManagement((prev: any) => prev ? { ...prev, max_users: newMax, max_concurrent_users: newMax } : null);
       }
       setEditingSeatsForOrg(false);
-      toast.success(`Member seats limit updated to ${newMax} for organization!`);
+      toast.success(`Member seats & concurrent limit updated to ${newMax} for organization!`);
     } catch (err) {
       console.error("Failed to update seat limit", err);
       toast.error("Failed to update seat limit.");

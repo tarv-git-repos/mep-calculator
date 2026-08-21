@@ -2339,7 +2339,11 @@ const server = http.createServer(async (req, res) => {
     if (subscription_plan !== undefined) localOrgs[orgIndex].subscription_plan = subscription_plan;
     if (max_users !== undefined) localOrgs[orgIndex].max_users = parseInt(max_users);
     if (license_key !== undefined) localOrgs[orgIndex].license_key = license_key;
-    if (max_concurrent_users !== undefined) localOrgs[orgIndex].max_concurrent_users = parseInt(max_concurrent_users);
+    if (max_concurrent_users !== undefined) {
+      localOrgs[orgIndex].max_concurrent_users = parseInt(max_concurrent_users);
+    } else if (max_users !== undefined && (localOrgs[orgIndex].max_concurrent_users === undefined || localOrgs[orgIndex].max_concurrent_users === 1)) {
+      localOrgs[orgIndex].max_concurrent_users = parseInt(max_users);
+    }
 
     saveLocalOrgs(localOrgs);
 
@@ -2360,6 +2364,9 @@ const server = http.createServer(async (req, res) => {
       if (name !== undefined) updateData.name = name;
       if (subscription_plan !== undefined) updateData.subscription_plan = subscription_plan;
       if (max_users !== undefined) updateData.max_users = parseInt(max_users);
+      if (localOrgs[orgIndex].max_concurrent_users !== undefined) {
+        updateData.max_concurrent_users = localOrgs[orgIndex].max_concurrent_users;
+      }
       
       await supabase.from('organizations').upsert(updateData, { onConflict: 'id' });
     } catch (e) {
