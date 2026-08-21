@@ -526,7 +526,7 @@ function ProjectsPage() {
   useEffect(() => {
     loadUsersAndTeams();
     refreshProjects();
-  }, [profile?.id, editingProj?.id]);
+  }, [profile?.id]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -1056,7 +1056,10 @@ function ProjectsPage() {
                       <Copy className="size-3.5" />
                     </button>
                     <button
-                      onClick={() => setEditingProj(p)}
+                      onClick={() => {
+                        loadUsersAndTeams();
+                        setEditingProj(p);
+                      }}
                       className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center justify-center transition-all cursor-pointer"
                       title="Add Members & Edit Details"
                     >
