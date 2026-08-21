@@ -60,6 +60,8 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
           key === 'mep_calculator_user_data' || 
           key === 'mep_device_client_id' || 
           key === 'privacy_policy_accepted' ||
+          key === 'mep_active_project_id' ||
+          key === 'mep_last_worked_project_id' ||
           key.startsWith('mep_profile_photo') ||
           key.startsWith('mep_local_users')
         ) {
@@ -234,15 +236,33 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       return;
     }
 
+    // Preserve active project ID and auth info so active project is never lost or deleted!
+    const currentActiveProjId = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_active_project_id") : null;
+    const currentLastWorkedProjId = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_last_worked_project_id") : null;
+
     if (versionName) {
       updateActiveVersion(versionName);
     }
 
-    // 1. Restore localStorage keys
+    // 1. Restore localStorage calculator keys while preserving system/project metadata
     const lsCache = data.localStorageCache || data;
     if (typeof localStorage !== 'undefined' && lsCache && typeof lsCache === 'object') {
+      const SYSTEM_KEYS = new Set([
+        'mep_active_project_id',
+        'mep_last_worked_project_id',
+        'auth_token',
+        'mep_calculator_user_data',
+        'mep_device_client_id',
+        'privacy_policy_accepted',
+        'spaces',
+        'zones',
+        'equipment',
+        'localStorageCache',
+        '_versionMetadata'
+      ]);
+
       Object.keys(lsCache).forEach(key => {
-        if (key === 'spaces' || key === 'zones' || key === 'equipment' || key === 'localStorageCache' || key === '_versionMetadata') {
+        if (SYSTEM_KEYS.has(key) || key.startsWith('mep_profile_photo') || key.startsWith('mep_local_users')) {
           return;
         }
         const val = lsCache[key];
@@ -254,9 +274,17 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
           localStorage.setItem(key, JSON.stringify(val));
         }
       });
+
+      // Ensure active project ID is explicitly preserved
+      if (currentActiveProjId) {
+        localStorage.setItem("mep_active_project_id", currentActiveProjId);
+      }
+      if (currentLastWorkedProjId) {
+        localStorage.setItem("mep_last_worked_project_id", currentLastWorkedProjId);
+      }
     }
 
-    // 2. Restore workspaceStore state (spaces, zones, equipment)
+    // 2. Restore workspaceStore state (spaces, zones, equipment) into current active project
     if (Array.isArray(data.spaces) || Array.isArray(data.zones) || Array.isArray(data.equipment)) {
       workspaceStore.setState({
         spaces: data.spaces || [],
