@@ -967,14 +967,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
   }, [userId, userData, profile, projects, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin]);
 
-  // Real-time notification auto polling without needing page refresh
+  // Initial project list load on user login (real-time updates handled by Supabase Realtime & custom events)
   useEffect(() => {
     if (!userId) return;
-    const interval = setInterval(() => {
-      refreshProjects();
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [userId, refreshProjects]);
+    refreshProjects();
+  }, [userId]);
 
 
   useEffect(() => {

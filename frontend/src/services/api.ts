@@ -82,12 +82,17 @@ export const api = {
       const cachedStr = localStorage.getItem('mep_local_users');
       if (cachedStr) {
         const cachedUsers = JSON.parse(cachedStr);
-        const cachedMap = new Map(cachedUsers.map((u: any) => [u.id, u]));
+        const cachedMap = new Map();
+        cachedUsers.forEach((u: any) => {
+          if (u.id) cachedMap.set(String(u.id).toLowerCase(), u);
+          if (u.email) cachedMap.set(String(u.email).toLowerCase(), u);
+        });
         usersList = usersList.map(u => {
-          const c = cachedMap.get(u.id);
-          return c ? { ...u, ...c } : u;
+          const c = cachedMap.get(String(u.id || '').toLowerCase()) || cachedMap.get(String(u.email || '').toLowerCase());
+          return c ? { ...c, ...u } : u;
         });
       }
+      localStorage.setItem('mep_local_users', JSON.stringify(usersList));
     } catch (e) {}
 
     return usersList;
@@ -102,8 +107,17 @@ export const api = {
       if (!users || !Array.isArray(users)) {
         users = await this.getUsers();
       }
-      users = users.map((u: any) => u.id === profileId ? { ...u, role: newRole } : u);
+      const pidLower = String(profileId).toLowerCase();
+      users = users.map((u: any) => {
+        const uId = String(u.id || '').toLowerCase();
+        const uEmail = String(u.email || '').toLowerCase();
+        if (uId === pidLower || uEmail === pidLower) {
+          return { ...u, role: newRole };
+        }
+        return u;
+      });
       localStorage.setItem('mep_local_users', JSON.stringify(users));
+      localStorage.setItem('cachedAllUsers', JSON.stringify(users));
     } catch (e) {}
 
     // 2. Async backend sync
@@ -146,7 +160,15 @@ export const api = {
         const uId = String(u.id || '').toLowerCase();
         const uEmail = String(u.email || '').toLowerCase();
         if (uId === emailOrId || uEmail === emailOrId) {
-          return { ...u, ...updates };
+          return {
+            ...u,
+            ...updates,
+            features: {
+              ...(u.features || {}),
+              ...(updates.features || {}),
+              ...(updates.subscription_expires ? { subscription_expires: updates.subscription_expires } : {})
+            }
+          };
         }
         return u;
       });
@@ -233,6 +255,14 @@ export const api = {
       return data.success ? data.projects : [];
     } catch (e) {
       return [];
+    }
+  },
+  async getProject(id: string) {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/projects/get?id=${encodeURIComponent(id)}`);
+      return data.success ? data.project : null;
+    } catch (e) {
+      return null;
     }
   },
   async createProject(projectData: any, assigned_users: string[], assigned_teams: string[]) {
@@ -530,6 +560,34 @@ export const api = {
       return data;
     } catch (error: any) {
       return { success: false, message: error.response?.data?.message || 'Failed to delete announcement' };
+    }
+  },
+
+  // ================= PROJECT VERSIONS ENDPOINTS ================= //
+  async saveVersionToServer(projectName: string, calculatorName: string, payload: any) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/versions/save`, {
+        projectName,
+        calculatorName,
+        version: payload._versionMetadata?.version,
+        description: payload._versionMetadata?.description,
+        data: payload.data || payload
+      });
+      return data;
+    } catch (e: any) {
+      console.warn('Failed to save version to server:', e);
+      return { success: false };
+    }
+  },
+
+  async getVersionsFromServer(projectName: string, calculatorName: string) {
+    try {
+      const url = `${getBackendUrl()}/api/versions/list?project=${encodeURIComponent(projectName)}&calculator=${encodeURIComponent(calculatorName)}`;
+      const { data } = await axios.get(url);
+      return data.success ? data.versions : [];
+    } catch (e: any) {
+      console.warn('Failed to fetch versions from server:', e);
+      return [];
     }
   }
 };

@@ -48,6 +48,7 @@ export default defineConfig({
   },
   nitro: {
     preset: 'node-server',
+    clean: false,
     prerender: { routes: ['/'] },
     output: {
       dir: './dist-nitro-2',

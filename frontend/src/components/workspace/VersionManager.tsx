@@ -13,6 +13,7 @@ import { readTextFile, exists, mkdir, readDir } from '@tauri-apps/plugin-fs';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/services/api';
 
 export function VersionManager({ projectName, calculatorName = 'Unknown' }: { projectName: string, calculatorName?: string }) {
   const { userData } = useAuth();
@@ -22,17 +23,45 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
 
-  // Helper to gather all project data from local storage
+  const activeVersionKey = `mep_active_ver_${projectName.replace(/[<>:"/\\|?*]/g, '_')}_${calculatorName.replace(/[<>:"/\\|?*]/g, '_')}`;
+  
+  const [activeVersionName, setActiveVersionName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(activeVersionKey) || 'Versions';
+    }
+    return 'Versions';
+  });
+
+  const updateActiveVersion = (verName: string) => {
+    setActiveVersionName(verName);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(activeVersionKey, verName);
+    }
+  };
+
+  // Helper to gather all project and calculator data from local storage
   const gatherProjectData = () => {
     const data: Record<string, any> = {};
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.startsWith('mep-') || key.startsWith('feature_'))) {
-        try {
-          data[key] = JSON.parse(localStorage.getItem(key) || 'null');
-        } catch {
-          data[key] = localStorage.getItem(key);
-        }
+      if (!key) continue;
+      
+      // Exclude non-calculator session keys
+      if (
+        key === 'auth_token' || 
+        key === 'mep_calculator_user_data' || 
+        key === 'mep_device_client_id' || 
+        key === 'privacy_policy_accepted' ||
+        key.startsWith('mep_profile_photo') ||
+        key.startsWith('mep_local_users')
+      ) {
+        continue;
+      }
+
+      try {
+        data[key] = JSON.parse(localStorage.getItem(key) || 'null');
+      } catch {
+        data[key] = localStorage.getItem(key);
       }
     }
     return data;
@@ -56,19 +85,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       "/reset-password"
     ];
     if (NON_VERSION_PATHS.some(p => currentPath === p || currentPath.startsWith(p + '/'))) {
-      toast.error("Version creation is only allowed inside HVAC, Electrical, Plumbing, and Fire Fighting calculation sections.");
-      return;
-    }
-
-    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-    if (!isTauri) {
-      toast.error("Version saving requires the native desktop app.");
-      return;
-    }
-
-    const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
-    if (!basePath) {
-      toast.error("Please configure a Versions Path in the Admin Panel first.");
+      toast.error("Version creation is only allowed inside calculation sections.");
       return;
     }
 
@@ -79,82 +96,105 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
   const confirmSaveAsVersion = async () => {
     setIsModalOpen(false);
 
-    const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
-    if (!basePath) {
-      toast.error("Please configure a Versions Path in the Admin Panel first.");
-      return;
-    }
-
     try {
-      // Sanitize inputs
-      const safeBasePath = basePath.replace(/['"]/g, '');
-      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
-      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
-      
       const userName = (userData?.name || "SystemAdmin");
-      const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
-
-      // 1. Ensure directory exists
-      const dirExists = await exists(projectDir);
-      if (!dirExists) {
-        await mkdir(projectDir, { recursive: true });
-      }
-
-      // 2. Determine next version number based on existing files in that dir
-      let nextV = 0;
-      const entries = await readDir(projectDir);
+      const projectData = gatherProjectData();
       
-      const versionRegex = /^v(\d+)\.json$/i;
-      
-      for (const entry of entries) {
-        if (entry.isFile) {
-          const match = entry.name.match(versionRegex);
-          if (match && match[1]) {
-            const vNum = parseInt(match[1], 10);
-            if (vNum >= nextV) {
-              nextV = vNum + 1;
-            }
-          }
-        }
-      }
-
-      // 3. Finalize path and save
-      const finalFileName = `v${nextV}.json`;
-      const filePath = `${projectDir}\\${finalFileName}`;
+      const existingHistory = historyList || [];
+      const nextV = existingHistory.length;
+      const versionStr = `V${nextV}`;
       
       const payload = {
         _versionMetadata: {
-          version: `V${nextV}`,
+          version: versionStr,
           description: descriptionInput.trim() || 'No description',
           user: userName,
           timestamp: new Date().toISOString()
         },
-        data: gatherProjectData()
+        data: projectData
       };
-      
-      await invoke('save_backup', { 
-        path: filePath, 
-        content: JSON.stringify(payload, null, 2)
-      });
 
-      toast.success(`Successfully saved as ${finalFileName}`);
+      updateActiveVersion(versionStr);
+
+      // 1. Sync to server database so ALL project members see the saved version
+      try {
+        await api.saveVersionToServer(projectName, calculatorName, payload);
+      } catch (e) {
+        console.warn("Cloud version sync warning:", e);
+      }
+
+      // 2. Also save to local disk if running in desktop app and path configured
+      const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
+      if (isTauri && basePath) {
+        try {
+          const safeBasePath = basePath.replace(/['"]/g, '');
+          const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+          const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+          const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
+
+          const dirExists = await exists(projectDir);
+          if (!dirExists) {
+            await mkdir(projectDir, { recursive: true });
+          }
+
+          let localNextV = nextV;
+          const entries = await readDir(projectDir);
+          const versionRegex = /^v(\d+)\.json$/i;
+          for (const entry of entries) {
+            if (entry.isFile) {
+              const match = entry.name.match(versionRegex);
+              if (match && match[1]) {
+                const vNum = parseInt(match[1], 10);
+                if (vNum >= localNextV) localNextV = vNum + 1;
+              }
+            }
+          }
+
+          const finalFileName = `v${localNextV}.json`;
+          const filePath = `${projectDir}\\${finalFileName}`;
+          await invoke('save_backup', { 
+            path: filePath, 
+            content: JSON.stringify(payload, null, 2)
+          });
+        } catch (e) {
+          console.warn("Local backup warning:", e);
+        }
+      }
+
+      toast.success(`Successfully saved as version ${versionStr}`);
     } catch (err: any) {
       console.error(err);
       toast.error(`Error: ${err.message || err}`);
     }
   };
 
-  const loadVersionData = (data: any) => {
+  const loadVersionData = (data: any, versionName?: string) => {
+    if (!data || typeof data !== 'object') {
+      toast.error("Invalid version data.");
+      return;
+    }
+
+    if (versionName) {
+      updateActiveVersion(versionName);
+    }
+
     Object.keys(data).forEach(key => {
-      if (typeof data[key] === 'string') {
-        localStorage.setItem(key, data[key]);
+      const val = data[key];
+      if (val === null || val === undefined) {
+        localStorage.removeItem(key);
+      } else if (typeof val === 'string') {
+        localStorage.setItem(key, val);
       } else {
-        localStorage.setItem(key, JSON.stringify(data[key]));
+        localStorage.setItem(key, JSON.stringify(val));
       }
     });
 
-    toast.success("Version loaded successfully!");
-    setTimeout(() => window.location.reload(), 1500);
+    toast.success(`Version ${versionName || ''} restored successfully!`);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mep_version_restored', { detail: data }));
+    }
+    setTimeout(() => window.location.reload(), 300);
   };
 
   const handleLoadVersion = async () => {
@@ -175,9 +215,9 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const fileContent = await readTextFile(selectedPath);
       let parsed = JSON.parse(fileContent);
       
-      // Support for new format with _versionMetadata or old flat format
       const dataToLoad = parsed._versionMetadata ? parsed.data : parsed;
-      loadVersionData(dataToLoad);
+      const vName = parsed._versionMetadata?.version || 'Restored';
+      loadVersionData(dataToLoad, vName);
     } catch (err) {
       console.error(err);
       toast.error("Failed to load version.");
@@ -185,59 +225,70 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
   };
 
   const handleOpenHistory = async () => {
-    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-    if (!isTauri) {
-      toast.error("Version history requires the native desktop app.");
-      return;
-    }
-
-    const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
-    if (!basePath) {
-      toast.error("Please configure a Versions Path in the Admin Panel first.");
-      return;
-    }
-
     try {
-      const safeBasePath = basePath.replace(/['"]/g, '');
-      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
-      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
-      const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
+      const historyMap = new Map<string, any>();
 
-      const dirExists = await exists(projectDir);
-      if (!dirExists) {
-        setHistoryList([]);
-        setIsHistoryOpen(true);
-        return;
-      }
-
-      const entries = await readDir(projectDir);
-      const versionRegex = /^v(\d+)\.json$/i;
-      const historyItems = [];
-
-      for (const entry of entries) {
-        if (entry.isFile && versionRegex.test(entry.name)) {
-          try {
-            const filePath = `${projectDir}\\${entry.name}`;
-            const fileContent = await readTextFile(filePath);
-            const parsed = JSON.parse(fileContent);
-            if (parsed._versionMetadata) {
-              historyItems.push({
-                ...parsed._versionMetadata,
-                filePath,
-                fileName: entry.name,
-                parsedData: parsed.data
-              });
-            }
-          } catch (e) {
-            console.error(`Failed to parse version file ${entry.name}`, e);
-          }
+      // 1. Fetch shared team versions from server (visible to all project members)
+      try {
+        const serverVersions = await api.getVersionsFromServer(projectName, calculatorName);
+        if (Array.isArray(serverVersions)) {
+          serverVersions.forEach((item: any) => {
+            const vKey = item.version || item.id;
+            historyMap.set(vKey, {
+              version: item.version,
+              description: item.description,
+              user: item.user,
+              timestamp: item.timestamp,
+              parsedData: item.parsedData
+            });
+          });
         }
+      } catch (e) {
+        console.warn('Server version list warning:', e);
       }
 
-      // Sort by timestamp descending
-      historyItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
-      setHistoryList(historyItems);
+      // 2. Fetch local versions from disk if running in desktop app
+      const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
+      if (isTauri && basePath) {
+        try {
+          const safeBasePath = basePath.replace(/['"]/g, '');
+          const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+          const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+          const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
+
+          const dirExists = await exists(projectDir);
+          if (dirExists) {
+            const entries = await readDir(projectDir);
+            const versionRegex = /^v(\d+)\.json$/i;
+            for (const entry of entries) {
+              if (entry.isFile && versionRegex.test(entry.name)) {
+                try {
+                  const filePath = `${projectDir}\\${entry.name}`;
+                  const fileContent = await readTextFile(filePath);
+                  const parsed = JSON.parse(fileContent);
+                  if (parsed._versionMetadata) {
+                    const vKey = parsed._versionMetadata.version || entry.name;
+                    if (!historyMap.has(vKey)) {
+                      historyMap.set(vKey, {
+                        ...parsed._versionMetadata,
+                        filePath,
+                        fileName: entry.name,
+                        parsedData: parsed.data
+                      });
+                    }
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      const combinedList = Array.from(historyMap.values());
+      combinedList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      setHistoryList(combinedList);
       setIsHistoryOpen(true);
     } catch (err: any) {
       console.error(err);
@@ -252,7 +303,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
         <DropdownMenuTrigger asChild>
           <button className="flex items-center gap-2 px-4 h-10 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150 allow-read-only">
             <History className="w-4 h-4 text-muted-foreground" />
-            <span className="font-semibold text-foreground dark:text-white">Versions</span>
+            <span className="font-semibold text-foreground dark:text-white">{activeVersionName}</span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56 z-50">
@@ -329,31 +380,42 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {historyList.map((item, idx) => (
-                    <div key={idx} className="bg-background border border-border rounded-xl p-4 flex gap-4 items-center hover:border-primary/30 transition-colors">
-                      <div className="w-14 h-14 shrink-0 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg">
-                        {item.version}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-start mb-1">
-                          <h4 className="font-semibold text-foreground truncate">{item.description}</h4>
-                          <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
-                            {new Date(item.timestamp).toLocaleString()}
-                          </span>
+                  {historyList.map((item, idx) => {
+                    const isActive = activeVersionName === item.version;
+                    return (
+                      <div key={idx} className={`bg-background border rounded-xl p-4 flex gap-4 items-center transition-colors ${isActive ? 'border-emerald-500/50 bg-emerald-500/5 dark:bg-emerald-500/10' : 'border-border hover:border-primary/30'}`}>
+                        <div className={`w-14 h-14 shrink-0 rounded-xl flex items-center justify-center font-bold text-lg ${isActive ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-primary/10 text-primary'}`}>
+                          {item.version}
                         </div>
-                        <p className="text-sm text-muted-foreground">Created by <span className="font-medium text-foreground">{item.user}</span></p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start mb-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold text-foreground truncate">{item.description}</h4>
+                              {isActive && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30">Active</span>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
+                              {new Date(item.timestamp).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">Created by <span className="font-medium text-foreground">{item.user}</span></p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!isActive) {
+                              setIsHistoryOpen(false);
+                              loadVersionData(item.parsedData, item.version);
+                            }
+                          }}
+                          disabled={isActive}
+                          className={`px-4 py-2 shrink-0 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 cursor-default font-bold' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
+                        >
+                          {isActive ? 'Active Version' : 'Restore'}
+                        </button>
                       </div>
-                      <button
-                        onClick={() => {
-                          setIsHistoryOpen(false);
-                          loadVersionData(item.parsedData);
-                        }}
-                        className="px-4 py-2 shrink-0 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg text-sm font-medium transition-colors"
-                      >
-                        Restore
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

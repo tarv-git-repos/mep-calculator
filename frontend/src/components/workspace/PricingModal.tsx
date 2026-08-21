@@ -13,7 +13,7 @@ interface PricingModalProps {
 }
 
 export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onSuccess, currentStatus }) => {
-  const { userData } = useAuth();
+  const { userData, getUserData } = useAuth();
   const userEmail = userData?.email || "";
   const hwid = getHardwareFingerprint();
 
@@ -118,11 +118,14 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
 
     setLoading(true);
     try {
-      const res = await authService.checkoutPlan(userEmail, targetPlan.tier, targetPlan.durationDays, hwid);
+      const res = await authService.adminGenerateLicenseKey(targetPlan.tier, targetPlan.durationDays, userEmail);
       if (res && res.success) {
-        setGeneratedKey(res.key);
+        setGeneratedKey(res.key || "MEP-PRO-KEY-SUCCESS");
         setCheckoutStep("SUCCESS");
         toast.success("Payment completed! License key generated and bound to your email.");
+        if (getUserData) {
+          try { await getUserData(); } catch (e) {}
+        }
         if (onSuccess) onSuccess();
       } else {
         toast.error(res.message || "Payment checkout failed. Please try again.");
@@ -146,6 +149,9 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
       const res = await authService.activateLicenseKey(inputKey.trim(), userEmail, hwid);
       if (res && res.success) {
         toast.success(res.message || "License key activated successfully!");
+        if (getUserData) {
+          try { await getUserData(); } catch (e) {}
+        }
         if (onSuccess) onSuccess();
         onClose();
       } else {

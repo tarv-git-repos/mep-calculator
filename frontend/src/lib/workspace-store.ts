@@ -131,6 +131,22 @@ if (typeof window !== "undefined") {
   } catch (e) {
     console.error("Failed to load clipboard:", e);
   }
+
+  window.addEventListener("mep_version_restored", (e: any) => {
+    const data = e.detail;
+    if (data) {
+      if (data.spaces || data.zones || data.equipment) {
+        currentWorkspaceState = {
+          spaces: data.spaces || currentWorkspaceState.spaces,
+          zones: data.zones || currentWorkspaceState.zones,
+          equipment: data.equipment || currentWorkspaceState.equipment,
+          roundOffPreset: data.roundOffPreset ?? currentWorkspaceState.roundOffPreset,
+          isReadOnly: currentWorkspaceState.isReadOnly,
+        };
+      }
+      notify();
+    }
+  });
 }
 
 function notify() {
@@ -228,6 +244,11 @@ export const workspaceStore = {
         ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id") || activeProjectId)
         : activeProjectId;
       let target = projects.find(p => p.id === lastActive || p.id === activeProjectId) || projects[0];
+      const fullProj = await api.getProject(target.id);
+      if (fullProj && fullProj.workspace_data) {
+        target = { ...target, ...fullProj };
+        projects = projects.map(p => p.id === target.id ? target : p);
+      }
       activeProjectId = target.id;
       currentProject = target;
       if (typeof localStorage !== "undefined") {
@@ -251,7 +272,11 @@ export const workspaceStore = {
     try {
       const cloudProjects = await api.getProjects();
       if (cloudProjects) {
-        projects = cloudProjects;
+        // Merge metadata while preserving loaded workspace_data for active projects
+        projects = cloudProjects.map(cp => {
+          const existing = projects.find(p => p.id === cp.id);
+          return existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp;
+        });
         if (activeProjectId) {
           const updatedActive = projects.find(p => p.id === activeProjectId);
           if (updatedActive) {
@@ -279,7 +304,24 @@ export const workspaceStore = {
     try {
       supabase
         .channel('public:projects')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload: any) => {
+          // Targeted Realtime metadata update without re-downloading heavy project list
+          if (payload && payload.eventType === 'UPDATE' && payload.new && payload.new.id) {
+            const updatedId = payload.new.id;
+            const existing = projects.find(p => p.id === updatedId);
+            if (existing) {
+              const updated = { ...existing, ...payload.new };
+              if (existing.workspace_data) {
+                updated.workspace_data = existing.workspace_data;
+              }
+              projects = projects.map(p => p.id === updatedId ? updated : p);
+              if (activeProjectId === updatedId && currentProject) {
+                currentProject = { ...currentProject, ...updated };
+              }
+              notify();
+              return;
+            }
+          }
           workspaceStore.refreshProjects();
         })
         .subscribe();
@@ -299,6 +341,11 @@ export const workspaceStore = {
          if (lastActive) {
            const found = projects.find(p => p.id === lastActive || p.code === lastActive);
            if (found) target = found;
+         }
+         const fullActive = await api.getProject(target.id);
+         if (fullActive && fullActive.workspace_data) {
+           target = { ...target, ...fullActive };
+           projects = projects.map(p => p.id === target.id ? target : p);
          }
          activeProjectId = target.id;
          currentProject = target;
@@ -372,17 +419,26 @@ export const workspaceStore = {
     notify();
   },
 
-  selectProject(id: string) {
-    const target = projects.find((p) => p.id === id);
+  async selectProject(id: string) {
+    let target = projects.find((p) => p.id === id);
     if (!target) return;
 
     saveState();
     clearHistory();
 
+    if (!target.workspace_data) {
+      const fullProj = await api.getProject(id);
+      if (fullProj && fullProj.workspace_data) {
+        target = { ...target, ...fullProj };
+        projects = projects.map(p => p.id === id ? target! : p);
+      }
+    }
+
     currentProject = target;
     activeProjectId = id;
     if (typeof localStorage !== "undefined") {
       localStorage.setItem("mep_active_project_id", id);
+      localStorage.setItem("mep_last_worked_project_id", id);
     }
 
     const wdata = target.workspace_data || {};

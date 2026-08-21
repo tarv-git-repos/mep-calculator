@@ -384,7 +384,7 @@ export function SuperAdminDashboard() {
   useEffect(() => {
     if (activeTab === 'activity') {
       fetchActivityLogs();
-      const interval = setInterval(fetchActivityLogs, 3000);
+      const interval = setInterval(fetchActivityLogs, 30000);
       return () => clearInterval(interval);
     }
     if (activeTab === 'broadcasts') fetchAnnouncements()
@@ -504,13 +504,23 @@ export function SuperAdminDashboard() {
   }
 
   const saveExpiry = async (profileId: string) => {
-    if (!newExpiryDate) return;
+    let dateStr: string | null = null;
+    if (newExpiryDate) {
+      const exp = new Date(newExpiryDate);
+      exp.setHours(23, 59, 59, 999);
+      dateStr = exp.toISOString();
+    }
     
-    const dateStr = new Date(newExpiryDate).toISOString();
+    // Optimistic UI update
+    setProfiles(prevProfiles => prevProfiles.map(p => 
+      p.id === profileId ? { ...p, subscription_expires: dateStr || '' } : p
+    ));
+
     const res = await api.adminUpdateProfile(profileId, { subscription_expires: dateStr });
       
     if (!res.success) {
       toast.error("Failed to update expiry: " + res.message)
+      fetchProfiles()
     } else {
       toast.success("Expiry date updated successfully!")
       setEditingExpiryFor(null)
@@ -1085,7 +1095,8 @@ export function SuperAdminDashboard() {
                                   <button 
                                     onClick={() => {
                                       setEditingExpiryFor(p.id);
-                                      setNewExpiryDate(p.subscription_expires ? new Date(p.subscription_expires).toISOString().split('T')[0] : '');
+                                      const d = p.subscription_expires ? new Date(p.subscription_expires) : null;
+                                      setNewExpiryDate(d && !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : '');
                                     }}
                                     className="text-blue-600 text-[10px] uppercase font-bold tracking-wider hover:underline opacity-60 hover:opacity-100"
                                   >

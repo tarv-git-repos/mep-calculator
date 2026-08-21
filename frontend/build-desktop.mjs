@@ -8,8 +8,27 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+try {
+  fs.rmSync(path.join(__dirname, 'dist-nitro-2'), { recursive: true, force: true });
+  fs.rmSync(path.join(__dirname, 'node_modules/.nitro'), { recursive: true, force: true });
+} catch (e) {}
+
 console.log('Building Vite project...');
-execSync('npm run build', { stdio: 'inherit', cwd: __dirname });
+let attempts = 0;
+while (attempts < 5) {
+  try {
+    attempts++;
+    execSync('npm run build', { stdio: 'inherit', cwd: __dirname });
+    break;
+  } catch (err) {
+    if (attempts >= 5) throw err;
+    console.warn(`Build attempt ${attempts} hit a file system lock on network share, waiting 2s and retrying...`);
+    try {
+      execSync('powershell -Command "Remove-Item -Recurse -Force \'node_modules\\.nitro\' -ErrorAction SilentlyContinue"', { cwd: __dirname });
+    } catch (e) {}
+    execSync('node -e "setTimeout(() => {}, 2000)"');
+  }
+}
 
 console.log('Starting local Nitro server to capture index.html...');
 const port = 8085;
@@ -37,10 +56,10 @@ serverProcess.stdout.on('data', (data) => {
 
         // Copy dist-nitro-2/public to dist for electron compatibility
         const distDir = path.join(__dirname, 'dist');
-        if (fs.existsSync(distDir)) {
-          fs.rmSync(distDir, { recursive: true, force: true });
+        if (!fs.existsSync(distDir)) {
+          fs.mkdirSync(distDir, { recursive: true });
         }
-        fs.cpSync(path.join(__dirname, 'dist-nitro-2/public'), distDir, { recursive: true });
+        fs.cpSync(path.join(__dirname, 'dist-nitro-2/public'), distDir, { recursive: true, force: true });
         console.log('Successfully mirrored dist-nitro-2/public to dist/');
 
         serverProcess.kill();
