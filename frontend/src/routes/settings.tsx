@@ -23,6 +23,7 @@ import {
   Briefcase, 
   Camera, 
   Calendar, 
+  FileText, 
   Clock, 
   FolderOpen,
   X,
