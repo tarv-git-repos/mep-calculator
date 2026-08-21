@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -46,6 +46,7 @@ export const Route = createFileRoute("/settings")({
 });
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const { userData, profile, logout, logoutAllDevices, deleteAccount, updateProfileDetails, setUserData } = useAuth();
   const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || userData?.role === 'SUPER_ADMIN' || userData?.role === 'ORG_ADMIN';
   const fileInputRef = useRef<HTMLInputElement | null>(null);
