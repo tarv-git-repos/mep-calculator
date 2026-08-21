@@ -2615,42 +2615,47 @@ const server = http.createServer(async (req, res) => {
     };
     transporter.sendMail(inviteMailOptions).catch(console.error);
 
-    logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
+      logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
     return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: await formatUser(newUser) });
   }
 
   // --- ORGANIZATION BACKUP SETTINGS ROUTES ---
-  if (req.method === 'GET' && req.url.startsWith('/api/org/backup-settings')) {
+  if (req.method === 'GET' && url.startsWith('/api/org/backup-settings')) {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
 
-    let orgId = user.organization_id;
+    let orgId = user.organization_id || 'GLOBAL';
     if (user.role === 'SUPER_ADMIN') {
       const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
-      if (qOrgId) orgId = qOrgId;
-    }
-
-    if (!orgId) {
-      return sendJSON(res, 200, { success: true, local_backup_path: '', server_backup_path: '', versions_path: '' });
+      if (qOrgId && qOrgId !== 'undefined' && qOrgId !== 'null' && qOrgId !== 'ALL' && qOrgId !== 'UNASSIGNED') {
+        orgId = qOrgId;
+      }
     }
 
     let localPath = '';
     let serverPath = '';
     let versionsPath = '';
-    try {
-      const { data } = await supabase.from('organizations').select('local_backup_path, server_backup_path, versions_path').eq('id', orgId).single();
-      if (data) {
-        localPath = data.local_backup_path || '';
-        serverPath = data.server_backup_path || '';
-        versionsPath = data.versions_path || '';
-      }
-    } catch (e) {}
+    if (orgId !== 'GLOBAL') {
+      try {
+        const { data } = await supabase.from('organizations').select('local_backup_path, server_backup_path, versions_path').eq('id', orgId).single();
+        if (data) {
+          localPath = data.local_backup_path || '';
+          serverPath = data.server_backup_path || '';
+          versionsPath = data.versions_path || '';
+        }
+      } catch (e) {}
+    }
 
     const fileSettings = readOrgSettings();
-    if (fileSettings[orgId]) {
-      if (!localPath) localPath = fileSettings[orgId].local_backup_path || '';
-      if (!serverPath) serverPath = fileSettings[orgId].server_backup_path || '';
-      if (!versionsPath) versionsPath = fileSettings[orgId].versions_path || '';
+    const targetKey = orgId || 'GLOBAL';
+    if (fileSettings[targetKey]) {
+      if (!localPath) localPath = fileSettings[targetKey].local_backup_path || '';
+      if (!serverPath) serverPath = fileSettings[targetKey].server_backup_path || '';
+      if (!versionsPath) versionsPath = fileSettings[targetKey].versions_path || '';
+    } else if (fileSettings['GLOBAL']) {
+      if (!localPath) localPath = fileSettings['GLOBAL'].local_backup_path || '';
+      if (!serverPath) serverPath = fileSettings['GLOBAL'].server_backup_path || '';
+      if (!versionsPath) versionsPath = fileSettings['GLOBAL'].versions_path || '';
     }
 
     return sendJSON(res, 200, {
@@ -2669,16 +2674,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     const { local_backup_path, server_backup_path, versions_path, org_id } = await getRequestBody(req);
-    const targetOrgId = org_id || user.organization_id;
-    if (!targetOrgId) return sendJSON(res, 400, { success: false, message: 'Target organization required' });
+    let targetOrgId = org_id || user.organization_id || 'GLOBAL';
+    if (targetOrgId === 'ALL' || targetOrgId === 'UNASSIGNED' || targetOrgId === 'undefined') {
+      targetOrgId = 'GLOBAL';
+    }
 
-    try {
-      await supabase.from('organizations').update({
-        local_backup_path: local_backup_path || '',
-        server_backup_path: server_backup_path || '',
-        versions_path: versions_path || ''
-      }).eq('id', targetOrgId);
-    } catch (e) {}
+    if (targetOrgId !== 'GLOBAL') {
+      try {
+        await supabase.from('organizations').update({
+          local_backup_path: local_backup_path || '',
+          server_backup_path: server_backup_path || '',
+          versions_path: versions_path || ''
+        }).eq('id', targetOrgId);
+      } catch (e) {}
+    }
 
     const fileSettings = readOrgSettings();
     fileSettings[targetOrgId] = {
@@ -2695,9 +2704,12 @@ const server = http.createServer(async (req, res) => {
 
     return sendJSON(res, 200, {
       success: true,
-      message: 'Organization backup settings saved successfully to backend!',
+      message: targetOrgId === 'GLOBAL' 
+        ? 'Global default backup settings saved successfully to backend!' 
+        : 'Organization backup settings saved successfully to backend!',
       local_backup_path,
-      server_backup_path
+      server_backup_path,
+      versions_path
     });
   }
 

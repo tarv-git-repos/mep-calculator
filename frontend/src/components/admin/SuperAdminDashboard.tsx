@@ -2114,7 +2114,7 @@ export function SuperAdminDashboard() {
                         localStorage.setItem('serverBackupPath', serverBackupPath);
                         localStorage.setItem('versionsPath', versionsPath);
                         toast.info("Saving backup settings to backend server...");
-                        const targetId = selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED' ? selectedOrgFilter : undefined;
+                        const targetId = (selectedOrgFilter && selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED') ? selectedOrgFilter : 'GLOBAL';
                         const res = await api.saveOrgBackupSettings(localBackupPath, serverBackupPath, targetId, versionsPath);
                         if (res && res.success) {
                           toast.success("Organization backup settings saved to backend successfully!");
