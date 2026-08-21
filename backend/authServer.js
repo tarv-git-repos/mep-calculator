@@ -2360,17 +2360,19 @@ const server = http.createServer(async (req, res) => {
     const updatedEncodedStatus = encodeOrgStatus(currentStatusStr, localOrgs[orgIndex].max_concurrent_users, localOrgs[orgIndex].license_key);
 
     try {
-      const updateData = { id: orgId, status: updatedEncodedStatus };
-      if (name !== undefined) updateData.name = name;
-      if (subscription_plan !== undefined) updateData.subscription_plan = subscription_plan;
-      if (max_users !== undefined) updateData.max_users = parseInt(max_users);
-      if (localOrgs[orgIndex].max_concurrent_users !== undefined) {
-        updateData.max_concurrent_users = localOrgs[orgIndex].max_concurrent_users;
-      }
+      const targetId = existingSupabaseOrg?.id || orgId;
+      const dbPayload = { status: updatedEncodedStatus };
+      if (name !== undefined) dbPayload.name = name;
+      if (subscription_plan !== undefined) dbPayload.subscription_plan = subscription_plan;
+      if (max_users !== undefined) dbPayload.max_users = parseInt(max_users);
       
-      await supabase.from('organizations').upsert(updateData, { onConflict: 'id' });
+      const { error: sbErr } = await supabase.from('organizations').update(dbPayload).eq('id', targetId);
+      if (sbErr) {
+        console.warn('Supabase org update warning:', sbErr);
+        await supabase.from('organizations').upsert({ id: targetId, ...dbPayload }, { onConflict: 'id' });
+      }
     } catch (e) {
-      console.warn('Supabase org update warning:', e);
+      console.warn('Supabase org update exception:', e);
     }
 
     logActivity(user, 'UPDATE_ORGANIZATION', { orgId, name });
