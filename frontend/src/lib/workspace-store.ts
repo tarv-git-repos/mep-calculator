@@ -89,7 +89,11 @@ export interface Project {
 function saveCachedProjects(projList: Project[]) {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem("mep_cached_projects", JSON.stringify(projList));
+    const lightProjects = projList.map(p => {
+      const { workspace_data, ...light } = p as any;
+      return light;
+    });
+    localStorage.setItem("mep_cached_projects", JSON.stringify(lightProjects));
   } catch (e) {
     console.warn("Failed to cache projects:", e);
   }
