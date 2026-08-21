@@ -1103,6 +1103,91 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, message: 'Team deleted' });
   }
 
+  // E2. CREATE PROJECT
+  if (req.method === 'POST' && url === '/api/projects/create') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const { projectData, assigned_users = [], assigned_teams = [] } = await getRequestBody(req);
+    
+    if (!projectData || !projectData.name || !projectData.code) {
+      return sendJSON(res, 400, { success: false, message: 'Name and Code required' });
+    }
+    
+    const projectId = `proj_${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    const dbProject = {
+      id: projectId,
+      name: projectData.name,
+      code: projectData.code,
+      client: projectData.client || '',
+      location: projectData.location || '',
+      description: projectData.description || '',
+      notes: projectData.notes || '',
+      organization_id: user.organization_id || null,
+      created_by: user.id,
+      created_at: nowIso,
+      last_modified: nowIso,
+      workspace_data: projectData.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
+    };
+
+    let { error } = await supabase.from('projects').insert(dbProject);
+    if (error && error.message && error.message.includes('organization_id')) {
+      delete dbProject.organization_id;
+      const retry = await supabase.from('projects').insert(dbProject);
+      error = retry.error;
+    }
+    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+
+    const allDbUsers = await readUsers();
+    const resolveUserId = (input) => {
+      if (!input) return null;
+      const str = String(input).trim();
+      const match = allDbUsers.find(u => 
+        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) || 
+        (u.email && String(u.email).toLowerCase() === str.toLowerCase())
+      );
+      return match ? match.id : str;
+    };
+
+    const rawUserIds = [...assigned_users, user.id].map(resolveUserId).filter(Boolean);
+    const cleanUserIds = Array.from(new Set(rawUserIds));
+    const cleanTeamIds = Array.from(new Set(assigned_teams.filter(Boolean).map(x => String(x).trim())));
+
+    if (cleanUserIds.length > 0) {
+      const puPayload = cleanUserIds.map(uid => ({ project_id: projectId, user_id: uid }));
+      const { error: puErr } = await supabase.from('project_users').upsert(puPayload, { onConflict: 'project_id,user_id', ignoreDuplicates: true });
+      if (puErr) {
+        for (const uid of cleanUserIds) {
+          try { await supabase.from('project_users').upsert({ project_id: projectId, user_id: uid }); } catch (e) {}
+        }
+      }
+    }
+
+    if (cleanTeamIds.length > 0) {
+      const ptPayload = cleanTeamIds.map(tid => ({ project_id: projectId, team_id: tid }));
+      const { error: ptErr } = await supabase.from('project_teams').upsert(ptPayload, { onConflict: 'project_id,team_id', ignoreDuplicates: true });
+      if (ptErr) {
+        for (const tid of cleanTeamIds) {
+          try { await supabase.from('project_teams').upsert({ project_id: projectId, team_id: tid }); } catch (e) {}
+        }
+      }
+    }
+
+    const projectUsers = cleanUserIds.map(uid => ({ project_id: projectId, user_id: uid }));
+    const projectTeams = cleanTeamIds.map(tid => ({ project_id: projectId, team_id: tid }));
+
+    return sendJSON(res, 200, { 
+      success: true, 
+      project: { 
+        ...dbProject, 
+        project_users: projectUsers,
+        project_teams: projectTeams,
+        createdDate: nowIso, 
+        lastModified: nowIso 
+      } 
+    });
+  }
+
   // F. LIST PROJECTS
   if (req.method === 'GET' && url === '/api/projects/list') {
     const user = await getUserFromReq(req);
