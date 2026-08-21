@@ -1,6 +1,6 @@
 [package]
 name = "mep_calculator"
-version = "2.0.11"
+version = "2.0.14"
 description = "A Tauri App"
 authors = ["you"]
 license = ""

@@ -1,11 +1,11 @@
 {
-  "version": "2.0.13",
-  "notes": "Update to version 2.0.13 - Auto-update & workspace fixes.",
-  "pub_date": "2026-08-20T17:47:00Z",
+  "version": "2.0.14",
+  "notes": "Update to version 2.0.14 - Full legal security, code inspection guard, and multi-tenant updates.",
+  "pub_date": "2026-08-21T10:49:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocHdjcUY4Yk5XQ2UxOWQ4WmF6WnVqbExJaEV1QS9tRzF3d1YxVC9CWGNDanZPU0NaMWR2WmlsdTUraTl5eTU5dkZVRVd2VDI4Zk9JeG9RMm5OWVJhWmdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjI4MjY3CWZpbGU6TUVQIENhbGN1bGF0b3JfMi4wLjEzX3g2NC1zZXR1cC5leGUKSFlTN09kNTcwTDVPWWk1SnZQaTgyN1JvdkFFT3lVRWY0YkVpd1UwLzRZR1pJSFBlVkU0REFiZWdBNStRY0UyMVV1MkZKQURXenJQVXdKVVVVMnVZRGc9PQo=",
-      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/windows-x86_64/MEP_Calculator_2.0.13_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocDIzbkFUeHFhS3MxYlo4c1FxcGQ5eGdNYzJWc3VPSG9oMlhEQTI0clFJalN1UTlleVhLckUrWlF4THBudklmMU1uY09BMTlZMkt4VTA1d3JhbVcrb2cwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3Mjg5NTU1CWZpbGU6TUVQIENhbGN1bGF0b3JfMi4wLjE0X3g2NC1zZXR1cC5leGUKN3pPZEQ5Nm1TL0F4cFNkRS96V0FjZUs0Vi9OeTk5Mk1aejBkM2ZQRVRHbGo3cWFFYUdydWFwTW93U3ZVUjJVNkEwVUZ4VzFwcEtsS2cxODZHSkFnQWc9PQo=",
+      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/windows-x86_64/MEP_Calculator_2.0.14_x64-setup.exe"
     }
   }
 }

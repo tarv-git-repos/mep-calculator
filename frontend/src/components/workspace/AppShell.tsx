@@ -1513,6 +1513,37 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
   }, [isReadOnly, isLockedByOther, isViewerRole]);
 
+  // Security Guard: Prevent Inspect Element & DevTools Shortcuts in Production Desktop App
+  useEffect(() => {
+    const isTauriDesktop = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+    if (isTauriDesktop) {
+      const preventInspect = (e: MouseEvent) => {
+        e.preventDefault();
+        return false;
+      };
+
+      const preventDevToolsShortcuts = (e: KeyboardEvent) => {
+        if (
+          e.key === 'F12' ||
+          (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) ||
+          (e.ctrlKey && (e.key === 'U' || e.key === 'u')) ||
+          (e.metaKey && e.altKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c'))
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      };
+
+      document.addEventListener('contextmenu', preventInspect);
+      document.addEventListener('keydown', preventDevToolsShortcuts, true);
+      return () => {
+        document.removeEventListener('contextmenu', preventInspect);
+        document.removeEventListener('keydown', preventDevToolsShortcuts, true);
+      };
+    }
+  }, []);
+
   const handleKeepValuesAsIs = () => {
     if (!pendingUnitToggle) return;
     (window as any).__mep_keep_values = true;
