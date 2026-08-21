@@ -105,6 +105,10 @@ export let isInitializing = true;
 
 const listeners = new Set<() => void>();
 
+function notify() {
+  listeners.forEach((l) => l());
+}
+
 let undoStack: string[] = [];
 let redoStack: string[] = [];
 const MAX_HISTORY_LIMIT = 50;
