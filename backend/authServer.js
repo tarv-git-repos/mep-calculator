@@ -232,6 +232,25 @@ async function readUsers(forceRefresh = false) {
           }
         };
       });
+      users = users.filter(u => u.email !== 'parassadafuule05@gmail.com');
+      
+      // Auto-clean expired unverified ghost accounts
+      const nowTs = Date.now();
+      const staleUnverified = users.filter(u => 
+        u.isAccountVerified === false && 
+        ((u.verifyOtpExpireAt && u.verifyOtpExpireAt < nowTs) || 
+         (u.createdAt && (nowTs - new Date(u.createdAt).getTime() > 24 * 60 * 60 * 1000)))
+      );
+
+      if (staleUnverified.length > 0) {
+        users = users.filter(u => !staleUnverified.some(stale => stale.id === u.id));
+        for (const stale of staleUnverified) {
+          try {
+            await supabase.from('custom_users').delete().eq('id', stale.id).eq('isAccountVerified', false);
+          } catch (e) {}
+        }
+      }
+
       saveLocalUsers(users);
     } else {
       users = localUsers;
@@ -1669,6 +1688,26 @@ const server = http.createServer(async (req, res) => {
 
     logActivity(adminUser, 'ADMIN_DELETE_USER', { targetUser: profileId });
     return sendJSON(res, 200, { success: true, message: 'User deleted successfully' });
+  }
+
+  if (req.method === 'POST' && url === '/api/admin/clean-unverified') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+    const users = await readUsers(true);
+    const staleUnverified = users.filter(u => u.isAccountVerified === false);
+    let count = 0;
+    for (const stale of staleUnverified) {
+      try {
+        await supabase.from('custom_users').delete().eq('id', stale.id).eq('isAccountVerified', false);
+        count++;
+      } catch (e) {}
+    }
+    const remainingUsers = users.filter(u => u.isAccountVerified !== false);
+    saveLocalUsers(remainingUsers);
+    invalidateUserCache();
+    return sendJSON(res, 200, { success: true, message: `Cleaned ${count} unverified ghost account(s)`, count });
   }
 
   if (req.method === 'POST' && url === '/api/admin/update-profile') {
