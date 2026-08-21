@@ -14,6 +14,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
+import { workspaceStore } from '@/lib/workspace-store';
 
 export function VersionManager({ projectName, calculatorName = 'Unknown' }: { projectName: string, calculatorName?: string }) {
   const { userData } = useAuth();
@@ -43,32 +44,43 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
     }
   };
 
-  // Helper to gather all project and calculator data from local storage
+  // Gather complete project state (workspace store memory + all calculator localStorage items)
   const gatherProjectData = () => {
-    const data: Record<string, any> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-      
-      // Exclude non-calculator session keys
-      if (
-        key === 'auth_token' || 
-        key === 'mep_calculator_user_data' || 
-        key === 'mep_device_client_id' || 
-        key === 'privacy_policy_accepted' ||
-        key.startsWith('mep_profile_photo') ||
-        key.startsWith('mep_local_users')
-      ) {
-        continue;
-      }
+    const wsState = workspaceStore.getState();
+    const lsState: Record<string, any> = {};
+    
+    if (typeof localStorage !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        
+        // Exclude session & auth keys
+        if (
+          key === 'auth_token' || 
+          key === 'mep_calculator_user_data' || 
+          key === 'mep_device_client_id' || 
+          key === 'privacy_policy_accepted' ||
+          key.startsWith('mep_profile_photo') ||
+          key.startsWith('mep_local_users')
+        ) {
+          continue;
+        }
 
-      try {
-        data[key] = JSON.parse(localStorage.getItem(key) || 'null');
-      } catch {
-        data[key] = localStorage.getItem(key);
+        try {
+          lsState[key] = JSON.parse(localStorage.getItem(key) || 'null');
+        } catch {
+          lsState[key] = localStorage.getItem(key);
+        }
       }
     }
-    return data;
+
+    return {
+      spaces: wsState.spaces || [],
+      zones: wsState.zones || [],
+      equipment: wsState.equipment || [],
+      roundOffPreset: wsState.roundOffPreset ?? 5,
+      localStorageCache: lsState
+    };
   };
 
   const saveActiveVersionState = async (verName: string) => {
@@ -152,8 +164,16 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const userName = (userData?.name || "SystemAdmin");
       const projectData = gatherProjectData();
       
-      const existingHistory = historyList || [];
-      const nextV = existingHistory.length;
+      // Fetch current server versions count to generate accurate incremental version string (V0, V1, V2...)
+      let serverVersions: any[] = [];
+      try {
+        serverVersions = await api.getVersionsFromServer(projectName, calculatorName);
+      } catch (e) {}
+
+      const nextV = Array.isArray(serverVersions) && serverVersions.length > 0
+        ? serverVersions.length 
+        : (historyList.length || 0);
+
       const versionStr = `V${nextV}`;
       
       const payload = {
@@ -190,20 +210,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
             await mkdir(projectDir, { recursive: true });
           }
 
-          let localNextV = nextV;
-          const entries = await readDir(projectDir);
-          const versionRegex = /^v(\d+)\.json$/i;
-          for (const entry of entries) {
-            if (entry.isFile) {
-              const match = entry.name.match(versionRegex);
-              if (match && match[1]) {
-                const vNum = parseInt(match[1], 10);
-                if (vNum >= localNextV) localNextV = vNum + 1;
-              }
-            }
-          }
-
-          const finalFileName = `v${localNextV}.json`;
+          const finalFileName = `${versionStr.toLowerCase()}.json`;
           const filePath = `${projectDir}\\${finalFileName}`;
           await invoke('save_backup', { 
             path: filePath, 
@@ -231,16 +238,34 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       updateActiveVersion(versionName);
     }
 
-    Object.keys(data).forEach(key => {
-      const val = data[key];
-      if (val === null || val === undefined) {
-        localStorage.removeItem(key);
-      } else if (typeof val === 'string') {
-        localStorage.setItem(key, val);
-      } else {
-        localStorage.setItem(key, JSON.stringify(val));
-      }
-    });
+    // 1. Restore localStorage keys
+    const lsCache = data.localStorageCache || data;
+    if (typeof localStorage !== 'undefined' && lsCache && typeof lsCache === 'object') {
+      Object.keys(lsCache).forEach(key => {
+        if (key === 'spaces' || key === 'zones' || key === 'equipment' || key === 'localStorageCache' || key === '_versionMetadata') {
+          return;
+        }
+        const val = lsCache[key];
+        if (val === null || val === undefined) {
+          localStorage.removeItem(key);
+        } else if (typeof val === 'string') {
+          localStorage.setItem(key, val);
+        } else {
+          localStorage.setItem(key, JSON.stringify(val));
+        }
+      });
+    }
+
+    // 2. Restore workspaceStore state (spaces, zones, equipment)
+    if (Array.isArray(data.spaces) || Array.isArray(data.zones) || Array.isArray(data.equipment)) {
+      workspaceStore.setState({
+        spaces: data.spaces || [],
+        zones: data.zones || [],
+        equipment: data.equipment || [],
+        isReadOnly: false
+      });
+      workspaceStore.forceSaveToCloud(true);
+    }
 
     toast.success(`Version ${versionName || ''} restored successfully!`);
     if (typeof window !== 'undefined') {
@@ -430,13 +455,13 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
               <div className="flex justify-end gap-3 mt-6">
                 <button 
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-lg text-sm font-medium hover:bg-surface-2 text-muted-foreground transition-colors"
+                  className="px-4 py-2 rounded-lg text-sm font-medium hover:bg-surface-2 text-muted-foreground transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button 
                   onClick={confirmSaveAsVersion}
-                  className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
                 >
                   Save
                 </button>
@@ -455,7 +480,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                 <h3 className="text-lg font-bold text-foreground">Version History</h3>
                 <p className="text-xs text-muted-foreground">{projectName} - {calculatorName}</p>
               </div>
-              <button onClick={() => setIsHistoryOpen(false)} className="text-muted-foreground hover:text-foreground text-xl leading-none">&times;</button>
+              <button onClick={() => setIsHistoryOpen(false)} className="text-muted-foreground hover:text-foreground text-xl leading-none cursor-pointer">&times;</button>
             </div>
             
             <div className="flex-1 overflow-auto p-6 bg-surface-1">
@@ -494,7 +519,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                             }
                           }}
                           disabled={isActive}
-                          className={`px-4 py-2 shrink-0 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 cursor-default font-bold' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
+                          className={`px-4 py-2 shrink-0 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 cursor-default font-bold' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80 cursor-pointer'}`}
                         >
                           {isActive ? 'Active Version' : 'Restore'}
                         </button>
