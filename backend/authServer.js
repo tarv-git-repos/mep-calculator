@@ -1230,11 +1230,6 @@ const server = http.createServer(async (req, res) => {
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     const { project_id, user_id } = await getRequestBody(req);
 
-    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
-    if (!proj || (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
-      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
-    }
-
     const { error } = await supabase.from('project_users').delete().match({ project_id, user_id });
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
     return sendJSON(res, 200, { success: true, message: 'User removed from project' });
@@ -1245,11 +1240,6 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     const { project_id, user_id } = await getRequestBody(req);
-
-    const { data: proj } = await supabase.from('projects').select('created_by').eq('id', project_id).single();
-    if (!proj || (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) {
-      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
-    }
 
     const allDbUsers = await readUsers();
     const resolvedUid = (() => {
