@@ -160,23 +160,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           handleUnauthResponse(res);
         }
       }
-
-      // Sync latest profile updates (e.g. organization_id assigned by admin)
-      try {
-        const currentEmail = authState.userData?.email || userData?.email;
-        if (currentEmail) {
-          const allUsers = await api.getUsers();
-          const match = allUsers.find((u: any) => u.email?.toLowerCase() === currentEmail.toLowerCase());
-          if (match) {
-            setUserDataState(prev => prev ? { ...prev, ...match } : match);
-          }
-        }
-      } catch (e) {}
     } catch (e) {
       console.warn('Auth check error:', e);
     } finally {
       setLoading(false);
     }
+
+    // Sync latest profile updates asynchronously in the background
+    try {
+      const currentEmail = userData?.email;
+      if (currentEmail) {
+        const allUsers = await api.getUsers();
+        if (Array.isArray(allUsers)) {
+          const match = allUsers.find((u: any) => u.email?.toLowerCase() === currentEmail.toLowerCase());
+          if (match) {
+            setUserDataState(prev => prev ? { ...prev, ...match } : match);
+          }
+        }
+      }
+    } catch (e) {}
   };
 
   const logout = async () => {
