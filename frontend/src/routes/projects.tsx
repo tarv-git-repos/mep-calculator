@@ -551,29 +551,13 @@ function ProjectsPage() {
     }
     const myId = String(profile.id || '').toLowerCase();
     const myEmail = String(profile.email || '').toLowerCase();
-    const myOrgId = profile.organization_id;
-
-    if (profile.role === 'ORG_ADMIN') {
-      if (!myOrgId) return projects;
-      const orgUserIds = (allUsers || [])
-        .filter((u: any) => String(u.organization_id || '') === String(myOrgId))
-        .map((u: any) => String(u.id || '').toLowerCase());
-
-      return projects.filter((p: any) => {
-        if (p.organization_id && String(p.organization_id) === String(myOrgId)) return true;
-        const creatorId = String(p.created_by || '').toLowerCase();
-        if (orgUserIds.includes(creatorId)) return true;
-        const pUsers = p.project_users || [];
-        return pUsers.some((pu: any) => orgUserIds.includes(String(pu.user_id || pu.id || '').toLowerCase()));
-      });
-    }
 
     return projects.filter((p: any) => {
       // 1. User created the project
       const creatorId = String(p.created_by || '').toLowerCase();
       if (creatorId && (creatorId === myId || (myEmail && creatorId === myEmail))) return true;
 
-      // 2. User was added / assigned to the project
+      // 2. User was added / assigned directly to the project
       const pUsers = p.project_users || [];
       const isUserAssigned = pUsers.some((pu: any) => {
         const uId = String(pu.user_id || pu.id || '').toLowerCase();
@@ -598,7 +582,7 @@ function ProjectsPage() {
 
       return false;
     });
-  }, [projects, profile, allTeams, allUsers]);
+  }, [projects, profile, allTeams]);
 
   const filteredProjects = useMemo(() => {
     let result = userAssignedProjects;

@@ -1218,40 +1218,43 @@ const server = http.createServer(async (req, res) => {
         data = retry.data || (await supabase.from('projects').select('*')).data;
       }
       
-    // Role & Membership Filtering:
+    // Direct User & Team Membership Filtering:
     if (user.role !== 'SUPER_ADMIN') {
       const myUid = String(user.id || '').toLowerCase();
       const myEmail = String(user.email || '').toLowerCase();
-      const userOrgId = user.organization_id;
 
-      if (user.role === 'ORG_ADMIN' && userOrgId) {
-        const allDbUsers = await readUsers();
-        const orgUserIds = allDbUsers
-          .filter(u => u.organization_id === userOrgId || String(u.id).toLowerCase() === myUid)
-          .map(u => String(u.id || '').toLowerCase());
-        
-        projects = projects.filter(p => {
-          const creator = String(p.created_by || '').toLowerCase();
-          if (orgUserIds.includes(creator)) return true;
-          if (p.organization_id && String(p.organization_id) === String(userOrgId)) return true;
-          const pUsers = p.project_users || [];
-          return pUsers.some(pu => orgUserIds.includes(String(pu.user_id || pu.id || '').toLowerCase()));
+      // Fetch teams current user belongs to
+      let myTeamIds = [];
+      try {
+        const { data: userTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
+        if (Array.isArray(userTeams)) {
+          myTeamIds = userTeams.map(t => String(t.team_id).toLowerCase());
+        }
+      } catch (e) {}
+
+      projects = projects.filter(p => {
+        // 1. Created by this user
+        const creator = String(p.created_by || '').toLowerCase();
+        if (creator === myUid || (myEmail && creator === myEmail)) return true;
+
+        // 2. User assigned directly to this project
+        const pUsers = p.project_users || [];
+        const isUserAssigned = pUsers.some(pu => {
+          const uId = String(pu.user_id || pu.id || '').toLowerCase();
+          return uId === myUid || (myEmail && uId === myEmail);
         });
-      } else {
-        projects = projects.filter(p => {
-          const creator = String(p.created_by || '').toLowerCase();
-          if (creator === myUid || (myEmail && creator === myEmail)) return true;
+        if (isUserAssigned) return true;
 
-          const pUsers = p.project_users || [];
-          const isAssigned = pUsers.some(pu => {
-            const uId = String(pu.user_id || pu.id || '').toLowerCase();
-            return uId === myUid || (myEmail && uId === myEmail);
-          });
-          if (isAssigned) return true;
-
-          return false;
+        // 3. User's team assigned to this project
+        const pTeams = p.project_teams || [];
+        const isTeamAssigned = pTeams.some(pt => {
+          const tId = String(pt.team_id || pt.id || '').toLowerCase();
+          return myTeamIds.includes(tId);
         });
-      }
+        if (isTeamAssigned) return true;
+
+        return false;
+      });
     }
 
     return sendJSON(res, 200, { success: true, projects });
