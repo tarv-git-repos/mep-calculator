@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
-import { Users, Plus, Shield, ShieldAlert, Mail, Trash2 } from "lucide-react";
+import { Users, Plus, Shield, ShieldAlert, Mail, Trash2, Check, User, Search } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/services/api";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/teams")({
   head: () => ({
@@ -41,8 +42,10 @@ function TeamsPage() {
   }, [teams, profile?.role, profile?.organization_id]);
   
   const [newTeamName, setNewTeamName] = useState("");
-  const [selectedUser, setSelectedUser] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("");
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [userSearch, setUserSearch] = useState("");
+  const [isAssigning, setIsAssigning] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   // Exclude users who are ALREADY members of the selected team
@@ -55,8 +58,12 @@ function TeamsPage() {
         baseList = baseList.filter(u => !existingMemberIds.has(u.id));
       }
     }
+    if (userSearch.trim()) {
+      const q = userSearch.toLowerCase().trim();
+      baseList = baseList.filter(u => u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.role?.toLowerCase().includes(q));
+    }
     return baseList;
-  }, [assignableUsers, selectedTeam, teams]);
+  }, [assignableUsers, selectedTeam, teams, userSearch]);
 
   const loadData = async () => {
     if (profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') {
@@ -100,22 +107,35 @@ function TeamsPage() {
     const res = await api.createTeam(newTeamName);
     if (res.success) {
        setNewTeamName("");
+       toast.success("Team created successfully!");
        loadData();
     } else {
-       alert(res.message);
+       toast.error(res.message || "Failed to create team");
     }
   };
 
-  const handleAddUser = async (e: React.FormEvent) => {
+  const handleAddUsers = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTeam || !selectedUser) return;
-    const res = await api.addUserToTeam(selectedTeam, selectedUser);
-    if (res.success) {
-       setSelectedTeam("");
-       setSelectedUser("");
+    if (!selectedTeam) {
+      toast.error("Please select a target team first.");
+      return;
+    }
+    if (selectedUserIds.length === 0) {
+      toast.error("Please select at least one member to add.");
+      return;
+    }
+    setIsAssigning(true);
+    try {
+       for (const uid of selectedUserIds) {
+         await api.addUserToTeam(selectedTeam, uid);
+       }
+       toast.success(`${selectedUserIds.length} member(s) assigned to team!`);
+       setSelectedUserIds([]);
        loadData();
-    } else {
-       alert(res.message);
+    } catch (e: any) {
+       toast.error(e.message || "Failed to assign members");
+    } finally {
+       setIsAssigning(false);
     }
   };
 
@@ -123,9 +143,10 @@ function TeamsPage() {
     if (!confirm("Are you sure you want to remove this user from the team?")) return;
     const res = await api.removeUserFromTeam(teamId, userId);
     if (res.success) {
+       toast.success("Member removed from team.");
        loadData();
     } else {
-       alert(res.message);
+       toast.error(res.message || "Failed to remove user");
     }
   };
 
@@ -133,9 +154,10 @@ function TeamsPage() {
     if (!confirm("Are you sure you want to completely delete this team? This action cannot be undone.")) return;
     const res = await api.deleteTeam(teamId);
     if (res.success) {
+       toast.success("Team deleted successfully.");
        loadData();
     } else {
-       alert(res.message);
+       toast.error(res.message || "Failed to delete team");
     }
   };
 
@@ -159,41 +181,119 @@ function TeamsPage() {
                         onChange={(e) => setNewTeamName(e.target.value)}
                         className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-primary"
                      />
-                     <button type="submit" className="w-full bg-primary text-primary-foreground font-bold text-xs py-2.5 rounded-xl hover:bg-primary/95 transition-all">
+                     <button type="submit" className="w-full bg-primary text-primary-foreground font-bold text-xs py-2.5 rounded-xl hover:bg-primary/95 transition-all cursor-pointer">
                         Create Team
                      </button>
                   </form>
                </div>
 
+               {/* Multi-Select Assign Members Box */}
                <div className="bg-card border border-border p-5 rounded-2xl shadow-sm">
                   <h3 className="font-bold text-foreground flex items-center gap-2 mb-4">
-                     <Plus className="size-4 text-emerald-500" /> Assign User to Team
+                     <Plus className="size-4 text-emerald-500" /> Assign Members to Team
                   </h3>
-                  <form onSubmit={handleAddUser} className="flex flex-col gap-3">
-                     <select 
-                        value={selectedTeam} 
-                        onChange={(e) => setSelectedTeam(e.target.value)}
-                        className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-primary"
-                     >
-                        <option value="">Select Team...</option>
-                        {assignableTeams.map(t => (
-                           <option key={t.id} value={t.id}>{t.name}</option>
-                        ))}
-                     </select>
+                  <form onSubmit={handleAddUsers} className="flex flex-col gap-3">
+                     <div>
+                       <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider block mb-1.5">1. Target Team</label>
+                       <select 
+                          value={selectedTeam} 
+                          onChange={(e) => {
+                            setSelectedTeam(e.target.value);
+                            setSelectedUserIds([]);
+                          }}
+                          className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-primary"
+                       >
+                          <option value="">Select Team...</option>
+                          {assignableTeams.map(t => (
+                             <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                       </select>
+                     </div>
                      
-                     <select 
-                        value={selectedUser} 
-                        onChange={(e) => setSelectedUser(e.target.value)}
-                        className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-primary"
-                     >
-                        <option value="">Select User...</option>
-                        {availableUsersToAssign.map(u => (
-                           <option key={u.id} value={u.id}>{u.name}</option>
-                        ))}
-                     </select>
+                     {selectedTeam && (
+                       <div className="flex flex-col gap-2">
+                         <div className="flex items-center justify-between">
+                           <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">2. Select Members</label>
+                           <div className="flex items-center gap-2">
+                             <button
+                               type="button"
+                               onClick={() => setSelectedUserIds(availableUsersToAssign.map(u => u.id))}
+                               className="text-[10px] text-primary hover:underline font-bold cursor-pointer"
+                             >
+                               + Select All
+                             </button>
+                             <span className="text-slate-600 text-[10px]">•</span>
+                             <button
+                               type="button"
+                               onClick={() => setSelectedUserIds([])}
+                               className="text-[10px] text-muted-foreground hover:underline font-medium cursor-pointer"
+                             >
+                               Clear
+                             </button>
+                           </div>
+                         </div>
 
-                     <button type="submit" className="w-full bg-emerald-500 text-white font-bold text-xs py-2.5 rounded-xl hover:bg-emerald-600 transition-all">
-                        Assign User
+                         {/* Filter search */}
+                         <div className="relative">
+                           <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground/60 pointer-events-none" />
+                           <input
+                             type="text"
+                             placeholder="Search engineers..."
+                             value={userSearch}
+                             onChange={(e) => setUserSearch(e.target.value)}
+                             className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-xl pl-8 pr-3 py-1.5 text-[11px] outline-none focus:border-primary"
+                           />
+                         </div>
+
+                         {/* Multi-Select Scrollable Checklist */}
+                         <div className="max-h-44 overflow-y-auto rounded-xl border border-border/70 bg-background/50 p-1.5 space-y-1 custom-scrollbar">
+                           {availableUsersToAssign.length === 0 ? (
+                             <p className="text-[11px] text-muted-foreground p-3 text-center italic">No available members to assign.</p>
+                           ) : (
+                             availableUsersToAssign.map(u => {
+                               const isAssigned = selectedUserIds.includes(u.id);
+                               return (
+                                 <div
+                                   key={u.id}
+                                   onClick={() => {
+                                     setSelectedUserIds(prev =>
+                                       isAssigned ? prev.filter(id => id !== u.id) : [...prev, u.id]
+                                     );
+                                   }}
+                                   className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11.5px] cursor-pointer transition-all ${
+                                     isAssigned 
+                                       ? 'bg-emerald-500/10 border border-emerald-500/30 text-foreground font-semibold' 
+                                       : 'hover:bg-surface-2 text-muted-foreground'
+                                   }`}
+                                 >
+                                   <div className="flex items-center gap-2">
+                                     <div className={`size-4 rounded border flex items-center justify-center transition-all ${
+                                       isAssigned ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-border/80 bg-background'
+                                     }`}>
+                                       {isAssigned && <Check className="size-3 stroke-[3]" />}
+                                     </div>
+                                     <User className="size-3 text-muted-foreground" />
+                                     <span>{u.name}</span>
+                                     <span className="text-[9.5px] opacity-60">({u.email || u.role})</span>
+                                   </div>
+                                 </div>
+                               );
+                             })
+                           )}
+                         </div>
+
+                         <p className="text-[10px] text-muted-foreground">
+                           {selectedUserIds.length} member(s) selected
+                         </p>
+                       </div>
+                     )}
+
+                     <button 
+                       type="submit" 
+                       disabled={!selectedTeam || selectedUserIds.length === 0 || isAssigning}
+                       className="w-full bg-emerald-500 text-white font-bold text-xs py-2.5 rounded-xl hover:bg-emerald-600 transition-all disabled:opacity-50 cursor-pointer"
+                     >
+                        {isAssigning ? "Assigning Members..." : `Assign ${selectedUserIds.length > 0 ? selectedUserIds.length : ''} Member(s) to Team`}
                      </button>
                   </form>
                </div>
