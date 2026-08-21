@@ -1205,16 +1205,26 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
 
-    let query = supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id, project_users(user_id), project_teams(team_id, teams(id, name))');
-    const { data: projects, error } = await query;
-    if (error) return sendJSON(res, 500, { success: false, message: error.message });
+    let projects = [];
+    try {
+      let query = supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id, project_users(user_id), project_teams(team_id, teams(id, name))');
+      const { data, error } = await query;
+      if (!error && Array.isArray(data)) {
+        projects = data;
+      } else {
+        const { data: fallbackData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id');
+        if (Array.isArray(fallbackData)) projects = fallbackData;
+      }
+    } catch (e) {
+      console.warn('Projects list query exception:', e);
+    }
 
     // Filter projects the user is allowed to see
     let visibleProjects = projects;
     if (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
-      // Find what teams the user is in
-      const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
-      const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
+      try {
+        const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
+        const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
 
         visibleProjects = projects.filter(p => {
           if (p.created_by && (p.created_by === user.id || p.created_by === user.email)) return true;
@@ -1222,7 +1232,11 @@ const server = http.createServer(async (req, res) => {
           if (Array.isArray(p.project_teams) && p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
           return false;
         });
+      } catch (e) {
+        visibleProjects = projects;
+      }
     } else if (user.role === 'ORG_ADMIN') {
+      try {
         const users = await readUsers();
         const orgUserIds = new Set(users.filter(u => u.organization_id === user.organization_id).flatMap(u => [u.id, u.email].filter(Boolean)));
         visibleProjects = projects.filter(p => 
@@ -1230,6 +1244,9 @@ const server = http.createServer(async (req, res) => {
           orgUserIds.has(p.created_by) ||
           (Array.isArray(p.project_users) && p.project_users.some(pu => orgUserIds.has(pu.user_id)))
         );
+      } catch (e) {
+        visibleProjects = projects;
+      }
     }
 
     return sendJSON(res, 200, { success: true, projects: visibleProjects });

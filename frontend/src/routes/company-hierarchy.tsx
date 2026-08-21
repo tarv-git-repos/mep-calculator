@@ -167,7 +167,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
   }
 ];
 
-export function CompanyHierarchyPage() {
+function CompanyHierarchyPage() {
   const { profile, userData } = useAuth();
   const currentRole = userData?.role || profile?.role || "SUPER_ADMIN";
   
