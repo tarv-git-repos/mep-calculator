@@ -298,7 +298,13 @@ export const workspaceStore = {
   },
   async refreshProjects() {
     try {
-      let cloudProjects = await api.getProjects();
+      let cloudProjects = await api.getProjects().catch(() => []);
+      if (!Array.isArray(cloudProjects) || cloudProjects.length === 0) {
+        const { data: supaData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id');
+        if (Array.isArray(supaData) && supaData.length > 0) {
+          cloudProjects = supaData;
+        }
+      }
       if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
         projects = cloudProjects.map(cp => {
           const existing = projects.find(p => p.id === cp.id);
@@ -355,7 +361,13 @@ export const workspaceStore = {
         })
         .subscribe();
 
-      const cloudProjects = await api.getProjects().catch(() => []);
+      let cloudProjects = await api.getProjects().catch(() => []);
+      if (!Array.isArray(cloudProjects) || cloudProjects.length === 0) {
+        const { data: supaData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, status, organization_id');
+        if (Array.isArray(supaData) && supaData.length > 0) {
+          cloudProjects = supaData;
+        }
+      }
 
       if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
         projects = cloudProjects;
