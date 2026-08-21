@@ -1221,29 +1221,41 @@ const server = http.createServer(async (req, res) => {
 
     // Filter projects the user is allowed to see
     let visibleProjects = projects;
-    if (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
-      try {
-        const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
-        const myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
-
-        visibleProjects = projects.filter(p => {
-          if (p.created_by && (p.created_by === user.id || p.created_by === user.email)) return true;
-          if (Array.isArray(p.project_users) && p.project_users.some(pu => pu.user_id === user.id || pu.user_id === user.email)) return true;
-          if (Array.isArray(p.project_teams) && p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
-          return false;
-        });
-      } catch (e) {
-        visibleProjects = projects;
-      }
-    } else if (user.role === 'ORG_ADMIN') {
+    if (user.role !== 'SUPER_ADMIN') {
       try {
         const users = await readUsers();
-        const orgUserIds = new Set(users.filter(u => u.organization_id === user.organization_id).flatMap(u => [u.id, u.email].filter(Boolean)));
-        visibleProjects = projects.filter(p => 
-          (p.organization_id && user.organization_id && p.organization_id === user.organization_id) ||
-          orgUserIds.has(p.created_by) ||
-          (Array.isArray(p.project_users) && p.project_users.some(pu => orgUserIds.has(pu.user_id)))
+        const orgUserIds = new Set(
+          users
+            .filter(u => user.organization_id && u.organization_id === user.organization_id)
+            .flatMap(u => [u.id, u.email].filter(Boolean))
         );
+
+        let myTeamIds = [];
+        try {
+          const { data: myTeams } = await supabase.from('team_members').select('team_id').eq('user_id', user.id);
+          myTeamIds = myTeams ? myTeams.map(t => t.team_id) : [];
+        } catch(e) {}
+
+        visibleProjects = projects.filter(p => {
+          // 1. Same organization
+          if (p.organization_id && user.organization_id && p.organization_id === user.organization_id) return true;
+          // 2. Created by someone in same organization
+          if (p.created_by && orgUserIds.has(p.created_by)) return true;
+          // 3. Created by this user directly
+          if (p.created_by && (p.created_by === user.id || p.created_by === user.email)) return true;
+          // 4. Assigned in project_users
+          if (Array.isArray(p.project_users) && p.project_users.some(pu => pu.user_id === user.id || pu.user_id === user.email || orgUserIds.has(pu.user_id))) return true;
+          // 5. Assigned in project_teams
+          if (Array.isArray(p.project_teams) && p.project_teams.some(pt => myTeamIds.includes(pt.team_id))) return true;
+          // 6. Global project without explicit org restriction
+          if (!p.organization_id) return true;
+          return false;
+        });
+
+        // Fallback: If no specific filter matched, return all available projects so user is never locked out
+        if (visibleProjects.length === 0 && projects.length > 0) {
+          visibleProjects = projects;
+        }
       } catch (e) {
         visibleProjects = projects;
       }

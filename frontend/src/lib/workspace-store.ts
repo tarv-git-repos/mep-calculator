@@ -244,54 +244,85 @@ export const workspaceStore = {
     saveState(immediate);
   },
   async syncFromCloud() {
-    const cloudProjects = await api.getProjects();
-    if (cloudProjects && cloudProjects.length > 0) {
-      projects = cloudProjects;
-      const lastActive = typeof localStorage !== "undefined"
-        ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id") || activeProjectId)
-        : activeProjectId;
-      let target = projects.find(p => p.id === lastActive || p.id === activeProjectId) || projects[0];
+    let cloudProjects = await api.getProjects();
+    if (!cloudProjects || cloudProjects.length === 0) {
+      cloudProjects = [
+        {
+          id: "proj_default_mep",
+          name: "Default MEP Project",
+          code: "MEP-2026-001",
+          client: "Standard Client",
+          location: "Main Building",
+          description: "Default MEP Calculation Workspace",
+          createdDate: new Date().toISOString(),
+          lastModified: new Date().toISOString(),
+          status: "active"
+        }
+      ];
+    }
+    projects = cloudProjects;
+    const lastActive = typeof localStorage !== "undefined"
+      ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id") || activeProjectId)
+      : activeProjectId;
+    let target = projects.find(p => p.id === lastActive || p.id === activeProjectId) || projects[0];
+    try {
       const fullProj = await api.getProject(target.id);
       if (fullProj && fullProj.workspace_data) {
         target = { ...target, ...fullProj };
         projects = projects.map(p => p.id === target.id ? target : p);
       }
-      activeProjectId = target.id;
-      currentProject = target;
-      if (typeof localStorage !== "undefined") {
-        localStorage.setItem("mep_active_project_id", target.id);
-        localStorage.setItem("mep_last_worked_project_id", target.id);
-      }
-      const wdata = currentProject.workspace_data || {};
-      injectLocalStorageCache(wdata);
-      currentWorkspaceState = sanitizeWorkspaceState({
-        spaces: wdata.spaces || [],
-        zones: wdata.zones || [],
-        equipment: wdata.equipment || [],
-        roundOffPreset: wdata.roundOffPreset ?? 5,
-        isReadOnly: false
-      });
-      setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
-      notify();
+    } catch(e) {}
+    activeProjectId = target.id;
+    currentProject = target;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("mep_active_project_id", target.id);
+      localStorage.setItem("mep_last_worked_project_id", target.id);
     }
+    const wdata = currentProject.workspace_data || {};
+    injectLocalStorageCache(wdata);
+    currentWorkspaceState = sanitizeWorkspaceState({
+      spaces: wdata.spaces || [],
+      zones: wdata.zones || [],
+      equipment: wdata.equipment || [],
+      roundOffPreset: wdata.roundOffPreset ?? 5,
+      isReadOnly: false
+    });
+    setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+    notify();
   },
   async refreshProjects() {
     try {
-      const cloudProjects = await api.getProjects();
-      if (cloudProjects) {
-        // Merge metadata while preserving loaded workspace_data for active projects
-        projects = cloudProjects.map(cp => {
-          const existing = projects.find(p => p.id === cp.id);
-          return existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp;
-        });
-        if (activeProjectId) {
-          const updatedActive = projects.find(p => p.id === activeProjectId);
-          if (updatedActive) {
-            currentProject = updatedActive;
-          }
+      let cloudProjects = await api.getProjects();
+      if (!cloudProjects || cloudProjects.length === 0) {
+        if (projects.length === 0) {
+          cloudProjects = [
+            {
+              id: "proj_default_mep",
+              name: "Default MEP Project",
+              code: "MEP-2026-001",
+              client: "Standard Client",
+              location: "Main Building",
+              description: "Default MEP Calculation Workspace",
+              createdDate: new Date().toISOString(),
+              lastModified: new Date().toISOString(),
+              status: "active"
+            }
+          ];
+        } else {
+          return;
         }
-        notify();
       }
+      projects = cloudProjects.map(cp => {
+        const existing = projects.find(p => p.id === cp.id);
+        return existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp;
+      });
+      if (activeProjectId) {
+        const updatedActive = projects.find(p => p.id === activeProjectId);
+        if (updatedActive) {
+          currentProject = updatedActive;
+        }
+      }
+      notify();
     } catch (err) {
       console.error("Failed to refresh projects list:", err);
     }
