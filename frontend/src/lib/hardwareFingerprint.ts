@@ -23,32 +23,35 @@ export function getHardwareFingerprint(): string {
   }
 
   try {
+    const cached = localStorage.getItem("mep_stable_hwid_v2");
+    if (cached && cached.startsWith("HWID-")) {
+      return cached;
+    }
+
     const nav = window.navigator as any;
-    const screen = window.screen;
 
     // Static, deterministic hardware parameters unique to physical machine & browser environment
-    const userAgent = nav.userAgent || "";
     const platform = nav.platform || "";
     const hardwareConcurrency = nav.hardwareConcurrency || 4;
     const deviceMemory = nav.deviceMemory || 8;
-    const screenRes = `${screen.width}x${screen.height}x${screen.colorDepth}`;
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
     const language = nav.language || "";
 
     const rawString = [
-      "MEP-PHYSICAL-HWID-V2", // Bump version since we changed the hash logic
+      "MEP-PHYSICAL-HWID-V2",
       platform,
       hardwareConcurrency,
       deviceMemory,
       timezone,
       language
-      // Removed screenRes and userAgent because they fluctuate on the same device
     ].join("||");
 
     const hash1 = cyrb53(rawString, 42);
     const hash2 = cyrb53(rawString, 1337);
+    const generated = `HWID-${hash1}-${hash2}`;
 
-    return `HWID-${hash1}-${hash2}`;
+    localStorage.setItem("mep_stable_hwid_v2", generated);
+    return generated;
   } catch (err) {
     return "HWID-FALLBACK-DEVICE-0001";
   }

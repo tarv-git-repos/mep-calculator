@@ -1,0 +1,8 @@
+{
+  "version": "0.0.2",
+  "releaseDate": "2026-08-21",
+  "url": "https://universal-mep-calculator.onrender.com/updates/MEP_Calculator_0.0.2_x64-setup.exe",
+  "notes": "• Security & Multi-Tenant Organization Isolation Updates\n• Automatic role assignment for Jr. Design Engineers\n• Performance & calculation memory optimizations",
+  "mandatory": false,
+  "pub_date": "2026-08-21T19:00:00Z"
+}

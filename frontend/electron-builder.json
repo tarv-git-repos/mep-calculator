@@ -1,6 +1,7 @@
 {
   "appId": "com.mep.calculator",
   "productName": "MEP Calculator",
+  "artifactName": "MEP Calculator_${version}_x64-setup.${ext}",
   "directories": {
     "output": "dist-electron"
   },
@@ -9,8 +10,24 @@
     "electron/**/*",
     "package.json"
   ],
+  "asar": true,
+  "nodeGypRebuild": false,
   "win": {
-    "target": "nsis",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
     "icon": "src-tauri/icons/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "MEP Calculator"
   }
 }

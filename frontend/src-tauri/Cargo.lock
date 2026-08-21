@@ -1823,7 +1823,7 @@ dependencies = [
 
 [[package]]
 name = "mep_calculator"
-version = "2.0.15"
+version = "0.0.1"
 dependencies = [
  "log",
  "serde",

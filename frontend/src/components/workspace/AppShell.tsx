@@ -24,6 +24,7 @@ import { getHardwareFingerprint, getOrCreateDeviceId } from "@/lib/hardwareFinge
 import { authService } from "@/services/authService";
 import { api } from "@/services/api";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
+import { AutoUpdateModal } from "./AutoUpdateModal";
 
 import {
   DropdownMenu,
@@ -2462,6 +2463,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         userName={userData?.name || profile?.name || 'Engineer'}
         pioneerNumber={userData?.pioneer_number || 1}
       />
+
+      <AutoUpdateModal />
 
       {isSeatBlocked && (
         <div className="fixed inset-0 z-[999999] bg-slate-950/95 backdrop-blur-2xl flex items-center justify-center p-6 text-white text-center">

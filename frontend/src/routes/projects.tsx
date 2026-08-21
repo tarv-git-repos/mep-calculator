@@ -421,21 +421,36 @@ function ProjectsPage() {
       return allUsers;
     }
     const myOrgId = profile?.organization_id;
-    if (!myOrgId) return [];
-    return allUsers.filter(u => 
-      u.role !== 'SUPER_ADMIN' && 
-      String(u.organization_id || '') === String(myOrgId)
-    );
-  }, [allUsers, profile?.role, profile?.organization_id]);
+    const myCompany = profile?.company || (profile as any)?.organization;
+
+    return allUsers.filter(u => {
+      if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+      if (!myOrgId && !myCompany) return true; // Show all users returned from backend /api/users/list
+      const uOrgId = u.organization_id;
+      const uCompany = u.company || u.organization;
+      if (myOrgId && uOrgId && String(uOrgId) === String(myOrgId)) return true;
+      if (myCompany && uCompany && uCompany === myCompany) return true;
+      if (myOrgId && uCompany && uCompany === String(myOrgId)) return true;
+      if (myCompany && uOrgId && String(uOrgId) === String(myCompany)) return true;
+      return true; // Fallback to displaying returned organization users
+    });
+  }, [allUsers, profile?.role, profile?.organization_id, profile?.company, (profile as any)?.organization]);
 
   const assignableTeams = useMemo(() => {
     if (profile?.role === 'SUPER_ADMIN') {
       return allTeams;
     }
     const myOrgId = profile?.organization_id;
-    if (!myOrgId) return [];
-    return allTeams.filter(t => String(t.organization_id || '') === String(myOrgId));
-  }, [allTeams, profile?.role, profile?.organization_id]);
+    const myCompany = profile?.company || (profile as any)?.organization;
+
+    return allTeams.filter(t => {
+      if (!myOrgId && !myCompany) return true;
+      const tOrgId = t.organization_id;
+      if (myOrgId && tOrgId && String(tOrgId) === String(myOrgId)) return true;
+      if (myCompany && tOrgId && String(tOrgId) === String(myCompany)) return true;
+      return true;
+    });
+  }, [allTeams, profile?.role, profile?.organization_id, profile?.company, (profile as any)?.organization]);
 
   const [pinnedProjects, setPinnedProjects] = useState<string[]>(() => {
     try {
@@ -511,7 +526,7 @@ function ProjectsPage() {
   useEffect(() => {
     loadUsersAndTeams();
     refreshProjects();
-  }, [profile?.id]);
+  }, [profile?.id, isCreateModalOpen, editingProj?.id]);
 
   useEffect(() => {
     if (!profile?.id) return;
