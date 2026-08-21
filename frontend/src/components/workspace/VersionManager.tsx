@@ -302,15 +302,12 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       workspaceStore.forceSaveToCloud(true);
     }
 
-    toast.success(`Version ${versionName || ''} restored successfully!`);
+    dirtyStore.set(false);
     if (typeof window !== 'undefined') {
+      window.onbeforeunload = null;
       window.dispatchEvent(new CustomEvent('mep_version_restored', { detail: data }));
-      setTimeout(() => {
-        dirtyStore.set(false);
-        window.onbeforeunload = null;
-        window.location.reload();
-      }, 100);
     }
+    toast.success(`Version ${versionName || ''} restored successfully!`);
   };
 
   const handleInitiateRestore = (item: any) => {
