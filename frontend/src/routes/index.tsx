@@ -336,7 +336,8 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   const [localVal, setLocalVal] = useState(getCleanVal(value));
 
   useEffect(() => {
-    setLocalVal(getCleanVal(value));
+    const clean = getCleanVal(value);
+    setLocalVal(prev => (prev === clean ? prev : clean));
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -369,8 +370,9 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
           onCommit(localVal);
         }
       }}
-      onKeyDown={handleKeyDown}
       onClick={(e) => {
+        if (isEffectiveDisabled) e.stopPropagation();
+      }}
       className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
         isEffectiveDisabled 
           ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent" 

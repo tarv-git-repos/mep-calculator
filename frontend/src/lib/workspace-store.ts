@@ -451,7 +451,8 @@ export const workspaceStore = {
   },
 
   setReadOnly(val: boolean) {
-    currentWorkspaceState.isReadOnly = val;
+    if (currentWorkspaceState.isReadOnly === Boolean(val)) return;
+    currentWorkspaceState.isReadOnly = Boolean(val);
     saveState();
     notify();
   },
