@@ -235,9 +235,6 @@ export function OrgAdminDashboard() {
       toast.error("Failed to pick folder")
     }
   }
-      toast.error("Failed to pick folder")
-    }
-  }
 
   // --- Broadcasts Handlers ---
   const handleCreateAnnouncement = async (e: React.FormEvent) => {
