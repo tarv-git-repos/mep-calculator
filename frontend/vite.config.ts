@@ -5,6 +5,8 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import path from "path";
+import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+
 const asyncHooksPolyfill = {
   name: 'async-hooks-polyfill',
   resolveId(id: string) {
@@ -64,7 +66,8 @@ export default defineConfig({
       external: ['xlsx', 'jspdf', 'file-saver', 'jspdf-autotable', 'exceljs', 'iobuffer', 'dompurify', 'pako', '@tauri-apps/plugin-dialog', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process', '@tauri-apps/api'],
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@tanstack/react-router', '@tanstack/react-start', 'iobuffer', 'setimmediate', 'dompurify', 'pako'],
+      include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@tanstack/react-router', 'iobuffer', 'setimmediate', 'dompurify', 'pako'],
+      exclude: ['node:async_hooks', 'async_hooks'],
     },
   },
   nitro: {
