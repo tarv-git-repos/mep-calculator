@@ -3122,26 +3122,34 @@ const server = http.createServer(async (req, res) => {
     const timestamp = new Date().toISOString();
 
     if (existingIndex >= 0) {
-      // Update existing version entry
-      versions[existingIndex].description = description || versions[existingIndex].description;
-      versions[existingIndex].user = user.name || user.email || 'System User';
-      versions[existingIndex].timestamp = timestamp;
-      versions[existingIndex].data = data;
+      // Update existing version entry - NEVER overwrite original creator (createdBy / user)
+      const currentItem = versions[existingIndex];
+      const editorName = user.name || user.email || 'System User';
+      
+      currentItem.description = description || currentItem.description;
+      currentItem.createdBy = currentItem.createdBy || currentItem.user || editorName;
+      currentItem.user = currentItem.createdBy; // Keep user backwards-compatible with createdBy
+      currentItem.editedBy = editorName;
+      currentItem.editedByEmail = user.email;
+      currentItem.lastEditedAt = timestamp;
+      currentItem.timestamp = currentItem.createdAt || currentItem.timestamp || timestamp;
+      currentItem.data = data;
+      
       writeVersionsData(versions);
 
       try {
         await supabase.from('project_versions')
           .update({
-            description: description || versions[existingIndex].description,
-            user_name: user.name || user.email,
-            payload: data,
-            created_at: timestamp
+            description: description || currentItem.description,
+            edited_by_name: editorName,
+            last_edited_at: timestamp,
+            payload: data
           })
-          .eq('id', versions[existingIndex].id);
+          .eq('id', currentItem.id);
       } catch (e) {}
 
       logActivity(user, 'UPDATE_VERSION', { projectName: safeProjectName, calculatorName: safeCalculatorName, version: versionNumber });
-      return sendJSON(res, 200, { success: true, message: `Version ${versionNumber} updated on server`, version: versions[existingIndex] });
+      return sendJSON(res, 200, { success: true, message: `Version ${versionNumber} updated on server`, version: currentItem });
     }
 
     const id = `ver_${Date.now()}_${Math.floor(Math.random()*1000)}`;
@@ -3153,6 +3161,12 @@ const server = http.createServer(async (req, res) => {
       version: versionNumber,
       description: description || 'No description',
       user: user.name || user.email || 'System User',
+      createdBy: user.name || user.email || 'System User',
+      createdByEmail: user.email,
+      createdAt: timestamp,
+      editedBy: null,
+      editedByEmail: null,
+      lastEditedAt: null,
       userId: user.id,
       userEmail: user.email,
       organization_id: user.organization_id || null,
@@ -3171,6 +3185,7 @@ const server = http.createServer(async (req, res) => {
         version: versionNumber,
         description: description || 'No description',
         user_name: user.name || user.email,
+        created_by_name: user.name || user.email,
         user_email: user.email,
         organization_id: user.organization_id || null,
         payload: data,
@@ -3204,8 +3219,12 @@ const server = http.createServer(async (req, res) => {
           calculatorName: v.calculator_name,
           version: v.version,
           description: v.description,
-          user: v.user_name || v.user_email,
-          userEmail: v.user_email,
+          user: v.created_by_name || v.user_name || v.user_email,
+          createdBy: v.created_by_name || v.user_name || v.user_email,
+          createdByEmail: v.user_email,
+          createdAt: v.created_at,
+          editedBy: v.edited_by_name || v.edited_by || null,
+          lastEditedAt: v.last_edited_at || null,
           organization_id: v.organization_id,
           timestamp: v.created_at,
           data: v.payload

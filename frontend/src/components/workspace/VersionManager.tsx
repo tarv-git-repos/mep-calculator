@@ -91,11 +91,19 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const userName = (userData?.name || "SystemAdmin");
       const projectData = gatherProjectData();
 
+      const existingItem = historyList.find(h => String(h.version).toUpperCase() === String(verName).toUpperCase());
+      const originalCreator = existingItem?.createdBy || existingItem?.user || userName;
+      const originalCreatedAt = existingItem?.createdAt || existingItem?.timestamp || new Date().toISOString();
+
       const payload = {
         _versionMetadata: {
           version: verName,
-          description: `Updated calculation state for ${verName}`,
-          user: userName,
+          description: existingItem?.description || `Updated calculation state for ${verName}`,
+          user: originalCreator,
+          createdBy: originalCreator,
+          createdAt: originalCreatedAt,
+          editedBy: userName,
+          lastEditedAt: new Date().toISOString(),
           timestamp: new Date().toISOString()
         },
         data: projectData
@@ -184,6 +192,10 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
           version: versionStr,
           description: descriptionInput.trim() || 'No description',
           user: userName,
+          createdBy: userName,
+          createdAt: new Date().toISOString(),
+          editedBy: null,
+          lastEditedAt: null,
           timestamp: new Date().toISOString()
         },
         data: projectData
@@ -384,7 +396,11 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
             historyMap.set(vKey, {
               version: item.version,
               description: item.description,
-              user: item.user,
+              user: item.createdBy || item.user,
+              createdBy: item.createdBy || item.user,
+              createdAt: item.createdAt || item.timestamp,
+              editedBy: item.editedBy || null,
+              lastEditedAt: item.lastEditedAt || null,
               timestamp: item.timestamp,
               parsedData: item.data || item.parsedData || item.payload
             });
@@ -419,6 +435,8 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                     if (!historyMap.has(vKey)) {
                       historyMap.set(vKey, {
                         ...parsed._versionMetadata,
+                        createdBy: parsed._versionMetadata.createdBy || parsed._versionMetadata.user,
+                        createdAt: parsed._versionMetadata.createdAt || parsed._versionMetadata.timestamp,
                         filePath,
                         fileName: entry.name,
                         parsedData: parsed.data
@@ -433,7 +451,20 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       }
 
       const combinedList = Array.from(historyMap.values());
-      combinedList.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      
+      // Sort in ascending order (V0 at top, V1 below V0, V2 below V1, etc.)
+      const getVersionNum = (vStr: string) => {
+        if (!vStr) return 999999;
+        const match = String(vStr).match(/v?(\d+)/i);
+        return match ? parseInt(match[1], 10) : 999999;
+      };
+
+      combinedList.sort((a, b) => {
+        const numA = getVersionNum(a.version);
+        const numB = getVersionNum(b.version);
+        if (numA !== numB) return numA - numB;
+        return new Date(a.createdAt || a.timestamp).getTime() - new Date(b.createdAt || b.timestamp).getTime();
+      });
 
       setHistoryList(combinedList);
       setIsHistoryOpen(true);
@@ -543,10 +574,17 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                               )}
                             </div>
                             <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
-                              {new Date(item.timestamp).toLocaleString()}
+                              {new Date(item.createdAt || item.timestamp).toLocaleString()}
                             </span>
                           </div>
-                          <p className="text-sm text-muted-foreground">Created by <span className="font-medium text-foreground">{item.user}</span></p>
+                          <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <p>Created by <span className="font-medium text-foreground">{item.createdBy || item.user || 'Unknown'}</span></p>
+                            {item.editedBy && (
+                              <p className="text-xs text-muted-foreground border-l border-border/80 pl-2">
+                                Edited by <span className="font-medium text-foreground">{item.editedBy}</span> ({new Date(item.lastEditedAt || item.timestamp).toLocaleString()})
+                              </p>
+                            )}
+                          </div>
                         </div>
                         <button
                           onClick={() => {
