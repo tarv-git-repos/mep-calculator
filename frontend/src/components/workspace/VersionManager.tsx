@@ -98,7 +98,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const payload = {
         _versionMetadata: {
           version: verName,
-          description: existingItem?.description || `Updated calculation state for ${verName}`,
+          description: existingItem?.description || `Version ${verName}`,
           user: originalCreator,
           createdBy: originalCreator,
           createdAt: originalCreatedAt,
@@ -190,7 +190,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const payload = {
         _versionMetadata: {
           version: versionStr,
-          description: descriptionInput.trim() || 'No description',
+          description: descriptionInput.trim() || `Version ${versionStr}`,
           user: userName,
           createdBy: userName,
           createdAt: new Date().toISOString(),
@@ -303,15 +303,16 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       }
     }
 
-    // 2. Restore workspaceStore state (spaces, zones, equipment) into current active project
+    // 2. Restore workspaceStore state into current local session ONLY (Preserve user's read-only status!)
+    // DO NOT force save to cloud so other concurrent users working on the project are never disturbed.
+    const currentReadOnly = workspaceStore.getState().isReadOnly;
     if (Array.isArray(data.spaces) || Array.isArray(data.zones) || Array.isArray(data.equipment)) {
       workspaceStore.setState({
         spaces: data.spaces || [],
         zones: data.zones || [],
         equipment: data.equipment || [],
-        isReadOnly: false
+        isReadOnly: currentReadOnly
       });
-      workspaceStore.forceSaveToCloud(true);
     }
 
     dirtyStore.set(false);

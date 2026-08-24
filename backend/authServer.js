@@ -3126,7 +3126,9 @@ const server = http.createServer(async (req, res) => {
       const currentItem = versions[existingIndex];
       const editorName = user.name || user.email || 'System User';
       
-      currentItem.description = description || currentItem.description;
+      if (description && description.trim() && !description.startsWith('Updated calculation state')) {
+        currentItem.description = description.trim();
+      }
       currentItem.createdBy = currentItem.createdBy || currentItem.user || editorName;
       currentItem.user = currentItem.createdBy; // Keep user backwards-compatible with createdBy
       currentItem.editedBy = editorName;
