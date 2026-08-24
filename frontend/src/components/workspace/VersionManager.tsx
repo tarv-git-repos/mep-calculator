@@ -181,10 +181,18 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
         serverVersions = await api.getVersionsFromServer(projectName, calculatorName);
       } catch (e) {}
 
-      const nextV = Array.isArray(serverVersions) && serverVersions.length > 0
-        ? serverVersions.length 
-        : (historyList.length || 0);
+      const allKnown = [...(serverVersions || []), ...(historyList || [])];
+      let maxV = -1;
+      allKnown.forEach((item: any) => {
+        const vStr = String(item.version || item.id || '');
+        const match = vStr.match(/v?(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxV) maxV = num;
+        }
+      });
 
+      const nextV = maxV >= 0 ? maxV + 1 : 0;
       const versionStr = `V${nextV}`;
       
       const payload = {
@@ -413,42 +421,55 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
 
       // 2. Fetch local versions from disk if running in desktop app
       const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
-      if (isTauri && basePath) {
-        try {
-          const safeBasePath = basePath.replace(/['"]/g, '');
-          const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
-          const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
-          const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
+      const candidateBasePaths = [
+        localStorage.getItem('versionsPath'),
+        localStorage.getItem('localBackupPath'),
+        'Z:\\Versions',
+        'Z:/Versions'
+      ].filter(Boolean).map(p => String(p).replace(/['"]/g, ''));
 
-          const dirExists = await exists(projectDir);
-          if (dirExists) {
-            const entries = await readDir(projectDir);
-            const versionRegex = /^v(\d+)\.json$/i;
-            for (const entry of entries) {
-              if (entry.isFile && versionRegex.test(entry.name)) {
-                try {
-                  const filePath = `${projectDir}\\${entry.name}`;
-                  const fileContent = await readTextFile(filePath);
-                  const parsed = JSON.parse(fileContent);
-                  if (parsed._versionMetadata) {
-                    const vKey = parsed._versionMetadata.version || entry.name;
+      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+
+      for (const basePath of candidateBasePaths) {
+        if (isTauri && basePath) {
+          try {
+            const projectDir = `${basePath}\\${safeProjectName}\\${safeCalculatorName}`;
+            const dirExists = await exists(projectDir);
+            if (dirExists) {
+              const entries = await readDir(projectDir);
+              for (const entry of entries) {
+                if (entry.isFile && entry.name.toLowerCase().endsWith('.json')) {
+                  try {
+                    const filePath = `${projectDir}\\${entry.name}`;
+                    const fileContent = await readTextFile(filePath);
+                    const parsed = JSON.parse(fileContent);
+                    const meta = parsed._versionMetadata || {};
+                    const vNum = meta.version || entry.name.replace(/\.json$/i, '').toUpperCase();
+                    const vData = meta.version ? (parsed.data || parsed) : parsed;
+                    const vKey = vNum;
+                    
                     if (!historyMap.has(vKey)) {
                       historyMap.set(vKey, {
-                        ...parsed._versionMetadata,
-                        createdBy: parsed._versionMetadata.createdBy || parsed._versionMetadata.user,
-                        createdAt: parsed._versionMetadata.createdAt || parsed._versionMetadata.timestamp,
+                        version: vNum,
+                        description: meta.description || `Version ${vNum}`,
+                        user: meta.createdBy || meta.user || 'System User',
+                        createdBy: meta.createdBy || meta.user || 'System User',
+                        createdAt: meta.createdAt || meta.timestamp || new Date().toISOString(),
+                        editedBy: meta.editedBy || null,
+                        lastEditedAt: meta.lastEditedAt || null,
+                        timestamp: meta.timestamp || new Date().toISOString(),
                         filePath,
                         fileName: entry.name,
-                        parsedData: parsed.data
+                        parsedData: vData
                       });
                     }
-                  }
-                } catch (e) {}
+                  } catch (e) {}
+                }
               }
             }
-          }
-        } catch (e) {}
+          } catch (e) {}
+        }
       }
 
       const combinedList = Array.from(historyMap.values());

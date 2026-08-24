@@ -3269,6 +3269,68 @@ const server = http.createServer(async (req, res) => {
       }
     } catch (e) {}
 
+    // Also scan disk backup folders on server for existing version files (e.g. Z:\Versions\{proj}\{calc} or ./Versions)
+    const diskDirsToScan = [];
+    if (proj && calc) {
+      const safeProj = String(proj).replace(/[<>:"/\\|?*]/g, '_');
+      const safeCalc = String(calc).replace(/[<>:"/\\|?*]/g, '_');
+      
+      const candidatePaths = [
+        `Z:\\Versions\\${safeProj}\\${safeCalc}`,
+        `Z:/Versions/${safeProj}/${safeCalc}`,
+        path.join(process.cwd(), 'Versions', safeProj, safeCalc),
+        path.join(__dirname, '..', 'Versions', safeProj, safeCalc)
+      ];
+      
+      candidatePaths.forEach(p => {
+        try {
+          if (fs.existsSync(p)) diskDirsToScan.push(p);
+        } catch (e) {}
+      });
+    }
+
+    diskDirsToScan.forEach(dirPath => {
+      try {
+        const files = fs.readdirSync(dirPath);
+        const versionRegex = /^v(\d+)\.json$/i;
+        files.forEach(fileName => {
+          if (fileName.toLowerCase().endsWith('.json')) {
+            try {
+              const fullPath = path.join(dirPath, fileName);
+              const fileStat = fs.statSync(fullPath);
+              const contentStr = fs.readFileSync(fullPath, 'utf8');
+              const parsed = JSON.parse(contentStr);
+              
+              const meta = parsed._versionMetadata || {};
+              const vNum = meta.version || fileName.replace(/\.json$/i, '').toUpperCase();
+              const vData = meta.version ? (parsed.data || parsed) : parsed;
+              
+              const existsInList = versions.some(v => 
+                String(v.version).toUpperCase() === String(vNum).toUpperCase()
+              );
+
+              if (!existsInList) {
+                versions.push({
+                  id: `disk_${fileName}_${fileStat.mtimeMs}`,
+                  projectName: proj,
+                  calculatorName: calc,
+                  version: vNum,
+                  description: meta.description || `Version ${vNum}`,
+                  user: meta.createdBy || meta.user || 'System User',
+                  createdBy: meta.createdBy || meta.user || 'System User',
+                  createdAt: meta.createdAt || meta.timestamp || fileStat.birthtime.toISOString(),
+                  editedBy: meta.editedBy || null,
+                  lastEditedAt: meta.lastEditedAt || null,
+                  timestamp: meta.timestamp || fileStat.mtime.toISOString(),
+                  data: vData
+                });
+              }
+            } catch (e) {}
+          }
+        });
+      } catch (e) {}
+    });
+
     if (proj) {
       versions = versions.filter(v => v.projectName.toLowerCase() === proj.toLowerCase());
     }
@@ -3280,14 +3342,18 @@ const server = http.createServer(async (req, res) => {
       versions = versions.filter(v => !v.organization_id || v.organization_id === user.organization_id);
     }
 
-    // Sort descending by timestamp
+    // Sort descending by timestamp initially
     versions.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     const list = versions.map(v => ({
       id: v.id,
       version: v.version,
       description: v.description,
-      user: v.user,
+      user: v.createdBy || v.user,
+      createdBy: v.createdBy || v.user,
+      createdAt: v.createdAt || v.timestamp,
+      editedBy: v.editedBy || null,
+      lastEditedAt: v.lastEditedAt || null,
       userEmail: v.userEmail,
       timestamp: v.timestamp,
       parsedData: v.data
