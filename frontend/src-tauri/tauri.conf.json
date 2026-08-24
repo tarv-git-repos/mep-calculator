@@ -26,6 +26,7 @@
                     "updater":  {
                                     "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE3QTFBMTc5RDZEN0VCNTIKUldSUzY5ZldlYUdocDcwYWZjQTF2UE9tZ1A1ODNTOFBObEtmdXNIS2tZbzVBeVE4Qi9VK3BIS1UK",
                                     "endpoints":  [
+                                                      "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/update.json",
                                                       "https://mep-calculator.onrender.com/update.json"
                                                   ]
                                 }

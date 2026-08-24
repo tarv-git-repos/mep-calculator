@@ -4,9 +4,9 @@
   "notes": "• Security & Multi-Tenant Organization Isolation Updates\n• Automatic role assignment for Jr. Design Engineers\n• Performance & calculation memory optimizations",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://mep-calculator.onrender.com/updates/MEP_Calculator_0.0.3_x64-setup.nsis.zip"
+      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.3_x64-setup.exe"
     }
   },
-  "url": "https://mep-calculator.onrender.com/updates/MEP_Calculator_0.0.3_x64-setup.exe",
+  "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.3_x64-setup.exe",
   "mandatory": false
 }
