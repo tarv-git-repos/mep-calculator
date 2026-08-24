@@ -1,8 +1,12 @@
 {
   "version": "0.0.3",
-  "releaseDate": "2026-08-21",
-  "url": "https://mep-calculator.onrender.com/updates/MEP_Calculator_0.0.3_x64-setup.exe",
+  "pub_date": "2026-08-24T12:00:00Z",
   "notes": "• Security & Multi-Tenant Organization Isolation Updates\n• Automatic role assignment for Jr. Design Engineers\n• Performance & calculation memory optimizations",
-  "mandatory": false,
-  "pub_date": "2026-08-21T19:00:00Z"
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://mep-calculator.onrender.com/updates/MEP_Calculator_0.0.3_x64-setup.nsis.zip"
+    }
+  },
+  "url": "https://mep-calculator.onrender.com/updates/MEP_Calculator_0.0.3_x64-setup.exe",
+  "mandatory": false
 }
