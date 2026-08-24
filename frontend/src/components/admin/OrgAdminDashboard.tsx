@@ -87,7 +87,7 @@ export function OrgAdminDashboard() {
   const fetchOrgActivityLogs = async () => {
     setLoadingLogs(true)
     const logs = await api.getOrgActivityLogs()
-    setActivityLogs(logs || [])
+    setActivityLogs(Array.isArray(logs) ? logs.filter(Boolean) : [])
     setLoadingLogs(false)
   }
 
@@ -120,16 +120,16 @@ export function OrgAdminDashboard() {
   // Compute KPI Statistics for top metrics bar
   const stats = useMemo(() => {
     const totalMembers = users.length
-    const activeMembers = users.filter(u => u.status === 'active' || u.status === 'ACTIVE').length
-    const loginsCount = activityLogs.filter(l => l.action_type === 'LOGIN').length
-    const viewsCount = activityLogs.filter(l => l.action_type === 'VIEWED' || l.action_type === 'VIEW_CALCULATOR').length
-    const updatesCount = activityLogs.filter(l => l.action_type === 'UPDATED' || l.action_type?.includes('UPDATE')).length
+    const activeMembers = users.filter(u => u && (u.status === 'active' || u.status === 'ACTIVE')).length
+    const loginsCount = activityLogs.filter(l => l && l.action_type === 'LOGIN').length
+    const viewsCount = activityLogs.filter(l => l && (l.action_type === 'VIEWED' || l.action_type === 'VIEW_CALCULATOR')).length
+    const updatesCount = activityLogs.filter(l => l && (l.action_type === 'UPDATED' || l.action_type?.includes('UPDATE'))).length
     
     // Calculate unique active user count from logs today
     const todayStr = new Date().toISOString().split('T')[0]
     const activeTodaySet = new Set(
       activityLogs
-        .filter(l => l.created_at && l.created_at.startsWith(todayStr))
+        .filter(l => l && l.created_at && String(l.created_at).startsWith(todayStr))
         .map(l => l.name || l.email || l.user_id)
     )
 
@@ -270,6 +270,7 @@ export function OrgAdminDashboard() {
 
   // Format log details cleanly into human readable sentences
   const formatLogDetail = (log: any) => {
+    if (!log) return 'No details provided';
     const d = log.details || {}
     const isObj = typeof d === 'object' && d !== null
 
