@@ -2894,6 +2894,83 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  // POST /api/admin/backup-now (Manual Backup Generation)
+  if (req.method === 'POST' && url === '/api/admin/backup-now') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+    try {
+      const users = await readUsers(true);
+      const teams = readLocalTeams();
+      const teamMembers = readLocalTeamMembers();
+      const projects = readLocalProjects();
+      const logs = readActivityLogs();
+
+      const backupObj = {
+        version: '0.0.3',
+        created_at: new Date().toISOString(),
+        created_by: adminUser.email,
+        data: {
+          users,
+          teams,
+          teamMembers,
+          projects,
+          logs
+        }
+      };
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `mep_backup_${dateStr}_${Date.now()}.json`;
+      const backupPath = path.join(DATA_DIR, filename);
+      fs.writeFileSync(backupPath, JSON.stringify(backupObj, null, 2), 'utf8');
+
+      logActivity(adminUser, 'ADMIN_BACKUP_DATABASE', { filename });
+      return sendJSON(res, 200, { success: true, message: 'Database backup generated successfully!', filename, backupObj });
+    } catch (err) {
+      return sendJSON(res, 500, { success: false, message: 'Backup generation failed: ' + err.message });
+    }
+  }
+
+  // POST /api/admin/restore-backup (Atomic Database Hydration & Restore)
+  if (req.method === 'POST' && url === '/api/admin/restore-backup') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    }
+    try {
+      const { backupData } = await getRequestBody(req);
+      if (!backupData || !backupData.data) {
+        return sendJSON(res, 400, { success: false, message: 'Invalid backup file payload' });
+      }
+
+      const { users, teams, teamMembers, projects } = backupData.data;
+
+      if (Array.isArray(users) && users.length > 0) {
+        saveLocalUsers(users);
+        try { await supabase.from('custom_users').upsert(users); } catch (e) {}
+      }
+      if (Array.isArray(teams)) {
+        saveLocalTeams(teams);
+        try { await supabase.from('teams').upsert(teams); } catch (e) {}
+      }
+      if (Array.isArray(teamMembers)) {
+        saveLocalTeamMembers(teamMembers);
+        try { await supabase.from('team_members').upsert(teamMembers); } catch (e) {}
+      }
+      if (Array.isArray(projects)) {
+        saveLocalProjects(projects);
+        try { await supabase.from('projects').upsert(projects); } catch (e) {}
+      }
+
+      invalidateUserCache();
+      logActivity(adminUser, 'ADMIN_RESTORE_DATABASE', { restored_at: new Date().toISOString() });
+      return sendJSON(res, 200, { success: true, message: 'Database restored successfully! All tables hydrated.' });
+    } catch (err) {
+      return sendJSON(res, 500, { success: false, message: 'Restore failed: ' + err.message });
+    }
+  }
+
   // --- ANNOUNCEMENTS ROUTES ---
   
   // GET /api/announcements (Public/Authenticated)
@@ -3169,5 +3246,31 @@ server.listen(PORT, () => {
   console.log(`\n==================================================`);
   console.log(`🚀 MEP Calculator Auth Engine running on http://localhost:${PORT}`);
   console.log(`☁️ Supabase Cloud DB Connected for Credentials`);
-  console.log(`==================================================\n`);
+  // Automated 24-Hour Database Backup Timer
+  setInterval(async () => {
+    try {
+      console.log('🕒 Running automated 24-hour database backup...');
+      const users = await readUsers(true);
+      const teams = readLocalTeams();
+      const teamMembers = readLocalTeamMembers();
+      const projects = readLocalProjects();
+      const logs = readActivityLogs();
+
+      const backupObj = {
+        version: '0.0.3',
+        type: 'AUTOMATED_DAILY_BACKUP',
+        created_at: new Date().toISOString(),
+        created_by: 'system_auto_backup',
+        data: { users, teams, teamMembers, projects, logs }
+      };
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `mep_auto_backup_${dateStr}_${Date.now()}.json`;
+      const backupPath = path.join(DATA_DIR, filename);
+      fs.writeFileSync(backupPath, JSON.stringify(backupObj, null, 2), 'utf8');
+      console.log(`✅ Automated 24-hour database backup saved: ${filename}`);
+    } catch (e) {
+      console.error('Automated backup error:', e.message);
+    }
+  }, 24 * 60 * 60 * 1000);
 });
