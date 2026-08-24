@@ -390,6 +390,26 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }, [isViewerRole, isReadOnly, setReadOnly]);
 
+  useEffect(() => {
+    async function syncOrgBackupSettings() {
+      try {
+        const res = await api.getOrgBackupSettings();
+        if (res && res.success) {
+          if (res.versions_path) {
+            localStorage.setItem('versionsPath', res.versions_path);
+          }
+          if (res.local_backup_path) {
+            localStorage.setItem('localBackupPath', res.local_backup_path);
+          }
+          if (res.server_backup_path) {
+            localStorage.setItem('serverBackupPath', res.server_backup_path);
+          }
+        }
+      } catch (e) {}
+    }
+    syncOrgBackupSettings();
+  }, []);
+
   const isJrDesignEngineer = useMemo(() => {
     return (
       roleVal === "Jr. Design Engineer" ||

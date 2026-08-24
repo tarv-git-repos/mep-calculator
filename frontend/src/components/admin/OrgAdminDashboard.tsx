@@ -64,6 +64,7 @@ export function OrgAdminDashboard() {
   // Storage State
   const [localBackupPath, setLocalBackupPath] = useState(localStorage.getItem('localBackupPath') || '')
   const [serverBackupPath, setServerBackupPath] = useState(localStorage.getItem('serverBackupPath') || '')
+  const [versionsPath, setVersionsPath] = useState(localStorage.getItem('versionsPath') || 'Z:\\Versions')
 
   // Broadcasts State
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
@@ -102,6 +103,10 @@ export function OrgAdminDashboard() {
     if (res && res.success) {
       if (res.local_backup_path) setLocalBackupPath(res.local_backup_path)
       if (res.server_backup_path) setServerBackupPath(res.server_backup_path)
+      if (res.versions_path) {
+        setVersionsPath(res.versions_path)
+        localStorage.setItem('versionsPath', res.versions_path)
+      }
     }
   }
 
@@ -201,28 +206,35 @@ export function OrgAdminDashboard() {
   }
 
   // --- Storage Handlers ---
-  const handlePickFolder = async (type: 'local' | 'server') => {
+  const handlePickFolder = async (type: 'local' | 'server' | 'versions') => {
     try {
       if (typeof window !== 'undefined') {
         const { open: openFileDialog } = await import('@tauri-apps/plugin-dialog');
         const selected = await openFileDialog({
           directory: true,
           multiple: false,
-          title: type === 'local' ? 'Select Local Backup Folder' : 'Select Server Backup Folder',
+          title: type === 'local' ? 'Select Local Backup Folder' : type === 'server' ? 'Select Server Backup Folder' : 'Select Organization Common Version Storage Directory',
         });
         if (selected && typeof selected === 'string') {
           if (type === 'local') {
             setLocalBackupPath(selected)
             localStorage.setItem('localBackupPath', selected)
             toast.success("Local backup path updated!")
-          } else {
+          } else if (type === 'server') {
             setServerBackupPath(selected)
             localStorage.setItem('serverBackupPath', selected)
             toast.success("Server backup path updated!")
+          } else {
+            setVersionsPath(selected)
+            localStorage.setItem('versionsPath', selected)
+            toast.success("Organization common versions path updated!")
           }
         }
       }
     } catch (e) {
+      toast.error("Failed to pick folder")
+    }
+  }
       toast.error("Failed to pick folder")
     }
   }
@@ -774,6 +786,43 @@ export function OrgAdminDashboard() {
               <h2 className="text-xl font-bold">Server & Sync Settings</h2>
               
               <div className="space-y-8 max-w-3xl">
+                {/* Organization Common Versions Directory (Admin Managed) */}
+                <div className="bg-slate-50 dark:bg-slate-950/60 p-6 rounded-xl border border-primary/30 dark:border-primary/20 shadow-xs">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-primary/10 text-primary rounded-lg">
+                      <FolderOpen className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 className="font-semibold text-lg text-foreground">Organization Common Version & Backup Storage Path</h3>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> Admin Configured
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                        Centralized network folder path (e.g. <code className="bg-slate-200 dark:bg-slate-800 px-1 rounded text-xs font-mono text-foreground">Z:\Versions</code> or <code className="bg-slate-200 dark:bg-slate-800 px-1 rounded text-xs font-mono text-foreground">\\server-m\Versions</code>). Only Organization Admins can set this shared path. All team members in your organization will automatically use this common directory to save and view project versions and backups.
+                      </p>
+                      
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={versionsPath} 
+                          onChange={(e) => setVersionsPath(e.target.value)}
+                          placeholder="Z:\Versions"
+                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-mono"
+                        />
+                        <button 
+                          onClick={() => handlePickFolder('versions')}
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                          Browse
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-slate-50 dark:bg-slate-950/60 p-6 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="flex items-start gap-4">
                     <div className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg">
@@ -789,11 +838,11 @@ export function OrgAdminDashboard() {
                           value={localBackupPath} 
                           onChange={(e) => setLocalBackupPath(e.target.value)}
                           placeholder="C:\Users\Admin\AppData\Local\MEPCalc\Backups"
-                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm"
+                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-mono"
                         />
                         <button 
                           onClick={() => handlePickFolder('local')}
-                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors"
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
                         >
                           <FolderOpen className="w-4 h-4" />
                           Browse
@@ -818,11 +867,11 @@ export function OrgAdminDashboard() {
                           value={serverBackupPath} 
                           onChange={(e) => setServerBackupPath(e.target.value)}
                           placeholder="Z:/00 R&D Server/Backups"
-                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm"
+                          className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-mono"
                         />
                         <button 
                           onClick={() => handlePickFolder('server')}
-                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors"
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors cursor-pointer"
                         >
                           <FolderOpen className="w-4 h-4" />
                           Browse
@@ -837,17 +886,18 @@ export function OrgAdminDashboard() {
                     onClick={async () => {
                       localStorage.setItem('localBackupPath', localBackupPath);
                       localStorage.setItem('serverBackupPath', serverBackupPath);
-                      toast.info("Saving backup settings to backend...");
-                      const res = await api.saveOrgBackupSettings(localBackupPath, serverBackupPath);
+                      localStorage.setItem('versionsPath', versionsPath);
+                      toast.info("Saving organization backup settings to server...");
+                      const res = await api.saveOrgBackupSettings(localBackupPath, serverBackupPath, versionsPath);
                       if (res && res.success) {
-                        toast.success("Organization backup settings saved to backend successfully!");
+                        toast.success("Organization common storage & version settings saved successfully!");
                       } else {
                         toast.error(res.message || "Failed to save backup settings");
                       }
                     }}
-                    className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 text-white font-bold text-xs rounded-xl transition-colors shadow-2xs"
+                    className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 text-white font-bold text-xs rounded-xl transition-colors shadow-2xs cursor-pointer"
                   >
-                    Save Backup Settings
+                    Save Organization Storage Settings
                   </button>
                 </div>
               </div>

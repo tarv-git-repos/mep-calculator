@@ -526,13 +526,24 @@ export const api = {
       return { success: false, local_backup_path: '', server_backup_path: '', versions_path: '' };
     }
   },
-  async saveOrgBackupSettings(local_backup_path: string, server_backup_path: string, orgId?: string, versions_path?: string) {
+  async saveOrgBackupSettings(local_backup_path: string, server_backup_path: string, param3?: string, param4?: string) {
     try {
+      let finalVersionsPath = '';
+      let finalOrgId = '';
+
+      if (param3 && (param3.startsWith('org_') || param3 === 'GLOBAL' || param3 === 'ALL' || param3 === 'UNASSIGNED')) {
+        finalOrgId = param3;
+        finalVersionsPath = param4 || '';
+      } else {
+        finalVersionsPath = param3 || '';
+        finalOrgId = param4 || '';
+      }
+
       const { data } = await axios.post(`${getBackendUrl()}/api/org/backup-settings`, {
         local_backup_path,
         server_backup_path,
-        versions_path,
-        org_id: orgId
+        versions_path: finalVersionsPath,
+        org_id: finalOrgId
       });
       return data;
     } catch (e: any) {
