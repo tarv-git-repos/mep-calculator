@@ -26,7 +26,7 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
         return 'http://localhost:4000';
       }
     }
-    return 'https://universal-mep-calculator.onrender.com';
+    return import.meta.env.VITE_API_URL || 'http://localhost:4000';
   };
 
   const checkConnectivity = useCallback(async () => {

@@ -159,7 +159,17 @@ function logActivity(user, action_type, details) {
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || 'mep_calculator_auth_secret_key_2026';
+
+let JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error("FATAL ERROR: Missing JWT_SECRET environment variable in production!");
+    process.exit(1);
+  }
+  console.warn("⚠️ WARNING: JWT_SECRET not found in environment, using local development fallback secret.");
+  JWT_SECRET = 'mep_dev_only_jwt_secret_2026_fallback';
+}
+
 const SENDER_EMAIL = process.env.SENDER_EMAIL || 'tarv.official@gmail.com';
 
 const supabaseUrl = process.env.SUPABASE_URL;
