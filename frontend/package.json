@@ -17,8 +17,8 @@
     "format": "prettier --write .",
     "tauri": "tauri",
     "build:desktop": "node build-desktop.mjs",
-    "tauri:build": "node -e \"process.env.CARGO_TARGET_DIR='C:/cargo-target/mep_calculator'; require('child_process').execSync('node node_modules/@tauri-apps/cli/tauri.js build', {stdio: 'inherit'})\"",
-    "tauri:full": "npm run build:desktop && node -e \"process.env.CARGO_TARGET_DIR='C:/cargo-target/mep_calculator'; require('child_process').execSync('node node_modules/@tauri-apps/cli/tauri.js build', {stdio: 'inherit'})\""
+    "tauri:build": "node -e \"const fs=require('fs'); if(fs.existsSync('updater_keys')) process.env.TAURI_SIGNING_PRIVATE_KEY=fs.readFileSync('updater_keys','utf8').trim(); process.env.TAURI_SIGNING_KEY_PASSWORD=''; process.env.CARGO_TARGET_DIR='C:/cargo-target/mep_calculator'; require('child_process').execSync('node node_modules/@tauri-apps/cli/tauri.js build', {stdio: 'inherit'})\"",
+    "tauri:full": "npm run build:desktop && node -e \"const fs=require('fs'); if(fs.existsSync('updater_keys')) process.env.TAURI_SIGNING_PRIVATE_KEY=fs.readFileSync('updater_keys','utf8').trim(); process.env.TAURI_SIGNING_KEY_PASSWORD=''; process.env.CARGO_TARGET_DIR='C:/cargo-target/mep_calculator'; require('child_process').execSync('node node_modules/@tauri-apps/cli/tauri.js build', {stdio: 'inherit'})\""
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
