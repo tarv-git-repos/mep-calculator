@@ -1140,7 +1140,11 @@ const server = http.createServer(async (req, res) => {
     
     let dbTeams = [];
     try {
-      const { data: rawTeams, error } = await supabase.from('teams').select('id, name, created_by, organization_id, team_members(user_id)');
+      let teamQuery = supabase.from('teams').select('id, name, created_by, organization_id, team_members(user_id)');
+      if (user.role !== 'SUPER_ADMIN' && user.organization_id) {
+        teamQuery = teamQuery.or(`organization_id.eq.${user.organization_id},created_by.eq.${user.id}`);
+      }
+      const { data: rawTeams, error } = await teamQuery;
       if (!error && Array.isArray(rawTeams)) {
         dbTeams = rawTeams;
       }
@@ -1344,13 +1348,19 @@ const server = http.createServer(async (req, res) => {
 
     let projects = [];
     try {
-      let { data, error } = await supabase
+      let query = supabase
         .from('projects')
-        .select('id, name, code, client, location, description, notes, created_at, created_by, status, project_users(user_id), project_teams(team_id)');
+        .select('id, name, code, client, location, description, notes, created_at, created_by, organization_id, status, project_users(user_id), project_teams(team_id)');
+      
+      if (user.role !== 'SUPER_ADMIN' && user.organization_id) {
+        query = query.or(`organization_id.eq.${user.organization_id},created_by.eq.${user.id}`);
+      }
+
+      let { data, error } = await query;
       
       if (error || !Array.isArray(data)) {
-        const retry = await supabase.from('projects').select('*, project_users(user_id), project_teams(team_id)');
-        data = retry.data || (await supabase.from('projects').select('*')).data;
+        const retry = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, organization_id, status');
+        data = retry.data || [];
       }
       if (Array.isArray(data)) {
         projects = data;
