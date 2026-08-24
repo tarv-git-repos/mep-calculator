@@ -64,7 +64,7 @@ export function OrgAdminDashboard() {
   // Storage State
   const [localBackupPath, setLocalBackupPath] = useState(localStorage.getItem('localBackupPath') || '')
   const [serverBackupPath, setServerBackupPath] = useState(localStorage.getItem('serverBackupPath') || '')
-  const [versionsPath, setVersionsPath] = useState(localStorage.getItem('versionsPath') || 'Z:\\Versions')
+  const [versionsPath, setVersionsPath] = useState(localStorage.getItem('versionsPath') || '')
 
   // Broadcasts State
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
@@ -207,32 +207,80 @@ export function OrgAdminDashboard() {
 
   // --- Storage Handlers ---
   const handlePickFolder = async (type: 'local' | 'server' | 'versions') => {
+    const title = type === 'local' 
+      ? 'Select Local Backup Folder' 
+      : type === 'server' 
+      ? 'Select Server Backup Folder' 
+      : 'Select Organization Common Version Storage Directory';
+
+    const updatePathState = (selectedPath: string) => {
+      if (type === 'local') {
+        setLocalBackupPath(selectedPath);
+        localStorage.setItem('localBackupPath', selectedPath);
+        toast.success("Local backup path updated!");
+      } else if (type === 'server') {
+        setServerBackupPath(selectedPath);
+        localStorage.setItem('serverBackupPath', selectedPath);
+        toast.success("Server backup path updated!");
+      } else {
+        setVersionsPath(selectedPath);
+        localStorage.setItem('versionsPath', selectedPath);
+        toast.success("Organization common versions path updated!");
+      }
+    };
+
+    // 1. Try Desktop (Tauri) Native File Dialog
     try {
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
         const { open: openFileDialog } = await import('@tauri-apps/plugin-dialog');
         const selected = await openFileDialog({
           directory: true,
           multiple: false,
-          title: type === 'local' ? 'Select Local Backup Folder' : type === 'server' ? 'Select Server Backup Folder' : 'Select Organization Common Version Storage Directory',
+          title,
         });
         if (selected && typeof selected === 'string') {
-          if (type === 'local') {
-            setLocalBackupPath(selected)
-            localStorage.setItem('localBackupPath', selected)
-            toast.success("Local backup path updated!")
-          } else if (type === 'server') {
-            setServerBackupPath(selected)
-            localStorage.setItem('serverBackupPath', selected)
-            toast.success("Server backup path updated!")
-          } else {
-            setVersionsPath(selected)
-            localStorage.setItem('versionsPath', selected)
-            toast.success("Organization common versions path updated!")
-          }
+          updatePathState(selected);
+          return;
         }
       }
     } catch (e) {
-      toast.error("Failed to pick folder")
+      console.warn("Tauri dialog not available:", e);
+    }
+
+    // 2. Try HTML5 File System Access API (showDirectoryPicker) for Web Browsers (Chrome, Edge, etc.)
+    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker();
+        if (dirHandle && dirHandle.name) {
+          const currentVal = type === 'local' ? localBackupPath : type === 'server' ? serverBackupPath : versionsPath;
+          const defaultSuggestion = currentVal 
+            ? `${currentVal.replace(/[/\\]+$/, '')}\\${dirHandle.name}` 
+            : `Z:\\${dirHandle.name}`;
+
+          const userConfirmedPath = window.prompt(
+            `Selected folder: "${dirHandle.name}"\n\nPlease confirm or enter the full shared network / local disk path for your organization:`,
+            defaultSuggestion
+          );
+
+          if (userConfirmedPath && userConfirmedPath.trim()) {
+            updatePathState(userConfirmedPath.trim());
+            return;
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return; // User cancelled directory dialog
+        console.warn("showDirectoryPicker error:", err);
+      }
+    }
+
+    // 3. Fallback: Direct Prompt Input
+    const currentVal = type === 'local' ? localBackupPath : type === 'server' ? serverBackupPath : versionsPath;
+    const inputPath = window.prompt(
+      `Enter or paste the full directory path for ${title} (e.g., Z:\\Versions or \\\\server-m\\Versions):`,
+      currentVal || ''
+    );
+    if (inputPath && inputPath.trim()) {
+      updatePathState(inputPath.trim());
     }
   }
 
@@ -806,7 +854,7 @@ export function OrgAdminDashboard() {
                           type="text" 
                           value={versionsPath} 
                           onChange={(e) => setVersionsPath(e.target.value)}
-                          placeholder="Z:\Versions"
+                          placeholder="e.g. Z:\Versions or \\server-m\Versions"
                           className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-mono"
                         />
                         <button 
@@ -835,7 +883,7 @@ export function OrgAdminDashboard() {
                           type="text" 
                           value={localBackupPath} 
                           onChange={(e) => setLocalBackupPath(e.target.value)}
-                          placeholder="C:\Users\Admin\AppData\Local\MEPCalc\Backups"
+                          placeholder="e.g. C:\Users\Admin\AppData\Local\MEPCalc\Backups"
                           className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-mono"
                         />
                         <button 
@@ -864,7 +912,7 @@ export function OrgAdminDashboard() {
                           type="text" 
                           value={serverBackupPath} 
                           onChange={(e) => setServerBackupPath(e.target.value)}
-                          placeholder="Z:/00 R&D Server/Backups"
+                          placeholder="e.g. Z:\Backups or \\server-m\Backups"
                           className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-mono"
                         />
                         <button 

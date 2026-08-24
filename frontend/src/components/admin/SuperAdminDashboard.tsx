@@ -587,32 +587,80 @@ export function SuperAdminDashboard() {
   }
 
   const handlePickFolder = async (type: 'local' | 'server' | 'versions') => {
+    const title = type === 'local' 
+      ? 'Select Local Backup Folder' 
+      : type === 'server' 
+      ? 'Select Server Backup Folder' 
+      : 'Select Organization Common Version Storage Directory';
+
+    const updatePathState = (selectedPath: string) => {
+      if (type === 'local') {
+        setLocalBackupPath(selectedPath);
+        localStorage.setItem('localBackupPath', selectedPath);
+        toast.success("Local backup path updated!");
+      } else if (type === 'server') {
+        setServerBackupPath(selectedPath);
+        localStorage.setItem('serverBackupPath', selectedPath);
+        toast.success("Server backup path updated!");
+      } else {
+        setVersionsPath(selectedPath);
+        localStorage.setItem('versionsPath', selectedPath);
+        toast.success("Versions path updated!");
+      }
+    };
+
+    // 1. Desktop (Tauri) Native File Dialog
     try {
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
         const { open: openFileDialog } = await import('@tauri-apps/plugin-dialog');
         const selected = await openFileDialog({
           directory: true,
           multiple: false,
-          title: type === 'local' ? 'Select Local Backup Folder' : type === 'server' ? 'Select Server Backup Folder' : 'Select Versions Folder',
+          title,
         });
         if (selected && typeof selected === 'string') {
-          if (type === 'local') {
-            setLocalBackupPath(selected)
-            localStorage.setItem('localBackupPath', selected)
-            toast.success("Local backup path updated!")
-          } else if (type === 'server') {
-            setServerBackupPath(selected)
-            localStorage.setItem('serverBackupPath', selected)
-            toast.success("Server backup path updated!")
-          } else if (type === 'versions') {
-            setVersionsPath(selected)
-            localStorage.setItem('versionsPath', selected)
-            toast.success("Versions path updated!")
-          }
+          updatePathState(selected);
+          return;
         }
       }
     } catch (e) {
-      toast.error("Failed to open directory picker. Ensure you are running the desktop app.")
+      console.warn("Tauri dialog not available:", e);
+    }
+
+    // 2. HTML5 File System Access API (showDirectoryPicker) for Web Browsers
+    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker();
+        if (dirHandle && dirHandle.name) {
+          const currentVal = type === 'local' ? localBackupPath : type === 'server' ? serverBackupPath : versionsPath;
+          const defaultSuggestion = currentVal 
+            ? `${currentVal.replace(/[/\\]+$/, '')}\\${dirHandle.name}` 
+            : `Z:\\${dirHandle.name}`;
+
+          const userConfirmedPath = window.prompt(
+            `Selected folder: "${dirHandle.name}"\n\nPlease confirm or enter the full shared network / local disk path for your organization:`,
+            defaultSuggestion
+          );
+
+          if (userConfirmedPath && userConfirmedPath.trim()) {
+            updatePathState(userConfirmedPath.trim());
+            return;
+          }
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn("showDirectoryPicker error:", err);
+      }
+    }
+
+    // 3. Fallback Prompt
+    const currentVal = type === 'local' ? localBackupPath : type === 'server' ? serverBackupPath : versionsPath;
+    const inputPath = window.prompt(
+      `Enter or paste the full directory path for ${title} (e.g., Z:\\Versions or \\\\server-m\\Versions):`,
+      currentVal || ''
+    );
+    if (inputPath && inputPath.trim()) {
+      updatePathState(inputPath.trim());
     }
   }
 
