@@ -163,7 +163,54 @@ The MEP Calculator features an intuitive sidebar navigation structure:
 
 ---
 
-## 📑 5. Generating & Exporting Engineering Reports (PDF & Excel)
+## 📜 5. How to Save & Restore Calculation Versions (Version Control)
+
+Version Control allows engineers to save named snapshots of their calculation sheets (e.g. *V1.0 - Concept Design*, *V2.0 - Final Client Submission*) and restore any past version with 1 click.
+
+```mermaid
+flowchart LR
+    Step1["1. Open Calculation Sheet"]
+    Step2["2. Click 'Save Version Snapshot'"]
+    Step3["3. Enter Tag (V1.0) & Notes"]
+    Step4["4. Open Version History"]
+    Step5["5. Click 'Restore Version'"]
+
+    Step1 --> Step2 --> Step3 --> Step4 --> Step5
+```
+
+### 💾 A. How to Save a Calculation Version Snapshot
+1. Open any calculator (e.g., *HVAC Duct Sizer*, *Plumbing Water Demand*, or *Electrical Cable Voltage Drop*).
+2. Enter your calculation inputs (CFM, Pipe GPM, Voltage, Cable Length, Lux).
+3. Click the purple **"Save Version Snapshot"** button at the top-right of the calculation workspace card.
+4. In the Version Popup:
+   - **Version Tag**: Enter a version identifier (e.g. `V1.0`, `V1.1`, or `V2.0-Final`).
+   - **Revision Description**: Add notes (e.g. *Updated duct friction factor per ASHRAE 2024*).
+5. Click **"Save Version"**.
+6. The snapshot is saved to local storage (`data/project_versions.json`) AND synchronized to Supabase Cloud DB (`project_versions`).
+
+---
+
+### 🕒 B. How to View Version History & Timeline
+1. Inside any calculator workspace, click the **"Version History"** tab (or click **"View History"**).
+2. A chronological timeline of all saved calculation snapshots is displayed, showing:
+   - **Version Tag** (e.g. `V1.0`, `V1.1`)
+   - **Author Name** (e.g. *John Doe - Sr. Design Engineer*)
+   - **Timestamp** (e.g. *24 Aug 2026, 11:40 AM*)
+   - **Revision Notes** (e.g. *Initial Duct Sizing for Tower A*)
+
+---
+
+### 🔄 C. How to Restore a Historical Version Snapshot
+1. Open the **Version History Timeline**.
+2. Locate the historical version you want to restore (e.g. `V1.0`).
+3. Click the green **"Restore Version"** button next to that version item.
+4. Click **"Confirm Restore"** on the confirmation popup.
+5. **Instant Hydration**: Your current workspace inputs and calculation outputs immediately revert to the exact parameters of that historical version!
+6. A notification banner displays: *"Restored to Version V1.0"*.
+
+---
+
+## 📑 6. Generating & Exporting Engineering Reports (PDF & Excel)
 
 1. **How to Export PDF Reports**:
    - Open any calculator (e.g. *Duct Sizer* or *Cable Voltage Drop*).
