@@ -1,3 +1,14 @@
+if (typeof globalThis !== 'undefined') {
+  if (!(globalThis as any).AsyncLocalStorage) {
+    (globalThis as any).AsyncLocalStorage = class AsyncLocalStorage {
+      getStore() { return undefined; }
+      run(store: any, fn: any) { return fn(); }
+      enterWith() {}
+      disable() {}
+    };
+  }
+}
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,

@@ -20,7 +20,7 @@ export default defineConfig({
       },
       proxy: {
         '/api': {
-          target: 'https://universal-mep-calculator.onrender.com',
+          target: 'https://mep-calculator.onrender.com',
           changeOrigin: true,
           secure: false,
         },
