@@ -98,6 +98,10 @@ setTimeout(() => {
 function patchTauriCSR() {
   console.log('\nApplying Tauri CSR patch...');
   const assetsDir = path.join(__dirname, 'dist-nitro-2', 'public', 'assets');
+  if (!fs.existsSync(assetsDir)) {
+    console.warn('⚠️  assetsDir not found, skipping patch.');
+    return;
+  }
   const files = fs.readdirSync(assetsDir).filter(f => f.startsWith('index-') && f.endsWith('.js'));
 
   if (files.length === 0) {
