@@ -5,10 +5,31 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import path from "path";
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+const asyncHooksPolyfill = {
+  name: 'async-hooks-polyfill',
+  resolveId(id: string) {
+    if (id === 'node:async_hooks' || id === 'async_hooks') {
+      return id;
+    }
+  },
+  load(id: string) {
+    if (id === 'node:async_hooks' || id === 'async_hooks') {
+      return `
+        export class AsyncLocalStorage {
+          getStore() { return undefined; }
+          run(store, fn) { return typeof fn === 'function' ? fn() : fn; }
+          enterWith() {}
+          disable() {}
+        }
+        export default { AsyncLocalStorage };
+      `;
+    }
+  }
+};
 
 export default defineConfig({
   vite: {
+    plugins: [asyncHooksPolyfill],
     clearScreen: false,
     server: {
       host: true,
