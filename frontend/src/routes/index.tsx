@@ -325,17 +325,25 @@ interface InlineInputProps {
 function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled }: InlineInputProps) {
   const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
   const isEffectiveDisabled = disabled || isReadOnly;
-  const [localVal, setLocalVal] = useState(String(value));
+
+  const getCleanVal = (val: any) => {
+    if (val === undefined || val === null || val === "undefined" || val === "null") {
+      return "";
+    }
+    return String(val);
+  };
+
+  const [localVal, setLocalVal] = useState(getCleanVal(value));
 
   useEffect(() => {
-    setLocalVal(String(value));
+    setLocalVal(getCleanVal(value));
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
-      setLocalVal(String(value));
+      setLocalVal(getCleanVal(value));
       e.currentTarget.blur();
     }
   };
@@ -354,22 +362,15 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       }}
       onBlur={() => {
         if (isEffectiveDisabled) {
-          setLocalVal(String(value));
+          setLocalVal(getCleanVal(value));
           return;
         }
-        if (localVal !== String(value)) {
+        if (localVal !== getCleanVal(value)) {
           onCommit(localVal);
         }
       }}
       onKeyDown={handleKeyDown}
       onClick={(e) => {
-        e.stopPropagation();
-        if (isEffectiveDisabled) {
-          e.preventDefault();
-          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-        }
-      }}
-      onDoubleClick={(e) => e.stopPropagation()}
       className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
         isEffectiveDisabled 
           ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent" 
@@ -2008,8 +2009,10 @@ function SpacesView() {
 
   const columns: Column<Space>[] = [
     { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => {
-      const displayName = (!r.name || r.name === "undefined" || r.name === "null" || String(r.name).trim() === "")
-        ? (r.zone && r.zone !== "Default" && r.zone !== "Unzoned" ? r.zone : `Space ${r.code || (r.id ? String(r.id).slice(-4) : '')}`)
+      const rawStr = String(r.name || "").trim();
+      const isBadName = !rawStr || rawStr === "undefined" || rawStr === "null";
+      const displayName = isBadName
+        ? (r.zone && r.zone !== "Default" && r.zone !== "Unzoned" && !String(r.zone).startsWith("zone-") ? `${r.zone} Space` : `Space ${r.code || (r.id ? String(r.id).slice(-4) : '')}`)
         : r.name;
       return (
         <div className="flex items-center gap-1.5 w-full">
