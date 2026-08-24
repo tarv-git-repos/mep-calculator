@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState, useMemo } from 'react'
-import { Loader2, Plus, Users, HardDrive, LogOut, FolderOpen, Save, ArrowLeft, Megaphone, Trash2, Filter, Crown, ShieldCheck, Activity, Search, FileText, UserCheck, Eye, Edit3, Key, Clock, BarChart3, ChevronRight } from "lucide-react"
+import { Loader2, Plus, Users, HardDrive, LogOut, FolderOpen, Save, ArrowLeft, Megaphone, Trash2, Filter, Crown, ShieldCheck, Activity, Search, FileText, UserCheck, Eye, Edit3, Key, Clock, BarChart3, ChevronRight, Lock } from "lucide-react"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { api } from '@/services/api'
