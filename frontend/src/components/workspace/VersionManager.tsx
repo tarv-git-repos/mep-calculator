@@ -211,6 +211,21 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
 
       updateActiveVersion(versionStr);
 
+      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+
+      // Cache version entry in local browser storage
+      try {
+        const cacheKey = `mep_version_cache_${safeProjectName}_${safeCalculatorName}`;
+        const currentCache = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+        const filteredCache = Array.isArray(currentCache) ? currentCache.filter((item: any) => {
+          const vStr = item._versionMetadata?.version || item.version;
+          return String(vStr).toUpperCase() !== versionStr.toUpperCase();
+        }) : [];
+        filteredCache.unshift(payload);
+        localStorage.setItem(cacheKey, JSON.stringify(filteredCache));
+      } catch (e) {}
+
       // 1. Sync to server database so ALL project members see the saved version
       try {
         await api.saveVersionToServer(projectName, calculatorName, payload);
@@ -224,8 +239,6 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       if (isTauri && basePath) {
         try {
           const safeBasePath = basePath.replace(/['"]/g, '');
-          const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
-          const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
           const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
 
           const dirExists = await exists(projectDir);
@@ -395,31 +408,60 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
   const handleOpenHistory = async () => {
     try {
       const historyMap = new Map<string, any>();
+      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
 
-      // 1. Fetch shared team versions from server (visible to all project members)
+      // 1. Fetch browser-cached versions for this project & calculator
+      try {
+        const cacheKey = `mep_version_cache_${safeProjectName}_${safeCalculatorName}`;
+        const localCache = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+        if (Array.isArray(localCache)) {
+          localCache.forEach((item: any) => {
+            const meta = item._versionMetadata || {};
+            const vNum = meta.version || item.version || 'V0';
+            const vKey = String(vNum).toUpperCase();
+            historyMap.set(vKey, {
+              version: vNum,
+              description: meta.description || item.description || `Version ${vNum}`,
+              user: meta.createdBy || meta.user || item.user || 'System User',
+              createdBy: meta.createdBy || meta.user || item.user || 'System User',
+              createdAt: meta.createdAt || meta.timestamp || item.timestamp || new Date().toISOString(),
+              editedBy: meta.editedBy || item.editedBy || null,
+              lastEditedAt: meta.lastEditedAt || item.lastEditedAt || null,
+              timestamp: meta.timestamp || item.timestamp || new Date().toISOString(),
+              parsedData: meta.version ? (item.data || item) : item
+            });
+          });
+        }
+      } catch (e) {}
+
+      // 2. Fetch shared team versions from server (visible to all project members)
       try {
         const serverVersions = await api.getVersionsFromServer(projectName, calculatorName);
         if (Array.isArray(serverVersions)) {
           serverVersions.forEach((item: any) => {
-            const vKey = item.version || item.id;
-            historyMap.set(vKey, {
-              version: item.version,
-              description: item.description,
-              user: item.createdBy || item.user,
-              createdBy: item.createdBy || item.user,
-              createdAt: item.createdAt || item.timestamp,
-              editedBy: item.editedBy || null,
-              lastEditedAt: item.lastEditedAt || null,
-              timestamp: item.timestamp,
-              parsedData: item.data || item.parsedData || item.payload
-            });
+            const vNum = item.version || item.id;
+            const vKey = String(vNum).toUpperCase();
+            if (!historyMap.has(vKey)) {
+              historyMap.set(vKey, {
+                version: vNum,
+                description: item.description,
+                user: item.createdBy || item.user,
+                createdBy: item.createdBy || item.user,
+                createdAt: item.createdAt || item.timestamp,
+                editedBy: item.editedBy || null,
+                lastEditedAt: item.lastEditedAt || null,
+                timestamp: item.timestamp,
+                parsedData: item.data || item.parsedData || item.payload
+              });
+            }
           });
         }
       } catch (e) {
         console.warn('Server version list warning:', e);
       }
 
-      // 2. Fetch local versions from disk if running in desktop app
+      // 3. Fetch local versions from disk if running in desktop app
       const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
       const candidateBasePaths = [
         localStorage.getItem('versionsPath'),
@@ -427,9 +469,6 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
         'Z:\\Versions',
         'Z:/Versions'
       ].filter(Boolean).map(p => String(p).replace(/['"]/g, ''));
-
-      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
-      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
 
       for (const basePath of candidateBasePaths) {
         if (isTauri && basePath) {
@@ -447,7 +486,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                     const meta = parsed._versionMetadata || {};
                     const vNum = meta.version || entry.name.replace(/\.json$/i, '').toUpperCase();
                     const vData = meta.version ? (parsed.data || parsed) : parsed;
-                    const vKey = vNum;
+                    const vKey = String(vNum).toUpperCase();
                     
                     if (!historyMap.has(vKey)) {
                       historyMap.set(vKey, {

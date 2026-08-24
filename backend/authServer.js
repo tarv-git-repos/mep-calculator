@@ -3238,8 +3238,8 @@ const server = http.createServer(async (req, res) => {
 
     try {
       let query = supabase.from('project_versions').select('*');
-      if (proj) query = query.eq('project_name', proj);
-      if (calc) query = query.eq('calculator_name', calc);
+      if (proj) query = query.ilike('project_name', proj);
+      if (calc) query = query.ilike('calculator_name', calc);
       const { data: sbData, error } = await query;
       if (!error && Array.isArray(sbData) && sbData.length > 0) {
         const sbMapped = sbData.map(v => ({
@@ -3269,22 +3269,33 @@ const server = http.createServer(async (req, res) => {
       }
     } catch (e) {}
 
-    // Also scan disk backup folders on server for existing version files (e.g. Z:\Versions\{proj}\{calc} or ./Versions)
+    // Also scan disk backup folders on server for existing version files (e.g. Z:\Versions\{proj}\{calc} or org versions_path)
     const diskDirsToScan = [];
     if (proj && calc) {
       const safeProj = String(proj).replace(/[<>:"/\\|?*]/g, '_');
       const safeCalc = String(calc).replace(/[<>:"/\\|?*]/g, '_');
+
+      let orgVersionsPath = '';
+      if (user && user.organization_id) {
+        try {
+          const fileSettings = readOrgSettings();
+          const targetKey = user.organization_id || 'GLOBAL';
+          orgVersionsPath = fileSettings[targetKey]?.versions_path || fileSettings['GLOBAL']?.versions_path || '';
+        } catch (e) {}
+      }
       
       const candidatePaths = [
         `Z:\\Versions\\${safeProj}\\${safeCalc}`,
         `Z:/Versions/${safeProj}/${safeCalc}`,
+        orgVersionsPath ? path.join(orgVersionsPath.replace(/['"]/g, ''), safeProj, safeCalc) : null,
+        orgVersionsPath ? `${orgVersionsPath.replace(/['"]/g, '')}\\${safeProj}\\${safeCalc}` : null,
         path.join(process.cwd(), 'Versions', safeProj, safeCalc),
         path.join(__dirname, '..', 'Versions', safeProj, safeCalc)
-      ];
+      ].filter(Boolean);
       
       candidatePaths.forEach(p => {
         try {
-          if (fs.existsSync(p)) diskDirsToScan.push(p);
+          if (fs.existsSync(p) && !diskDirsToScan.includes(p)) diskDirsToScan.push(p);
         } catch (e) {}
       });
     }
@@ -3292,7 +3303,6 @@ const server = http.createServer(async (req, res) => {
     diskDirsToScan.forEach(dirPath => {
       try {
         const files = fs.readdirSync(dirPath);
-        const versionRegex = /^v(\d+)\.json$/i;
         files.forEach(fileName => {
           if (fileName.toLowerCase().endsWith('.json')) {
             try {
@@ -3321,6 +3331,7 @@ const server = http.createServer(async (req, res) => {
                   createdAt: meta.createdAt || meta.timestamp || fileStat.birthtime.toISOString(),
                   editedBy: meta.editedBy || null,
                   lastEditedAt: meta.lastEditedAt || null,
+                  organization_id: user.organization_id || null,
                   timestamp: meta.timestamp || fileStat.mtime.toISOString(),
                   data: vData
                 });
