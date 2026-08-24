@@ -447,6 +447,19 @@ async function getUserFromReq(req) {
         await supabase.from('custom_users').update({ status: 'active', isAccountVerified: true }).eq('id', user.id);
       } catch (e) {}
     }
+
+    if (user.organization_id) {
+      try {
+        const fileSettings = readOrgSettings();
+        const orgObj = Object.values(fileSettings).find(o => o && (o.id === user.organization_id || o.name === user.organization_id));
+        if (orgObj && orgObj.name) {
+          user.organization_name = orgObj.name;
+          user.company = orgObj.name;
+          user.organization = orgObj.name;
+        }
+      } catch (e) {}
+    }
+
     return user;
   } catch (e) {
     return null;
@@ -1090,16 +1103,27 @@ const server = http.createServer(async (req, res) => {
       }
     }
     
-    const safeUsers = filteredUsers.map(u => ({ 
-      id: u.id, 
-      name: u.name, 
-      email: u.email, 
-      role: u.role,
-      features: u.features,
-      subscription_expires: u.subscription_expires,
-      isAccountVerified: u.isAccountVerified,
-      organization_id: u.organization_id
-    }));
+    const fileSettings = readOrgSettings();
+    const safeUsers = filteredUsers.map(u => {
+      let resolvedCompany = u.company || u.organization_name || u.organization || '';
+      if (u.organization_id && (!resolvedCompany || resolvedCompany === 'Consitent')) {
+        const orgObj = Object.values(fileSettings).find(o => o && (o.id === u.organization_id || o.name === u.organization_id));
+        if (orgObj && orgObj.name) resolvedCompany = orgObj.name;
+      }
+      return { 
+        id: u.id, 
+        name: u.name, 
+        email: u.email, 
+        role: u.role,
+        features: u.features,
+        subscription_expires: u.subscription_expires,
+        isAccountVerified: u.isAccountVerified,
+        organization_id: u.organization_id,
+        company: resolvedCompany,
+        organization_name: resolvedCompany,
+        organization: resolvedCompany
+      };
+    });
     return sendJSON(res, 200, { success: true, users: safeUsers });
   }
 
@@ -2217,6 +2241,7 @@ const server = http.createServer(async (req, res) => {
           localUsers[userIndex].organization_id = targetOrg.id;
           localUsers[userIndex].organization_name = targetOrg.name;
           localUsers[userIndex].organization = targetOrg.name;
+          localUsers[userIndex].company = targetOrg.name;
           localUsers[userIndex].plan = newPlan;
           localUsers[userIndex].subscription_expires = oneYearFromNow;
           if (!localUsers[userIndex].features) localUsers[userIndex].features = {};
@@ -2231,6 +2256,8 @@ const server = http.createServer(async (req, res) => {
           await supabase.from('custom_users').update({
             organization_id: targetOrg.id,
             organization_name: targetOrg.name,
+            organization: targetOrg.name,
+            company: targetOrg.name,
             plan: newPlan,
             subscription_expires: oneYearFromNow,
             features: {

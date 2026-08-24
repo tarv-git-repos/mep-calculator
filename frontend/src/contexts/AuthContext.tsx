@@ -174,7 +174,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (Array.isArray(allUsers)) {
           const match = allUsers.find((u: any) => u.email?.toLowerCase() === currentEmail.toLowerCase());
           if (match) {
-            setUserDataState(prev => prev ? { ...prev, ...match } : match);
+            setUserDataState(prev => {
+              const updated = prev ? { ...prev, ...match } : match;
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(updated));
+                if (updated.company && updated.company !== 'Consitent' && updated.id) {
+                  localStorage.setItem(`mep_user_company_${updated.id}`, updated.company);
+                }
+              }
+              return updated;
+            });
           }
         }
       }

@@ -145,26 +145,32 @@ export function SettingsPage() {
         
         // 1. Match orgId in organizations list
         if (userOrgId && Array.isArray(orgs)) {
-          const match = orgs.find((o: any) => o.id === userOrgId);
+          const match = orgs.find((o: any) => o.id === userOrgId || o.name === userOrgId);
           if (match && match.name) {
             setAssignedOrgName(match.name);
             setCompany(match.name);
+            if (typeof window !== 'undefined' && currentId) {
+              localStorage.setItem(`mep_user_company_${currentId}`, match.name);
+            }
             return;
           }
         }
 
         // 2. Direct organization/company field assigned by Admin
         const directOrg = myRecord?.organization || myRecord?.company || profile?.organization || profile?.company || userData?.organization || userData?.company;
-        if (directOrg && directOrg.trim()) {
+        if (directOrg && directOrg.trim() && directOrg.trim() !== 'Consitent') {
           setAssignedOrgName(directOrg.trim());
           setCompany(directOrg.trim());
+          if (typeof window !== 'undefined' && currentId) {
+            localStorage.setItem(`mep_user_company_${currentId}`, directOrg.trim());
+          }
           return;
         }
 
         // 3. Fallback check for local storage cached company
         if (typeof window !== 'undefined' && currentId) {
           const cachedUserCompany = localStorage.getItem(`mep_user_company_${currentId}`);
-          if (cachedUserCompany && cachedUserCompany.trim()) {
+          if (cachedUserCompany && cachedUserCompany.trim() && cachedUserCompany.trim() !== 'Consitent') {
             setAssignedOrgName(cachedUserCompany.trim());
             setCompany(cachedUserCompany.trim());
             return;
@@ -755,7 +761,7 @@ export function SettingsPage() {
                 </div>
                 <input
                   type="text"
-                  value={assignedOrgName || company || profile?.company || userData?.company || ((profile?.organization_id || userData?.organization_id) ? "Consitent" : "")}
+                  value={assignedOrgName || company || profile?.company || userData?.company || ""}
                   disabled={Boolean(assignedOrgName || company || profile?.company || userData?.company || profile?.organization_id || userData?.organization_id)}
                   onChange={(e) => setCompany(e.target.value)}
                   placeholder="No Organization Assigned"
