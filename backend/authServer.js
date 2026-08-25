@@ -1401,7 +1401,7 @@ const server = http.createServer(async (req, res) => {
       }
     } catch (e) {
       try {
-        const { data: simpleData } = await supabase.from('projects').select('*');
+        const { data: simpleData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, organization_id, status');
         if (Array.isArray(simpleData)) projects = simpleData;
       } catch (err) {}
     }
@@ -3238,6 +3238,9 @@ const server = http.createServer(async (req, res) => {
 
     try {
       let query = supabase.from('project_versions').select('*');
+      if (user.role !== 'SUPER_ADMIN' && user.organization_id) {
+        query = query.or(`organization_id.eq.${user.organization_id},organization_id.is.null`);
+      }
       if (proj) query = query.ilike('project_name', proj);
       if (calc) query = query.ilike('calculator_name', calc);
       const { data: sbData, error } = await query;
