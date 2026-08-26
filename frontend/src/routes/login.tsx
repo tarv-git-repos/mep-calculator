@@ -216,19 +216,11 @@ function Login() {
     try {
       const res = await authService.verifyAccount(otpCode, email);
       if (res.success) {
-        toast.success(res.message || 'Email verified successfully!');
-        if (res.token) {
-          localStorage.setItem('auth_token', res.token);
-        }
-        if (res.userData) {
-          setUserData(res.userData);
-          localStorage.setItem('mep_user_data', JSON.stringify(res.userData));
-          localStorage.setItem('mep_profile', JSON.stringify(res.userData));
-        } else if (userData) {
-          setUserData({ ...userData, isAccountVerified: true });
-        }
-        window.dispatchEvent(new CustomEvent('mep_auth_changed'));
-        navigate({ to: '/' });
+        clearAllAuthStorage();
+        toast.success('Email verified successfully! Please log in with your email and password.');
+        setMode('Login');
+        setOtpArray(Array(6).fill(''));
+        setPassword('');
       } else {
         toast.error(res.message || 'Invalid or expired OTP code.');
       }
