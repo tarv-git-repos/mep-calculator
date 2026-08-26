@@ -79,6 +79,13 @@ export const authService = {
         email,
         password,
       });
+      if (data.success && data.token) {
+        localStorage.setItem('auth_token', data.token);
+        if (data.userData) {
+          localStorage.setItem('mep_user_data', JSON.stringify(data.userData));
+          localStorage.setItem('mep_profile', JSON.stringify(data.userData));
+        }
+      }
       return data;
     } catch (error: any) {
       return {
@@ -193,6 +200,13 @@ export const authService = {
         otp,
         email,
       });
+      if (data.success && data.token) {
+        localStorage.setItem('auth_token', data.token);
+        if (data.userData) {
+          localStorage.setItem('mep_user_data', JSON.stringify(data.userData));
+          localStorage.setItem('mep_profile', JSON.stringify(data.userData));
+        }
+      }
       return data;
     } catch (error: any) {
       return {
