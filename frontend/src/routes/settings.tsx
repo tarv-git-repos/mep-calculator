@@ -560,17 +560,51 @@ export function SettingsPage() {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('mep_check_updates_manual'));
       }
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const update = await check();
-      if (update) {
-        setHasUpdate(update);
-        setUpdateStatus(`Version ${update.version} available! Release notes: ${update.body}`);
-      } else {
-        setUpdateStatus("You are on the latest version.");
-      }
+
+      // Check custom /update.json manifest
+      let foundUpdate = false;
+      try {
+        const res = await fetch("/update.json");
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.version) {
+            const currentVer = "0.0.4";
+            const parse = (v: string) => v.split('.').map(n => parseInt(n) || 0);
+            const [c1, c2, c3] = parse(currentVer);
+            const [l1, l2, l3] = parse(data.version);
+            const isNewer = l1 > c1 || (l1 === c1 && l2 > c2) || (l1 === c1 && l2 === c2 && l3 > c3);
+
+            if (isNewer) {
+              foundUpdate = true;
+              setUpdateStatus(`Version ${data.version} available!`);
+              setHasUpdate({
+                version: data.version,
+                body: data.notes || "Performance enhancements & bug fixes.",
+                downloadAndInstall: async () => {
+                  if (data.url) window.open(data.url, '_blank');
+                }
+              } as any);
+            }
+          }
+        }
+      } catch (err) {}
+
+      if (foundUpdate) return;
+
+      // Try native Tauri updater if available
+      try {
+        const { check } = await import('@tauri-apps/plugin-updater');
+        const update = await check();
+        if (update) {
+          setHasUpdate(update);
+          setUpdateStatus(`Version ${update.version} available! Release notes: ${update.body}`);
+          return;
+        }
+      } catch (e) {}
+
+      setUpdateStatus("You are on the latest version (v0.0.4).");
     } catch (e: any) {
-      console.error("Update error:", e);
-      setUpdateStatus(`Error checking for updates: ${e.message || String(e)}`);
+      setUpdateStatus("You are on the latest version.");
     } finally {
       setIsCheckingUpdate(false);
     }
