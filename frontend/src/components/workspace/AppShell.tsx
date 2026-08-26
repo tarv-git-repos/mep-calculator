@@ -7,7 +7,7 @@ import {
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
   Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2
 } from "lucide-react";
-import { useWorkspace } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { toast } from "sonner";
@@ -1376,8 +1376,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           savePageInputs(project.id, pathname);
         }
         triggerSave();
-        forceSaveToCloud();
-        workspaceStore.forceSaveToCloud(true);
+        if (forceSaveToCloud) forceSaveToCloud();
         const calcTitle = getCalculatorTitleFromPath(pathname) || 'Calculation';
         logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
         toast.success("💾 Saved successfully to Cloud & Disk! (Ctrl+S)", { id: "ctrl-s-save" });

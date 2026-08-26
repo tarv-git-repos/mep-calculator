@@ -244,12 +244,12 @@ async function readUsers(forceRefresh = false) {
       });
       users = users.filter(u => u.email !== 'parassadafuule05@gmail.com');
       
-      // Auto-clean expired unverified ghost accounts
+      // Auto-clean expired unverified ghost accounts (only if expire timestamp is explicitly in the past)
       const nowTs = Date.now();
       const staleUnverified = users.filter(u => 
         u.isAccountVerified === false && 
-        ((u.verifyOtpExpireAt && u.verifyOtpExpireAt < nowTs) || 
-         (u.createdAt && (nowTs - new Date(u.createdAt).getTime() > 24 * 60 * 60 * 1000)))
+        ((u.verifyOtpExpireAt && Number(u.verifyOtpExpireAt) > 0 && Number(u.verifyOtpExpireAt) < nowTs) || 
+         (u.createdAt && !isNaN(new Date(u.createdAt).getTime()) && (nowTs - new Date(u.createdAt).getTime() > 24 * 60 * 60 * 1000)))
       );
 
       if (staleUnverified.length > 0) {
@@ -741,9 +741,17 @@ const server = http.createServer(async (req, res) => {
   // 4. SEND VERIFY OTP
   if (req.method === 'POST' && url === '/api/auth/send-verify-otp') {
     const { email } = await getRequestBody(req);
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const users = await readUsers(true);
     const userFromToken = await getUserFromReq(req);
-    const users = await readUsers();
-    const user = userFromToken || users.find((u) => u.email === (email || '').trim().toLowerCase());
+
+    let user = null;
+    if (cleanEmail) {
+      user = users.find((u) => u.email === cleanEmail);
+    }
+    if (!user && userFromToken) {
+      user = users.find((u) => u.id === userFromToken.id || u.email === userFromToken.email);
+    }
 
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'User not found' });
@@ -758,6 +766,7 @@ const server = http.createServer(async (req, res) => {
     user.verifyOtpExpireAt = Date.now() + 24 * 60 * 60 * 1000;
 
     await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    invalidateUserCache();
 
     const mailOption = {
       from: SENDER_EMAIL,
@@ -768,11 +777,11 @@ const server = http.createServer(async (req, res) => {
         .replace(/\{\{name\}\}/g, user.name),
     };
 
-      try {
-        await transporter.sendMail(mailOption);
-      } catch (err) {
-        console.error('OTP resend mail error:', err);
-      }
+    try {
+      await transporter.sendMail(mailOption);
+    } catch (err) {
+      console.error('OTP resend mail error:', err);
+    }
 
     return sendJSON(res, 200, { success: true, message: 'Verification OTP Sent to Email' });
   }
@@ -780,15 +789,25 @@ const server = http.createServer(async (req, res) => {
   // 5. VERIFY ACCOUNT (OTP CONFIRMATION)
   if (req.method === 'POST' && url === '/api/auth/verify-account') {
     const { otp, email } = await getRequestBody(req);
-    const userFromToken = await getUserFromReq(req);
 
     if (!otp) {
       return sendJSON(res, 200, { success: false, message: 'Missing 6-digit OTP' });
     }
 
-    const users = await readUsers();
     const cleanEmail = (email || '').trim().toLowerCase();
-    const user = userFromToken || users.find((u) => u.email === cleanEmail || (u.verifyOtp && u.verifyOtp === String(otp).trim()));
+    const users = await readUsers(true);
+    const userFromToken = await getUserFromReq(req);
+
+    let user = null;
+    if (cleanEmail) {
+      user = users.find((u) => u.email === cleanEmail);
+    }
+    if (!user && userFromToken) {
+      user = users.find((u) => u.id === userFromToken.id || u.email === userFromToken.email);
+    }
+    if (!user) {
+      user = users.find((u) => u.verifyOtp && String(u.verifyOtp).trim() === String(otp).trim());
+    }
 
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'User not found' });
@@ -798,29 +817,33 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Invalid OTP code' });
     }
 
-    if (user.verifyOtpExpireAt < Date.now()) {
+    if (user.verifyOtpExpireAt && Number(user.verifyOtpExpireAt) > 0 && Number(user.verifyOtpExpireAt) < Date.now()) {
       return sendJSON(res, 200, { success: false, message: 'OTP Expired. Please click Resend OTP.' });
     }
 
     user.isAccountVerified = true;
+    user.status = 'active';
     user.verifyOtp = '';
     user.verifyOtpExpireAt = 0;
 
-    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    const updatedUsers = users.map((u) => (u.id === user.id ? user : u));
+    await writeUsers(updatedUsers);
+    invalidateUserCache();
 
-    return sendJSON(res, 200, {
-      success: true,
-      message: 'Email Verified Successfully',
-      userData: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        isAccountVerified: true,
-        role: user.role,
-        features: user.features || {},
-        subscription_expires: user.subscription_expires,
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    const cookieStr = `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`;
+
+    return sendJSON(
+      res,
+      200,
+      {
+        success: true,
+        token,
+        message: 'Email Verified Successfully',
+        userData: await formatUser(user),
       },
-    });
+      cookieStr
+    );
   }
 
   if (req.method === 'GET' && url === '/api/auth/is-auth') {
