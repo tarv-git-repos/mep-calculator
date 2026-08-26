@@ -64,6 +64,9 @@ let isHeartbeatEndpointAvailable = true;
 export const api = {
   // USERS
   async getUsers() {
+    if (typeof window !== 'undefined' && window.location.pathname.includes('/login')) {
+      return [];
+    }
     let usersList: any[] = [];
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/users/list`);
@@ -261,6 +264,9 @@ export const api = {
 
   // PROJECTS
   async getProjects() {
+    if (typeof window !== 'undefined' && window.location.pathname.includes('/login')) {
+      return [];
+    }
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/projects/list`);
       return data.success ? data.projects : [];
