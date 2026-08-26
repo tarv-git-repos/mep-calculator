@@ -565,7 +565,13 @@ const server = http.createServer(async (req, res) => {
           console.error('OTP email error:', err);
           return sendJSON(res, 200, { success: false, message: 'Failed to send OTP email.' });
         }
-        transporter.sendMail(welcomeMailOptions).catch(err => console.error('Welcome mail background error:', err));
+        setTimeout(async () => {
+          try {
+            await transporter.sendMail(welcomeMailOptions);
+          } catch (err) {
+            console.error('Welcome mail background error:', err);
+          }
+        }, 1000);
 
         return sendJSON(
           res,
@@ -640,7 +646,14 @@ const server = http.createServer(async (req, res) => {
       console.error('OTP Email error:', err);
       return sendJSON(res, 200, { success: false, message: 'Failed to send OTP email.' });
     }
-    transporter.sendMail(welcomeMailOptions).catch(err => console.error('Welcome mail background error:', err));
+
+    setTimeout(async () => {
+      try {
+        await transporter.sendMail(welcomeMailOptions);
+      } catch (err) {
+        console.error('Welcome mail background error:', err);
+      }
+    }, 1000);
 
     logActivity(newUser, 'REGISTER', 'User registered directly');
 
