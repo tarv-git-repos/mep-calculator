@@ -518,6 +518,25 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  // AUTO UPDATE MANIFEST ROUTE
+  if (req.method === 'GET' && (url === '/update.json' || url === '/api/update.json')) {
+    const updatePath = path.join(__dirname, '../frontend/public/update.json');
+    try {
+      if (fs.existsSync(updatePath)) {
+        const content = fs.readFileSync(updatePath, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        return res.end(content);
+      }
+    } catch (e) {}
+    return sendJSON(res, 200, {
+      version: "0.0.4",
+      pub_date: new Date().toISOString(),
+      notes: "• Fix email signup OTP verification and account activation.\n• Fix background prefetch console 401 logs.\n• Add Resend API rate-limiting compliance for dual welcome and OTP email delivery.",
+      url: "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.4_x64-setup.exe",
+      mandatory: false
+    });
+  }
+
   // 1. REGISTER
   if (req.method === 'POST' && url === '/api/auth/register') {
     const { name, email, password } = await getRequestBody(req);

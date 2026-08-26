@@ -1,11 +1,12 @@
 {
-  "version": "0.0.3",
-  "notes": "MEP Calculator update with dynamic organization storage paths, full version history restoration, and read-only state locking.",
-  "pub_date": "2026-08-24T17:15:00Z",
+  "version": "0.0.4",
+  "notes": "• Fix signup OTP verification and account activation.\n• Fix background prefetch console 401 logs on login screen.\n• Add Resend API rate-limiting compliance for dual welcome and OTP email delivery.",
+  "pub_date": "2026-08-26T12:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "",
-      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.3_x64-setup.nsis.zip"
+      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.4_x64-setup.exe"
     }
-  }
+  },
+  "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.4_x64-setup.exe",
+  "mandatory": false
 }

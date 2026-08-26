@@ -1,12 +1,12 @@
 {
-  "version": "0.0.3",
-  "pub_date": "2026-08-24T12:00:00Z",
-  "notes": "• Security & Multi-Tenant Organization Isolation Updates\n• Automatic role assignment for Jr. Design Engineers\n• Performance & calculation memory optimizations",
+  "version": "0.0.4",
+  "pub_date": "2026-08-26T12:00:00Z",
+  "notes": "• Fix signup OTP verification and account activation.\n• Fix background prefetch console 401 logs on login screen.\n• Add Resend API rate-limiting compliance for dual welcome and OTP email delivery.",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.3_x64-setup.exe"
+      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.4_x64-setup.exe"
     }
   },
-  "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.3_x64-setup.exe",
+  "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.4_x64-setup.exe",
   "mandatory": false
 }
