@@ -25,8 +25,11 @@ export const AutoUpdateModal: React.FC = () => {
           return;
         }
 
-        const res = await fetch("/update.json");
-        if (!res.ok) return;
+        let res = await fetch("/update.json").catch(() => null);
+        if (!res || !res.ok) {
+          res = await fetch("https://mep-calculator.onrender.com/update.json").catch(() => null);
+        }
+        if (!res || !res.ok) return;
         const data: UpdateInfo = await res.json();
 
         if (data && data.version && isNewerVersion(CURRENT_VERSION, data.version)) {

@@ -564,8 +564,11 @@ export function SettingsPage() {
       // Check custom /update.json manifest
       let foundUpdate = false;
       try {
-        const res = await fetch("/update.json");
-        if (res.ok) {
+        let res = await fetch("/update.json").catch(() => null);
+        if (!res || !res.ok) {
+          res = await fetch("https://mep-calculator.onrender.com/update.json").catch(() => null);
+        }
+        if (res && res.ok) {
           const data = await res.json();
           if (data && data.version) {
             const currentVer = "0.0.4";
