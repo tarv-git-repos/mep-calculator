@@ -1403,8 +1403,8 @@ document.addEventListener('drop', e => {
 });
 
 const keys = { w: 0, a: 0, s: 0, d: 0, q: 0, e: 0 };
-window.addEventListener('keydown', (e: KeyboardEvent) => e.key.toLowerCase() in keys && ((keys as any)[e.key.toLowerCase()] = 1));
-window.addEventListener('keyup', (e: KeyboardEvent) => e.key.toLowerCase() in keys && ((keys as any)[e.key.toLowerCase()] = 0));
+window.addEventListener('keydown', (e: KeyboardEvent) => e?.key && e.key.toLowerCase() in keys && ((keys as any)[e.key.toLowerCase()] = 1));
+window.addEventListener('keyup', (e: KeyboardEvent) => e?.key && e.key.toLowerCase() in keys && ((keys as any)[e.key.toLowerCase()] = 0));
 world.renderer!.onBeforeUpdate.add(() => {
     if (!ui.btnWalk.classList.contains('active')) return;
     const v = 0.5, c = world.camera.controls;

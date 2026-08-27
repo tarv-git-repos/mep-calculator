@@ -39,7 +39,7 @@ export default defineConfig({
       strictPort: true,
       fs: {
         strict: false,
-        allow: ['.', '..'],
+        allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.')],
       },
       proxy: {
         '/api': {
@@ -66,7 +66,7 @@ export default defineConfig({
       external: ['xlsx', 'jspdf', 'file-saver', 'jspdf-autotable', 'exceljs', 'iobuffer', 'dompurify', 'pako', '@tauri-apps/plugin-dialog', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process', '@tauri-apps/api'],
     },
     optimizeDeps: {
-      exclude: ['node:async_hooks', 'async_hooks', '@thatopen/components', '@thatopen/components-front', '@thatopen/fragments', 'web-ifc'],
+      exclude: ['@tanstack/react-start', 'node:async_hooks', 'async_hooks', '@thatopen/components', '@thatopen/components-front', '@thatopen/fragments', 'web-ifc'],
     },
   },
   nitro: {
