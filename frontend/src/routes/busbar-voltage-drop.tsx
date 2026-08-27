@@ -8,7 +8,10 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database, Upload } from "lucide-react";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { TaskComment } from "@/lib/ventilation-calc";
+import { toast } from "sonner";
+import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database, Upload, MessageSquare } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
@@ -41,6 +44,7 @@ interface BusbarVDRow {
   vd: number; // calculated
   vdPercent: number; // calculated
   cumulativeVd: number; // For groups this is input (parent VD), for nodes it is calculated
+  comments?: TaskComment[];
 }
 
 interface BusbarRatingDef {
@@ -123,6 +127,13 @@ function BusbarVoltageDropPage() {
   
   const [history, setHistory] = useState<BusbarVDRow[][]>([]);
   const [redoStack, setRedoStack] = useState<BusbarVDRow[][]>([]);
+
+  const [commentTarget, setCommentTarget] = useState<{
+    id: string;
+    name: string;
+    type: 'space' | 'zone' | 'equipment';
+  } | null>(null);
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
 
   const [globalRating, setGlobalRating] = useState<string>("1000 (Rt)");
   const [globalR, setGlobalR] = useState<number>(0.0523);
@@ -598,14 +609,33 @@ function BusbarVoltageDropPage() {
       render: (row) => {
         const idx = rows.findIndex(r => r.id === row.id);
         return (
-          <input
-            data-row-idx={idx}
-            data-col-idx={0}
-            className={`w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 ${row.isGroup ? 'font-bold' : ''}`}
-            value={row.ref}
-            onChange={(e) => updateRow(row.id, { ref: e.target.value })}
-            onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
-          />
+          <div className="flex items-center gap-1.5 w-full">
+            {row.comments && row.comments.length > 0 && (
+              <span 
+                className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
+                title={`${row.comments.length} comment(s):\n${row.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCommentTarget({
+                    id: row.id,
+                    name: row.tapOff || row.ref || row.from || `Busbar Row ${row.id}`,
+                    type: 'space'
+                  });
+                  setAssignCommentOpen(true);
+                }}
+              >
+                <MessageSquare className="size-3.5" />
+              </span>
+            )}
+            <input
+              data-row-idx={idx}
+              data-col-idx={0}
+              className={`w-full bg-transparent outline-none focus:ring-1 focus:ring-blue-500 rounded px-1 flex-1 ${row.isGroup ? 'font-bold' : ''}`}
+              value={row.ref}
+              onChange={(e) => updateRow(row.id, { ref: e.target.value })}
+              onFocus={() => { setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            />
+          </div>
         );
       },
     },
@@ -983,6 +1013,21 @@ function BusbarVoltageDropPage() {
                         <ContextMenuItem onClick={duplicateSelected} disabled={selected.size === 0}>
                           <Copy className="size-4 mr-2" /> Duplicate Selected
                         </ContextMenuItem>
+                        <ContextMenuItem 
+                          onClick={() => {
+                            if (row) {
+                              setCommentTarget({
+                                id: row.id,
+                                name: row.tapOff || row.ref || row.from || `Busbar Row ${row.id}`,
+                                type: 'space'
+                              });
+                              setAssignCommentOpen(true);
+                            }
+                          }}
+                          className="text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-4 mr-2" /> Add comment
+                        </ContextMenuItem>
                         <ContextMenuSeparator />
                         <ContextMenuItem 
                           onClick={deleteSelected} 
@@ -1015,6 +1060,44 @@ function BusbarVoltageDropPage() {
           </div>
         </div>
       </div>
+
+      {/* Assign Comment Modal Overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          onSave={(newComment) => {
+            pushToHistory(rows, history, setHistory, setRedoStack);
+            const updatedRows = rows.map(r => {
+              if (r.id === commentTarget.id) {
+                const comments = [...(r.comments || []), newComment];
+                return { ...r, comments };
+              }
+              return r;
+            });
+            setRows(computeAllRows(updatedRows, globalR, globalX));
+
+            if (project?.id) {
+              try {
+                localStorage.setItem(`mep_busbar_vd_calc_${project.id}`, JSON.stringify({
+                  rows: updatedRows,
+                  updatedAt: new Date().toISOString()
+                }));
+              } catch (e) {}
+            }
+            toast.success(`Comment assigned on "${commentTarget.name}"`);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent("mep-notification-added"));
+            }
+          }}
+        />
+      )}
     </AppShell>
   );
 }

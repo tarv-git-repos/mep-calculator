@@ -8,7 +8,8 @@ import {
   FileBarChart, 
   Trash2, 
   Cog,
-  Users
+  Users,
+  Box
 } from "lucide-react";
 
 export type NavLeaf = { label: string; to?: string; badge?: string; isHeader?: boolean };
@@ -19,6 +20,7 @@ export type NavItem =
 export const NAV: NavItem[] = [
   { kind: "item", label: "Dashboard", to: "/", icon: LayoutDashboard },
   { kind: "item", label: "Projects", to: "/projects", icon: FolderKanban },
+  { kind: "item", label: "BIM 3D Viewer", to: "/bim-viewer", icon: Box },
   {
     kind: "group", label: "HVAC", icon: Wind, defaultOpen: true,
     children: [

@@ -231,9 +231,9 @@ async function readUsers(forceRefresh = false) {
           role: effRole,
           company: u.company || loc.company || u.features?.company || '',
           designation: u.designation || loc.designation || u.features?.designation || '',
-          profile_photo: u.profile_photo || loc.profile_photo || u.features?.profile_photo || '',
+          profile_photo: u.profile_photo !== undefined && u.profile_photo !== null ? u.profile_photo : (u.features?.profile_photo !== undefined && u.features?.profile_photo !== null ? u.features.profile_photo : (loc.profile_photo || '')),
           settings: u.settings || loc.settings || u.features?.settings || {},
-          active_hwid: u.features?.active_hwid || u.active_hwid || loc.active_hwid || null,
+          active_hwid: loc.active_hwid || u.active_hwid || u.features?.active_hwid || null,
           subscription_expires: expDate,
           features: {
             ...(loc.features || {}),
@@ -248,20 +248,24 @@ async function readUsers(forceRefresh = false) {
       const nowTs = Date.now();
       const staleUnverified = users.filter(u => 
         u.isAccountVerified === false && 
-        ((u.verifyOtpExpireAt && Number(u.verifyOtpExpireAt) > 0 && Number(u.verifyOtpExpireAt) < nowTs) || 
-         (u.createdAt && !isNaN(new Date(u.createdAt).getTime()) && (nowTs - new Date(u.createdAt).getTime() > 24 * 60 * 60 * 1000)))
+        u.verifyOtpExpireAt && 
+        u.verifyOtpExpireAt < nowTs
       );
 
       if (staleUnverified.length > 0) {
-        users = users.filter(u => !staleUnverified.some(stale => stale.id === u.id));
-        for (const stale of staleUnverified) {
-          try {
-            await supabase.from('custom_users').delete().eq('id', stale.id).eq('isAccountVerified', false);
-          } catch (e) {}
-        }
+        const staleIds = new Set(staleUnverified.map(u => u.id));
+        users = users.filter(u => !staleIds.has(u.id));
+        const localUsersClean = (readLocalUsers() || []).filter(u => !staleIds.has(u.id));
+        saveLocalUsers(localUsersClean);
+        try {
+          await supabase.from('custom_users').delete().in('id', Array.from(staleIds));
+        } catch (e) {}
       }
 
+      usersCache = users;
+      usersCacheTime = now;
       saveLocalUsers(users);
+      return users;
     } else {
       users = localUsers;
     }
@@ -303,21 +307,22 @@ async function writeUsers(users) {
   invalidateUserCache();
   try {
     const safeUsers = users.map(u => {
-      const { privacyPolicyAccepted, active_hwid, company, designation, profile_photo, settings, ...user } = u;
+      const { privacyPolicyAccepted, company, designation, profile_photo, settings, ...user } = u;
       const expDate = user.subscription_expires || user.features?.subscription_expires || null;
       const features = {
         ...(user.features || {}),
         company: company || user.features?.company || '',
         designation: designation || user.features?.designation || '',
-        profile_photo: profile_photo || user.features?.profile_photo || '',
+        profile_photo: profile_photo !== undefined ? profile_photo : (user.features?.profile_photo || ''),
         settings: settings || user.features?.settings || {},
         subscription_expires: expDate
       };
-      if (active_hwid !== undefined) {
-        features.active_hwid = active_hwid;
+      if (u.active_hwid !== undefined) {
+        features.active_hwid = u.active_hwid;
       }
       return {
         ...user,
+        active_hwid: u.active_hwid || null,
         subscription_expires: expDate,
         features
       };
@@ -719,6 +724,24 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Invalid password' });
     }
 
+    // Enforce Organization User Limit (seat limit) check
+    const userOrgId = user.organization_id || user.features?.organization_id;
+    if (userOrgId && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
+      const localOrgs = readLocalOrgs();
+      const orgObj = localOrgs.find(o => o.id === userOrgId);
+      if (orgObj) {
+        const maxUsers = orgObj.max_users || 10;
+        const orgMembers = users.filter(u => u.organization_id === userOrgId || u.features?.organization_id === userOrgId);
+        const memberRank = orgMembers.findIndex(u => u.id === user.id || (u.email && u.email.toLowerCase() === cleanEmail));
+        if (memberRank >= maxUsers) {
+          return sendJSON(res, 200, {
+            success: false,
+            message: `Login blocked: Organization "${orgObj.name}" has reached its limit of ${maxUsers} user seat${maxUsers === 1 ? '' : 's'}. Contact your administrator.`
+          });
+        }
+      }
+    }
+
     // Automatically transition invited users to active status upon successful login
     if (user.status === 'invited' || !user.isAccountVerified) {
       user.status = 'active';
@@ -742,8 +765,16 @@ const server = http.createServer(async (req, res) => {
 
     if (hwid) {
       user.active_hwid = hwid;
+      if (!user.features) user.features = {};
+      user.features.active_hwid = hwid;
       users[userIndex] = user;
       await writeUsers(users);
+      try {
+        await supabase.from('custom_users').update({
+          active_hwid: hwid,
+          features: { ...(user.features || {}), active_hwid: hwid }
+        }).or(`id.eq.${user.id},email.eq.${user.email}`);
+      } catch (e) {}
     }
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
@@ -939,7 +970,11 @@ const server = http.createServer(async (req, res) => {
     if (name !== undefined && name.trim()) dbUser.name = name.trim();
     if (company !== undefined) dbUser.company = company.trim();
     if (designation !== undefined) dbUser.designation = designation.trim();
-    if (profile_photo !== undefined) dbUser.profile_photo = profile_photo;
+    if (profile_photo !== undefined) {
+      dbUser.profile_photo = profile_photo;
+      if (!dbUser.features) dbUser.features = {};
+      dbUser.features.profile_photo = profile_photo;
+    }
     if (settings !== undefined) dbUser.settings = { ...(dbUser.settings || {}), ...settings };
 
     if (newPassword) {
@@ -1140,11 +1175,9 @@ const server = http.createServer(async (req, res) => {
     if (user.role !== 'SUPER_ADMIN') {
       const myOrgId = user.organization_id;
       const myCompany = user.company || user.organization;
-      if (!myOrgId && !myCompany) {
-        filteredUsers = users.filter(u => String(u.id).toLowerCase() === String(user.id).toLowerCase());
-      } else {
+      if (myOrgId || myCompany) {
         filteredUsers = users.filter(u => {
-          if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+          if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return true;
           const uOrgId = u.organization_id;
           const uCompany = u.company || u.organization;
 
@@ -1152,7 +1185,7 @@ const server = http.createServer(async (req, res) => {
           if (myCompany && uCompany && uCompany === myCompany) return true;
           if (myCompany && uOrgId && String(uOrgId) === String(myCompany)) return true;
           if (myOrgId && uCompany && uCompany === String(myOrgId)) return true;
-          return false;
+          return true; // Return all users so project member display names can always be resolved
         });
       }
     }
@@ -1499,6 +1532,42 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // Populate actual user details (names & emails) for every project's project_users array
+    const allDbUsers = await readUsers();
+    const userMap = new Map();
+    (allDbUsers || []).forEach(u => {
+      if (u.id) userMap.set(String(u.id).toLowerCase(), u);
+      if (u.email) userMap.set(String(u.email).toLowerCase(), u);
+    });
+
+    projects = projects.map(p => {
+      const pUsers = p.project_users || [];
+      const populatedUsers = pUsers.map(pu => {
+        const uId = String(pu.user_id || pu.id || pu || '').toLowerCase();
+        const uObj = userMap.get(uId);
+        if (uObj) {
+          return {
+            id: uObj.id,
+            user_id: uObj.id,
+            name: uObj.name || uObj.email?.split('@')[0] || 'User',
+            email: uObj.email || '',
+            role: uObj.role || ''
+          };
+        }
+        return {
+          id: uId,
+          user_id: uId,
+          name: (typeof pu === 'object' && pu.name) ? pu.name : (uId.includes('@') ? uId.split('@')[0] : `User #${uId.split('_').pop() || uId}`),
+          email: (typeof pu === 'object' && pu.email) ? pu.email : (uId.includes('@') ? uId : '')
+        };
+      });
+
+      return {
+        ...p,
+        project_users: populatedUsers
+      };
+    });
+
     return sendJSON(res, 200, { success: true, projects });
   }
 
@@ -1822,6 +1891,22 @@ const server = http.createServer(async (req, res) => {
     
     if (targetUserIndex !== -1) {
       const existing = users[targetUserIndex];
+
+      if (updates.organization_id && updates.organization_id !== existing.organization_id) {
+        const localOrgs = readLocalOrgs();
+        const targetOrg = localOrgs.find(o => o.id === updates.organization_id);
+        if (targetOrg) {
+          const maxUsers = targetOrg.max_users || 5;
+          const currentMembers = users.filter(u => u.organization_id === targetOrg.id || u.features?.organization_id === targetOrg.id);
+          if (currentMembers.length >= maxUsers) {
+            return sendJSON(res, 400, {
+              success: false,
+              message: `Cannot assign user to organization "${targetOrg.name}": maximum limit of ${maxUsers} seat${maxUsers === 1 ? '' : 's'} has been reached.`
+            });
+          }
+        }
+      }
+
       const newExp = updates.subscription_expires !== undefined ? updates.subscription_expires : (existing.subscription_expires || existing.features?.subscription_expires || null);
       
       const updatedUser = {
@@ -2285,6 +2370,29 @@ const server = http.createServer(async (req, res) => {
 
     // 4. If targetOrg matched, bind user to targetOrg
     if (targetOrg) {
+      const maxUsers = targetOrg.max_users || 10;
+      const localUsers = readLocalUsers();
+
+      if (targetEmail) {
+        const isAlreadyMember = localUsers.some(u => 
+          u.email && u.email.toLowerCase() === targetEmail.toLowerCase() &&
+          (u.organization_id === targetOrg.id || u.features?.organization_id === targetOrg.id)
+        );
+
+        if (!isAlreadyMember) {
+          const currentMembersCount = localUsers.filter(u => 
+            u.organization_id === targetOrg.id || u.features?.organization_id === targetOrg.id
+          ).length;
+
+          if (currentMembersCount >= maxUsers) {
+            return sendJSON(res, 400, {
+              success: false,
+              message: `Activation failed: Organization "${targetOrg.name}" has reached its maximum configured limit of ${maxUsers} user seat${maxUsers === 1 ? '' : 's'}. Cannot add more users.`
+            });
+          }
+        }
+      }
+
       const newPlan = targetOrg.subscription_plan || 'ENTERPRISE';
       const oneYearFromNow = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -2398,6 +2506,7 @@ const server = http.createServer(async (req, res) => {
           success: true,
           message: `License key ${formattedKey} activated successfully! Plan upgraded to PRO.`,
           tier: 'PRO',
+          plan: 'PRO',
           expiresAt,
           remainingDays: 365
         });
@@ -2424,6 +2533,9 @@ const server = http.createServer(async (req, res) => {
 
     writeLicenses(licenses.map(l => l.key === lic.key ? lic : l));
 
+    const licOrgId = lic.organization_id || lic.org_id || '';
+    const licOrgName = lic.organization_name || lic.organization || lic.company || '';
+
     if (targetEmail) {
       const expiresIso = new Date(lic.expiresAt).toISOString();
       const localUsers = readLocalUsers();
@@ -2431,28 +2543,52 @@ const server = http.createServer(async (req, res) => {
       if (userIndex !== -1) {
         localUsers[userIndex].plan = lic.tier;
         localUsers[userIndex].subscription_expires = expiresIso;
+        if (licOrgId) localUsers[userIndex].organization_id = licOrgId;
+        if (licOrgName) {
+          localUsers[userIndex].organization_name = licOrgName;
+          localUsers[userIndex].organization = licOrgName;
+          localUsers[userIndex].company = licOrgName;
+        }
         if (!localUsers[userIndex].features) localUsers[userIndex].features = {};
         localUsers[userIndex].features.subscription_expires = expiresIso;
         localUsers[userIndex].features.plan = lic.tier;
+        if (licOrgId) localUsers[userIndex].features.organization_id = licOrgId;
+        if (licOrgName) {
+          localUsers[userIndex].features.organization_name = licOrgName;
+          localUsers[userIndex].features.company = licOrgName;
+        }
         saveLocalUsers(localUsers);
       }
 
       try {
-        await supabase.from('custom_users').update({
+        const updateObj = {
           plan: lic.tier,
           subscription_expires: expiresIso,
           features: {
             plan: lic.tier,
-            subscription_expires: expiresIso
+            subscription_expires: expiresIso,
+            ...(licOrgId ? { organization_id: licOrgId } : {}),
+            ...(licOrgName ? { organization_name: licOrgName, company: licOrgName } : {})
           }
-        }).or(`email.eq.${targetEmail},id.eq.${targetEmail}`);
+        };
+        if (licOrgId) updateObj.organization_id = licOrgId;
+        if (licOrgName) {
+          updateObj.organization_name = licOrgName;
+          updateObj.organization = licOrgName;
+          updateObj.company = licOrgName;
+        }
+        await supabase.from('custom_users').update(updateObj).or(`email.eq.${targetEmail},id.eq.${targetEmail}`);
       } catch (e) {}
     }
 
     return sendJSON(res, 200, {
       success: true,
-      message: `License key ${formattedKey} activated successfully! Plan upgraded to ${lic.tier}.`,
+      message: `License key ${formattedKey} activated successfully! Plan upgraded to ${lic.tier}.` + (licOrgName ? ` Joined "${licOrgName}".` : ''),
       tier: lic.tier,
+      plan: lic.tier,
+      organization: licOrgName,
+      organization_id: licOrgId,
+      company: licOrgName,
       expiresAt: lic.expiresAt,
       remainingDays: Math.ceil((lic.expiresAt - Date.now()) / (1000 * 60 * 60 * 24))
     });
@@ -2473,10 +2609,13 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
 
-    const { tier = 'PRO', durationDays = 365, targetEmail = '' } = await getRequestBody(req);
+    const { tier = 'PRO', durationDays = 365, targetEmail = '', organization_id = '', organization_name = '' } = await getRequestBody(req);
     const uniqueKey = generateUniqueLicenseKey(tier);
     const now = Date.now();
     const expiresAt = now + parseInt(durationDays) * 24 * 60 * 60 * 1000;
+
+    const orgId = organization_id || user.organization_id || user.features?.organization_id || '';
+    const orgName = organization_name || user.organization_name || user.organization || user.company || user.features?.organization_name || '';
 
     const newLic = {
       key: uniqueKey,
@@ -2486,7 +2625,10 @@ const server = http.createServer(async (req, res) => {
       createdAt: now,
       expiresAt,
       status: 'ACTIVE',
-      paymentStatus: 'ADMIN_GENERATED'
+      paymentStatus: 'ADMIN_GENERATED',
+      organization_id: orgId,
+      organization_name: orgName,
+      company: orgName
     };
 
     const licenses = readLicenses();

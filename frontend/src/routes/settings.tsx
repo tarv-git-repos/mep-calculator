@@ -249,9 +249,12 @@ export function SettingsPage() {
       if (profile?.company || userData?.company) setCompany(profile?.company || userData?.company || '');
       const activeRole = profile?.role || profile?.designation || userData?.role || userData?.designation;
       if (activeRole) setDesignation(activeRole);
-      if (profile?.profile_photo || userData?.profile_photo) setProfilePhoto(profile?.profile_photo || userData?.profile_photo || '');
+      const photoVal = profile?.profile_photo !== undefined ? profile.profile_photo : userData?.profile_photo;
+      if (photoVal !== undefined) {
+        setProfilePhoto(photoVal);
+      }
     }
-  }, [profile, userData]);
+  }, [profile?.name, userData?.name, profile?.company, userData?.company, profile?.role, userData?.role, profile?.profile_photo, userData?.profile_photo]);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
@@ -319,7 +322,11 @@ export function SettingsPage() {
             localStorage.removeItem('mep_profile_photo');
           }
           if (userData) {
-            setUserData({ ...userData, profile_photo: compressedDataUrl });
+            setUserData({
+              ...userData,
+              profile_photo: compressedDataUrl,
+              features: { ...(userData.features || {}), profile_photo: compressedDataUrl }
+            });
           }
           // Automatically persist profile photo to backend DB
           updateProfileDetails({ profile_photo: compressedDataUrl });
@@ -337,7 +344,11 @@ export function SettingsPage() {
       localStorage.removeItem('mep_profile_photo');
     }
     if (userData) {
-      setUserData({ ...userData, profile_photo: '' });
+      setUserData({
+        ...userData,
+        profile_photo: '',
+        features: { ...(userData.features || {}), profile_photo: '' }
+      });
     }
     // Automatically persist profile photo deletion to backend DB
     updateProfileDetails({ profile_photo: '' });
@@ -407,6 +418,7 @@ export function SettingsPage() {
         company,
         designation,
         profile_photo: profilePhoto,
+        features: { ...(userData.features || {}), profile_photo: profilePhoto }
       });
     }
     // Automatically sync all settings & profile photo to backend DB

@@ -95,9 +95,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         data = { ...data, privacyPolicyAccepted: true };
       }
       if (data.id) {
-        const savedPhoto = localStorage.getItem(`mep_profile_photo_${data.id}`);
-        if (savedPhoto && !data.profile_photo) {
-          data = { ...data, profile_photo: savedPhoto };
+        if (data.profile_photo) {
+          localStorage.setItem(`mep_profile_photo_${data.id}`, data.profile_photo);
+        } else if (data.profile_photo === '') {
+          localStorage.removeItem(`mep_profile_photo_${data.id}`);
+        } else {
+          const savedPhoto = localStorage.getItem(`mep_profile_photo_${data.id}`);
+          if (savedPhoto) {
+            data = { ...data, profile_photo: savedPhoto };
+          }
         }
       }
       // Remove legacy un-scoped photo key if it exists

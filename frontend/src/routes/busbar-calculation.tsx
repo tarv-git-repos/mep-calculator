@@ -1,5 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { useWorkspace } from "@/lib/workspace-store";
+import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -7,7 +8,10 @@ import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { TBtn } from "@/components/workspace/Button";
-import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText } from "lucide-react";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { TaskComment } from "@/lib/ventilation-calc";
+import { toast } from "sonner";
+import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare } from "lucide-react";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -54,6 +58,7 @@ interface BusbarRow {
   length: number | "";
   loadKw: number | "";
   div: number | "";
+  comments?: TaskComment[];
 }
 
 interface BusbarSection {
@@ -73,6 +78,7 @@ interface LVPanel {
 
 function BusbarCalculationPage() {
   const { userData, profile } = useAuth();
+  const { project } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -107,7 +113,39 @@ function BusbarCalculationPage() {
 
   useEffect(() => {
     localStorage.setItem("mep-busbar-calculation-v1", JSON.stringify(panels));
-  }, [panels]);
+    if (project?.id) {
+      try {
+        localStorage.setItem(`mep_busbar_calc_${project.id}`, JSON.stringify({
+          panels,
+          updatedAt: new Date().toISOString()
+        }));
+      } catch (e) {}
+    }
+  }, [panels, project?.id]);
+
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    panelId: string;
+    sectionId: string;
+    rowId: string;
+  } | null>(null);
+
+  const [commentTarget, setCommentTarget] = useState<{
+    id: string;
+    name: string;
+    type: 'space' | 'zone' | 'equipment';
+    panelId: string;
+    sectionId: string;
+  } | null>(null);
+
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null);
+    window.addEventListener("click", handleClickOutside);
+    return () => window.removeEventListener("click", handleClickOutside);
+  }, []);
 
   const [customBusbars, setCustomBusbars] = useState<Record<string, { r: number; x: number; label: string }>>({});
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -473,6 +511,7 @@ function BusbarCalculationPage() {
   };
 
   const handleImportExcelRows = (panelId: string, sectionId: string, mappedRows: any[]) => {
+    if (!mappedRows || mappedRows.length === 0) return;
     pushToUndo(panels);
     setPanels(panels.map(p => {
       if (p.id === panelId) {
@@ -480,16 +519,70 @@ function BusbarCalculationPage() {
           ...p,
           sections: p.sections.map(s => {
             if (s.id === sectionId) {
-              const newRows: BusbarRow[] = mappedRows.map((mr, idx) => ({
-                id: `bb_${Date.now()}_${Math.floor(Math.random() * 1000)}_${idx}`,
-                from: mr.from || (s.rows.length === 0 && idx === 0 ? p.name : ""),
-                desc: mr.desc || `Tap Off ${s.rows.length + idx + 1}`,
-                ref: mr.ref || "",
-                length: Number(mr.length) || 10,
-                loadKw: Number(mr.loadKw) || 0,
-                div: Number(mr.div) || 1,
-              }));
-              return { ...s, rows: [...s.rows, ...newRows] };
+              // Check if current section only has a single default empty row
+              const isDefaultSingleRow = s.rows.length === 1 && 
+                (!s.rows[0].loadKw || s.rows[0].loadKw === 0) && 
+                (!s.rows[0].length || s.rows[0].length === 10) &&
+                (!s.rows[0].desc || s.rows[0].desc === "Tap Off 1");
+
+              if (isDefaultSingleRow || s.rows.length === 0) {
+                // Completely replace default row with imported Excel rows
+                const newRows: BusbarRow[] = mappedRows.map((mr, idx) => ({
+                  id: `bb_${Date.now()}_${Math.floor(Math.random() * 1000)}_${idx}`,
+                  from: mr.from !== undefined && String(mr.from).trim() !== "" ? String(mr.from).trim() : (idx === 0 ? p.name : ""),
+                  desc: mr.desc !== undefined && String(mr.desc).trim() !== "" ? String(mr.desc).trim() : `Tap Off ${idx + 1}`,
+                  ref: mr.ref !== undefined && String(mr.ref).trim() !== "" ? String(mr.ref).trim() : s.name,
+                  length: mr.length !== undefined && mr.length !== "" && !isNaN(Number(mr.length)) ? Number(mr.length) : 10,
+                  loadKw: mr.loadKw !== undefined && mr.loadKw !== "" && !isNaN(Number(mr.loadKw)) ? Number(mr.loadKw) : 0,
+                  div: mr.div !== undefined && mr.div !== "" && !isNaN(Number(mr.div)) ? Number(mr.div) : 0.7,
+                }));
+                return { ...s, rows: newRows };
+              }
+
+              const currentRows = [...s.rows];
+              const updatedRows: BusbarRow[] = [];
+
+              mappedRows.forEach((mr, idx) => {
+                const descVal = mr.desc !== undefined ? String(mr.desc).trim() : "";
+                const fromVal = mr.from !== undefined ? String(mr.from).trim() : "";
+                const refVal = mr.ref !== undefined ? String(mr.ref).trim() : "";
+                const lenVal = mr.length !== undefined && mr.length !== "" && !isNaN(Number(mr.length)) ? Number(mr.length) : "";
+                const loadVal = mr.loadKw !== undefined && mr.loadKw !== "" && !isNaN(Number(mr.loadKw)) ? Number(mr.loadKw) : "";
+                const divVal = mr.div !== undefined && mr.div !== "" && !isNaN(Number(mr.div)) ? Number(mr.div) : 0.7;
+
+                if (idx < currentRows.length) {
+                  // Update existing row
+                  updatedRows.push({
+                    ...currentRows[idx],
+                    desc: descVal !== "" ? descVal : currentRows[idx].desc,
+                    from: fromVal !== "" ? fromVal : currentRows[idx].from,
+                    ref: refVal !== "" ? refVal : currentRows[idx].ref,
+                    length: lenVal !== "" ? lenVal : currentRows[idx].length,
+                    loadKw: loadVal !== "" ? loadVal : currentRows[idx].loadKw,
+                    div: divVal !== "" ? divVal : currentRows[idx].div,
+                  });
+                } else {
+                  // Append new row
+                  updatedRows.push({
+                    id: `bb_${Date.now()}_${Math.floor(Math.random() * 1000)}_${idx}`,
+                    from: fromVal || p.name,
+                    desc: descVal || `Tap Off ${idx + 1}`,
+                    ref: refVal || s.name,
+                    length: lenVal !== "" ? lenVal : 10,
+                    loadKw: loadVal !== "" ? loadVal : 0,
+                    div: divVal,
+                  });
+                }
+              });
+
+              // Keep any remaining existing rows if imported rows count < currentRows.length
+              if (mappedRows.length < currentRows.length) {
+                for (let i = mappedRows.length; i < currentRows.length; i++) {
+                  updatedRows.push(currentRows[i]);
+                }
+              }
+
+              return { ...s, rows: updatedRows };
             }
             return s;
           })
@@ -981,32 +1074,100 @@ function BusbarCalculationPage() {
   };
 
   const exportPdf = () => {
-    const doc = new jsPDF("landscape");
-    
-    flatCalculatedSections.forEach((section, sIndex) => {
-      if (sIndex > 0) doc.addPage();
+    try {
+      const doc = new jsPDF("landscape");
       
-      doc.setFontSize(14);
-      doc.text(`Busbar Voltage Drop Calculation - ${section.name}`, 14, 15);
+      if (flatCalculatedSections.length === 0) {
+        const startY = addPdfHeader(doc, "Busbar Voltage Drop Calculation Report");
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text("No busbar sections calculated.", 14, startY + 5);
+      } else {
+        flatCalculatedSections.forEach((section, sIndex) => {
+          if (sIndex > 0) doc.addPage();
+          
+          const headerStartY = addPdfHeader(doc, "Busbar Voltage Drop Calculation Report");
+          
+          const ratingLabel = ALL_BUSBAR_DATA[section.ratingId]?.label || section.ratingId;
+          const rawR = ALL_BUSBAR_DATA[section.ratingId]?.r || 0;
+          const rawX = ALL_BUSBAR_DATA[section.ratingId]?.x || 0;
+          const rVal = (unitSystem === "ip" ? (rawR * 0.3048) : rawR).toFixed(4);
+          const xVal = (unitSystem === "ip" ? (rawX * 0.3048) : rawX).toFixed(4);
+          const rUnit = unitSystem === "ip" ? "mΩ/ft" : "mΩ/m";
+
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          doc.text(`Panel: ${section.panelName} | Busbar Section: ${section.name}`, 14, headerStartY + 2);
+          
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "normal");
+          doc.text(`Selected / Suggested Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit}) | Voltage: ${section.volts}V | Power Factor: ${section.pf}`, 14, headerStartY + 7);
+
+          const tableData = (section.calcRows || []).map((r, idx) => [
+            idx + 1,
+            r.desc || "",
+            (r.length || 0).toString(),
+            (r.loadKw || 0).toString(),
+            (r.tcl || 0).toFixed(2),
+            (r.md || 0).toFixed(2),
+            (r.current || 0).toFixed(2),
+            (r.vd || 0).toFixed(2),
+            (r.vdPercent || 0).toFixed(3) + "%",
+            (r.cumulativeVdPercent || 0).toFixed(3) + "%"
+          ]);
+
+          const totalVd = (section.calcRows || []).reduce((sum, row) => sum + (Number(row.vd) || 0), 0);
+          const isExceeded = section.totalCumulativeVd > 2.5;
+
+          const footData = [[
+            "",
+            "Cumulative VD up to SMDB",
+            "",
+            "",
+            "",
+            "",
+            "",
+            totalVd.toFixed(2) + " V",
+            section.totalCumulativeVd.toFixed(3) + "%",
+            isExceeded ? "EXCEEDS (FAIL)" : "PASS"
+          ]];
+
+          const lenHeader = unitSystem === "ip" ? "Len(ft)" : "Len(m)";
+          autoTable(doc, {
+            head: [["No.", "Description", lenHeader, "Load(kW)", "TCL(kW)", "MD(kW)", "Current(A)", "Vdrop(V)", "Vdrop %", "Cum.%"]],
+            body: tableData,
+            foot: footData,
+            startY: headerStartY + 11,
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+            footStyles: { fillColor: isExceeded ? [231, 76, 60] : [240, 240, 240], textColor: isExceeded ? 255 : 0, fontStyle: "bold" }
+          });
+
+          const finalY = (doc as any).lastAutoTable?.finalY || (headerStartY + 35);
+          
+          // Draw Summary & Recommendation Box
+          doc.setFillColor(isExceeded ? 253 : 240, isExceeded ? 237 : 248, isExceeded ? 237 : 245);
+          doc.setDrawColor(isExceeded ? 231 : 46, isExceeded ? 76 : 204, isExceeded ? 60 : 113);
+          doc.roundedRect(14, finalY + 4, 269, 14, 2, 2, "FD");
+
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(isExceeded ? 192 : 39, isExceeded ? 57 : 174, isExceeded ? 43 : 96);
+          doc.text(`SELECTED / SUGGESTED BUSBAR: ${ratingLabel}`, 18, finalY + 9);
+          
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(0, 0, 0);
+          doc.text(`Cumulative Voltage Drop: ${section.totalCumulativeVd.toFixed(3)}% | Status: ${isExceeded ? 'EXCEEDS 2.5% STANDARD LIMIT (Select larger busbar rating)' : 'WITHIN 2.5% STANDARD LIMIT (PASS)'}`, 18, finalY + 14);
+        });
+      }
       
-      const tableData = section.calcRows.map((r, idx) => [
-        idx + 1, r.desc, (r.length || 0).toString(), (r.loadKw || 0).toString(),
-        r.tcl.toFixed(2), r.md.toFixed(2), r.current.toFixed(2),
-        r.vd.toFixed(2), r.vdPercent.toFixed(3) + "%", r.cumulativeVdPercent.toFixed(3) + "%"
-      ]);
-      const lenHeader = unitSystem === "ip" ? "Len(ft)" : "Len(m)";
-      autoTable(doc, {
-        head: [["No.", "Description", lenHeader, "Load(kW)", "TCL(kW)", "MD(kW)", "Current(A)", "Vdrop(V)", "Vdrop %", "Cum.%"]],
-        body: tableData,
-        startY: 20,
-        styles: { fontSize: 8 },
-      });
-    });
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "busbar-calculation");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), "Busbar_Calculation.pdf", "PDF Document", ["pdf"]);
+      const sigFinalY = Math.max(((doc as any).lastAutoTable?.finalY || 50) + 24, 75);
+      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "busbar-calculation");
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), "Busbar_Calculation.pdf", "PDF Document", ["pdf"]);
+    } catch (err) {
+      console.error("Failed to export PDF:", err);
+    }
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1198,18 +1359,12 @@ function BusbarCalculationPage() {
                                 )}
                                 <ImportExcelBtn
                                   columnMapping={{
-                                    "From": "from",
-                                    "Tap Off Points": "desc",
-                                    "Description": "desc",
-                                    "Busbar Reference": "ref",
-                                    "Ref": "ref",
-                                    "Length (m)": "length",
-                                    "Length": "length",
-                                    "SMDB Load (kW)": "loadKw",
-                                    "Load (kW)": "loadKw",
-                                    "Load": "loadKw",
-                                    "Diversity Factor": "div",
-                                    "DF": "div"
+                                    from: ["From", "Source", "Panel", "From Panel"],
+                                    desc: ["Description of connection", "Description", "Tap Off Points", "Tap Off Point", "Tap Off", "Connection", "Name", "Desc"],
+                                    ref: ["Busbar Reference", "Busbar ref", "Busbar reference", "Ref", "Reference"],
+                                    length: ["Length of busbar upto tap off (m)", "Length of busbar", "Length (m)", "Length (ft)", "Length", "Len"],
+                                    loadKw: ["SMDB load (kW)", "SMDB load", "Load (kW)", "Load kW", "LoadKW", "Load", "KW"],
+                                    div: ["Diversity Factor", "Diversity", "DF", "Div"]
                                   }}
                                   onImport={(rows) => handleImportExcelRows(panel.id, section.id, rows)}
                                   className="h-7 px-3 text-xs bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-md transition-colors"
@@ -1223,7 +1378,7 @@ function BusbarCalculationPage() {
                             <table className="w-full text-[12px] border-collapse whitespace-nowrap">
                               <thead className="bg-header-bg sticky top-0 z-10 border-b border-border text-muted-foreground font-semibold">
                                 <tr className="text-left">
-                                  <th className="px-2 py-2 border-r border-border text-center w-8">
+                                  <th className="px-1 py-2 border-r border-border text-center w-6">
                                     <input 
                                       type="checkbox" 
                                       className="cursor-pointer"
@@ -1238,7 +1393,7 @@ function BusbarCalculationPage() {
                                       }}
                                     />
                                   </th>
-                                  <th className="px-2 py-2 border-r border-border text-center w-10">No.</th>
+                                  <th className="px-1 py-2 border-r border-border text-center w-6 text-[11px]">No.</th>
                                   <th className="px-2 py-2 border-r border-border w-32">Description</th>
                                   <th className="px-2 py-2 border-r border-border w-20 text-center">Len ({unitSystem === "ip" ? "ft" : "m"})</th>
                                   <th className="px-2 py-2 border-r border-border w-20 text-center">Load (kW)</th>
@@ -1299,6 +1454,7 @@ function BusbarCalculationPage() {
                                     return (
                                     <tr 
                                       key={r.id} 
+                                      data-row-id={r.id}
                                       className={`hover:bg-surface-2 transition-colors cursor-pointer ${selectedRows.has(r.id) ? "bg-primary/5" : ""}`}
                                       onClick={(e) => {
                                         const tagName = (e.target as HTMLElement).tagName;
@@ -1306,8 +1462,21 @@ function BusbarCalculationPage() {
                                           toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
                                         }
                                       }}
+                                      onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        if (!selectedRows.has(r.id)) {
+                                          toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                        }
+                                        setContextMenu({
+                                          x: e.clientX,
+                                          y: e.clientY,
+                                          panelId: panel.id,
+                                          sectionId: section.id,
+                                          rowId: r.id
+                                        });
+                                      }}
                                     >
-                                      <td className="p-0 border-r border-border text-center">
+                                      <td className="p-0 border-r border-border text-center w-6">
                                           <div className="flex items-center justify-center h-full w-full">
                                             <input 
                                               type="checkbox" 
@@ -1321,8 +1490,31 @@ function BusbarCalculationPage() {
                                             />
                                           </div>
                                         </td>
-                                        <td className="text-center text-muted-foreground font-medium border-r border-border">{idx + 1}</td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} onKeyDown={(e) => handleKeyDown(e, 0)} type="text" className="w-full h-8 px-2 bg-transparent outline-none focus:bg-white" value={r.desc} onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} /></td>
+                                        <td className="text-center text-muted-foreground font-medium border-r border-border w-6 px-0.5 text-[11.5px]">{idx + 1}</td>
+                                      <td className="p-0 border-r border-border">
+                                        <div className="flex items-center gap-1.5 w-full px-1">
+                                          {r.comments && r.comments.length > 0 && (
+                                            <span 
+                                              className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
+                                              title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setCommentTarget({
+                                                  id: r.id,
+                                                  name: r.desc || r.from || `Tap Off ${r.ref || r.id}`,
+                                                  type: 'space',
+                                                  panelId: panel.id,
+                                                  sectionId: section.id
+                                                });
+                                                setAssignCommentOpen(true);
+                                              }}
+                                            >
+                                              <MessageSquare className="size-3.5" />
+                                            </span>
+                                          )}
+                                          <input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} onKeyDown={(e) => handleKeyDown(e, 0)} type="text" className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white flex-1" value={r.desc} onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} />
+                                        </div>
+                                      </td>
                                       <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} onKeyDown={(e) => handleKeyDown(e, 1)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.length} onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
                                       <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} onKeyDown={(e) => handleKeyDown(e, 2)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.loadKw} onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
                                       
@@ -1358,6 +1550,140 @@ function BusbarCalculationPage() {
         </div>
       </div>
       </div>
+
+      {/* Floating Right-Click Context Menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-white dark:bg-slate-900 border border-border rounded-xl shadow-xl py-1.5 text-xs font-bold text-foreground w-48 select-none"
+          style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1 text-[10.5px] text-muted-foreground border-b border-border/60 uppercase">
+            Options ({selectedRows.has(contextMenu.rowId) ? selectedRows.size : 1} selected)
+          </div>
+          <button
+            onClick={() => {
+              const idsToCopy = selectedRows.has(contextMenu.rowId) ? Array.from(selectedRows) : [contextMenu.rowId];
+              copyRows(idsToCopy);
+              pasteRows();
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
+          >
+            <Copy className="size-3.5 text-[#0A7BC7]" /> Duplicate Row(s)
+          </button>
+          <button
+            onClick={() => {
+              const inputEl = document.querySelector(`tr[data-row-id="${contextMenu.rowId}"] input[type="text"]`) as HTMLInputElement;
+              if (inputEl) {
+                inputEl.focus();
+                inputEl.select();
+              }
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
+          >
+            <Edit3 className="size-3.5 text-amber-500" /> Edit Parameters
+          </button>
+          <button
+            onClick={() => {
+              let targetRowName = "";
+              panels.forEach(p => p.sections.forEach(s => s.rows.forEach(r => {
+                if (r.id === contextMenu.rowId) targetRowName = r.desc || r.from || `Tap Off ${r.ref || contextMenu.rowId}`;
+              })));
+              setCommentTarget({
+                id: contextMenu.rowId,
+                name: targetRowName,
+                type: 'space',
+                panelId: contextMenu.panelId,
+                sectionId: contextMenu.sectionId
+              });
+              setAssignCommentOpen(true);
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400"
+          >
+            <MessageSquare className="size-3.5" /> Add comment
+          </button>
+          <div className="my-1 border-t border-border/60"></div>
+          <button
+            onClick={() => {
+              const idsToDelete = selectedRows.has(contextMenu.rowId) ? Array.from(selectedRows) : [contextMenu.rowId];
+              pushToUndo(panels);
+              setPanels(prev => prev.map(p => ({
+                ...p,
+                sections: p.sections.map(s => ({
+                  ...s,
+                  rows: s.rows.filter(r => !idsToDelete.includes(r.id))
+                }))
+              })));
+              setSelectedRows(new Set());
+              setContextMenu(null);
+              toast.info(`Deleted ${idsToDelete.length} row(s)`);
+            }}
+            className="w-full px-3 py-2 text-left hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-semibold"
+          >
+            <Trash2 className="size-3.5" /> Delete Row(s)
+          </button>
+        </div>
+      )}
+
+      {/* Assign Comment Modal Overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          onSave={(newComment) => {
+            pushToUndo(panels);
+            setPanels(prev => {
+              const next = prev.map(p => {
+                if (p.id === commentTarget.panelId) {
+                  return {
+                    ...p,
+                    sections: p.sections.map(s => {
+                      if (s.id === commentTarget.sectionId) {
+                        return {
+                          ...s,
+                          rows: s.rows.map(r => {
+                            if (r.id === commentTarget.id) {
+                              const comments = [...(r.comments || []), newComment];
+                              return { ...r, comments };
+                            }
+                            return r;
+                          })
+                        };
+                      }
+                      return s;
+                    })
+                  };
+                }
+                return p;
+              });
+
+              const projId = project?.id || "default";
+              try {
+                localStorage.setItem(`mep_busbar_calc_${projId}`, JSON.stringify({
+                  panels: next,
+                  updatedAt: new Date().toISOString()
+                }));
+              } catch (e) {}
+
+              return next;
+            });
+
+            toast.success(`Comment assigned on "${commentTarget.name}"`);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent("mep-notification-added"));
+            }
+          }}
+        />
+      )}
     </AppShell>
   );
 }

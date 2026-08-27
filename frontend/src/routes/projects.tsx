@@ -39,20 +39,72 @@ const formatRelativeTime = (dateStr?: string) => {
   return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 };
 
-const getUserDisplayName = (userId: string, usersList: any[]) => {
-  if (!userId) return 'User';
-  const cleanId = String(userId).trim().toLowerCase();
-  const user = usersList.find(u => 
+const getUserDisplayName = (userParam: any, usersList: any[]) => {
+  if (!userParam) return 'User';
+
+  // 1. Direct Object Resolution
+  if (typeof userParam === 'object' && userParam !== null) {
+    if (userParam.name && userParam.name.trim() !== '' && !userParam.name.startsWith('usr_') && !userParam.name.startsWith('User #')) {
+      const handle = userParam.email ? ` (${userParam.email.split('@')[0]})` : '';
+      return `${userParam.name}${handle}`;
+    }
+    if (userParam.user && userParam.user.name) {
+      const handle = userParam.user.email ? ` (${userParam.user.email.split('@')[0]})` : '';
+      return `${userParam.user.name}${handle}`;
+    }
+    if (userParam.user_name || userParam.userName) {
+      return userParam.user_name || userParam.userName;
+    }
+  }
+
+  const rawId = typeof userParam === 'object' ? (userParam.user_id || userParam.id || userParam.user?.id || userParam.email || '') : userParam;
+  if (!rawId) return 'User';
+  const cleanId = String(rawId).trim().toLowerCase();
+
+  // 2. Lookup in usersList parameter
+  const user = (usersList || []).find(u => 
     String(u.id || '').trim().toLowerCase() === cleanId || 
     String(u.email || '').trim().toLowerCase() === cleanId ||
-    (u.email && String(u.email).trim().toLowerCase().split('@')[0] === cleanId)
+    (u.email && String(u.email).trim().toLowerCase().split('@')[0] === cleanId) ||
+    (u.user_id && String(u.user_id).trim().toLowerCase() === cleanId)
   );
+
   if (user?.name) {
     const handle = user.email ? ` (${user.email.split('@')[0]})` : '';
     return `${user.name}${handle}`;
   }
+
+  // 3. Fallback LocalStorage users cache check
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const cached = localStorage.getItem('mep_local_users') || localStorage.getItem('cachedAllUsers');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          const match = parsed.find((u: any) => 
+            String(u.id || '').trim().toLowerCase() === cleanId ||
+            String(u.email || '').trim().toLowerCase() === cleanId ||
+            (u.email && String(u.email).trim().toLowerCase().split('@')[0] === cleanId)
+          );
+          if (match?.name) {
+            const handle = match.email ? ` (${match.email.split('@')[0]})` : '';
+            return `${match.name}${handle}`;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
   if (cleanId.includes('@')) return cleanId.split('@')[0];
-  return userId;
+
+  // 4. Formatted fallback if raw ID
+  if (cleanId.startsWith('usr_')) {
+    const parts = cleanId.split('_');
+    const suffix = parts[parts.length - 1];
+    return `User #${suffix}`;
+  }
+
+  return String(rawId);
 };
 
 function MemberAssignmentPicker({
@@ -1004,18 +1056,19 @@ function ProjectsPage() {
                         {(() => {
                           const seenUserIds = new Set<string>();
                           return (p as any).project_users?.map((pu: any) => {
-                            const rawId = pu.user_id || pu.id;
-                            const puId = String(rawId || '').toLowerCase();
+                            if (!pu) return null;
+                            const rawId = (typeof pu === 'object' && pu !== null) ? (pu.user_id || pu.id || pu.user?.id || pu.email || '') : pu;
+                            const puId = String(rawId || (typeof pu === 'string' ? pu : '')).toLowerCase();
                             if (!puId || seenUserIds.has(puId)) return null;
                             seenUserIds.add(puId);
 
-                            const userName = getUserDisplayName(rawId, allUsers);
+                            const userName = getUserDisplayName(pu, allUsers);
 
                             return (
-                              <span key={`u-${rawId}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
+                              <span key={`u-${puId}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
                                 <User className="size-3 text-muted-foreground" /> {userName}
                                 {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
-                                  <button onClick={() => handleRemoveUserFromProject(p.id, rawId)} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
+                                  <button onClick={() => handleRemoveUserFromProject(p.id, String(rawId || puId))} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
                                     <X className="size-2.5" />
                                   </button>
                                 )}

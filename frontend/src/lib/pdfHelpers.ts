@@ -255,3 +255,86 @@ export function addPdfSignatureBlock(
 
   return (doc as any).lastAutoTable.finalY;
 }
+
+export interface PdfHeaderOptions {
+  calcNo?: string;
+  revNo?: string;
+  projectNo?: string;
+  projectName?: string;
+  client?: string;
+  endUser?: string;
+  date?: string;
+}
+
+export function addPdfHeader(
+  doc: jsPDF,
+  title: string,
+  options: PdfHeaderOptions = {}
+): number {
+  const activeProj: any = workspaceStore.getState()?.project || {};
+
+  const calcNo = options.calcNo || activeProj?.calcNo || "TRV-CAL-101-R01";
+  const today = options.date || formatDateStr(new Date().toISOString());
+  const projectNo = options.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
+  const projectName = options.projectName || activeProj?.name || activeProj?.projectName || "";
+  const clientName = options.client || activeProj?.client || "";
+  const endUser = options.endUser || activeProj?.endUser || activeProj?.location || "";
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const leftMargin = 14;
+  const rightMargin = pageWidth - 14;
+  const contentWidth = rightMargin - leftMargin;
+
+  // Title
+  doc.setFontSize(14);
+  doc.setFont("helvetica", "bold");
+  doc.text(title, leftMargin, 14);
+
+  // Metadata Outer Box
+  doc.setFontSize(9);
+  doc.setLineWidth(0.3);
+  doc.rect(leftMargin, 18, contentWidth, 18);
+
+  const midX = leftMargin + contentWidth / 2;
+
+  // Vertical dividing line
+  doc.line(midX, 18, midX, 36);
+
+  // Horizontal dividing lines
+  doc.line(leftMargin, 24, rightMargin, 24);
+  doc.line(leftMargin, 30, rightMargin, 30);
+
+  // Column 1
+  doc.setFont("helvetica", "bold");
+  doc.text("Calculation No.:", leftMargin + 2, 22);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(calcNo), leftMargin + 32, 22);
+
+  doc.setFont("helvetica", "bold");
+  doc.text("Project No.:", leftMargin + 2, 28);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(projectNo), leftMargin + 32, 28);
+
+  doc.setFont("helvetica", "bold");
+  doc.text("Project Name:", leftMargin + 2, 34);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(projectName), leftMargin + 32, 34);
+
+  // Column 2
+  doc.setFont("helvetica", "bold");
+  doc.text("Date:", midX + 2, 22);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(today), midX + 22, 22);
+
+  doc.setFont("helvetica", "bold");
+  doc.text("Client:", midX + 2, 28);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(clientName), midX + 22, 28);
+
+  doc.setFont("helvetica", "bold");
+  doc.text("End User:", midX + 2, 34);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(endUser), midX + 22, 34);
+
+  return 42;
+}

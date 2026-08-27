@@ -10,6 +10,7 @@ import { api } from '@/services/api'
 import { useConfirm } from '@/hooks/use-confirm'
 
 import { createClient } from '@supabase/supabase-js'
+import { DEFAULT_UNLOCKED_FEATURES, isFeatureLocked } from '@/utils/featureFlags'
 
 // Create a secondary client specifically for admin user creation without overwriting the current session
 const adminAuthClient = createClient(
@@ -531,14 +532,13 @@ export function SuperAdminDashboard() {
   const toggleFeature = async (featureKey: string) => {
     if (!editingPermissionsFor) return;
     
-    // Check if currently unlocked (ventilation defaults to true, others default to false)
-    const isCurrentlyUnlocked = featureKey === 'ventilation'
-      ? editingPermissionsFor.features?.[featureKey] !== false
-      : editingPermissionsFor.features?.[featureKey] === true;
+    const cleanKey = featureKey.replace('/', '').split('?')[0];
+    const path = `/${cleanKey}`;
+    const isCurrentlyUnlocked = !isFeatureLocked(path, editingPermissionsFor);
     
     const updatedFeatures = {
       ...editingPermissionsFor.features,
-      [featureKey]: !isCurrentlyUnlocked
+      [cleanKey]: !isCurrentlyUnlocked
     };
     
     // Optimistic UI update
@@ -553,7 +553,6 @@ export function SuperAdminDashboard() {
       
     if (!res.success) {
       toast.error("Failed to update permission: " + res.message);
-      // Optional: Revert state here on failure
     }
   }
 
@@ -561,17 +560,12 @@ export function SuperAdminDashboard() {
     if (!editingPermissionsFor) return;
 
     // Check if ALL items in this section are currently unlocked
-    const allUnlocked = items.every(item => {
-      const routeKey = item.to!.replace('/', '');
-      return routeKey === 'ventilation'
-        ? editingPermissionsFor.features?.[routeKey] !== false
-        : editingPermissionsFor.features?.[routeKey] === true;
-    });
+    const allUnlocked = items.every(item => !isFeatureLocked(item.to, editingPermissionsFor));
     const newValue = !allUnlocked;
 
     const updatedFeatures = { ...editingPermissionsFor.features };
     items.forEach(item => {
-      const routeKey = item.to!.replace('/', '');
+      const routeKey = item.to!.replace('/', '').split('?')[0];
       updatedFeatures[routeKey] = newValue;
     });
 
@@ -2594,12 +2588,7 @@ export function SuperAdminDashboard() {
                 if (navItem.kind !== 'group') return null;
                 const items = navItem.children.filter(c => !c.isHeader && c.to);
                 if (items.length === 0) return null;
-                const isSectionUnlocked = items.every(item => {
-                  const routeKey = item.to!.replace('/', '');
-                  return routeKey === 'ventilation'
-                    ? editingPermissionsFor.features?.[routeKey] !== false
-                    : editingPermissionsFor.features?.[routeKey] === true;
-                });
+                const isSectionUnlocked = items.every(item => !isFeatureLocked(item.to, editingPermissionsFor));
                 
                 return (
                   <div key={i} className="border-b border-slate-100 dark:border-slate-800 last:border-0 p-6 space-y-4">
@@ -2616,10 +2605,7 @@ export function SuperAdminDashboard() {
                       </div>
                     </div>
                     {items.map((item, j) => {
-                      const routeKey = item.to!.replace('/', '');
-                      const isUnlocked = routeKey === 'ventilation'
-                        ? editingPermissionsFor.features?.[routeKey] !== false
-                        : editingPermissionsFor.features?.[routeKey] === true;
+                      const isUnlocked = !isFeatureLocked(item.to, editingPermissionsFor);
                       
                       return (
                         <div key={j} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
@@ -2628,7 +2614,7 @@ export function SuperAdminDashboard() {
                             <p className="text-xs text-slate-500">Path: {item.to}</p>
                           </div>
                           <button 
-                            onClick={() => toggleFeature(routeKey)}
+                            onClick={() => toggleFeature(item.to!)}
                             className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${isUnlocked ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-700'}`}
                           >
                             <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isUnlocked ? 'translate-x-5' : 'translate-x-1'}`} />

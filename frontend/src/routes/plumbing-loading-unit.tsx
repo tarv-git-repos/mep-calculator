@@ -2,7 +2,8 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X } from "lucide-react";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare } from "lucide-react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
@@ -27,71 +28,254 @@ interface LUSpace {
   desc: string;
   floor: string;
   qty: number;
-  std: "low" | "med" | "high";
+  floorQty?: number;
+  std: string;
   fixtures: Record<string, number>;
+  comments?: any[];
 }
 
-// Standards Fixture Weight Mappings
-export const STANDARD_FIXTURE_WEIGHTS: Record<StandardPreset, Record<string, number>> = {
+export interface StandardCategoryOption {
+  id: string;
+  label: string;
+}
+
+export const STANDARD_CATEGORIES: Record<StandardPreset, StandardCategoryOption[]> = {
+  dubai: [
+    { id: "med", label: "Medium Demand (Commercial / Offices / Hotels)" },
+    { id: "low", label: "Low Demand (Dwellings / Private Residential)" },
+    { id: "high", label: "High Demand (Public Washrooms / Schools / Sports)" }
+  ],
+  abudhabi: [
+    { id: "med", label: "Medium / Standard Demand (Commercial)" },
+    { id: "low", label: "Low / Private Demand (Residential)" },
+    { id: "high", label: "High / Public Demand (Assembly / Public)" }
+  ],
+  ipc_upc: [
+    { id: "ipc_total", label: "Total WSFU (IPC / UPC)" },
+    { id: "ipc_cold", label: "Cold Water WSFU (IPC / UPC)" },
+    { id: "ipc_hot", label: "Hot Water WSFU (IPC / UPC)" },
+    { id: "low", label: "Private / Residential (Low Demand)" },
+    { id: "high", label: "Public / Assembly (High Demand)" }
+  ]
+};
+
+export const DEFAULT_CATEGORY_FOR_PRESET: Record<StandardPreset, string> = {
+  dubai: "med",
+  abudhabi: "med",
+  ipc_upc: "ipc_total"
+};
+
+export const STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY: Record<
+  StandardPreset,
+  Record<string, Record<string, number>>
+> = {
   // 🇦🇪 Dubai Standard (DBC 2021 / BS EN 806-3 / CIBSE Guide G)
   dubai: {
-    wc_tank: 2.0,
-    wc_valve: 28.0,
-    basin: 1.5,
-    handspray: 1.5,
-    shower: 3.0,
-    bath: 10.0,
-    sink: 3.0,
-    washer: 3.0,
-    dishwasher: 3.0,
-    servicesink: 3.0,
-    bibtap: 3.0,
+    low: {
+      wc: 1.5,
+      wc_tank: 1.5,
+      wc_valve: 15.0,
+      handspray: 1.0,
+      basin: 1.0,
+      sink: 1.5,
+      shower: 1.5,
+      washer: 2.0,
+      servicesink: 2.0,
+      hose_bibb: 1.5,
+      dishwasher: 1.5,
+      hose_bibb_1: 1.0,
+      bath: 4.0,
+      bibtap: 1.5,
+    },
+    med: {
+      wc: 2.5,
+      wc_tank: 2.0,
+      wc_valve: 28.0,
+      handspray: 1.0,
+      basin: 1.0,
+      sink: 1.5,
+      shower: 2.0,
+      washer: 3.0,
+      servicesink: 3.0,
+      hose_bibb: 2.5,
+      dishwasher: 1.5,
+      hose_bibb_1: 1.0,
+      bath: 10.0,
+      bibtap: 2.5,
+    },
+    high: {
+      wc: 2.5,
+      wc_tank: 2.5,
+      wc_valve: 28.0,
+      handspray: 2.0,
+      basin: 2.0,
+      sink: 5.0,
+      shower: 4.0,
+      washer: 4.0,
+      servicesink: 5.0,
+      hose_bibb: 5.0,
+      dishwasher: 4.0,
+      hose_bibb_1: 2.5,
+      bath: 12.0,
+      bibtap: 5.0,
+    }
   },
-  // 🇦🇪 Abu Dhabi Standard (ADM Table 6-7 / Table 6-9 - Matching P539B Excel)
+  // 🇦🇪 Abu Dhabi Standard (ADM Table 6-7 / Table 6-9)
   abudhabi: {
-    wc_tank: 2.5,
-    wc_valve: 5.0,
-    basin: 1.0,
-    handspray: 1.0,
-    shower: 2.0,
-    bath: 1.4,
-    sink: 1.5,
-    washer: 3.0,
-    dishwasher: 1.5,
-    servicesink: 3.0,
-    bibtap: 2.5,
+    low: {
+      wc: 2.5,
+      wc_tank: 2.5,
+      wc_valve: 3.5,
+      handspray: 0.75,
+      basin: 0.75,
+      sink: 1.125,
+      shower: 1.5,
+      washer: 1.5,
+      servicesink: 2.25,
+      hose_bibb: 1.5,
+      dishwasher: 1.4,
+      hose_bibb_1: 1.0,
+      bath: 1.4,
+      bibtap: 1.5,
+    },
+    med: {
+      wc: 2.5,
+      wc_tank: 2.5,
+      wc_valve: 5.0,
+      handspray: 1.0,
+      basin: 1.0,
+      sink: 1.5,
+      shower: 2.0,
+      washer: 3.0,
+      servicesink: 3.0,
+      hose_bibb: 2.5,
+      dishwasher: 1.5,
+      hose_bibb_1: 1.0,
+      bath: 1.4,
+      bibtap: 2.5,
+    },
+    high: {
+      wc: 3.5,
+      wc_tank: 3.5,
+      wc_valve: 8.0,
+      handspray: 2.0,
+      basin: 2.0,
+      sink: 2.0,
+      shower: 4.0,
+      washer: 4.0,
+      servicesink: 3.0,
+      hose_bibb: 3.0,
+      dishwasher: 3.0,
+      hose_bibb_1: 2.0,
+      bath: 3.0,
+      bibtap: 3.0,
+    }
   },
-  // 🌐 International IPC / UPC Standard (WSFU)
+  // 🌐 International IPC / UPC Standard
   ipc_upc: {
-    wc_tank: 2.5,
-    wc_valve: 5.0,
-    basin: 0.75,
-    handspray: 1.0,
-    shower: 1.5,
-    bath: 1.4,
-    sink: 1.125,
-    washer: 1.0,
-    dishwasher: 1.4,
-    servicesink: 2.25,
-    bibtap: 2.5,
+    ipc_total: {
+      wc: 2.5,
+      wc_tank: 2.5,
+      wc_valve: 5.0,
+      handspray: 1.0,
+      basin: 1.0,
+      sink: 1.5,
+      shower: 2.0,
+      washer: 3.0,
+      servicesink: 3.0,
+      hose_bibb: 2.5,
+      dishwasher: 1.5,
+      hose_bibb_1: 1.0,
+      bath: 2.0,
+      bibtap: 2.5,
+    },
+    ipc_cold: {
+      wc: 2.5,
+      wc_tank: 2.5,
+      wc_valve: 5.0,
+      handspray: 1.0,
+      basin: 0.75,
+      sink: 1.0,
+      shower: 1.5,
+      washer: 2.25,
+      servicesink: 2.25,
+      hose_bibb: 2.5,
+      dishwasher: 0.0,
+      hose_bibb_1: 1.0,
+      bath: 1.5,
+      bibtap: 2.5,
+    },
+    ipc_hot: {
+      wc: 0.0,
+      wc_tank: 0.0,
+      wc_valve: 0.0,
+      handspray: 0.0,
+      basin: 0.75,
+      sink: 1.0,
+      shower: 1.5,
+      washer: 2.25,
+      servicesink: 2.25,
+      hose_bibb: 0.0,
+      dishwasher: 1.5,
+      hose_bibb_1: 0.0,
+      bath: 1.5,
+      bibtap: 0.0,
+    },
+    low: {
+      wc: 2.5,
+      wc_tank: 2.5,
+      wc_valve: 3.5,
+      handspray: 1.0,
+      basin: 0.75,
+      sink: 1.5,
+      shower: 1.5,
+      washer: 2.0,
+      servicesink: 2.0,
+      hose_bibb: 2.5,
+      dishwasher: 1.4,
+      hose_bibb_1: 1.0,
+      bath: 1.4,
+      bibtap: 2.5,
+    },
+    high: {
+      wc: 5.0,
+      wc_tank: 5.0,
+      wc_valve: 10.0,
+      handspray: 2.0,
+      basin: 2.0,
+      sink: 3.0,
+      shower: 4.0,
+      washer: 4.0,
+      servicesink: 3.0,
+      hose_bibb: 3.0,
+      dishwasher: 3.0,
+      hose_bibb_1: 2.0,
+      bath: 3.0,
+      bibtap: 3.0,
+    }
   }
 };
 
+export const STANDARD_FIXTURE_WEIGHTS: Record<StandardPreset, Record<string, number>> = {
+  dubai: STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY.dubai.med,
+  abudhabi: STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY.abudhabi.med,
+  ipc_upc: STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY.ipc_upc.ipc_total,
+};
+
 export const LU_FIXTURES_META = [
-  { id: 'wc_tank', short: 'W/C (Tank)' },
-  { id: 'wc_valve', short: 'W/C (Valve)' },
-  { id: 'handspray', short: 'Shattaf/Spray' },
-  { id: 'basin', short: 'Basin' },
-  { id: 'sink', short: 'Kit. Sink' },
+  { id: 'wc', short: 'W/C' },
+  { id: 'handspray', short: 'Hand Spray (Bibb)' },
+  { id: 'basin', short: 'WASH BASIN' },
+  { id: 'sink', short: 'Sink Kitchen' },
   { id: 'shower', short: 'Shower' },
-  { id: 'bath', short: 'Bathtub' },
-  { id: 'washer', short: 'Washer' },
-  { id: 'dishwasher', short: 'Dishwasher' },
+  { id: 'washer', short: 'WASHING MACHINE' },
   { id: 'servicesink', short: 'Service Sink' },
-  { id: 'bibtap', short: 'Hose Bibb' }
+  { id: 'hose_bibb', short: 'Hose Bibb' },
+  { id: 'dishwasher', short: 'DISH WASHER' },
+  { id: 'hose_bibb_1', short: 'Hose Bibb' }
 ];
 
-// UPC Abu Dhabi Table 6-9 Lookup Table (WSFU -> L/min)
+// UPC Abu Dhabi / UBC Table 6-9 Lookup Table (WSFU -> L/min)
 const ADM_TABLE_6_9 = [
   { wsfu: 1, lmin: 0 },
   { wsfu: 2, lmin: 3.8 },
@@ -130,9 +314,21 @@ const ADM_TABLE_6_9 = [
   { wsfu: 500, lmin: 473 },
   { wsfu: 750, lmin: 643 },
   { wsfu: 1000, lmin: 787 },
-  { wsfu: 1500, lmin: 1000 },
-  { wsfu: 2000, lmin: 1200 },
-  { wsfu: 5000, lmin: 2500 }
+  { wsfu: 1250, lmin: 908 },
+  { wsfu: 1500, lmin: 1011 },
+  { wsfu: 1750, lmin: 1113 },
+  { wsfu: 2000, lmin: 1215 },
+  { wsfu: 2250, lmin: 1317 },
+  { wsfu: 2500, lmin: 1419 },
+  { wsfu: 2750, lmin: 1522 },
+  { wsfu: 3000, lmin: 1635 },
+  { wsfu: 4000, lmin: 1987 },
+  { wsfu: 5000, lmin: 2245 },
+  { wsfu: 6000, lmin: 2434 },
+  { wsfu: 7000, lmin: 2593 },
+  { wsfu: 8000, lmin: 2718 },
+  { wsfu: 9000, lmin: 2820 },
+  { wsfu: 10000, lmin: 2911 }
 ];
 
 function getFlowLPS(totalLU: number, standard: StandardPreset): number {
@@ -148,7 +344,7 @@ function getFlowLPS(totalLU: number, standard: StandardPreset): number {
         return lmin / 60; // Convert L/min to L/s
       }
     }
-    if (totalLU > 5000) return (2500 + (totalLU - 5000) * 0.4) / 60;
+    if (totalLU > 10000) return (2911 + (totalLU - 10000) * 0.2) / 60;
     return 0;
   } else if (standard === "dubai") {
     // Dubai Building Code / CIBSE Formula: Q = 0.1 * sqrt(sum LU)
@@ -160,19 +356,19 @@ function getFlowLPS(totalLU: number, standard: StandardPreset): number {
   }
 }
 
-// Recommended Pipe Sizing Table (15mm to 200mm)
+// Recommended Pipe Sizing Table (15mm to 200mm) matching Table from Image 2
 export const PIPE_SIZING_TABLE = [
-  { sizeMM: 15, luMax: 3, flowMax: 0.18 },
-  { sizeMM: 20, luMax: 6, flowMax: 0.38 },
-  { sizeMM: 25, luMax: 14, flowMax: 0.70 },
-  { sizeMM: 32, luMax: 25, flowMax: 1.07 },
-  { sizeMM: 40, luMax: 30, flowMax: 1.27 },
-  { sizeMM: 50, luMax: 80, flowMax: 2.40 },
-  { sizeMM: 65, luMax: 275, flowMax: 5.05 },
-  { sizeMM: 80, luMax: 500, flowMax: 7.88 },
-  { sizeMM: 100, luMax: 750, flowMax: 10.72 },
-  { sizeMM: 150, luMax: 4000, flowMax: 33.12 },
-  { sizeMM: 200, luMax: 10000, flowMax: 48.52 }
+  { sizeMM: 15, wsfuRange: "1 to 3", luMax: 3, flowMax: 0.18, q4fps: 0.21372, q5fps: 0.26494, q6fps: 0.32146 },
+  { sizeMM: 20, wsfuRange: "3.5 to 6", luMax: 6, flowMax: 0.38, q4fps: 0.37994, q5fps: 0.47100, q6fps: 0.57148 },
+  { sizeMM: 25, wsfuRange: "6.5 to 14", luMax: 14, flowMax: 0.70, q4fps: 0.59366, q5fps: 0.73594, q6fps: 0.89294 },
+  { sizeMM: 32, wsfuRange: "14.5 to 25", luMax: 25, flowMax: 1.07, q4fps: 0.97265, q5fps: 1.20576, q6fps: 1.46299 },
+  { sizeMM: 40, wsfuRange: "25.5 to 30", luMax: 30, flowMax: 1.27, q4fps: 1.51976, q5fps: 1.88400, q6fps: 2.28592 },
+  { sizeMM: 50, wsfuRange: "30.5 to 80", luMax: 80, flowMax: 2.40, q4fps: 2.37463, q5fps: 2.94375, q6fps: 3.57175 },
+  { sizeMM: 65, wsfuRange: "80.5 to 275", luMax: 275, flowMax: 5.05, q4fps: 4.013116, q5fps: 4.974938, q6fps: 6.036258 },
+  { sizeMM: 80, wsfuRange: "275.5 to 500", luMax: 500, flowMax: 7.88, q4fps: 6.07904, q5fps: 7.53600, q6fps: 9.14368 },
+  { sizeMM: 100, wsfuRange: "501 to 750", luMax: 750, flowMax: 10.72, q4fps: 9.49850, q5fps: 11.77500, q6fps: 14.28700 },
+  { sizeMM: 150, wsfuRange: "750 to 4000", luMax: 4000, flowMax: 33.12, q4fps: 21.371625, q5fps: 26.49375, q6fps: 32.14575 },
+  { sizeMM: 200, wsfuRange: "4001 to 10000", luMax: 10000, flowMax: 48.52, q4fps: 37.99400, q5fps: 47.10000, q6fps: 57.14800 }
 ];
 
 export function getRecommendedPipeSize(lu: number, flowLPS: number): { sizeMM: number; maxFlowLPS: number } {
@@ -188,17 +384,35 @@ function LoadingUnitPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [standardPreset, setStandardPreset] = useState<StandardPreset>("dubai");
+  const [selectedCategory, setSelectedCategory] = useState<string>("med");
+  const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [iopSpaces, setIopSpaces] = useState<LUSpace[]>([]);
   const [floorSections, setFloorSections] = useState<string[]>(["6th FLOOR"]);
   const [activeFloor, setActiveFloor] = useState<string>("6th FLOOR");
+  const [showSpaceQty, setShowSpaceQty] = useState<boolean>(true);
+  const [showFloorsCol, setShowFloorsCol] = useState<boolean>(true);
+
+  // Project / Calculation Header Metadata Block (Matching reference submittal sheet)
+  const [calcMeta, setCalcMeta] = useState({
+    calcNo: "CEC-MED-P539-202",
+    revNo: "1",
+    projectNo: "P539",
+    projectName: "DH-RA Phase 2 Development Yas Island AUH",
+    date: "14.07.2026",
+    client: "ALDAR",
+    endUser: ""
+  });
 
   // Selection states for Bulk Editing
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' } | null>(null);
 
   // Form states
   const [newDesc, setNewDesc] = useState("");
   const [newQty, setNewQty] = useState<number>(1);
+  const [newFloorQty, setNewFloorQty] = useState<number>(1);
   const [newFixtures, setNewFixtures] = useState<Record<string, number>>({});
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
@@ -211,6 +425,13 @@ function LoadingUnitPage() {
           const data = JSON.parse(stored);
           if (data.unitSystem) setUnitSystem(data.unitSystem);
           if (data.standardPreset) setStandardPreset(data.standardPreset);
+          if (data.selectedCategory) {
+            setSelectedCategory(data.selectedCategory);
+          } else if (data.standardPreset) {
+            setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[data.standardPreset as StandardPreset] || "med");
+          }
+          if (data.weightOverrides) setWeightOverrides(data.weightOverrides);
+          if (data.calcMeta) setCalcMeta(data.calcMeta);
           if (Array.isArray(data.floorSections)) setFloorSections(data.floorSections);
           if (Array.isArray(data.iopSpaces) && data.iopSpaces.length > 0) {
             setIopSpaces(data.iopSpaces);
@@ -225,6 +446,17 @@ function LoadingUnitPage() {
           // Defaults for Dubai Project
           setUnitSystem("si");
           setStandardPreset("dubai");
+          setSelectedCategory("med");
+          setWeightOverrides({});
+          setCalcMeta({
+            calcNo: "CEC-MED-P539-202",
+            revNo: "1",
+            projectNo: "P539",
+            projectName: "DH-RA Phase 2 Development Yas Island AUH",
+            date: "14.07.2026",
+            client: "ALDAR",
+            endUser: ""
+          });
           setActiveFloor("6th FLOOR");
           setFloorSections(["6th FLOOR"]);
           setIopSpaces([
@@ -234,7 +466,7 @@ function LoadingUnitPage() {
               floor: "6th FLOOR",
               qty: 3,
               std: "med",
-              fixtures: { wc_tank: 1, handspray: 1, basin: 1, sink: 1, shower: 1, washer: 1, dishwasher: 1 }
+              fixtures: { wc: 1, handspray: 1, basin: 1, sink: 1, shower: 1, washer: 1, dishwasher: 1 }
             },
             {
               id: 2,
@@ -242,7 +474,7 @@ function LoadingUnitPage() {
               floor: "6th FLOOR",
               qty: 7,
               std: "med",
-              fixtures: { wc_tank: 1, handspray: 1, basin: 1, sink: 1, shower: 1, washer: 1, dishwasher: 1 }
+              fixtures: { wc: 1, handspray: 1, basin: 1, sink: 1, shower: 1, washer: 1, dishwasher: 1 }
             },
             {
               id: 3,
@@ -250,7 +482,7 @@ function LoadingUnitPage() {
               floor: "6th FLOOR",
               qty: 4,
               std: "med",
-              fixtures: { wc_tank: 2, handspray: 2, basin: 2, sink: 1, shower: 2, washer: 1, dishwasher: 1 }
+              fixtures: { wc: 2, handspray: 2, basin: 2, sink: 1, shower: 2, washer: 1, dishwasher: 1 }
             }
           ]);
         }
@@ -267,12 +499,16 @@ function LoadingUnitPage() {
       const dataToSave = {
         unitSystem,
         standardPreset,
-        iopSpaces
+        selectedCategory,
+        weightOverrides,
+        calcMeta,
+        iopSpaces,
+        floorSections
       };
       localStorage.setItem(`mep_loading_unit_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(true);
     }
-  }, [project?.id, loadedProjectId, unitSystem, standardPreset, iopSpaces]);
+  }, [project?.id, loadedProjectId, unitSystem, standardPreset, selectedCategory, weightOverrides, calcMeta, iopSpaces, floorSections]);
 
   // Keyboard Shortcuts for Delete
   useEffect(() => {
@@ -301,7 +537,10 @@ function LoadingUnitPage() {
         const dataToSave = {
           unitSystem,
           standardPreset,
-          iopSpaces
+          selectedCategory,
+          weightOverrides,
+          iopSpaces,
+          floorSections
         };
         localStorage.setItem(`mep_loading_unit_calc_${project.id}`, JSON.stringify(dataToSave));
         dirtyStore.set(false);
@@ -323,25 +562,50 @@ function LoadingUnitPage() {
     return Array.from(set);
   }, [iopSpaces, activeFloor]);
 
+  // Dynamic Fixture Weights for current Standard and Category (with user custom weight overrides)
+  const activeWeights = useMemo(() => {
+    const catDict = STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY[standardPreset];
+    const defaultCat = DEFAULT_CATEGORY_FOR_PRESET[standardPreset];
+    const stdWeights = catDict[selectedCategory] || catDict[defaultCat] || STANDARD_FIXTURE_WEIGHTS[standardPreset];
+    return {
+      ...stdWeights,
+      ...weightOverrides
+    };
+  }, [standardPreset, selectedCategory, weightOverrides]);
+
+  const handleResetWeightsToDefault = () => {
+    setWeightOverrides({});
+    toast.info("Reset fixture weights to standard defaults.");
+  };
+
   // Calculations
   const calculations = useMemo(() => {
     let totalLU = 0;
     const spaceUnitLU: Record<number, number> = {};
     const spaceTotalsLU: Record<number, number> = {};
-    const weights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
+    const catDict = STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY[standardPreset];
+    const defaultCat = DEFAULT_CATEGORY_FOR_PRESET[standardPreset];
 
     iopSpaces.forEach(s => {
+      const cat = s.std && catDict[s.std] ? s.std : selectedCategory;
+      const baseWeights = catDict[cat] || catDict[defaultCat] || STANDARD_FIXTURE_WEIGHTS[standardPreset];
+      // Include custom user overrides for active category
+      const weights = (!s.std || s.std === selectedCategory)
+        ? { ...baseWeights, ...weightOverrides }
+        : baseWeights;
+
       let unitLU = 0;
       LU_FIXTURES_META.forEach(f => {
         const count = s.fixtures[f.id] || 0;
         if (count > 0) {
-          const w = weights[f.id] || 0;
+          const w = weights[f.id] ?? 0;
           unitLU += count * w;
         }
       });
 
-      const qty = s.qty || 1;
-      const spaceTotal = unitLU * qty;
+      const qty = showSpaceQty ? (s.qty || 1) : 1;
+      const floorQty = showFloorsCol ? (s.floorQty || 1) : 1;
+      const spaceTotal = unitLU * qty * floorQty;
 
       spaceUnitLU[s.id] = unitLU;
       spaceTotalsLU[s.id] = spaceTotal;
@@ -364,7 +628,7 @@ function LoadingUnitPage() {
       displayFlow: ip ? `${flowGPM.toFixed(1)} GPM` : `${flowLPS.toFixed(3)} L/s`,
       displaySelectedFlow: ip ? `${(selectedFlowLPS * 15.8503).toFixed(1)} GPM` : `${selectedFlowLPS.toFixed(1)} L/s`
     };
-  }, [iopSpaces, standardPreset, ip]);
+  }, [iopSpaces, standardPreset, selectedCategory, ip, showSpaceQty, showFloorsCol]);
 
   // Selection Handlers
   const handleToggleSelectAll = (checked: boolean) => {
@@ -455,12 +719,14 @@ function LoadingUnitPage() {
       desc: newDesc.trim(),
       floor: floorTarget,
       qty: Math.max(1, newQty || 1),
+      floorQty: Math.max(1, newFloorQty || 1),
       std: "med",
       fixtures: fixturesCleaned
     }]);
 
     setNewDesc("");
     setNewQty(1);
+    setNewFloorQty(1);
     setNewFixtures({});
     toast.success(`Added space to ${floorTarget}`);
   };
@@ -540,6 +806,19 @@ function LoadingUnitPage() {
     }));
   };
 
+  const handleFloorQtyChange = (spaceId: number, val: number) => {
+    const targets = selectedIds.includes(spaceId) && selectedIds.length > 1 ? selectedIds : [spaceId];
+    setIopSpaces(iopSpaces.map(s => {
+      if (targets.includes(s.id)) {
+        return {
+          ...s,
+          floorQty: Math.max(1, val)
+        };
+      }
+      return s;
+    }));
+  };
+
   // Right Click Handler
   const handleContextMenu = (e: React.MouseEvent, spaceId: number) => {
     e.preventDefault();
@@ -574,8 +853,9 @@ function LoadingUnitPage() {
       const sheet = workbook.addWorksheet(sheetName);
 
       const activeFixtures = LU_FIXTURES_META;
-      const numFixtures = activeFixtures.length; // 11
-      const totalCols = 1 + numFixtures + 3; // 1 (Desc) + 11 (Fixtures) + 1 (WSFU/LU) + 1 (Qty) + 1 (TOTAL WSFU/LU) = 15 columns (A to O)
+      const numFixtures = activeFixtures.length; // 10
+      const extraCols = (showSpaceQty ? 1 : 0) + (showFloorsCol ? 1 : 0);
+      const totalCols = 1 + numFixtures + 1 + extraCols + 1; // 1 (Desc) + numFixtures + 1 (Unit LU) + extraCols + 1 (TOTAL LU)
       const lastColLetter = getColLetter(totalCols);
 
       const currentWeights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
@@ -587,9 +867,27 @@ function LoadingUnitPage() {
       for (let c = 2; c <= 1 + numFixtures; c++) {
         sheet.getColumn(c).width = 13; // Fixtures
       }
-      sheet.getColumn(1 + numFixtures + 1).width = 13; // LU per Space
-      sheet.getColumn(1 + numFixtures + 2).width = 11; // Space Qty
-      sheet.getColumn(1 + numFixtures + 3).width = 14; // TOTAL LU
+      let currCol = 1 + numFixtures + 1; // Col for LU per Space
+      sheet.getColumn(currCol).width = 13;
+      const luColLet = getColLetter(currCol);
+
+      let qtyColLet = "";
+      if (showSpaceQty) {
+        currCol++;
+        sheet.getColumn(currCol).width = 11;
+        qtyColLet = getColLetter(currCol);
+      }
+
+      let floorQtyColLet = "";
+      if (showFloorsCol) {
+        currCol++;
+        sheet.getColumn(currCol).width = 13;
+        floorQtyColLet = getColLetter(currCol);
+      }
+
+      currCol++;
+      sheet.getColumn(currCol).width = 14;
+      const totalLUColLet = getColLetter(currCol);
 
       // Helper styles
       const fontCambria11Bold = { name: "Cambria", size: 11, bold: true };
@@ -681,20 +979,19 @@ function LoadingUnitPage() {
       });
 
       // LU / WSFU per Space
-      const luColIdx = 2 + numFixtures;
-      const luColLet = getColLetter(luColIdx);
       sheet.mergeCells(`${luColLet}8:${luColLet}9`);
       sheet.getCell(`${luColLet}8`).value = isWsfu ? "WSFU" : "LU per Space";
 
-      // Space Qty
-      const qtyColIdx = luColIdx + 1;
-      const qtyColLet = getColLetter(qtyColIdx);
-      sheet.mergeCells(`${qtyColLet}8:${qtyColLet}9`);
-      sheet.getCell(`${qtyColLet}8`).value = "Space Qty";
+      if (showSpaceQty && qtyColLet) {
+        sheet.mergeCells(`${qtyColLet}8:${qtyColLet}9`);
+        sheet.getCell(`${qtyColLet}8`).value = "Space Qty";
+      }
 
-      // TOTAL LU / WSFU
-      const totalLUColIdx = qtyColIdx + 1;
-      const totalLUColLet = getColLetter(totalLUColIdx);
+      if (showFloorsCol && floorQtyColLet) {
+        sheet.mergeCells(`${floorQtyColLet}8:${floorQtyColLet}9`);
+        sheet.getCell(`${floorQtyColLet}8`).value = "No. of Floors";
+      }
+
       sheet.mergeCells(`${totalLUColLet}8:${totalLUColLet}9`);
       sheet.getCell(`${totalLUColLet}8`).value = isWsfu ? "TOTAL WSFU" : "TOTAL LU";
 
@@ -778,17 +1075,30 @@ function LoadingUnitPage() {
           luCell.numFmt = "0.0";
           luCell.border = borderThinAll;
 
-          // Space Qty
-          const qtyCell = sheet.getCell(`${qtyColLet}${r}`);
-          qtyCell.value = s.qty || 1;
-          qtyCell.font = fontCambria11Bold;
-          qtyCell.alignment = { vertical: "middle", horizontal: "center" };
-          qtyCell.numFmt = "0";
-          qtyCell.border = borderThinAll;
+          let formulaParts = [`${luColLet}${r}`];
 
-          // Total LU Formula: =L7*M7
+          if (showSpaceQty && qtyColLet) {
+            const qtyCell = sheet.getCell(`${qtyColLet}${r}`);
+            qtyCell.value = s.qty || 1;
+            qtyCell.font = fontCambria11Bold;
+            qtyCell.alignment = { vertical: "middle", horizontal: "center" };
+            qtyCell.numFmt = "0";
+            qtyCell.border = borderThinAll;
+            formulaParts.push(`${qtyColLet}${r}`);
+          }
+
+          if (showFloorsCol && floorQtyColLet) {
+            const floorQtyCell = sheet.getCell(`${floorQtyColLet}${r}`);
+            floorQtyCell.value = s.floorQty || 1;
+            floorQtyCell.font = fontCambria11Bold;
+            floorQtyCell.alignment = { vertical: "middle", horizontal: "center" };
+            floorQtyCell.numFmt = "0";
+            floorQtyCell.border = borderThinAll;
+            formulaParts.push(`${floorQtyColLet}${r}`);
+          }
+
           const totalLUCell = sheet.getCell(`${totalLUColLet}${r}`);
-          totalLUCell.value = { formula: `${luColLet}${r}*${qtyColLet}${r}` };
+          totalLUCell.value = { formula: formulaParts.join("*") };
           totalLUCell.font = fontCambria11Bold;
           totalLUCell.alignment = { vertical: "middle", horizontal: "center" };
           totalLUCell.numFmt = "0.0";
@@ -1048,7 +1358,6 @@ function LoadingUnitPage() {
     return grouped;
   }, [iopSpaces, floorSections]);
 
-  const activeWeights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
   const allSelected = selectedIds.length === iopSpaces.length && iopSpaces.length > 0;
 
   return (
@@ -1060,48 +1369,61 @@ function LoadingUnitPage() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 select-none">
             <div className="flex flex-col gap-1 max-w-2xl">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; LOADING UNIT SIZER</span>
+                <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; LOADING UNIT CALCULATOR</span>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                   <Sparkles className="size-3" /> Dubai Building Code Ready
                 </span>
               </div>
-              <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit & Pipe Sizer</h1>
+              <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
               <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
-                Calculate Loading Units (LU / WSFU), peak demand flow rates, booster pump sizing, and recommended supply pipe diameters.
+                Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-start md:justify-end mt-1 md:mt-0">
               <button
                 onClick={handleExportExcel}
-                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3 py-2 text-[12px] sm:text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-xs"
+                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3.5 py-2 text-[12px] sm:text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-xs"
               >
                 📊 Export Excel
-              </button>
-              <button
-                onClick={handleSaveCurrent}
-                className="flex items-center gap-2 bg-[#0A7BC7] hover:bg-[#06456F] text-white rounded-xl px-3.5 py-2 text-[12px] sm:text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-xs"
-              >
-                <Save className="size-4" /> Save Calculation
               </button>
             </div>
           </div>
 
           {/* Standard & Unit System Selector Header */}
-          <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center bg-slate-100 dark:bg-slate-900/60 p-2.5 sm:p-3 border border-border rounded-2xl gap-3 shadow-xs">
-            <div className="flex items-center gap-2 w-full sm:w-auto min-w-0 flex-wrap">
-              <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Standard Preset:</span>
-              <select
-                value={standardPreset}
-                onChange={(e) => setStandardPreset(e.target.value as StandardPreset)}
-                className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer flex-1 sm:flex-initial min-w-[240px]"
-              >
-                <option value="dubai">🇦🇪 Dubai Standard (DBC 2021 / BS EN 806 / CIBSE)</option>
-                <option value="abudhabi">🇦🇪 Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
-                <option value="ipc_upc">🌐 International IPC / UPC (WSFU)</option>
-              </select>
+          <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center bg-slate-100 dark:bg-slate-900/60 p-2.5 sm:p-3 border border-border rounded-2xl gap-3 shadow-xs">
+            <div className="flex items-center gap-3 w-full md:w-auto min-w-0 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Standard Preset:</span>
+                <select
+                  value={standardPreset}
+                  onChange={(e) => {
+                    const newPreset = e.target.value as StandardPreset;
+                    setStandardPreset(newPreset);
+                    setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset]);
+                  }}
+                  className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[220px]"
+                >
+                  <option value="dubai">🇦🇪 Dubai Standard (DBC 2021 / BS EN 806 / CIBSE)</option>
+                  <option value="abudhabi">🇦🇪 Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
+                  <option value="ipc_upc">🌐 International IPC / UPC (WSFU)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Demand Category:</span>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[210px]"
+                >
+                  {STANDARD_CATEGORIES[standardPreset].map(cat => (
+                    <option key={cat.id} value={cat.id}>{cat.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div className="flex bg-slate-200 dark:bg-slate-800 p-1 rounded-xl gap-1 select-none shrink-0 self-start sm:self-auto">
+            <div className="flex bg-slate-200 dark:bg-slate-800 p-1 rounded-xl gap-1 select-none shrink-0 self-start md:self-auto">
               <button type="button" onClick={() => setUnitSystem("si")} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
               <button type="button" onClick={() => setUnitSystem("ip")} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
             </div>
@@ -1118,6 +1440,25 @@ function LoadingUnitPage() {
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border rounded-lg px-2 py-0.5 shadow-2xs">
+                  <span className="text-[11px] font-bold text-muted-foreground">Category:</span>
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const newCat = e.target.value;
+                        setIopSpaces(iopSpaces.map(s => selectedIds.includes(s.id) ? { ...s, std: newCat } : s));
+                        toast.success(`Updated category for ${selectedIds.length} space(s)`);
+                      }
+                    }}
+                    defaultValue=""
+                    className="bg-transparent text-xs font-bold outline-none cursor-pointer text-foreground"
+                  >
+                    <option value="" disabled>Set Category...</option>
+                    {STANDARD_CATEGORIES[standardPreset].map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.label}</option>
+                    ))}
+                  </select>
+                </div>
                 <button
                   onClick={handleBulkMoveFloor}
                   className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
@@ -1152,17 +1493,26 @@ function LoadingUnitPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-8 min-w-0 flex flex-col gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+            <div className="xl:col-span-9 lg:col-span-8 min-w-0 flex flex-col gap-6">
               
               {/* Fixtures quantities schedule card */}
               <div className="bg-card border border-border rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-xs min-w-0">
                 
                 {/* Header bar with Floor Section Creator */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                     <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">📋 Fixture Schedule (Grouped By Floor)</h3>
+                    {Object.keys(weightOverrides).length > 0 && (
+                      <button
+                        onClick={handleResetWeightsToDefault}
+                        className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full transition-all cursor-pointer"
+                        title="Reset custom weights to standard defaults"
+                      >
+                        ↺ Reset Weights
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
@@ -1178,7 +1528,7 @@ function LoadingUnitPage() {
 
                 {/* Table for Adding/Editing spaces */}
                 <div className="overflow-x-auto border border-border rounded-xl w-full custom-scrollbar">
-                  <table className="w-full min-w-[760px] border-collapse text-[11.5px] font-sans select-none">
+                  <table className="w-full min-w-[800px] border-collapse text-[11.5px] font-sans select-none">
                     <thead>
                       <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
                         <th rowSpan={2} className="p-2 text-center w-8">
@@ -1189,17 +1539,62 @@ function LoadingUnitPage() {
                             className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
                           />
                         </th>
-                        <th rowSpan={2} className="p-2 text-left min-w-[150px]">Description</th>
-                        <th rowSpan={2} className="p-2 text-center w-16 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold">Qty</th>
+                        <th rowSpan={2} className="p-2 text-left min-w-[140px]">Description</th>
                         {LU_FIXTURES_META.map(f => (
-                          <th key={f.id} className="p-2 text-center w-12">{f.short}</th>
+                          <th key={f.id} className="p-2 text-center w-12 text-[11px] font-bold">{f.short}</th>
                         ))}
-                        <th rowSpan={2} className="p-2 text-center w-24 bg-[#0A7BC7]/5 text-[#0A7BC7] font-bold">TOTAL L.U</th>
+                        <th rowSpan={2} className="p-2 text-center w-16 bg-[#0A7BC7]/5 text-[#0A7BC7] font-bold" title="Unit value per 1 space">
+                          {standardPreset === "dubai" ? "LU" : "WSFU"}
+                        </th>
+                        <th className="p-1.5 text-center w-16 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold border-b border-border/40" title="Quantity of spaces per typical floor">
+                          Space Qty
+                        </th>
+                        <th className="p-1.5 text-center w-16 bg-sky-500/10 text-sky-700 dark:text-sky-300 font-bold border-b border-border/40" title="Number of typical floors">
+                          No. of Floors
+                        </th>
+                        <th rowSpan={2} className="p-2 text-center w-20 bg-[#0A7BC7]/10 text-[#0A7BC7] font-bold" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
+                          {standardPreset === "dubai" ? "TOTAL LU" : "TOTAL WSFU"}
+                        </th>
                       </tr>
                       <tr className="bg-slate-50 dark:bg-slate-900 border-b border-border">
                         {LU_FIXTURES_META.map(f => (
-                          <th key={f.id} className="p-1 px-1.5 text-center font-bold text-[#0A7BC7]/90 bg-[#0A7BC7]/5">{activeWeights[f.id]}</th>
+                          <th key={f.id} className="p-1 px-0.5 text-center font-bold bg-[#0A7BC7]/5">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              value={activeWeights[f.id] ?? ""}
+                              onChange={(e) => {
+                                const val = e.target.value !== "" ? Number(e.target.value) : 0;
+                                setWeightOverrides(prev => ({ ...prev, [f.id]: val }));
+                              }}
+                              className="w-12 text-center bg-white dark:bg-slate-950 border border-blue-300 dark:border-blue-700 rounded text-[#0A7BC7] font-extrabold text-[11.5px] py-0.5 outline-none focus:ring-2 focus:ring-[#0A7BC7]"
+                              title={`Edit loading unit weight for ${f.short} (Click to change)`}
+                            />
+                          </th>
                         ))}
+                        {/* Toggle button under Space Qty header */}
+                        <th className="p-1 text-center bg-amber-500/10 border-b border-border">
+                          <button
+                            type="button"
+                            onClick={() => setShowSpaceQty(!showSpaceQty)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showSpaceQty ? "bg-amber-500 text-white border-amber-600 shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
+                            title={showSpaceQty ? "Space Qty is ON. Click to turn OFF." : "Space Qty is OFF. Click to turn ON."}
+                          >
+                            {showSpaceQty ? "ON" : "OFF"}
+                          </button>
+                        </th>
+                        {/* Toggle button under No. of Floors header */}
+                        <th className="p-1 text-center bg-sky-500/10 border-b border-border">
+                          <button
+                            type="button"
+                            onClick={() => setShowFloorsCol(!showFloorsCol)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showFloorsCol ? "bg-sky-500 text-white border-sky-600 shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
+                            title={showFloorsCol ? "No. of Floors is ON. Click to turn OFF." : "No. of Floors is OFF. Click to turn ON."}
+                          >
+                            {showFloorsCol ? "ON" : "OFF"}
+                          </button>
+                        </th>
                       </tr>
                     </thead>
 
@@ -1208,8 +1603,8 @@ function LoadingUnitPage() {
                       <tbody key={floor} className="border-b border-border/80">
                         
                         {/* Floor Section Header */}
-                        <tr className="bg-slate-100 dark:bg-slate-900 border-b border-border text-foreground font-bold text-[11.5px]">
-                          <td colSpan={LU_FIXTURES_META.length + 4} className="p-2 px-3">
+                        <tr className="bg-slate-200 dark:bg-slate-800 border-b border-border text-foreground font-bold text-[11.5px]">
+                          <td colSpan={LU_FIXTURES_META.length + 6} className="p-2 px-3 text-center">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <Building2 className="size-4 text-[#0A7BC7]" />
@@ -1242,15 +1637,27 @@ function LoadingUnitPage() {
                           <td className="p-1.5">
                             <input type="text" placeholder={`Add space to ${floor}`} value={activeFloor === floor ? newDesc : ""} onChange={e => { setActiveFloor(floor); setNewDesc(e.target.value); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md px-2 py-1 outline-none focus:border-[#0A7BC7]" />
                           </td>
-                          <td className="p-1.5">
-                            <input type="number" min="1" value={activeFloor === floor ? newQty : 1} onChange={e => { setActiveFloor(floor); setNewQty(Number(e.target.value)); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md py-1 text-center font-bold outline-none text-amber-600 dark:text-amber-400" />
-                          </td>
                           {LU_FIXTURES_META.map(f => (
                             <td key={f.id} className="p-1">
                               <input type="number" min="0" placeholder="-" value={activeFloor === floor ? (newFixtures[f.id] || "") : ""} onChange={e => { setActiveFloor(floor); setNewFixtures({ ...newFixtures, [f.id]: e.target.value !== "" ? Number(e.target.value) : 0 }); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md py-1 text-center outline-none" />
                             </td>
                           ))}
-                          <td colSpan={2} className="p-2 text-center">
+                          <td className="p-1 text-center text-muted-foreground font-mono">—</td>
+                          <td className="p-1.5 text-center">
+                            {showSpaceQty ? (
+                              <input type="number" min="1" value={activeFloor === floor ? newQty : 1} onChange={e => { setActiveFloor(floor); setNewQty(Number(e.target.value)); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md py-1 text-center font-bold outline-none text-amber-600 dark:text-amber-400" title="Space Qty per floor" />
+                            ) : (
+                              <span className="text-muted-foreground font-mono text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="p-1.5 text-center">
+                            {showFloorsCol ? (
+                              <input type="number" min="1" value={activeFloor === floor ? newFloorQty : 1} onChange={e => { setActiveFloor(floor); setNewFloorQty(Number(e.target.value)); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md py-1 text-center font-bold outline-none text-sky-600 dark:text-sky-400" title="No. of typical floors" />
+                            ) : (
+                              <span className="text-muted-foreground font-mono text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="p-2 text-center">
                             <button onClick={() => handleAddSpaceToFloor(floor)} className="bg-[#0A7BC7] hover:bg-[#06456F] text-white px-3 py-1 rounded font-bold transition-all cursor-pointer border-0 text-xs">Add</button>
                           </td>
                         </tr>
@@ -1273,17 +1680,39 @@ function LoadingUnitPage() {
                                 />
                               </td>
                               <td className="p-1.5">
-                                <input type="text" value={s.desc} onChange={e => handleSpaceDescChange(s.id, e.target.value)} className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-bold text-foreground" />
-                              </td>
-                              <td className="p-1 text-center">
-                                <input type="number" min="1" value={s.qty || 1} onChange={e => handleQtyChange(s.id, Number(e.target.value))} className="w-full text-center bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" />
+                                <div className="flex items-center gap-1.5 w-full">
+                                  {s.comments && s.comments.length > 0 && (
+                                    <span 
+                                      title={`${s.comments.length} comment(s):\n${s.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`} 
+                                      className="inline-flex items-center justify-center p-1 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0 cursor-help"
+                                    >
+                                      <MessageSquare className="size-3.5" />
+                                    </span>
+                                  )}
+                                  <input type="text" value={s.desc} onChange={e => handleSpaceDescChange(s.id, e.target.value)} className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-bold text-foreground" />
+                                </div>
                               </td>
                               {LU_FIXTURES_META.map(f => (
                                 <td key={f.id} className="p-1">
                                   <input type="number" min="0" value={s.fixtures[f.id] || ""} onChange={e => handleFixtureChange(s.id, f.id, Number(e.target.value))} className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium" />
                                 </td>
                               ))}
-                              <td className="p-2 text-center font-mono font-bold text-[#0A7BC7] bg-[#0A7BC7]/5">{(calculations.spaceTotalsLU[s.id] || 0).toFixed(1)}</td>
+                              <td className="p-2 text-center font-mono font-bold text-[#0A7BC7] bg-[#0A7BC7]/5">{(calculations.spaceUnitLU[s.id] || 0).toFixed(1)}</td>
+                              <td className="p-1 text-center">
+                                {showSpaceQty ? (
+                                  <input type="number" min="1" value={s.qty || 1} onChange={e => handleQtyChange(s.id, Number(e.target.value))} className="w-full text-center bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" title="Space Qty per floor" />
+                                ) : (
+                                  <span className="text-muted-foreground font-mono text-[11px]">—</span>
+                                )}
+                              </td>
+                              <td className="p-1 text-center">
+                                {showFloorsCol ? (
+                                  <input type="number" min="1" value={s.floorQty || 1} onChange={e => handleFloorQtyChange(s.id, Number(e.target.value))} className="w-full text-center bg-sky-500/10 text-sky-700 dark:text-sky-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" title="No. of typical floors" />
+                                ) : (
+                                  <span className="text-muted-foreground font-mono text-[11px]">—</span>
+                                )}
+                              </td>
+                              <td className="p-2 text-center font-mono font-extrabold text-[#0A7BC7] bg-[#0A7BC7]/10">{(calculations.spaceTotalsLU[s.id] || 0).toFixed(1)}</td>
                             </tr>
                           );
                         })}
@@ -1297,81 +1726,93 @@ function LoadingUnitPage() {
             </div>
 
             {/* Sizing Results & Recommended Pipe Sidebar */}
-            <div className="lg:col-span-4 flex flex-col gap-3.5">
+            <div className="xl:col-span-3 lg:col-span-4 flex flex-col gap-3">
               
               {/* Sizing Results Card */}
-              <div className="bg-card border border-border rounded-2xl p-3.5 flex flex-col gap-2.5 shadow-xs">
-                <div className="flex items-center gap-2 pb-1.5 border-b border-border/60">
+              <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2 shadow-xs">
+                <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
                   <div className="w-1 h-3 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground font-sans">📊 Sizing Results</h3>
+                  <h3 className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground font-sans">📊 Sizing Results</h3>
                 </div>
 
-                <div className="flex flex-col gap-1.5 font-sans text-xs">
-                  <div className="flex justify-between items-center py-1 border-b border-border/30 text-[11.5px]">
-                    <span className="font-semibold text-muted-foreground">Active Preset</span>
-                    <span className="font-bold text-foreground text-right text-[11px]">{standardPreset === "dubai" ? "Dubai (DBC 2021)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC (WSFU)"}</span>
+                <div className="flex flex-col gap-1 font-sans text-xs">
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/30 text-[11px]">
+                    <span className="font-semibold text-muted-foreground">Preset</span>
+                    <span className="font-bold text-foreground text-right text-[10.5px]">{standardPreset === "dubai" ? "Dubai (DBC)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC"}</span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-border/30 text-[11.5px]">
-                    <span className="font-semibold text-muted-foreground">Total Loading Units</span>
-                    <strong className="font-bold text-foreground font-mono">{calculations.totalLU.toFixed(1)} LU</strong>
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/30 text-[11px]">
+                    <span className="font-semibold text-muted-foreground">Total Demand</span>
+                    <strong className="font-bold text-foreground font-mono">{calculations.totalLU.toFixed(1)} {standardPreset === "dubai" ? "LU" : "WSFU"}</strong>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-border/30 text-[11.5px]">
-                    <span className="font-semibold text-muted-foreground">Probable Peak Flow</span>
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/30 text-[11px]">
+                    <span className="font-semibold text-muted-foreground">Peak Flow</span>
                     <strong className="font-bold text-[#0A7BC7] font-mono">{calculations.displayFlow}</strong>
                   </div>
-                  <div className="flex justify-between items-center py-1.5 px-2.5 my-0.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/50 dark:border-blue-800/40 rounded-lg text-[11px]">
-                    <span className="font-bold text-foreground uppercase tracking-wide text-[10px]">Selected Pump Flow (Q)</span>
-                    <strong className="font-extrabold text-[#0A7BC7] text-sm font-mono">{calculations.displaySelectedFlow}</strong>
+                  <div className="flex justify-between items-center py-1 px-2 my-0.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/50 dark:border-blue-800/40 rounded-lg text-[10.5px]">
+                    <span className="font-bold text-foreground uppercase tracking-wide text-[9.5px]">Pump Flow (Q)</span>
+                    <strong className="font-extrabold text-[#0A7BC7] text-xs font-mono">{calculations.displaySelectedFlow}</strong>
                   </div>
                 </div>
               </div>
 
               {/* Recommended Pipe Size Card */}
-              <div className="bg-card border border-border rounded-2xl p-3.5 flex flex-col gap-2.5 shadow-xs">
-                <div className="flex items-center gap-2 pb-1.5 border-b border-border/60">
+              <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2 shadow-xs">
+                <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
                   <div className="w-1 h-3 bg-emerald-500 rounded-full"></div>
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground font-sans">🚰 Recommended Pipe Size</h3>
+                  <h3 className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground font-sans">🚰 Recommended Pipe</h3>
                 </div>
 
-                <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
+                <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 p-2 rounded-xl">
                   <div className="flex flex-col">
-                    <span className="text-[9.5px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Nominal Diameter</span>
-                    <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono">DN{calculations.pipeSizing.sizeMM} mm</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Nominal Size</span>
+                    <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">DN{calculations.pipeSizing.sizeMM} mm</span>
                   </div>
                   <div className="text-right flex flex-col">
-                    <span className="text-[9.5px] font-bold text-muted-foreground uppercase">Capacity Limit</span>
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase">Capacity Limit</span>
                     <span className="text-xs font-mono font-bold text-foreground">{calculations.pipeSizing.maxFlowLPS} L/s</span>
                   </div>
                 </div>
 
-                {/* Sizing Schedule Lookup Table */}
-                <div className="overflow-y-auto max-h-44 border border-border rounded-lg custom-scrollbar">
-                  <table className="w-full border-collapse text-[10px] font-mono">
-                    <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 z-10">
-                      <tr className="text-muted-foreground font-bold border-b border-border">
-                        <th className="p-1 text-center">Pipe (mm)</th>
-                        <th className="p-1 text-center">Max LU</th>
-                        <th className="p-1 text-center">Max L/s</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {PIPE_SIZING_TABLE.map((row) => {
-                        const isMatch = calculations.pipeSizing.sizeMM === row.sizeMM;
-                        return (
-                          <tr key={row.sizeMM} className={`border-b border-border/30 ${isMatch ? "bg-emerald-500/25 font-extrabold text-emerald-800 dark:text-emerald-200" : ""}`}>
-                            <td className="p-0.5 text-center font-bold">DN{row.sizeMM}</td>
-                            <td className="p-0.5 text-center">{row.luMax}</td>
-                            <td className="p-0.5 text-center">{row.flowMax}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                {/* Collapsible / Compact Pipe Schedule Table */}
+                <details className="group border border-border rounded-lg text-[10px]">
+                  <summary className="p-1.5 font-semibold text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-between bg-slate-50 dark:bg-slate-900 rounded-lg select-none">
+                    <span>View Pipe Size Table (15–200mm)</span>
+                    <span className="group-open:rotate-180 transition-transform text-[9px]">▼</span>
+                  </summary>
+                  <div className="overflow-x-auto overflow-y-auto max-h-48 p-1 border-t border-border custom-scrollbar">
+                    <table className="w-full border-collapse font-mono text-[9px]">
+                      <thead>
+                        <tr className="text-muted-foreground font-bold border-b border-border text-[9px] bg-slate-100 dark:bg-slate-800">
+                          <th className="p-1 text-center">Pipe (mm)</th>
+                          <th className="p-1 text-center">WSFU</th>
+                          <th className="p-1 text-center">Max L/s</th>
+                          <th className="p-1 text-center">@ 4 fps</th>
+                          <th className="p-1 text-center">@ 5 fps</th>
+                          <th className="p-1 text-center">@ 6 fps</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {PIPE_SIZING_TABLE.map((row) => {
+                          const isMatch = calculations.pipeSizing.sizeMM === row.sizeMM;
+                          return (
+                            <tr key={row.sizeMM} className={`border-b border-border/30 ${isMatch ? "bg-emerald-500/25 font-extrabold text-emerald-800 dark:text-emerald-200" : ""}`}>
+                              <td className="p-1 text-center font-bold">DN{row.sizeMM}</td>
+                              <td className="p-1 text-center font-semibold">{row.wsfuRange}</td>
+                              <td className="p-1 text-center">{row.flowMax}</td>
+                              <td className="p-1 text-center">{row.q4fps.toFixed(2)}</td>
+                              <td className="p-1 text-center">{row.q5fps.toFixed(2)}</td>
+                              <td className="p-1 text-center">{row.q6fps.toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
 
-                <div className="bg-slate-50 dark:bg-slate-900 border border-border rounded-lg p-2 flex gap-1.5 text-[10px] text-muted-foreground">
-                  <Info className="size-3.5 shrink-0 text-[#0A7BC7] mt-0.5" />
-                  <span>Selected in accordance with DBC 2021 &amp; BS EN 806 velocity limits (V &le; 1.5 - 2.0 m/s).</span>
+                <div className="bg-slate-50 dark:bg-slate-900 border border-border rounded-lg p-1.5 flex gap-1 text-[9.5px] text-muted-foreground">
+                  <Info className="size-3 shrink-0 text-[#0A7BC7] mt-0.5" />
+                  <span>DBC 2021 &amp; BS EN 806 limits (V &le; 1.5 - 2.0 m/s).</span>
                 </div>
               </div>
 
@@ -1408,6 +1849,19 @@ function LoadingUnitPage() {
           >
             <Edit3 className="size-3.5 text-amber-500" /> Edit Quantity
           </button>
+          <button
+            onClick={() => {
+              const targetSpace = iopSpaces.find(s => s.id === contextMenu.spaceId);
+              if (targetSpace) {
+                setCommentTarget({ id: String(targetSpace.id), name: targetSpace.desc, type: 'space' });
+                setAssignCommentOpen(true);
+              }
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400"
+          >
+            <MessageSquare className="size-3.5" /> Add comment
+          </button>
           <div className="my-1 border-t border-border/60"></div>
           <button
             onClick={handleBulkDelete}
@@ -1416,6 +1870,46 @@ function LoadingUnitPage() {
             <Trash2 className="size-3.5" /> Delete Space(s)
           </button>
         </div>
+      )}
+
+      {/* Assign Comment Modal Overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          onSave={(newComment) => {
+            setIopSpaces(prev => {
+              const next = prev.map(s => {
+                if (String(s.id) === commentTarget.id) {
+                  const comments = [...(s.comments || []), newComment];
+                  return { ...s, comments };
+                }
+                return s;
+              });
+
+              const projId = project?.id || "default";
+              try {
+                const existingData = JSON.parse(localStorage.getItem(`mep_loading_unit_calc_${projId}`) || '{}');
+                localStorage.setItem(`mep_loading_unit_calc_${projId}`, JSON.stringify({
+                  ...existingData,
+                  iopSpaces: next,
+                  updatedAt: new Date().toISOString()
+                }));
+              } catch (e) {}
+              return next;
+            });
+            toast.success(`Comment assigned on space "${commentTarget.name}"`);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent("mep-notification-added"));
+            }
+          }}
+        />
       )}
     </AppShell>
   );

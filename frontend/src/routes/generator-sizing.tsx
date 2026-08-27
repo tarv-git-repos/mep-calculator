@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -282,7 +282,9 @@ function GeneratorSizingPage() {
       const kw = Number(row.kwPerUnit) || 0;
       const sb = Number(row.standby) || 0;
       const actualKw = u * kw - sb;
-      return { ...row, powerFail: parseFloat((actualKw * (percent / 100)).toFixed(2)) };
+      const emKw = row.excludeEmergency ? 0 : Number(row.emergency);
+      const baseLoad = (!isNaN(emKw) && emKw > 0) ? emKw : (actualKw > 0 ? actualKw : 0);
+      return { ...row, powerFail: parseFloat((baseLoad * (percent / 100)).toFixed(2)) };
     });
     pushState(newRows);
   };
@@ -409,8 +411,15 @@ function GeneratorSizingPage() {
     const effectiveMaxStart = getEffective("maxStart", maxStartCur);
 
     const maxCalcSize = Math.max(calcSizeAcl, calcSizeEm);
-    let autoSize = STANDARD_SIZES.find((size) => size >= maxCalcSize);
-    if (!autoSize) autoSize = STANDARD_SIZES[STANDARD_SIZES.length - 1];
+    let autoSize: number;
+    const matchingStandard = STANDARD_SIZES.find((size) => size >= maxCalcSize);
+    if (matchingStandard) {
+      autoSize = matchingStandard;
+    } else if (maxCalcSize > 0) {
+      autoSize = Math.ceil(maxCalcSize / 50) * 50;
+    } else {
+      autoSize = 125;
+    }
 
     const selectedSize = userSelectedSize !== null ? userSelectedSize : autoSize;
 
@@ -421,6 +430,7 @@ function GeneratorSizingPage() {
       demandLoadEm,
       calcSizeAcl,
       calcSizeEm,
+      autoSize,
       selectedSize,
       maxStartCur: effectiveMaxStart,
       largestMotorKw,
@@ -735,37 +745,108 @@ function GeneratorSizingPage() {
   };
 
   const exportPdf = () => {
-    const doc = new jsPDF();
-    doc.text("Generator Sizing Calculation", 14, 15);
-    const tableData = rows.map((r) => {
-      const rKw = Number(r.kwPerUnit) || 0;
-      const rUnit = Number(r.unit) || 0;
-      const rSb = Number(r.standby) || 0;
-      const rEm = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
-      const rMult = Number(r.multiplier) || 0;
-      return [
-        r.desc,
-        rUnit.toString(),
-        rKw.toString(),
-        r.starter,
-        rMult.toString(),
-        (rUnit * rKw - rSb).toFixed(2),
-        rEm.toString(),
+    try {
+      const doc = new jsPDF("landscape");
+      
+      const headerStartY = addPdfHeader(doc, "Generator Sizing Calculation Report");
+
+      const sizeHeader = unitSystem === "ip" ? "HP / UNIT" : "kW / UNIT";
+      const totalHeader = unitSystem === "ip" ? "Total Conn (HP)" : "Total Conn (kW)";
+      const aclHeader = unitSystem === "ip" ? "Actual Conn (HP)" : "Actual Conn (kW)";
+      const emHeader = unitSystem === "ip" ? "Emerg (HP)" : "Emerg (kW)";
+      const pfHeader = unitSystem === "ip" ? "Power Fail (HP)" : "Power Fail (kW)";
+
+      const getSanitizedVal = (val: any): string => {
+        if (val === undefined || val === null || val === "undefined" || val === "null") return "";
+        return String(val);
+      };
+
+      const tableData = rows.map((r, idx) => {
+        const unit = Number(r.unit) || 0;
+        const kwPerUnit = Number(r.kwPerUnit) || 0;
+        const totalConn = unit * kwPerUnit;
+        const standby = Number(r.standby) || 0;
+        const acl = totalConn - standby;
+        const em = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
+        const pwrFail = acl + em;
+        const mult = Number(r.multiplier) || 1;
+        const startCur = kwPerUnit * 1.739 * mult;
+
+        const remarkVal = r.remark || (r as any).remarks || "";
+
+        return [
+          idx + 1,
+          getSanitizedVal(r.desc),
+          unit.toString(),
+          kwPerUnit.toFixed(2),
+          getSanitizedVal(r.starter || "DOL"),
+          startCur.toFixed(2),
+          totalConn.toFixed(2),
+          standby.toFixed(2),
+          acl.toFixed(2),
+          em.toFixed(2),
+          pwrFail.toFixed(2),
+          getSanitizedVal(remarkVal)
+        ];
+      });
+
+      autoTable(doc, {
+        head: [["Sr. No.", "Description", "Unit", sizeHeader, "Starter Types", "Start Cur (A)", totalHeader, "Standby", aclHeader, emHeader, pfHeader, "Remarks"]],
+        body: tableData,
+        startY: headerStartY + 4,
+        styles: { fontSize: 7, cellPadding: 1.5 },
+        headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+      });
+
+      const finalY1 = (doc as any).lastAutoTable?.finalY || (headerStartY + 30);
+
+      // Summary Table matching Excel Export
+      const pfVal = Number(pf) || 0.8;
+      const lfVal = Number(lf) || 0.9;
+      const dgTypeStr = "Standby DG";
+
+      const summaryHead = [["Summary Calculation Parameter", "Connected Load (kW)", "Emergency Load (kW)"]];
+      const summaryBody = [
+        ["Total Actual Connected Load in kW (ACL)", calc.totalAcl.toFixed(2), calc.totalEmergency.toFixed(2)],
+        ["Consider power factor (PF Lagging)", pfVal.toFixed(2), pfVal.toFixed(2)],
+        ["Demand load in kVA (DL = ACL / PF)", calc.demandLoadAcl.toFixed(2), calc.demandLoadEm.toFixed(2)],
+        [`Consider loading factor (${dgTypeStr})`, `${(lfVal * 100).toFixed(0)}%`, `${(lfVal * 100).toFixed(0)}%`],
+        ["Calculated size for DG set (DL / LF) kVA", calc.calcSizeAcl.toFixed(2), calc.calcSizeEm.toFixed(2)],
+        ["Maximum Starting Current for Motor (Amp)", calc.maxStartCur.toFixed(2), "-"],
+        ["Calculated DG Set Size in kVA", Math.max(calc.calcSizeAcl, calc.calcSizeEm).toFixed(2), "-"],
       ];
-    });
-    const sizeHeader = unitSystem === "ip" ? "HP/Unit" : "kW/Unit";
-    const aclHeader = unitSystem === "ip" ? "ACL (HP)" : "ACL (kW)";
-    const emHeader = unitSystem === "ip" ? "Emerg (HP)" : "Emerg (kW)";
-    autoTable(doc, {
-      head: [["Description", "Unit", sizeHeader, "Starter", "Multiplier", aclHeader, emHeader]],
-      body: tableData,
-      startY: 20,
-    });
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "generator-sizing");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), "generator_sizing.pdf", "PDF Document", ["pdf"]);
+
+      autoTable(doc, {
+        head: summaryHead,
+        body: summaryBody,
+        startY: finalY1 + 6,
+        styles: { fontSize: 7.5, cellPadding: 1.5 },
+        headStyles: { fillColor: [52, 73, 94], textColor: 255, fontStyle: "bold" },
+        columnStyles: {
+          0: { cellWidth: 100, fontStyle: "bold" },
+          1: { cellWidth: 50, halign: "center" },
+          2: { cellWidth: 50, halign: "center" },
+        },
+      });
+
+      const finalY2 = (doc as any).lastAutoTable?.finalY || (finalY1 + 45);
+
+      // Yellow Callout Box for Selected Size
+      doc.setFillColor(254, 240, 138); // Yellow-200
+      doc.setDrawColor(234, 179, 8); // Yellow-600
+      doc.rect(14, finalY2 + 4, 200, 10, "FD");
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(161, 98, 7);
+      doc.text(`SELECTED SIZE OF DG SET: ${calc.selectedSize} kVA`, 18, finalY2 + 10.5);
+
+      addPdfSignatureBlock(doc, finalY2 + 20, currentUserName, project?.id || "default", "generator-sizing");
+
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), "Generator_Sizing_Calculation.pdf", "PDF Document", ["pdf"]);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+    }
   };
 
   const duplicateRow = (id: string) => {
@@ -1008,11 +1089,16 @@ function GeneratorSizingPage() {
                                 Emergency <Info className="size-3" />
                               </span>
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-32 text-center">
-                              {unitSystem === "ip" ? "Power Fail (HP)" : "Power Fail (kW)"}
+                            <th className="px-3 py-2 border-r border-border w-36 text-center">
+                              <span
+                                className="flex items-center gap-1 justify-center w-full cursor-help"
+                                title="Power Failure Load"
+                              >
+                                {unitSystem === "ip" ? "Power Failure Load (HP)" : "Power Failure Load (kW)"}
+                              </span>
                             </th>
                             <th className="px-3 py-2 border-r border-border w-48 text-center">
-                              Remark
+                              Remarks
                             </th>
                           </tr>
                         </thead>
@@ -1020,7 +1106,7 @@ function GeneratorSizingPage() {
                           {rows.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={12}
+                                colSpan={13}
                                 className="text-center py-10 text-muted-foreground italic"
                               >
                                 No loads added. Click "+ Add Load" to begin.
@@ -1220,7 +1306,7 @@ function GeneratorSizingPage() {
                                       data-col={8}
                                       type="text"
                                       className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white"
-                                      value={r.remark || ""}
+                                      value={!r.remark || r.remark === "undefined" ? "" : r.remark}
                                       onChange={(e) => updateRow(r.id, "remark", e.target.value)}
                                     />
                                   </td>
@@ -1437,53 +1523,88 @@ function GeneratorSizingPage() {
                         </div>
                       </div>
 
-                      <div className="pt-2 flex justify-between items-end">
-                        <div>
-                          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
-                            Selected DG Set Size
-                          </span>
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <Select
-                              value={calc.selectedSize.toString()}
-                              onValueChange={(val) => setUserSelectedSize(Number(val))}
-                            >
-                              <SelectTrigger className="text-[28px] h-auto font-bold tracking-tight text-primary bg-transparent outline-none border border-border rounded px-3 py-1 cursor-pointer hover:bg-surface-2 transition-colors focus:ring-2 focus:ring-primary/20 shadow-sm w-[180px]">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent className="max-h-[300px]">
-                                {STANDARD_SIZES.map((size) => (
-                                  <SelectItem key={size} value={size.toString()} className="text-[14px]">
-                                    {size} kVA
+                      <div className="pt-3 border-t border-surface-2 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                Selected DG Set Size
+                              </span>
+                              {userSelectedSize === null && (
+                                <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-bold uppercase">
+                                  Auto
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Select
+                                value={userSelectedSize !== null ? userSelectedSize.toString() : "auto"}
+                                onValueChange={(val) => {
+                                  if (val === "auto") {
+                                    setUserSelectedSize(null);
+                                  } else {
+                                    setUserSelectedSize(Number(val));
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="text-[22px] h-auto font-bold tracking-tight text-primary bg-transparent outline-none border border-border rounded px-3 py-1 cursor-pointer hover:bg-surface-2 transition-colors focus:ring-2 focus:ring-primary/20 shadow-sm min-w-[160px]">
+                                  <SelectValue>
+                                    {`${calc.selectedSize} kVA`}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent className="max-h-[300px]">
+                                  <SelectItem value="auto" className="text-[14px] font-semibold text-primary">
+                                    ⚡ Auto ({calc.autoSize} kVA)
                                   </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                                  {STANDARD_SIZES.map((size) => (
+                                    <SelectItem key={size} value={size.toString()} className="text-[14px]">
+                                      {size} kVA
+                                    </SelectItem>
+                                  ))}
+                                  {!STANDARD_SIZES.includes(calc.autoSize) && calc.autoSize > 5000 && (
+                                    <SelectItem value={calc.autoSize.toString()} className="text-[14px]">
+                                      {calc.autoSize} kVA (Calculated)
+                                    </SelectItem>
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              {userSelectedSize !== null && (
+                                <button
+                                  onClick={() => setUserSelectedSize(null)}
+                                  className="text-[11px] bg-primary/10 hover:bg-primary/20 text-primary px-2.5 py-1.5 rounded font-semibold transition-colors shadow-sm whitespace-nowrap"
+                                  title="Reset to Auto Sizing based on total calculated kVA"
+                                >
+                                  Reset to Auto
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <div className="text-right pb-1">
-                          <span className="text-[13px] font-medium text-muted-foreground">
-                            Max Start:{" "}
-                          </span>
-                          <div className="inline-block w-16 ml-1">
-                            <input
-                              type="number"
-                              className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                              value={
-                                manualOverrides["maxStart"] !== undefined
-                                  ? manualOverrides["maxStart"]
-                                  : calc.maxStartCur.toFixed(2)
-                              }
-                              onChange={(e) => setOverride("maxStart", e.target.value)}
-                              onBlur={(e) => {
-                                if (e.target.value === "") {
-                                  const copy = { ...manualOverrides };
-                                  delete copy["maxStart"];
-                                  setManualOverrides(copy);
+
+                          <div className="text-right">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
+                              Max Starting Current
+                            </span>
+                            <div className="flex items-center justify-end gap-1">
+                              <input
+                                type="number"
+                                className="w-28 text-right text-[14px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
+                                value={
+                                  manualOverrides["maxStart"] !== undefined
+                                    ? manualOverrides["maxStart"]
+                                    : calc.maxStartCur.toFixed(2)
                                 }
-                              }}
-                            />
+                                onChange={(e) => setOverride("maxStart", e.target.value)}
+                                onBlur={(e) => {
+                                  if (e.target.value === "") {
+                                    const copy = { ...manualOverrides };
+                                    delete copy["maxStart"];
+                                    setManualOverrides(copy);
+                                  }
+                                }}
+                              />
+                              <span className="text-[13px] font-bold text-foreground">A</span>
+                            </div>
                           </div>
-                          <span className="text-[13px] font-bold text-foreground ml-1">A</span>
                         </div>
                       </div>
                     </div>

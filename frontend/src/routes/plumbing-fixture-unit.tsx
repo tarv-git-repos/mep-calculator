@@ -28,31 +28,31 @@ interface FUSpace {
 }
 
 export const IP_FIXTURE_UNITS: Record<string, Record<string, number>> = {
-  wc: { low: 1, med: 2, high: 5, 'ipc-cold': 5, 'ipc-hot': 5, 'ipc-total': 5 },
-  urinal: { low: 1, med: 1, high: 1, 'ipc-cold': 3, 'ipc-hot': 3, 'ipc-total': 3 },
-  basin: { low: 1, med: 2, high: 4, 'ipc-cold': 1.5, 'ipc-hot': 1.5, 'ipc-total': 2 },
-  bidet: { low: 1, med: 1, high: 1, 'ipc-cold': 1.5, 'ipc-hot': 1.5, 'ipc-total': 2 },
-  handspray: { low: 1, med: 1, high: 1, 'ipc-cold': 1, 'ipc-hot': 1, 'ipc-total': 1.4 },
-  bath: { low: 4, med: 8, high: 16, 'ipc-cold': 1, 'ipc-hot': 1, 'ipc-total': 1.4 },
-  shower: { low: 2, med: 3, high: 6, 'ipc-cold': 3, 'ipc-hot': 3, 'ipc-total': 4 },
-  sink: { low: 2, med: 5, high: 10, 'ipc-cold': 2.25, 'ipc-hot': 2.25, 'ipc-total': 3 },
-  bibtap: { low: 1, med: 1, high: 1, 'ipc-cold': 1, 'ipc-hot': 1, 'ipc-total': 1.4 },
-  washingmachine: { low: 2, med: 2, high: 2, 'ipc-cold': 1, 'ipc-hot': 1, 'ipc-total': 1.4 },
-  dishwasher: { low: 2, med: 2, high: 2, 'ipc-cold': 1.4, 'ipc-hot': 1.4, 'ipc-total': 1.4 }
+  wc: { low: 1.5, med: 2.5, high: 2.5, 'ipc-cold': 2.5, 'ipc-hot': 0, 'ipc-total': 2.5 },
+  handspray: { low: 1.0, med: 1.0, high: 2.0, 'ipc-cold': 1.0, 'ipc-hot': 0, 'ipc-total': 1.0 },
+  basin: { low: 1.0, med: 1.0, high: 2.0, 'ipc-cold': 0.75, 'ipc-hot': 0.75, 'ipc-total': 1.0 },
+  sink: { low: 1.5, med: 1.5, high: 5.0, 'ipc-cold': 1.0, 'ipc-hot': 1.0, 'ipc-total': 1.5 },
+  shower: { low: 1.5, med: 2.0, high: 4.0, 'ipc-cold': 1.5, 'ipc-hot': 1.5, 'ipc-total': 2.0 },
+  washer: { low: 2.0, med: 3.0, high: 4.0, 'ipc-cold': 2.25, 'ipc-hot': 2.25, 'ipc-total': 3.0 },
+  servicesink: { low: 2.0, med: 3.0, high: 5.0, 'ipc-cold': 2.25, 'ipc-hot': 2.25, 'ipc-total': 3.0 },
+  hose_bibb: { low: 1.5, med: 2.5, high: 5.0, 'ipc-cold': 2.5, 'ipc-hot': 0, 'ipc-total': 2.5 },
+  dishwasher: { low: 1.5, med: 1.5, high: 4.0, 'ipc-cold': 0.0, 'ipc-hot': 1.5, 'ipc-total': 1.5 },
+  hose_bibb_1: { low: 1.0, med: 1.0, high: 2.5, 'ipc-cold': 1.0, 'ipc-hot': 0, 'ipc-total': 1.0 },
+  bath: { low: 1.4, med: 10.0, high: 12.0, 'ipc-cold': 1.5, 'ipc-hot': 1.5, 'ipc-total': 2.0 },
+  urinal: { low: 1.0, med: 1.0, high: 1.0, 'ipc-cold': 3.0, 'ipc-hot': 0, 'ipc-total': 3.0 }
 };
 
 export const FU_FIXTURES_META = [
-  { id: 'wc', short: 'WC' },
-  { id: 'urinal', short: 'Urinal' },
-  { id: 'basin', short: 'Basin' },
-  { id: 'bidet', short: 'Bidet' },
-  { id: 'handspray', short: 'Spray' },
-  { id: 'bath', short: 'Bath' },
+  { id: 'wc', short: 'W/C' },
+  { id: 'handspray', short: 'Hand Spray (Bibb)' },
+  { id: 'basin', short: 'WASH BASIN' },
+  { id: 'sink', short: 'Sink Kitchen' },
   { id: 'shower', short: 'Shower' },
-  { id: 'sink', short: 'Sink' },
-  { id: 'bibtap', short: 'BibTap' },
-  { id: 'washingmachine', short: 'Washer' },
-  { id: 'dishwasher', short: 'Dishwasher' }
+  { id: 'washer', short: 'WASHING MACHINE' },
+  { id: 'servicesink', short: 'Service Sink' },
+  { id: 'hose_bibb', short: 'Hose Bibb' },
+  { id: 'dishwasher', short: 'DISH WASHER' },
+  { id: 'hose_bibb_1', short: 'Hose Bibb' }
 ];
 
 const IPC_TABLE = [
@@ -126,6 +126,8 @@ function extractFloorFU(name: string) {
 function FixtureUnitPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [headerStd, setHeaderStd] = useState<string>("ipc-total");
+  const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [fuSpaces, setFuSpaces] = useState<FUSpace[]>([]);
 
   // Form states
@@ -146,10 +148,14 @@ function FixtureUnitPage() {
         if (stored) {
           const data = JSON.parse(stored);
           if (data.unitSystem) setUnitSystem(data.unitSystem);
+          if (data.headerStd) setHeaderStd(data.headerStd);
+          if (data.weightOverrides) setWeightOverrides(data.weightOverrides);
           if (data.fuSpaces) setFuSpaces(data.fuSpaces);
         } else {
           // Reset to defaults
           setUnitSystem("si");
+          setHeaderStd("ipc-total");
+          setWeightOverrides({});
           setFuSpaces([
             {
               id: 1,
@@ -179,18 +185,22 @@ function FixtureUnitPage() {
     if (project?.id && loadedProjectId === project.id) {
       const dataToSave = {
         unitSystem,
+        headerStd,
+        weightOverrides,
         fuSpaces
       };
       localStorage.setItem(`mep_fixture_unit_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(true);
     }
-  }, [project?.id, loadedProjectId, unitSystem, fuSpaces]);
+  }, [project?.id, loadedProjectId, unitSystem, headerStd, weightOverrides, fuSpaces]);
 
   const handleSaveCurrent = () => {
     try {
       if (project?.id) {
         const dataToSave = {
           unitSystem,
+          headerStd,
+          weightOverrides,
           fuSpaces
         };
         localStorage.setItem(`mep_fixture_unit_calc_${project.id}`, JSON.stringify(dataToSave));
@@ -209,6 +219,13 @@ function FixtureUnitPage() {
 
   const ip = unitSystem === "ip";
 
+  const getEffectiveUnitFU = (fixtureId: string, spaceStd: string) => {
+    if (spaceStd === headerStd && weightOverrides[fixtureId] !== undefined) {
+      return weightOverrides[fixtureId];
+    }
+    return IP_FIXTURE_UNITS[fixtureId]?.[spaceStd] ?? 0;
+  };
+
   // Sizing Calculations
   const calculations = useMemo(() => {
     let totalWSFU = 0;
@@ -224,7 +241,7 @@ function FixtureUnitPage() {
       FU_FIXTURES_META.forEach(f => {
         const qty = s.fixtures[f.id] || 0;
         if (qty > 0) {
-          const unitFU = IP_FIXTURE_UNITS[f.id][spaceStd] || 0;
+          const unitFU = getEffectiveUnitFU(f.id, spaceStd);
           const subTotal = qty * unitFU;
           spaceWSFU += subTotal;
           spaceParts.push(`${f.short} (${qty} × ${unitFU})`);
@@ -254,7 +271,7 @@ function FixtureUnitPage() {
       detailedSteps,
       displayFlow: ip ? `${flowGPM.toFixed(1)} GPM` : `${flowLPS.toFixed(2)} L/s`
     };
-  }, [fuSpaces, ip]);
+  }, [fuSpaces, headerStd, weightOverrides, ip]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -404,15 +421,25 @@ function FixtureUnitPage() {
                 Select fixtures, quantity, and apply usage standards to calculate Water Supply Fixture Units (WSFU) and peak demand flow.
               </p>
             </div>
-            <button
-              onClick={handleSaveCurrent}
-              className="flex items-center gap-2 bg-[#0A7BC7] hover:bg-[#06456F] text-white rounded-xl px-4 py-2 text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-sm mt-3"
-            >
-              <Save className="size-4" /> Save Calculation
-            </button>
           </div>
 
-          <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/40 p-2 border border-border rounded-xl">
+          <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center bg-slate-50 dark:bg-slate-900/40 p-2.5 border border-border rounded-xl gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Header Standard / Category:</span>
+              <select
+                value={headerStd}
+                onChange={(e) => setHeaderStd(e.target.value)}
+                className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[210px]"
+              >
+                <option value="ipc-total">Total WSFU (IPC / UPC)</option>
+                <option value="ipc-cold">Cold Water WSFU (IPC / UPC)</option>
+                <option value="ipc-hot">Hot Water WSFU (IPC / UPC)</option>
+                <option value="low">Low Demand (Private / Residential)</option>
+                <option value="med">Medium Demand (Commercial)</option>
+                <option value="high">High Demand (Public / Congested)</option>
+              </select>
+            </div>
+
             <div className="flex bg-slate-200 dark:bg-slate-800 p-1 rounded-xl gap-1 select-none">
               <button type="button" onClick={() => setUnitSystem("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
               <button type="button" onClick={() => setUnitSystem("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
@@ -433,6 +460,9 @@ function FixtureUnitPage() {
                   <option value="ipc-cold">IPC Cold</option>
                   <option value="ipc-hot">IPC Hot</option>
                   <option value="ipc-total">IPC Total</option>
+                  <option value="low">Low Demand</option>
+                  <option value="med">Medium Demand</option>
+                  <option value="high">High Demand</option>
                 </select>
                 <button type="button" onClick={handleApplyBulkStd} className="bg-[#0A7BC7] hover:bg-[#06456F] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer">Apply to Selected</button>
               </div>
@@ -440,15 +470,24 @@ function FixtureUnitPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-8 flex flex-col gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+            <div className="xl:col-span-9 lg:col-span-8 flex flex-col gap-6">
               
               {/* Fixtures quantities schedule card */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                     <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">📋 Fixture Quantities (By Space / Area)</h3>
+                    {Object.keys(weightOverrides).length > 0 && (
+                      <button
+                        onClick={() => setWeightOverrides({})}
+                        className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full transition-all cursor-pointer"
+                        title="Reset custom weights to standard defaults"
+                      >
+                        ↺ Reset Weights
+                      </button>
+                    )}
                   </div>
                   <button type="button" onClick={() => setFuSpaces([])} className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1 rounded transition-colors cursor-pointer border-0 bg-transparent">🗑 Clear All Spaces</button>
                 </div>
@@ -458,16 +497,39 @@ function FixtureUnitPage() {
                   <table className="w-full border-collapse text-[11.5px] font-sans">
                     <thead>
                       <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
-                        <th className="p-2 text-center w-8">
+                        <th rowSpan={2} className="p-2 text-center w-8">
                           <input type="checkbox" checked={selectedIds.length === fuSpaces.length && fuSpaces.length > 0} onChange={e => handleToggleSelectAll(e.target.checked)} className="size-3.5 accent-orange-500 cursor-pointer" />
                         </th>
-                        <th className="p-2 text-left min-w-[150px]">Description</th>
-                        <th className="p-2 text-left w-24">Standard</th>
+                        <th rowSpan={2} className="p-2 text-left min-w-[140px]">Description</th>
+                        <th rowSpan={2} className="p-2 text-left w-24">Standard</th>
                         {FU_FIXTURES_META.map(f => (
-                          <th key={f.id} className="p-2 text-center w-12">{f.short}</th>
+                          <th key={f.id} className="p-2 text-center w-12 text-[11px] font-bold">{f.short}</th>
                         ))}
-                        <th className="p-2 text-right w-20">Total WSFU</th>
-                        <th className="p-2 text-center w-8"></th>
+                        <th rowSpan={2} className="p-2 text-center w-16 bg-[#0A7BC7]/5 text-[#0A7BC7] font-bold" title="Unit WSFU for 1 space">WSFU</th>
+                        <th rowSpan={2} className="p-2 text-center w-16 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold" title="Quantity of spaces">Space Qty</th>
+                        <th rowSpan={2} className="p-2 text-center w-20 bg-[#0A7BC7]/10 text-[#0A7BC7] font-bold" title="Total = Unit WSFU × Space Qty">TOTAL WSFU</th>
+                        <th rowSpan={2} className="p-2 text-center w-8"></th>
+                      </tr>
+                      <tr className="bg-slate-50 dark:bg-slate-900 border-b border-border">
+                        {FU_FIXTURES_META.map(f => {
+                          const currentVal = weightOverrides[f.id] !== undefined ? weightOverrides[f.id] : (IP_FIXTURE_UNITS[f.id]?.[headerStd] ?? "");
+                          return (
+                            <th key={f.id} className="p-1 px-0.5 text-center font-bold bg-[#0A7BC7]/5">
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={currentVal}
+                                onChange={(e) => {
+                                  const val = e.target.value !== "" ? Number(e.target.value) : 0;
+                                  setWeightOverrides(prev => ({ ...prev, [f.id]: val }));
+                                }}
+                                className="w-12 text-center bg-white dark:bg-slate-950 border border-blue-300 dark:border-blue-700 rounded text-[#0A7BC7] font-extrabold text-[11.5px] py-0.5 outline-none focus:ring-2 focus:ring-[#0A7BC7]"
+                                title={`Edit weight for ${f.short} (Click to change)`}
+                              />
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody className="bg-blue-50/40/30 dark:bg-orange-950/10 border-b border-border/70 border-dashed">
@@ -598,7 +660,7 @@ function FixtureUnitPage() {
             </div>
 
             {/* Sizing Results sidebar */}
-            <div className="lg:col-span-4 flex flex-col gap-5">
+            <div className="xl:col-span-3 lg:col-span-4 flex flex-col gap-5">
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs sticky top-4">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
                   <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>

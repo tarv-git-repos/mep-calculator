@@ -149,9 +149,63 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, onS
       const res = await authService.activateLicenseKey(inputKey.trim(), userEmail, hwid);
       if (res && res.success) {
         toast.success(res.message || "License key activated successfully!");
+        
+        const activatedOrgName = res.organization || res.company;
+        const activatedOrgId = res.organization_id || res.orgId;
+        
+        if (activatedOrgName || activatedOrgId) {
+          try {
+            // Update local users storage
+            const localUsersStr = localStorage.getItem('mep_local_users');
+            if (localUsersStr) {
+              const usersArr = JSON.parse(localUsersStr);
+              const updatedUsers = usersArr.map((u: any) => {
+                if (u.email && u.email.toLowerCase() === (userEmail || '').toLowerCase()) {
+                  return {
+                    ...u,
+                    ...(activatedOrgId ? { organization_id: activatedOrgId } : {}),
+                    ...(activatedOrgName ? { organization_name: activatedOrgName, organization: activatedOrgName, company: activatedOrgName } : {}),
+                    features: {
+                      ...(u.features || {}),
+                      ...(activatedOrgId ? { organization_id: activatedOrgId } : {}),
+                      ...(activatedOrgName ? { organization_name: activatedOrgName, company: activatedOrgName } : {}),
+                      plan: res.plan || res.tier || 'PRO'
+                    }
+                  };
+                }
+                return u;
+              });
+              localStorage.setItem('mep_local_users', JSON.stringify(updatedUsers));
+            }
+            
+            // Update active logged in user storage
+            const currentUserStr = localStorage.getItem('mep_user');
+            if (currentUserStr) {
+              const u = JSON.parse(currentUserStr);
+              if (activatedOrgId) u.organization_id = activatedOrgId;
+              if (activatedOrgName) {
+                u.organization_name = activatedOrgName;
+                u.organization = activatedOrgName;
+                u.company = activatedOrgName;
+              }
+              if (!u.features) u.features = {};
+              if (activatedOrgId) u.features.organization_id = activatedOrgId;
+              if (activatedOrgName) {
+                u.features.organization_name = activatedOrgName;
+                u.features.company = activatedOrgName;
+              }
+              localStorage.setItem('mep_user', JSON.stringify(u));
+              if (activatedOrgId && u.id) {
+                localStorage.setItem(`mep_user_company_${u.id}`, activatedOrgName);
+              }
+            }
+          } catch (e) {}
+        }
+
         if (getUserData) {
           try { await getUserData(); } catch (e) {}
         }
+        window.dispatchEvent(new CustomEvent('mep_user_profile_updated'));
         if (onSuccess) onSuccess();
         onClose();
       } else {

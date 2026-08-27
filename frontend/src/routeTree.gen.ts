@@ -47,6 +47,7 @@ import { Route as PlumbingFireTankDurationRouteImport } from './routes/plumbing-
 import { Route as PlumbingFireTankCapacityRouteImport } from './routes/plumbing-fire-tank-capacity'
 import { Route as PlumbingFirePumpDutyRouteImport } from './routes/plumbing-fire-pump-duty'
 import { Route as PlumbingDrainageRouteImport } from './routes/plumbing-drainage'
+import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LpdCalculationRouteImport } from './routes/lpd-calculation'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LobbyPressurisationRouteImport } from './routes/lobby-pressurisation'
@@ -73,6 +74,7 @@ import { Route as CableVoltageDropRouteImport } from './routes/cable-voltage-dro
 import { Route as CableTraySizingRouteImport } from './routes/cable-tray-sizing'
 import { Route as BusbarVoltageDropRouteImport } from './routes/busbar-voltage-drop'
 import { Route as BusbarCalculationRouteImport } from './routes/busbar-calculation'
+import { Route as BimViewerRouteImport } from './routes/bim-viewer'
 import { Route as BasementSmokeCalcRouteImport } from './routes/basement-smoke-calc'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as R3dViewRouteImport } from './routes/3d-view'
@@ -273,6 +275,11 @@ const PlumbingDrainageRoute = PlumbingDrainageRouteImport.update({
   path: '/plumbing-drainage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NotificationsRoute = NotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LpdCalculationRoute = LpdCalculationRouteImport.update({
   id: '/lpd-calculation',
   path: '/lpd-calculation',
@@ -403,6 +410,11 @@ const BusbarCalculationRoute = BusbarCalculationRouteImport.update({
   path: '/busbar-calculation',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BimViewerRoute = BimViewerRouteImport.update({
+  id: '/bim-viewer',
+  path: '/bim-viewer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BasementSmokeCalcRoute = BasementSmokeCalcRouteImport.update({
   id: '/basement-smoke-calc',
   path: '/basement-smoke-calc',
@@ -429,6 +441,7 @@ export interface FileRoutesByFullPath {
   '/3d-view': typeof R3dViewRoute
   '/admin': typeof AdminRoute
   '/basement-smoke-calc': typeof BasementSmokeCalcRoute
+  '/bim-viewer': typeof BimViewerRoute
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
   '/cable-tray-sizing': typeof CableTraySizingRoute
@@ -455,6 +468,7 @@ export interface FileRoutesByFullPath {
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
   '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
+  '/notifications': typeof NotificationsRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
   '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
@@ -499,6 +513,7 @@ export interface FileRoutesByTo {
   '/3d-view': typeof R3dViewRoute
   '/admin': typeof AdminRoute
   '/basement-smoke-calc': typeof BasementSmokeCalcRoute
+  '/bim-viewer': typeof BimViewerRoute
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
   '/cable-tray-sizing': typeof CableTraySizingRoute
@@ -525,6 +540,7 @@ export interface FileRoutesByTo {
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
   '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
+  '/notifications': typeof NotificationsRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
   '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
@@ -570,6 +586,7 @@ export interface FileRoutesById {
   '/3d-view': typeof R3dViewRoute
   '/admin': typeof AdminRoute
   '/basement-smoke-calc': typeof BasementSmokeCalcRoute
+  '/bim-viewer': typeof BimViewerRoute
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
   '/cable-tray-sizing': typeof CableTraySizingRoute
@@ -596,6 +613,7 @@ export interface FileRoutesById {
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
   '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
+  '/notifications': typeof NotificationsRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
   '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
@@ -642,6 +660,7 @@ export interface FileRouteTypes {
     | '/3d-view'
     | '/admin'
     | '/basement-smoke-calc'
+    | '/bim-viewer'
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
     | '/cable-tray-sizing'
@@ -668,6 +687,7 @@ export interface FileRouteTypes {
     | '/lobby-pressurisation'
     | '/login'
     | '/lpd-calculation'
+    | '/notifications'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
     | '/plumbing-fire-tank-capacity'
@@ -712,6 +732,7 @@ export interface FileRouteTypes {
     | '/3d-view'
     | '/admin'
     | '/basement-smoke-calc'
+    | '/bim-viewer'
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
     | '/cable-tray-sizing'
@@ -738,6 +759,7 @@ export interface FileRouteTypes {
     | '/lobby-pressurisation'
     | '/login'
     | '/lpd-calculation'
+    | '/notifications'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
     | '/plumbing-fire-tank-capacity'
@@ -782,6 +804,7 @@ export interface FileRouteTypes {
     | '/3d-view'
     | '/admin'
     | '/basement-smoke-calc'
+    | '/bim-viewer'
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
     | '/cable-tray-sizing'
@@ -808,6 +831,7 @@ export interface FileRouteTypes {
     | '/lobby-pressurisation'
     | '/login'
     | '/lpd-calculation'
+    | '/notifications'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
     | '/plumbing-fire-tank-capacity'
@@ -853,6 +877,7 @@ export interface RootRouteChildren {
   R3dViewRoute: typeof R3dViewRoute
   AdminRoute: typeof AdminRoute
   BasementSmokeCalcRoute: typeof BasementSmokeCalcRoute
+  BimViewerRoute: typeof BimViewerRoute
   BusbarCalculationRoute: typeof BusbarCalculationRoute
   BusbarVoltageDropRoute: typeof BusbarVoltageDropRoute
   CableTraySizingRoute: typeof CableTraySizingRoute
@@ -879,6 +904,7 @@ export interface RootRouteChildren {
   LobbyPressurisationRoute: typeof LobbyPressurisationRoute
   LoginRoute: typeof LoginRoute
   LpdCalculationRoute: typeof LpdCalculationRoute
+  NotificationsRoute: typeof NotificationsRoute
   PlumbingDrainageRoute: typeof PlumbingDrainageRoute
   PlumbingFirePumpDutyRoute: typeof PlumbingFirePumpDutyRoute
   PlumbingFireTankCapacityRoute: typeof PlumbingFireTankCapacityRoute
@@ -1187,6 +1213,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlumbingDrainageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/notifications': {
+      id: '/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof NotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/lpd-calculation': {
       id: '/lpd-calculation'
       path: '/lpd-calculation'
@@ -1369,6 +1402,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusbarCalculationRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/bim-viewer': {
+      id: '/bim-viewer'
+      path: '/bim-viewer'
+      fullPath: '/bim-viewer'
+      preLoaderRoute: typeof BimViewerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/basement-smoke-calc': {
       id: '/basement-smoke-calc'
       path: '/basement-smoke-calc'
@@ -1405,6 +1445,7 @@ const rootRouteChildren: RootRouteChildren = {
   R3dViewRoute: R3dViewRoute,
   AdminRoute: AdminRoute,
   BasementSmokeCalcRoute: BasementSmokeCalcRoute,
+  BimViewerRoute: BimViewerRoute,
   BusbarCalculationRoute: BusbarCalculationRoute,
   BusbarVoltageDropRoute: BusbarVoltageDropRoute,
   CableTraySizingRoute: CableTraySizingRoute,
@@ -1431,6 +1472,7 @@ const rootRouteChildren: RootRouteChildren = {
   LobbyPressurisationRoute: LobbyPressurisationRoute,
   LoginRoute: LoginRoute,
   LpdCalculationRoute: LpdCalculationRoute,
+  NotificationsRoute: NotificationsRoute,
   PlumbingDrainageRoute: PlumbingDrainageRoute,
   PlumbingFirePumpDutyRoute: PlumbingFirePumpDutyRoute,
   PlumbingFireTankCapacityRoute: PlumbingFireTankCapacityRoute,

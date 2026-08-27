@@ -1,5 +1,16 @@
 import { Profile } from "@/contexts/AuthContext";
 
+export const DEFAULT_UNLOCKED_FEATURES = [
+  'ventilation',
+  'plumbing-loading-unit',
+  'plumbing-fixture-unit',
+  'plumbing-water-demand',
+  'plumbing-supply-pipe-sizer',
+  'busbar-calculation',
+  'busbar-voltage-drop',
+  'generator-sizing'
+];
+
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
   if (!path) return false;
   
@@ -9,34 +20,39 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   }
 
   // System pages should never be locked
-  const systemPaths = ["", "/", "/projects", "/reports", "/teams", "/settings", "/admin", "/company-hierarchy", "/login", "/register"];
+  const systemPaths = ["", "/", "/projects", "/bim-viewer", "/reports", "/notifications", "/teams", "/settings", "/admin", "/company-hierarchy", "/login", "/register"];
   if (systemPaths.includes(path)) {
     return false;
   }
 
-  const routeKey = path.startsWith('/') ? path.substring(1) : path;
+  const rawKey = path.startsWith('/') ? path.substring(1) : path;
+  const routeKey = rawKey.split('?')[0];
   const features = profile?.features || {};
 
-  // Ventilation is enabled by default (unlocked unless explicitly set to false)
-  if (routeKey === 'ventilation') {
-    return features.ventilation === false;
+  // Check if explicitly set in user features (from SuperAdmin App Permissions toggle)
+  if (features[routeKey] !== undefined) {
+    return features[routeKey] === false;
+  }
+
+  // Unlocked by default during development (unless explicitly set to false in user features)
+  if (DEFAULT_UNLOCKED_FEATURES.includes(routeKey)) {
+    return false;
+  }
+
+  // Legacy groupings backwards compatibility fallback if routeKey was not explicitly toggled
+  if (routeKey === 'cable-voltage-drop' || routeKey === 'busbar-voltage-drop') {
+    if (features.voltageDrop === true) return false;
+  }
+  if (routeKey === 'project-load-schedule') {
+    if (features.loadSchedule === true) return false;
+  }
+  if (routeKey === 'cable-tray-sizing' || routeKey === 'conductor-sizing') {
+    if (features.cableSizing === true) return false;
+  }
+  if (routeKey === 'short-circuit-calculations') {
+    if (features.shortCircuit === true) return false;
   }
 
   // All other features are disabled by default (locked unless explicitly set to true)
-  
-  // Legacy groupings backwards compatibility
-  if (path === '/cable-voltage-drop' || path === '/busbar-voltage-drop') {
-    return features.voltageDrop !== true;
-  }
-  if (path === '/project-load-schedule') {
-    return features.loadSchedule !== true;
-  }
-  if (path === '/cable-tray-sizing' || path === '/conductor-sizing') {
-    return features.cableSizing !== true;
-  }
-  if (path === '/short-circuit-calculations') {
-    return features.shortCircuit !== true;
-  }
-
-  return features[routeKey] !== true;
+  return true;
 };

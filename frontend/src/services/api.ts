@@ -47,12 +47,16 @@ axios.interceptors.response.use(
     const url = error.config?.url || '';
     const isAuthEndpoint = url.includes('/api/auth/login') || url.includes('/api/auth/register') || url.includes('/api/auth/is-auth');
     const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
+    const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('auth_token') || localStorage.getItem('mep_calculator_user_data'));
 
-    if (error.response?.status === 401 && !isAuthEndpoint && !isLoginPage) {
-      if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
-        lastRevokedEventTime = Date.now();
-        const msg = error.response?.data?.message || 'Session expired or unauthorized. Please log in again.';
-        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: msg }));
+    if (error.response?.status === 401 && !isAuthEndpoint && !isLoginPage && hasToken) {
+      const respData = error.response?.data;
+      if (respData?.sessionRevoked || respData?.requireForceLogout || respData?.message?.includes('another device')) {
+        if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
+          lastRevokedEventTime = Date.now();
+          const msg = respData?.message || 'Your session has been transferred to another device. You are now logged out.';
+          window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: msg }));
+        }
       }
     }
     return Promise.reject(error);
@@ -264,7 +268,8 @@ export const api = {
 
   // PROJECTS
   async getProjects() {
-    if (typeof window !== 'undefined' && window.location.pathname.includes('/login')) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
       return [];
     }
     try {
@@ -295,6 +300,10 @@ export const api = {
     }
   },
   async saveWorkspace(project_id: string, workspace_data: any) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
+      return { success: false };
+    }
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/projects/save-workspace`, {
         project_id,
@@ -523,6 +532,10 @@ export const api = {
     }
   },
   async getOrgBackupSettings(orgId?: string) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
+      return { success: false };
+    }
     try {
       const url = orgId ? `${getBackendUrl()}/api/org/backup-settings?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/backup-settings`;
       const { data } = await axios.get(url);

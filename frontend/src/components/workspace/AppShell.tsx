@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate, useRouter } from "@tanstack/react-router";
-import React, { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import {
   Building2, Search, Settings, ChevronDown, ChevronRight, Bell, HelpCircle,
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
@@ -25,6 +25,7 @@ import { authService } from "@/services/authService";
 import { api } from "@/services/api";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { AutoUpdateModal } from "./AutoUpdateModal";
+import { NotificationCenterView } from "./NotificationCenterView";
 
 import {
   DropdownMenu,
@@ -140,6 +141,7 @@ const getElementKey = (el: HTMLElement, index: number) => {
 const EXCLUDED_PERSIST_PATHS = [
   "/",
   "/projects",
+  "/bim-viewer",
   "/reports",
   "/settings",
   "/3d-view",
@@ -163,6 +165,7 @@ const NON_VERSION_PATHS = [
   "/",
   "/dashboard",
   "/projects",
+  "/bim-viewer",
   "/reports",
   "/report",
   "/teams",
@@ -345,10 +348,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 }) {
   const { profile, userData, logout, loading } = useAuth();
   const userId = userData?.id || profile?.id;
-  const userPhoto = userData?.profile_photo || profile?.profile_photo || (userId && typeof window !== 'undefined' ? localStorage.getItem(`mep_profile_photo_${userId}`) || '' : '');
+  const userPhoto = (userData?.profile_photo !== undefined && userData?.profile_photo !== null)
+    ? userData.profile_photo
+    : ((profile?.profile_photo !== undefined && profile?.profile_photo !== null)
+      ? profile.profile_photo
+      : (userId && typeof window !== 'undefined' ? localStorage.getItem(`mep_profile_photo_${userId}`) || '' : ''));
   const confirm = useConfirm();
   const prompt = usePrompt();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const shouldHideSubHeader = hideSubHeader || pathname === '/notifications';
   const isVersionAllowed = useMemo(() => {
     const cleanPath = (pathname || "").toLowerCase().replace(/\/$/, "") || "/";
     return !NON_VERSION_PATHS.some((nonPath) => cleanPath === nonPath || cleanPath.startsWith(nonPath + "/"));
@@ -365,6 +373,25 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const [showPioneerModal, setShowPioneerModal] = useState(false);
 
   const [notifTick, setNotifTick] = useState(0);
+  const [isNotifHoverOpen, setIsNotifHoverOpen] = useState(false);
+  const [isNotifPopoverOpen, setIsNotifPopoverOpen] = useState(false);
+  const notifHoverTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleNotifMouseEnter = () => {
+    if (notifHoverTimerRef.current) {
+      clearTimeout(notifHoverTimerRef.current);
+      notifHoverTimerRef.current = null;
+    }
+    if (!isNotifPopoverOpen) {
+      setIsNotifHoverOpen(true);
+    }
+  };
+
+  const handleNotifMouseLeave = () => {
+    notifHoverTimerRef.current = setTimeout(() => {
+      setIsNotifHoverOpen(false);
+    }, 250);
+  };
 
   const roleVal = String(profile?.role || userData?.user_metadata?.role || userData?.role || "").trim();
   const rawRole = roleVal.toLowerCase();
@@ -471,6 +498,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return [];
   });
 
+  const [persistentNotifs, setPersistentNotifs] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const uId = userId || userData?.id;
+        const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+        const saved = localStorage.getItem(key);
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {}
+    }
+    return [];
+  });
+
   const markNotifAsRead = (id: string) => {
     setReadNotifIds(prev => {
       if (prev.includes(id)) return prev;
@@ -488,6 +527,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.stopPropagation();
     }
     if (!id) return;
+
+    // 0. Update persistent notifications state & storage
+    setPersistentNotifs(prev => {
+      const updated = prev.filter((n: any) => n.id !== id);
+      if (typeof window !== "undefined") {
+        const uId = userId || userData?.id;
+        const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+        localStorage.setItem(key, JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     // 1. Update state & localStorage permanently
     setDeletedNotifIds(prev => {
@@ -556,6 +606,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
     const allIds = myNotifications.map((n: any) => n.id).filter(Boolean);
     if (allIds.length === 0) return;
+
+    // 0. Clear persistent notifications store
+    setPersistentNotifs([]);
+    if (typeof window !== "undefined") {
+      const uId = userId || userData?.id;
+      const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+      localStorage.removeItem(key);
+    }
 
     // 1. Update state & localStorage permanently
     setDeletedNotifIds(prev => {
@@ -707,25 +765,53 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     if (!currentId && !currentEmail) return [];
     
     const notifs: any[] = [];
-    const addNotifs = (items: any[], typeName: string, projectName: string, projectId: string) => {
+    const extractBusbarRows = (panels: any[]) => {
+      if (!Array.isArray(panels)) return [];
+      const rows: any[] = [];
+      panels.forEach((p: any) => {
+        if (Array.isArray(p.sections)) {
+          p.sections.forEach((s: any) => {
+            if (Array.isArray(s.rows)) {
+              s.rows.forEach((r: any) => rows.push({ ...r, desc: r.desc || r.from || `Tap Off ${r.ref || r.id}` }));
+            }
+          });
+        }
+      });
+      return rows;
+    };
+
+    const addNotifs = (items: any[], typeName: string, projectName: string, projectId: string, calcPath: string = "/ventilation") => {
       if (!items) return;
       items.forEach(item => {
         if (item.comments && Array.isArray(item.comments)) {
           item.comments.forEach((c: any) => {
-            const isAssigned = Array.isArray(c.assignedUsers) && c.assignedUsers.some((u: any) => {
-              const uStr = String(u).toLowerCase().trim();
-              return uStr === String(currentId).toLowerCase() || (currentName && uStr === currentName) || (currentEmail && uStr === currentEmail);
-            });
+            const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
+            const isAssigned =
+              assignedUsers.length === 0 ||
+              assignedUsers.some((u: any) => {
+                const uStr = String(u).toLowerCase().trim();
+                return (
+                  uStr === String(currentId).toLowerCase() ||
+                  (currentName && uStr === currentName) ||
+                  (currentEmail && uStr === currentEmail)
+                );
+              }) ||
+              (c.authorId && String(c.authorId).toLowerCase().trim() === String(currentId).toLowerCase().trim());
+
             if (isAssigned) {
-              notifs.push({
-                ...c,
-                targetId: item.id,
-                targetName: item.name || item.id,
-                targetType: typeName,
-                projectName: projectName,
-                projectId: projectId,
-                calculatorPath: '/ventilation'
-              });
+              const notifId = c.id || `notif_${item.id}_${c.timestamp}`;
+              if (!notifs.some(n => n.id === notifId)) {
+                notifs.push({
+                  ...c,
+                  id: notifId,
+                  targetId: item.id,
+                  targetName: item.desc || item.name || item.id,
+                  targetType: typeName,
+                  projectName: projectName || "Project",
+                  projectId: projectId || "current",
+                  calculatorPath: calcPath
+                });
+              }
             }
           });
         }
@@ -733,11 +819,97 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
 
     projects.forEach(p => {
-      const wdata = p.workspace_data || {};
-      addNotifs(wdata.spaces, "Space", p.name, p.id);
-      addNotifs(wdata.zones, "Zone", p.name, p.id);
-      addNotifs(wdata.equipment, "Equipment", p.name, p.id);
+      let wdata = p.workspace_data || {};
+      if (typeof wdata === 'string') {
+        try { wdata = JSON.parse(wdata); } catch(e) {}
+      }
+      addNotifs(wdata.spaces, "Space", p.name, p.id, "/ventilation");
+      addNotifs(wdata.zones, "Zone", p.name, p.id, "/ventilation");
+      addNotifs(wdata.equipment, "Equipment", p.name, p.id, "/ventilation");
+
+      // Scan local calculation state for Loading Unit, Fixture Unit & Busbar
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const luStored = localStorage.getItem(`mep_loading_unit_calc_${p.id}`);
+          if (luStored) {
+            const luData = JSON.parse(luStored);
+            if (luData && Array.isArray(luData.iopSpaces)) {
+              addNotifs(luData.iopSpaces, "Loading Unit Space", p.name, p.id, "/plumbing-loading-unit");
+            }
+          }
+          const fuStored = localStorage.getItem(`mep_fixture_unit_calc_${p.id}`);
+          if (fuStored) {
+            const fuData = JSON.parse(fuStored);
+            if (fuData && Array.isArray(fuData.fuSpaces)) {
+              addNotifs(fuData.fuSpaces, "Fixture Unit Space", p.name, p.id, "/plumbing-fixture-unit");
+            }
+          }
+          const bbStored = localStorage.getItem(`mep_busbar_calc_${p.id}`);
+          if (bbStored) {
+            const bbData = JSON.parse(bbStored);
+            const panels = bbData.panels || bbData;
+            addNotifs(extractBusbarRows(panels), "Busbar Calculation", p.name, p.id, "/busbar-calculation");
+          }
+          const genStored = localStorage.getItem(`mep_gen_projects_${p.id}`);
+          if (genStored) {
+            const genData = JSON.parse(genStored);
+            const genProjects = genData.projects || genData;
+            if (genProjects) {
+              Object.values(genProjects).forEach((projRows: any) => {
+                if (Array.isArray(projRows)) {
+                  addNotifs(projRows, "Generator Load", p.name, p.id, "/generator-sizing");
+                }
+              });
+            }
+          }
+        } catch (e) {}
+      }
     });
+
+    // Also scan all localStorage calculation keys
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const defaultBB = localStorage.getItem("mep-busbar-calculation-v1");
+        if (defaultBB) {
+          try {
+            const panels = JSON.parse(defaultBB);
+            addNotifs(extractBusbarRows(panels), "Busbar Calculation", "Active Project", "default", "/busbar-calculation");
+          } catch (e) {}
+        }
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith("mep_loading_unit_calc_") || key.startsWith("mep_fixture_unit_calc_") || key.startsWith("mep_busbar_calc_") || key.startsWith("mep_busbar_vd_calc_"))) {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const data = JSON.parse(raw);
+              if (key.startsWith("mep_busbar_calc_")) {
+                const projId = key.replace("mep_busbar_calc_", "");
+                const projObj = projects.find((p: any) => p.id === projId);
+                const panels = data.panels || data;
+                addNotifs(extractBusbarRows(panels), "Busbar Calculation", projObj?.name || "Active Project", projId, "/busbar-calculation");
+              } else if (key.startsWith("mep_busbar_vd_calc_")) {
+                const projId = key.replace("mep_busbar_vd_calc_", "");
+                const projObj = projects.find((p: any) => p.id === projId);
+                if (Array.isArray(data.rows)) {
+                  addNotifs(data.rows, "Busbar Voltage Drop", projObj?.name || "Active Project", projId, "/busbar-voltage-drop");
+                }
+              } else {
+                const isLU = key.startsWith("mep_loading_unit_calc_");
+                const spaces = isLU ? data.iopSpaces : data.fuSpaces;
+                const path = isLU ? "/plumbing-loading-unit" : "/plumbing-fixture-unit";
+                const typeLabel = isLU ? "Loading Unit Space" : "Fixture Unit Space";
+                const projId = key.replace(isLU ? "mep_loading_unit_calc_" : "mep_fixture_unit_calc_", "");
+                const projObj = projects.find((p: any) => p.id === projId);
+                if (spaces && Array.isArray(spaces)) {
+                  addNotifs(spaces, typeLabel, projObj?.name || "Active Project", projId, path);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
 
     const isUserMemberOfProject = (targetProjectId?: string) => {
       if (!targetProjectId || targetProjectId === "none") return false;
@@ -918,10 +1090,32 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       });
     } catch(e) {}
 
-    const filtered = notifs.filter(n => !n.id || !deletedNotifIds.includes(n.id));
+    // Merge scanned notifications with persistent stored notifications
+    const combinedMap = new Map();
+    (persistentNotifs || []).forEach(pn => {
+      if (pn && pn.id) combinedMap.set(pn.id, pn);
+    });
+    (notifs || []).forEach(n => {
+      if (n && n.id) combinedMap.set(n.id, n);
+    });
+
+    const combinedList = Array.from(combinedMap.values());
+
+    if (typeof window !== "undefined" && currentId) {
+      try {
+        const key = `mep_persistent_user_notifs_${currentId}`;
+        const existingStoredStr = localStorage.getItem(key);
+        const existingStored = existingStoredStr ? JSON.parse(existingStoredStr) : [];
+        if (combinedList.length > existingStored.length) {
+          localStorage.setItem(key, JSON.stringify(combinedList));
+        }
+      } catch(e) {}
+    }
+
+    const filtered = combinedList.filter(n => !n.id || !deletedNotifIds.includes(n.id));
     filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return filtered;
-  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds]);
+  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds, persistentNotifs]);
 
   const unreadNotifications = useMemo(() => {
     return myNotifications.filter(n => n.id && !readNotifIds.includes(n.id));
@@ -1183,8 +1377,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }, [pathname, navigate, userData?.privacyPolicyAccepted]);
 
-  const lockOwnerObj = getLockOwner(pathname);
-  const isLockedByOther = lockOwnerObj && lockOwnerObj.sessionId !== mySessionId;
+  const isCalculatorRoute = isVersionAllowed;
+  const lockOwnerObj = isCalculatorRoute ? getLockOwner(pathname) : null;
+  const isLockedByOther = Boolean(isCalculatorRoute && lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
 
   // Restore inputs on project/route change
@@ -1983,149 +2178,113 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 <Moon className="size-5 dark:hidden" />
                 <Sun className="size-5 hidden dark:block" />
               </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="relative size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
-                    <Bell className="size-5" />
-                    {unreadCount > 0 && (
-                      <span className="absolute top-2 right-2 flex size-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full size-3 bg-red-500 text-[8px] text-white font-bold items-center justify-center">
-                          {unreadCount > 9 ? '9+' : unreadCount}
-                        </span>
+              <div 
+                className="relative"
+                onMouseEnter={handleNotifMouseEnter}
+                onMouseLeave={handleNotifMouseLeave}
+              >
+                <button 
+                  onClick={() => {
+                    setIsNotifHoverOpen(false);
+                    navigate({ to: "/notifications" as any });
+                  }}
+                  className="relative size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                  title={unreadCount > 0 ? `${unreadCount} unread notification(s) — Click to open Notification Center` : "Notifications — Click to open Notification Center"}
+                >
+                  <Bell className="size-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-2 right-2 flex size-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full size-3 bg-red-500 text-[8px] text-white font-bold items-center justify-center">
+                        {unreadCount > 9 ? '9+' : unreadCount}
                       </span>
-                    )}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[440px] sm:w-[480px] bg-popover border border-border rounded-xl shadow-xl font-sans p-0 overflow-hidden">
-                  <div className="flex items-center justify-between font-bold text-sm border-b border-border/50 px-4 py-3 bg-surface-2/60">
-                    <div className="flex items-center gap-2">
-                      <span className="text-foreground font-bold">Notifications</span>
-                      {myNotifications.length > 0 && (
-                        <span className="px-2 py-0.5 text-[11px] bg-primary/10 text-primary font-bold rounded-full">
-                          {myNotifications.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Hover Quick Preview Floating Card */}
+                {isNotifHoverOpen && (
+                  <div 
+                    className="absolute right-0 top-full mt-2.5 w-[340px] sm:w-[380px] bg-popover/95 backdrop-blur-md border border-border/80 rounded-xl shadow-2xl z-50 p-3.5 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-200"
+                    onMouseEnter={handleNotifMouseEnter}
+                    onMouseLeave={handleNotifMouseLeave}
+                  >
+                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-border/50 text-xs font-bold">
+                      <span className="flex items-center gap-1.5 text-foreground">
+                        <Bell className="size-3.5 text-primary" />
+                        Quick Notification Preview
+                      </span>
+                      {unreadCount > 0 ? (
+                        <span className="px-2 py-0.5 text-[10px] bg-primary/10 text-primary font-bold rounded-full">
+                          {unreadCount} unread
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">
+                          {myNotifications.length} total
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3">
-                      {unreadCount > 0 && (
-                        <button 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            markAllNotifsAsRead();
-                          }}
-                          className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
-                        >
-                          Mark all read
-                        </button>
-                      )}
-                      {myNotifications.length > 0 && (
-                        <button
-                          onClick={clearAllNotifications}
-                          className="text-[11px] font-bold text-muted-foreground hover:text-red-500 hover:underline cursor-pointer transition-colors"
-                        >
-                          Clear all
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {myNotifications.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-muted-foreground font-medium">No new notifications</div>
-                  ) : (
-                    <div className="max-h-80 overflow-y-auto custom-scrollbar divide-y divide-border/30">
-                      {myNotifications.map((notif, i) => {
-                        const isUnread = notif.id && !readNotifIds.includes(notif.id);
-                        const isCompleted = notif.id && completedNotifIds.includes(notif.id);
-                        const handleClick = () => {
-                          if (notif.id) {
-                            markNotifAsRead(notif.id);
-                          }
-                          if (notif.projectId) {
-                            selectProject(notif.projectId);
-                          }
-                          const targetPath = notif.calculatorPath || '/ventilation';
-                          navigate({
-                            to: targetPath as any,
-                          });
-
-                          setTimeout(() => {
-                            window.dispatchEvent(
-                              new CustomEvent("mep-scroll-to-item", {
-                                detail: { id: notif.targetId, name: notif.targetName, type: notif.targetType?.toLowerCase() },
-                              })
-                            );
-                          }, 400);
-                        };
-                        return (
-                          <div
-                            key={notif.id || i}
-                            className={`group relative flex items-start justify-between p-3.5 hover:bg-surface-2 dark:hover:bg-white/5 transition-colors cursor-pointer ${
-                              isCompleted 
-                                ? "bg-emerald-500/5 dark:bg-emerald-500/10 opacity-70" 
-                                : isUnread 
-                                ? "bg-primary/5 dark:bg-primary/10 font-medium" 
-                                : "opacity-80"
-                            }`}
-                            onClick={handleClick}
-                          >
-                            <div className="flex-1 min-w-0 pr-3">
-                              <div className="flex items-center justify-between gap-2 mb-1">
+                    
+                    {myNotifications.length === 0 ? (
+                      <div className="py-5 text-center text-xs text-muted-foreground font-medium">No new notifications</div>
+                    ) : (
+                      <div className="space-y-2 max-h-64 overflow-hidden">
+                        {myNotifications.slice(0, 3).map((notif, idx) => {
+                          const isUnread = notif.id && !readNotifIds.includes(notif.id);
+                          const isCompleted = notif.id && completedNotifIds.includes(notif.id);
+                          return (
+                            <div 
+                              key={notif.id || idx} 
+                              className={`p-2.5 rounded-lg border text-xs transition-colors cursor-pointer ${
+                                isCompleted
+                                  ? 'bg-emerald-500/5 border-emerald-500/20 opacity-75'
+                                  : isUnread 
+                                  ? 'bg-primary/5 border-primary/20 font-medium' 
+                                  : 'bg-surface-1/60 border-border/50'
+                              }`}
+                              onClick={() => {
+                                setIsNotifHoverOpen(false);
+                                navigate({ to: "/notifications" as any });
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-1 mb-1">
                                 <div className="flex items-center gap-1.5 truncate">
-                                  {isUnread && !isCompleted && <span className="size-2 rounded-full bg-primary inline-block shrink-0" title="Unread" />}
-                                  {isCompleted && (
-                                    <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold rounded text-[9.5px] uppercase tracking-wider">
-                                      DONE
-                                    </span>
-                                  )}
-                                  <span className={`text-xs font-bold text-foreground truncate ${isCompleted ? 'line-through text-muted-foreground' : ''}`}>
-                                    {notif.authorName}
-                                  </span>
+                                  {isUnread && !isCompleted && <span className="size-1.5 rounded-full bg-primary inline-block shrink-0" />}
+                                  <span className="font-bold text-foreground truncate">{notif.authorName}</span>
                                 </div>
-                                <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
-                                  {new Date(notif.timestamp).toLocaleDateString()}
+                                <span className="text-[9.5px] text-muted-foreground shrink-0 font-medium">
+                                  {isNaN(new Date(notif.timestamp).getTime())
+                                    ? notif.timestamp
+                                    : `${new Date(notif.timestamp).toLocaleDateString()}, ${new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}`}
                                 </span>
                               </div>
-                              <p className={`text-xs font-medium leading-relaxed mb-2 text-foreground/90 text-left break-words ${isCompleted ? 'line-through text-muted-foreground/70' : ''}`}>
+                              <p className="text-[11.5px] text-foreground/90 line-clamp-2 leading-snug mb-1.5 text-left">
                                 {notif.text}
                               </p>
-                              <div className="text-[10.5px] text-muted-foreground font-medium flex flex-wrap items-center gap-1.5 w-full">
-                                <span className="px-1.5 py-0.5 bg-primary/10 text-primary font-bold rounded-md text-[10px] uppercase tracking-wider">{notif.targetType}</span>
-                                <span className={`truncate max-w-[150px] ${isCompleted ? 'line-through' : ''}`}>{notif.targetName}</span>
-                                <span className="text-muted-foreground/60 text-[10px]">in</span>
-                                <span className="truncate max-w-[130px] font-bold text-primary" title={notif.projectName}>{notif.projectName}</span>
+                              <div className="flex items-center gap-1.5 text-[9.5px] text-muted-foreground">
+                                <span className="px-1.5 py-0.2 bg-primary/10 text-primary font-bold rounded uppercase">{notif.targetType}</span>
+                                <span className="truncate max-w-[120px] font-medium">{notif.targetName}</span>
+                                <span className="text-muted-foreground/60">in</span>
+                                <span className="truncate max-w-[100px] font-bold text-primary">{notif.projectName}</span>
                               </div>
                             </div>
-                            <div className="flex items-center gap-1 shrink-0 self-start">
-                              {!notif.isCompletionNotif && (
-                                <button
-                                  onClick={(e) => completeTaskAndNotifyAuthor(notif, e)}
-                                  disabled={isCompleted}
-                                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                                    isCompleted 
-                                      ? "text-emerald-500 bg-emerald-500/10 cursor-default opacity-80" 
-                                      : "text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
-                                  }`}
-                                  title={isCompleted ? "Task completed (Strikethrough active)" : "Mark task done & send notification to author"}
-                                >
-                                  <CheckCircle2 className="size-4 text-emerald-500" />
-                                </button>
-                              )}
-                              <button
-                                onClick={(e) => deleteNotification(notif.id, e)}
-                                className="p-1.5 text-muted-foreground/60 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
-                                title="Delete notification"
-                              >
-                                <Trash2 className="size-4" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div 
+                      className="mt-2.5 pt-2 border-t border-border/40 text-center text-[11px] font-bold text-primary hover:underline cursor-pointer flex items-center justify-center gap-1 bg-primary/5 py-1.5 rounded-lg border border-primary/20"
+                      onClick={() => {
+                        setIsNotifHoverOpen(false);
+                        navigate({ to: "/notifications" as any });
+                      }}
+                    >
+                      Open Full Notification Page →
                     </div>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  </div>
+                )}
+              </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="size-10 rounded-full bg-surface-3 dark:bg-[#2c2c2e] text-foreground dark:text-white flex items-center justify-center text-[12.5px] font-bold shadow-sm select-none border border-border dark:border-[#262626] cursor-pointer hover:ring-2 ring-primary transition-all overflow-hidden">
@@ -2256,6 +2415,29 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
       <main className="col-start-2 row-start-2 min-w-0 flex flex-col overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300">
         <AnimatePresence>
+          {profile?.role !== 'SUPER_ADMIN' && rawExpiry && computedRemainingDays <= 7 && computedRemainingDays > 0 && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="w-full bg-amber-600 text-white overflow-hidden shrink-0 no-print"
+            >
+              <div className="px-4 py-2 flex items-center justify-between text-xs font-semibold">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 animate-pulse" />
+                  <span>
+                    Notice: Your subscription will expire in {computedRemainingDays} day{computedRemainingDays === 1 ? '' : 's'} (on {new Date(rawExpiry).toLocaleDateString()}). Renew or contact your administrator to maintain access.
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowPricingModal(true)}
+                  className="px-2.5 py-1 bg-white text-amber-800 rounded font-bold hover:bg-amber-100 transition-colors shrink-0"
+                >
+                  Renew Now
+                </button>
+              </div>
+            </motion.div>
+          )}
           {announcement && (
             <motion.div 
               initial={{ height: 0, opacity: 0 }}
@@ -2290,7 +2472,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         </AnimatePresence>
 
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative custom-scrollbar">
-          {!hideSubHeader && (
+          {!shouldHideSubHeader && (
             <div className="shrink-0 flex items-center justify-between px-6 py-3.5 bg-surface-1/90 backdrop-blur-md border-b border-border select-none z-10">
               <div>
                 <div className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase flex items-center gap-1.5 mb-1">
@@ -2336,8 +2518,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             </div>
           )}
 
-          <div className={`flex-1 min-h-0 flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''} ${
-            sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5"
+          <div className={`flex-1 min-h-0 w-full flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''} ${
+            pathname === '/notifications' ? 'p-0 m-0 w-full' : (sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5")
           }`}>
             {isInitializing ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-surface dark:bg-[#121212]">
@@ -2356,6 +2538,30 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   </p>
                 </div>
               </div>
+            ) : pathname === '/notifications' ? (
+              <NotificationCenterView
+                myNotifications={myNotifications}
+                readNotifIds={readNotifIds}
+                completedNotifIds={completedNotifIds}
+                markNotifAsRead={markNotifAsRead}
+                markAllNotifsAsRead={markAllNotifsAsRead}
+                completeTaskAndNotifyAuthor={completeTaskAndNotifyAuthor}
+                deleteNotification={deleteNotification}
+                clearAllNotifications={clearAllNotifications}
+                onNavigateToItem={(notif: any) => {
+                  if (notif.id) markNotifAsRead(notif.id);
+                  if (notif.projectId) selectProject(notif.projectId);
+                  const targetPath = notif.calculatorPath || '/ventilation';
+                  navigate({ to: targetPath as any });
+                  setTimeout(() => {
+                    window.dispatchEvent(
+                      new CustomEvent("mep-scroll-to-item", {
+                        detail: { id: notif.targetId, name: notif.targetName, type: notif.targetType?.toLowerCase() },
+                      })
+                    );
+                  }, 400);
+                }}
+              />
             ) : (
               children
             )}
