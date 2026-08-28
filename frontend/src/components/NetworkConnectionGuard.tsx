@@ -17,7 +17,6 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
   const [failedAttempts, setFailedAttempts] = useState<number>(0);
 
   const getBackendUrl = () => {
-    if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
     if (typeof window !== 'undefined') {
       if (window.location.port === '8081' || window.location.port === '5173') {
         return ''; // Route through Vite proxy during local frontend development
@@ -40,50 +39,54 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
       }
 
       // 2. Active health ping to backend/network endpoint with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-      const res = await fetch(`${getBackendUrl()}/health?t=${Date.now()}`, {
-        method: "HEAD",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (res.ok || res.status === 200 || res.status === 204 || res.status === 304) {
-        setIsOnline(true);
-        setFailedAttempts(0);
-        setIsChecking(false);
-        return true;
-      } else {
-        setIsOnline(false);
-        setFailedAttempts((prev) => prev + 1);
-        setIsChecking(false);
-        return false;
-      }
-    } catch (err) {
-      // Fallback check: if backend fetch failed, try a lightweight public image ping to verify general internet access
+      let backendReachable = false;
       try {
-        const pingController = new AbortController();
-        const pingTimeout = setTimeout(() => pingController.abort(), 3000);
-        await fetch(`https://www.google.com/favicon.ico?t=${Date.now()}`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const res = await fetch(`${getBackendUrl()}/health?t=${Date.now()}`, {
           method: "HEAD",
-          mode: "no-cors",
           cache: "no-store",
-          signal: pingController.signal,
+          signal: controller.signal,
         });
-        clearTimeout(pingTimeout);
+
+        clearTimeout(timeoutId);
+
+        // Any response status code (including 200, 204, 304, or 404 from dev server) indicates network activity
+        if (res.ok || res.status === 200 || res.status === 204 || res.status === 304 || res.status === 404 || res.status === 405) {
+          backendReachable = true;
+        }
+      } catch (err) {
+        backendReachable = false;
+      }
+
+      if (backendReachable) {
         setIsOnline(true);
         setFailedAttempts(0);
         setIsChecking(false);
         return true;
-      } catch (e) {
-        setIsOnline(false);
-        setFailedAttempts((prev) => prev + 1);
-        setIsChecking(false);
-        return false;
       }
+
+      // 3. Fallback check: if backend ping failed or wasn't reachable, try a lightweight public image ping
+      const pingController = new AbortController();
+      const pingTimeout = setTimeout(() => pingController.abort(), 3000);
+      await fetch(`https://www.google.com/favicon.ico?t=${Date.now()}`, {
+        method: "HEAD",
+        mode: "no-cors",
+        cache: "no-store",
+        signal: pingController.signal,
+      });
+      clearTimeout(pingTimeout);
+      setIsOnline(true);
+      setFailedAttempts(0);
+      setIsChecking(false);
+      return true;
+
+    } catch (err) {
+      setIsOnline(false);
+      setFailedAttempts((prev) => prev + 1);
+      setIsChecking(false);
+      return false;
     }
   }, []);
 

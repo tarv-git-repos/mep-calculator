@@ -2,7 +2,6 @@ import axios from 'axios';
 import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
-  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (typeof window !== 'undefined') {
     if (window.location.port === '8081' || window.location.port === '5173') {
       return ''; // Route through Vite proxy to eliminate CORS errors during local frontend development
@@ -641,6 +640,48 @@ export const api = {
     } catch (e: any) {
       console.warn('Failed to fetch versions from server:', e);
       return [];
+    }
+  },
+
+  async sendNotification(notifData: {
+    recipientId: string;
+    title: string;
+    message: string;
+    link?: string;
+    metadata?: any;
+  }) {
+    try {
+      if (typeof window !== 'undefined') {
+        const uId = notifData.recipientId;
+        const userNotifKey = uId ? `mep_persistent_user_notifs_${uId}` : 'mep_persistent_user_notifs';
+        
+        const newNotifItem = {
+          id: notifData.metadata?.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          title: notifData.title,
+          message: notifData.message,
+          link: notifData.link,
+          createdAt: new Date().toISOString(),
+          read: false,
+          ...notifData.metadata
+        };
+
+        try {
+          const existingUserNotifs = JSON.parse(localStorage.getItem(userNotifKey) || '[]');
+          localStorage.setItem(userNotifKey, JSON.stringify([newNotifItem, ...existingUserNotifs]));
+        } catch(e) {}
+
+        try {
+          const globalNotifs = JSON.parse(localStorage.getItem('mep_calc_coord_notifs') || '[]');
+          localStorage.setItem('mep_calc_coord_notifs', JSON.stringify([newNotifItem, ...globalNotifs]));
+        } catch(e) {}
+
+        window.dispatchEvent(new CustomEvent('mep_notification_received', { detail: newNotifItem }));
+      }
+
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/send`, notifData);
+      return data;
+    } catch(e) {
+      return { success: true };
     }
   }
 };

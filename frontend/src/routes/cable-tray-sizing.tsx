@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -7,7 +7,7 @@ import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown } from "lucide-react";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
 import jsPDF from "jspdf";
@@ -16,6 +16,15 @@ import { cn } from "@/lib/utils";
 import { Cable, Tray, TRAY_RANGES, getCableTraySize } from "../lib/cableTrayHelpers";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import { toast } from "sonner";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  ContextMenuSeparator
+} from "@/components/ui/context-menu";
 
 export const Route = createFileRoute("/cable-tray-sizing")({
   head: () => ({
@@ -208,6 +217,77 @@ function CableTraySizingPage() {
         cables: [...t.cables, ...cloned]
       };
     }));
+  };
+
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: string } | null>(null);
+
+  const insertCableAbove = (trayId: string, cableId: string) => {
+    pushToUndo(trays);
+    setTrays(prev => prev.map(t => {
+      if (t.id !== trayId) return t;
+      const idx = t.cables.findIndex(c => c.id === cableId);
+      if (idx === -1) return t;
+      const newCable: Cable = {
+        id: `c_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        type: 'XLPE/SWA/PVC',
+        from: '',
+        to: '',
+        cores: '4C',
+        size: '',
+        qty: 1
+      };
+      const updated = [...t.cables];
+      updated.splice(idx, 0, newCable);
+      return { ...t, cables: updated };
+    }));
+  };
+
+  const insertCableBelow = (trayId: string, cableId: string) => {
+    pushToUndo(trays);
+    setTrays(prev => prev.map(t => {
+      if (t.id !== trayId) return t;
+      const idx = t.cables.findIndex(c => c.id === cableId);
+      if (idx === -1) return t;
+      const newCable: Cable = {
+        id: `c_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        type: 'XLPE/SWA/PVC',
+        from: '',
+        to: '',
+        cores: '4C',
+        size: '',
+        qty: 1
+      };
+      const updated = [...t.cables];
+      updated.splice(idx + 1, 0, newCable);
+      return { ...t, cables: updated };
+    }));
+  };
+
+  const deleteCables = (trayId: string, cableId: string) => {
+    pushToUndo(trays);
+    const targets = selectedRows.has(cableId) ? Array.from(selectedRows) : [cableId];
+    setTrays(prev => prev.map(t => {
+      if (t.id !== trayId) return t;
+      return { ...t, cables: t.cables.filter(c => !targets.includes(c.id)) };
+    }));
+    toast.success(`Deleted ${targets.length} cable(s)`);
+  };
+
+  const duplicateCables = (trayId: string, cableId: string) => {
+    pushToUndo(trays);
+    const targets = selectedRows.has(cableId) ? Array.from(selectedRows) : [cableId];
+    setTrays(prev => prev.map(t => {
+      if (t.id !== trayId) return t;
+      const newCables = [...t.cables];
+      const itemsToClone = newCables.filter(c => targets.includes(c.id));
+      const clones = itemsToClone.map(c => ({
+        ...c,
+        id: `c_${Date.now()}_${Math.floor(Math.random() * 1000)}_${Math.floor(Math.random() * 1000)}`
+      }));
+      return { ...t, cables: [...newCables, ...clones] };
+    }));
+    toast.success(`Duplicated ${targets.length} cable(s)`);
   };
 
   const [expandedTrayId, setExpandedTrayId] = useState<string | null>(null);
@@ -649,9 +729,7 @@ function CableTraySizingPage() {
 
   const exportPdf = () => {
     const doc = new jsPDF("landscape");
-    doc.text("Cable Tray Sizing", 14, 15);
-    
-    let currentY = 20;
+    let currentY = addPdfHeader(doc, "Cable Tray Sizing");
 
     trays.forEach((tray, i) => {
       let subTotal1 = 0;
@@ -680,12 +758,13 @@ function CableTraySizingPage() {
       const totalWidth = subTotal2 + spareWidth;
       const traySize = hasValidCables ? getCableTraySize(totalWidth) : 'N/A';
 
-      if (i > 0 && currentY > 160) {
+      if (i > 0 && currentY > 150) {
          doc.addPage();
-         currentY = 15;
+         currentY = addPdfHeader(doc, "Cable Tray Sizing");
       }
 
       doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
       doc.text(tray.name, 14, currentY + 5);
 
       autoTable(doc, {
@@ -699,6 +778,7 @@ function CableTraySizingPage() {
       currentY = (doc as any).lastAutoTable.finalY;
       
       doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
       doc.text(`Required Width: ${hasValidCables ? Math.round(totalWidth) + ' mm' : '-'}`, 14, currentY + 7);
       doc.text(`Cable Tray Size: ${traySize}`, 100, currentY + 7);
       
@@ -706,11 +786,12 @@ function CableTraySizingPage() {
     });
 
     if (trays.length === 0) {
-       doc.text("No trays to export.", 14, 30);
+       doc.setFontSize(10);
+       doc.setFont("helvetica", "normal");
+       doc.text("No trays to export.", 14, currentY + 10);
     }
 
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+    const sigFinalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 15 : currentY + 10;
     addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "cable-tray-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), "Cable_Tray_Sizing.pdf", "PDF Document", ["pdf"]);
@@ -848,6 +929,35 @@ function CableTraySizingPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    {tray.comments && tray.comments.length > 0 && (
+                      <span
+                        className="inline-flex items-center justify-center p-1.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer text-xs font-medium gap-1"
+                        title={`${tray.comments.length} comment(s):\n${tray.comments.map((cm: any) => `${cm.authorName || 'User'}: ${cm.text}`).join('\n')}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCommentTarget({
+                            id: tray.id,
+                            name: tray.name,
+                            type: "tray",
+                          });
+                          setAssignCommentOpen(true);
+                        }}
+                      >
+                        <MessageSquare className="size-3.5" />
+                        <span>{tray.comments.length}</span>
+                      </span>
+                    )}
+                    <TBtn onClick={(e) => {
+                      e.stopPropagation();
+                      setCommentTarget({
+                        id: tray.id,
+                        name: tray.name,
+                        type: "tray",
+                      });
+                      setAssignCommentOpen(true);
+                    }} title="Add comment to tray">
+                      <MessageSquare className="size-3.5 text-blue-600 dark:text-blue-400" /> Comment
+                    </TBtn>
                     <TBtn onClick={() => clearTray(tray.id)}><Trash2 className="size-3.5" /> Clear Cables</TBtn>
                     <button 
                       onClick={() => removeTray(tray.id)}
@@ -907,109 +1017,201 @@ function CableTraySizingPage() {
                         const currentGlobalRowIndex = globalRowIndex++;
                         const sizesForCore = c.cores ? Object.keys(cableDatabase[c.cores] || {}).sort((a,b) => parseFloat(a) - parseFloat(b)) : [];
                         return (
-                          <tr key={c.id} data-cable-row="true" className={cn(
-                            "hover:bg-surface-2/50 transition-colors cursor-pointer",
-                            selectedRows.has(c.id) ? "bg-primary/10" : ""
-                          )} onClick={(e) => {
-                            const tagName = (e.target as HTMLElement).tagName;
-                            if (tagName === 'TD') {
-                              toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                            }
-                          }}>
-                            <td className="w-8 border-r border-border text-center p-0">
-                              <div className="flex justify-center items-center h-full w-full">
-                                <input
-                                  type="checkbox"
-                                  className="cursor-pointer"
-                                  checked={selectedRows.has(c.id)}
-                                  onChange={() => {}}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                  }}
-                                />
-                              </div>
-                            </td>
-                            <td className="text-center text-muted-foreground border-r border-border">{idx + 1}</td>
-                            <td className="p-0 border-r border-border">
-                              <select 
-                                className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
-                                value={c.type}
-                                onChange={e => updateCable(tray.id, c.id, "type", e.target.value)}
-                                onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 0)}
-                              >
-                                <option value="XLPE/SWA/PVC">XLPE/SWA/PVC</option>
-                                <option value="PVC/PVC">PVC/PVC</option>
-                                <option value="XLPE/PVC">XLPE/PVC</option>
-                                <option value="Fire Resistant">Fire Resistant</option>
-                              </select>
-                            </td>
-                            <td className="p-0 border-r border-border">
-                              <select 
-                                className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
-                                value={c.cores}
-                                onChange={e => {
-                                  updateCable(tray.id, c.id, "cores", e.target.value);
-                                  updateCable(tray.id, c.id, "size", ""); // reset size
-                                  updateCable(tray.id, c.id, "customOd", ""); // reset OD
+                          <ContextMenu key={c.id}>
+                            <ContextMenuTrigger asChild>
+                              <tr data-cable-row="true" className={cn(
+                                "hover:bg-surface-2/50 transition-colors cursor-pointer",
+                                selectedRows.has(c.id) ? "bg-primary/10" : ""
+                              )} onClick={(e) => {
+                                const tagName = (e.target as HTMLElement).tagName;
+                                if (tagName === 'TD') {
+                                  toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                }
+                              }} onContextMenu={() => {
+                                if (!selectedRows.has(c.id)) {
+                                  toggleRowSelect(c.id, false, false);
+                                }
+                              }}>
+                                <td className="w-8 border-r border-border text-center p-0">
+                                  <div className="flex justify-center items-center h-full w-full">
+                                    <input
+                                      type="checkbox"
+                                      className="cursor-pointer"
+                                      checked={selectedRows.has(c.id)}
+                                      onChange={() => {}}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                      }}
+                                    />
+                                  </div>
+                                </td>
+                                <td className="text-center text-muted-foreground border-r border-border px-1">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <span>{idx + 1}</span>
+                                    {c.comments && c.comments.length > 0 && (
+                                      <span
+                                        className="inline-flex items-center justify-center p-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
+                                        title={`${c.comments.length} comment(s):\n${c.comments.map((cm: any) => `${cm.authorName || 'User'}: ${cm.text}`).join('\n')}`}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setCommentTarget({
+                                            id: c.id,
+                                            name: `Cable ${idx + 1} (${c.cores} ${c.size || ''})`,
+                                            type: "cable",
+                                          });
+                                          setAssignCommentOpen(true);
+                                        }}
+                                      >
+                                        <MessageSquare className="size-3 text-blue-600 dark:text-blue-300" />
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-0 border-r border-border">
+                                  <select 
+                                    className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
+                                    value={c.type}
+                                    onChange={e => updateCable(tray.id, c.id, "type", e.target.value)}
+                                    onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 0)}
+                                  >
+                                    <option value="XLPE/SWA/PVC">XLPE/SWA/PVC</option>
+                                    <option value="PVC/PVC">PVC/PVC</option>
+                                    <option value="XLPE/PVC">XLPE/PVC</option>
+                                    <option value="Fire Resistant">Fire Resistant</option>
+                                  </select>
+                                </td>
+                                <td className="p-0 border-r border-border">
+                                  <select 
+                                    className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
+                                    value={c.cores}
+                                    onChange={e => {
+                                      updateCable(tray.id, c.id, "cores", e.target.value);
+                                      updateCable(tray.id, c.id, "size", ""); // reset size
+                                      updateCable(tray.id, c.id, "customOd", ""); // reset OD
+                                    }}
+                                    onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 3)}
+                                  >
+                                    <option value="">-- Select --</option>
+                                    {Object.keys(cableDatabase).map(core => (
+                                      <option key={core} value={core}>{core}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-0 border-r border-border">
+                                  <select className="w-full h-8 px-3 bg-transparent outline-none focus:bg-background text-foreground cursor-pointer" value={c.size} onChange={e => {
+                                    updateCable(tray.id, c.id, "size", e.target.value);
+                                    updateCable(tray.id, c.id, "customOd", ""); // reset OD on size change
+                                  }} onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 4)} disabled={!c.cores}>
+                                    <option value="">{c.cores ? "-- Select --" : "-- Core First --"}</option>
+                                    {sizesForCore.map(sz => (
+                                      <option key={sz} value={sz}>{sz}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-0 border-r border-border">
+                                  <select 
+                                    className="w-full h-8 px-3 text-center bg-transparent outline-none focus:bg-background text-foreground cursor-pointer"
+                                    value={c.qty}
+                                    onChange={e => updateCable(tray.id, c.id, "qty", parseInt(e.target.value) || 1)}
+                                    onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 5)}
+                                  >
+                                    {Array.from({ length: 16 }, (_, i) => i + 1).map(num => (
+                                      <option key={num} value={num}>{num}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="p-0 border-r border-border bg-surface-2 text-foreground">
+                                  <input 
+                                    type="number" 
+                                    step="any"
+                                    className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-background font-mono font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                    value={c.customOd !== undefined && c.customOd !== "" ? (unitSystem === "si" ? c.customOd : (Number(c.customOd) / 25.4).toFixed(2)) : (isNaN(c.od) ? "" : (unitSystem === "si" ? c.od.toFixed(1) : (c.od / 25.4).toFixed(2)))} 
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (val === "") {
+                                        updateCable(tray.id, c.id, "customOd", "");
+                                      } else {
+                                        updateCable(tray.id, c.id, "customOd", unitSystem === "si" ? val : (parseFloat(val) * 25.4).toString());
+                                      }
+                                    }} 
+                                    onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 6)} 
+                                  />
+                                </td>
+                                <td className="px-3 py-1 text-center font-mono font-medium border-r border-border bg-surface-2 text-foreground">
+                                  {isNaN(c.sumOd) ? "-" : (unitSystem === "si" ? c.sumOd.toFixed(1) : (c.sumOd / 25.4).toFixed(2))}
+                                </td>
+                                <td className="text-center p-0">
+                                  <button onClick={() => removeCable(tray.id, c.id)} className="text-destructive/70 hover:text-destructive hover:bg-destructive/10 w-full h-8 flex items-center justify-center transition-colors">
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-xl p-1 text-[13px] text-popover-foreground z-[999]">
+                              <ContextMenuItem
+                                onClick={() => {
+                                  const el = document.querySelector(`tr[data-cable-row="true"] select`) as HTMLElement;
+                                  if (el) el.focus();
                                 }}
-                                onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 3)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                               >
-                                <option value="">-- Select --</option>
-                                {Object.keys(cableDatabase).map(core => (
-                                  <option key={core} value={core}>{core}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-0 border-r border-border">
-                              <select className="w-full h-8 px-3 bg-transparent outline-none focus:bg-background text-foreground cursor-pointer" value={c.size} onChange={e => {
-                                updateCable(tray.id, c.id, "size", e.target.value);
-                                updateCable(tray.id, c.id, "customOd", ""); // reset OD on size change
-                              }} onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 4)} disabled={!c.cores}>
-                                <option value="">{c.cores ? "-- Select --" : "-- Core First --"}</option>
-                                {sizesForCore.map(sz => (
-                                  <option key={sz} value={sz}>{sz}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-0 border-r border-border">
-                              <select 
-                                className="w-full h-8 px-3 text-center bg-transparent outline-none focus:bg-background text-foreground cursor-pointer"
-                                value={c.qty}
-                                onChange={e => updateCable(tray.id, c.id, "qty", parseInt(e.target.value) || 1)}
-                                onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 5)}
+                                <Edit3 className="size-3.5 text-muted-foreground" />
+                                <span>{selectedRows.size > 1 && selectedRows.has(c.id) ? `Edit Cable (${selectedRows.size} selected)` : "Edit Cable"}</span>
+                              </ContextMenuItem>
+
+                              <ContextMenuItem
+                                onClick={() => duplicateCables(tray.id, c.id)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                               >
-                                {Array.from({ length: 16 }, (_, i) => i + 1).map(num => (
-                                  <option key={num} value={num}>{num}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-0 border-r border-border bg-surface-2 text-foreground">
-                              <input 
-                                type="number" 
-                                step="any"
-                                className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-background font-mono font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                                value={c.customOd !== undefined && c.customOd !== "" ? (unitSystem === "si" ? c.customOd : (Number(c.customOd) / 25.4).toFixed(2)) : (isNaN(c.od) ? "" : (unitSystem === "si" ? c.od.toFixed(1) : (c.od / 25.4).toFixed(2)))} 
-                                onChange={e => {
-                                  const val = e.target.value;
-                                  if (val === "") {
-                                    updateCable(tray.id, c.id, "customOd", "");
-                                  } else {
-                                    updateCable(tray.id, c.id, "customOd", unitSystem === "si" ? val : (parseFloat(val) * 25.4).toString());
-                                  }
-                                }} 
-                                onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 6)} 
-                              />
-                            </td>
-                            <td className="px-3 py-1 text-center font-mono font-medium border-r border-border bg-surface-2 text-foreground">
-                              {isNaN(c.sumOd) ? "-" : (unitSystem === "si" ? c.sumOd.toFixed(1) : (c.sumOd / 25.4).toFixed(2))}
-                            </td>
-                            <td className="text-center p-0">
-                              <button onClick={() => removeCable(tray.id, c.id)} className="text-destructive/70 hover:text-destructive hover:bg-destructive/10 w-full h-8 flex items-center justify-center transition-colors">
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </td>
-                          </tr>
+                                <Copy className="size-3.5 text-muted-foreground" />
+                                <span>{selectedRows.size > 1 && selectedRows.has(c.id) ? `Duplicate Selected (${selectedRows.size})` : "Duplicate Cable"}</span>
+                              </ContextMenuItem>
+
+                              <ContextMenuItem
+                                onClick={() => {
+                                  setCommentTarget({
+                                    id: c.id,
+                                    name: `Cable ${idx + 1} (${c.cores} ${c.size || ''})`,
+                                    type: "cable",
+                                  });
+                                  setAssignCommentOpen(true);
+                                }}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-blue-600 dark:text-blue-400"
+                              >
+                                <MessageSquare className="size-3.5" />
+                                <span>Add comment</span>
+                              </ContextMenuItem>
+
+                              <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                              <ContextMenuItem
+                                onClick={() => insertCableAbove(tray.id, c.id)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                              >
+                                <ArrowUp className="size-3.5 text-muted-foreground" />
+                                <span>Insert Cable Above</span>
+                              </ContextMenuItem>
+
+                              <ContextMenuItem
+                                onClick={() => insertCableBelow(tray.id, c.id)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                              >
+                                <ArrowDown className="size-3.5 text-muted-foreground" />
+                                <span>Insert Cable Below</span>
+                              </ContextMenuItem>
+
+                              <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                              <ContextMenuItem
+                                onClick={() => deleteCables(tray.id, c.id)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="size-3.5 text-destructive" />
+                                <span>{selectedRows.size > 1 && selectedRows.has(c.id) ? `Delete Selected (${selectedRows.size})` : "Delete Cable"}</span>
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                         );
                       })
                     )}
@@ -1287,6 +1489,40 @@ function CableTraySizingPage() {
             </form>
           </div>
         </div>
+      )}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          onSave={(newComment) => {
+            if (!commentTarget) return;
+            const targetId = commentTarget.id;
+            pushToUndo(trays);
+            setTrays(prev => prev.map(t => {
+              if (t.id === targetId) {
+                const existing = t.comments || [];
+                return { ...t, comments: [...existing, newComment] };
+              }
+              return {
+                ...t,
+                cables: t.cables.map(c => {
+                  if (c.id === targetId) {
+                    const existing = c.comments || [];
+                    return { ...c, comments: [...existing, newComment] };
+                  }
+                  return c;
+                })
+              };
+            }));
+            toast.success("Comment added successfully");
+          }}
+        />
       )}
     </AppShell>
   );

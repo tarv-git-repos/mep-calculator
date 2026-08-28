@@ -437,7 +437,8 @@ async function getUserFromReq(req) {
     let user = { ...users[userIndex] };
 
     const reqHwid = req.headers['x-hwid'] || req.headers['hwid'];
-    if (user.active_hwid && reqHwid && user.active_hwid !== reqHwid) {
+    const isLocalHost = req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1'));
+    if (user.active_hwid && reqHwid && user.active_hwid !== reqHwid && !isLocalHost) {
       if (user.role !== 'SUPER_ADMIN' && reqHwid !== 'NODE_SERVER_ENVIRONMENT' && reqHwid !== 'HWID-FALLBACK-DEVICE-0001' && user.active_hwid !== 'NODE_SERVER_ENVIRONMENT') {
         user.sessionRevoked = true;
       }
@@ -2155,7 +2156,8 @@ const server = http.createServer(async (req, res) => {
       const users = await readUsers();
       const dbUser = users.find(u => u.email === cleanEmail);
       if (dbUser) {
-        if (dbUser.active_hwid && hwid && dbUser.active_hwid !== hwid) {
+        const isLocalHost = req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1'));
+        if (dbUser.active_hwid && hwid && dbUser.active_hwid !== hwid && !isLocalHost) {
           if (dbUser.role !== 'SUPER_ADMIN' && hwid !== 'NODE_SERVER_ENVIRONMENT' && hwid !== 'HWID-FALLBACK-DEVICE-0001' && dbUser.active_hwid !== 'NODE_SERVER_ENVIRONMENT') {
             return sendJSON(res, 200, {
               success: false,

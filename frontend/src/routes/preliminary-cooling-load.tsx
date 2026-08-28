@@ -9,7 +9,7 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   Plus, Trash2, Download, Upload, X, Sparkles, AlertTriangle, CheckCircle2,
   Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, Wrench, RefreshCw, Bookmark, HelpCircle,
-  Filter, ArrowUpDown, Edit3
+  Filter, ArrowUpDown, Edit3, MessageSquare
 } from "lucide-react";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useWorkspace } from "@/lib/workspace-store";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 
 
 export const Route = createFileRoute("/preliminary-cooling-load")({
@@ -52,6 +54,7 @@ interface PclRow {
   tr: number;
   floor: string;
   selected?: boolean;
+  comments?: any[];
 }
 
 const INFER_MAP: [string, string][] = [
@@ -238,7 +241,7 @@ function PreliminaryCoolingLoadPage() {
 
   const confirm = useConfirm();
   const prompt = usePrompt();
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
 
   // State loaded from localStorage to keep 100% database compatibility
   const [projectInfo, setProjectInfo] = useState({
@@ -298,6 +301,15 @@ function PreliminaryCoolingLoadPage() {
     type: "",
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Comment & Task Assignment Modal State
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type: "space" | "zone" | "equipment" } | null>(null);
+
+  const handleOpenComment = (row: PclRow) => {
+    setCommentTargetItem({ id: row.id, name: row.name, type: "space" });
+    setCommentModalOpen(true);
+  };
 
   // Load from local storage on mount
   useEffect(() => {
@@ -1114,30 +1126,44 @@ function PreliminaryCoolingLoadPage() {
       width: 240,
       editable: true,
       render: (r) => (
-        <InlineInput
-          value={r.name}
-          onCommit={(newName) => {
-            const floor = extractFloor(newName);
-            const defaultType = inferTypeFromName(newName) || r.type;
-            const density = SPACE_DENSITIES[defaultType] || 120;
-            const numArea = r.area !== "" ? Number(r.area) : 0;
-            const dissipation = numArea * density;
-            const kw = dissipation / 1000;
-            const tr = kw / 3.517;
+        <div className="flex items-center gap-1.5 w-full">
+          {Array.isArray(r.comments) && r.comments.length > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenComment(r);
+              }}
+              title={`${r.comments.length} comment(s)/task(s) assigned to space "${r.name}"`}
+              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer"
+            >
+              <MessageSquare className="size-3.5 fill-blue-500/20" />
+            </button>
+          )}
+          <InlineInput
+            value={r.name}
+            onCommit={(newName) => {
+              const floor = extractFloor(newName);
+              const defaultType = inferTypeFromName(newName) || r.type;
+              const density = SPACE_DENSITIES[defaultType] || 120;
+              const numArea = r.area !== "" ? Number(r.area) : 0;
+              const dissipation = numArea * density;
+              const kw = dissipation / 1000;
+              const tr = kw / 3.517;
 
-            saveRows(rows.map(row => row.id === r.id ? {
-              ...row,
-              name: newName,
-              floor,
-              type: defaultType,
-              density,
-              dissipation,
-              kw,
-              tr
-            } : row));
-          }}
-          className="font-semibold text-[13px] font-sans"
-        />
+              saveRows(rows.map(row => row.id === r.id ? {
+                ...row,
+                name: newName,
+                floor,
+                type: defaultType,
+                density,
+                dissipation,
+                kw,
+                tr
+              } : row));
+            }}
+            className="font-semibold text-[13px] font-sans"
+          />
+        </div>
       ),
     },
     {
@@ -1268,6 +1294,16 @@ function PreliminaryCoolingLoadPage() {
         </ContextMenuItem>
         
         <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment / Assign Task</span>
+        </ContextMenuItem>
+        
+        <ContextMenuSeparator className="h-px bg-border my-1" />
         
         <ContextMenuItem
           onClick={async () => {
@@ -1342,6 +1378,11 @@ function PreliminaryCoolingLoadPage() {
     <AppShell title="Preliminary Cooling Load" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          <CalculationReviewBar
+            projectId={activeProjectId || project?.id || "default"}
+            calculatorPath="/preliminary-cooling-load"
+            calculatorTitle="Preliminary Cooling Load"
+          />
           {/* Breadcrumbs & Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print px-6">
             <div className="flex flex-col gap-1 w-full">
@@ -2119,6 +2160,61 @@ function PreliminaryCoolingLoadPage() {
             </footer>
           </div>
         </div>
+      )}
+
+      {/* Assign Comment & Task Modal */}
+      {commentModalOpen && commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => setCommentModalOpen(false)}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType={commentTargetItem.type}
+          onSave={async (comment) => {
+            try {
+              const currentUserName = userData?.name || profile?.name || "Design Engineer";
+              const userIds = comment.assignedUsers || [];
+
+              // Attach comment to row state so visual comment badge appears
+              saveRows(rows.map(r => r.id === commentTargetItem.id ? {
+                ...r,
+                comments: [...(r.comments || []), comment]
+              } : r));
+
+              if (userIds.length > 0) {
+                for (const uId of userIds) {
+                  try {
+                    await api.sendNotification({
+                      recipientId: uId,
+                      title: `New Task Assigned on ${commentTargetItem.name}`,
+                      message: `${currentUserName} assigned a task on space ${commentTargetItem.name}: "${comment.text}"`,
+                      link: `/preliminary-cooling-load?commentTargetType=${commentTargetItem.type}&commentTargetId=${commentTargetItem.id}&commentTargetName=${encodeURIComponent(commentTargetItem.name)}`,
+                      metadata: {
+                        id: comment.id,
+                        projectId: activeProjectId || project?.id,
+                        calculatorPath: "/preliminary-cooling-load",
+                        targetId: commentTargetItem.id,
+                        targetName: commentTargetItem.name,
+                        targetType: commentTargetItem.type,
+                        authorName: currentUserName,
+                        text: comment.text,
+                        createdAt: comment.timestamp,
+                      }
+                    });
+                  } catch(e) {
+                    console.error("Failed to send notification to user", uId, e);
+                  }
+                }
+                toast.success(`Task comment assigned to ${userIds.length} selected team member(s)!`);
+              } else {
+                toast.success(`Task comment recorded for space ${commentTargetItem.name}`);
+              }
+            } catch(e) {
+              toast.success(`Task comment added for ${commentTargetItem.name}`);
+            }
+            setCommentModalOpen(false);
+          }}
+        />
       )}
     </AppShell>
   );

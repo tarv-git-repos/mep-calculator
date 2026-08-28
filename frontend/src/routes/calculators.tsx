@@ -183,6 +183,24 @@ const CALC_CONFIGS: Record<string, CalcConfig> = {
       "Check for harmonic resonance issues before installing capacitor banks.",
       "Provide automatic Power Factor Correction (APFC) relays for varying loads."
     ]
+  },
+  "Lighting LUX Calculation": {
+    desc: "Calculate required number of LED luminaires based on space illuminance standards, room area, lumen output, UF, and MF.",
+    standard: "EN 12464-1 / CIBSE Guide LG7 / IESNA",
+    inputs: [
+      { key: "area", label: "Room Area", min: 5, max: 2000, step: 5, default: 100, unit: "m²" },
+      { key: "targetLux", label: "Target Lux Level", min: 50, max: 2000, step: 25, default: 500, unit: "lux" },
+      { key: "lumenPerFitting", label: "Lamp Flux per Fitting", min: 500, max: 25000, step: 100, default: 3600, unit: "lm" },
+      { key: "wattPerFitting", label: "Luminaire Wattage", min: 5, max: 400, step: 1, default: 36, unit: "W" },
+      { key: "uf", label: "Utilisation Factor (UF)", min: 0.1, max: 0.9, step: 0.05, default: 0.60, unit: "-" },
+      { key: "mf", label: "Maintenance Factor (MF)", min: 0.5, max: 0.95, step: 0.05, default: 0.80, unit: "-" },
+    ],
+    checklist: [
+      "Select target lux level according to space function (e.g., 500 lux for general office).",
+      "Determine Utilisation Factor (UF) from luminaire photometric tables based on room index.",
+      "Apply appropriate Maintenance Factor (MF) considering lamp lumen depreciation and cleaning schedules.",
+      "Verify total Lighting Power Density (LPD W/m²) complies with ASHRAE 90.1 energy standards."
+    ]
   }
 };
 
@@ -678,6 +696,38 @@ function CalculatorsPage() {
           complianceMsg: requiredKvar >= 0 
             ? "Correction yields positive reactive power reduction." 
             : "Target PF is lower than existing; no capacitor bank needed."
+        };
+      }
+
+      case "Lighting LUX Calculation":
+      case "Lighting Lux Calculation": {
+        const area = getVal("area");
+        const lux = getVal("targetLux");
+        const lumen = getVal("lumenPerFitting");
+        const watt = getVal("wattPerFitting");
+        const uf = getVal("uf");
+        const mf = getVal("mf");
+
+        const totalLumenReq = (uf > 0 && mf > 0) ? (lux * area) / (uf * mf) : 0;
+        const reqQty = lumen > 0 ? Math.ceil(totalLumenReq / lumen) : 0;
+        const totalWatt = reqQty * watt;
+        const lpd = area > 0 ? totalWatt / area : 0;
+
+        return {
+          primaryVal: reqQty.toString(),
+          primaryUnit: "Fixtures",
+          secondaryVal: lpd.toFixed(2),
+          secondaryUnit: "W/m²",
+          metrics: [
+            { label: "Total Required Flux", val: `${Math.round(totalLumenReq).toLocaleString()} lm` },
+            { label: "Connected Power Load", val: `${(totalWatt / 1000).toFixed(2)} kW` },
+            { label: "Lighting Power Density", val: `${lpd.toFixed(2)} W/m²`, status: lpd <= 10 ? "success" : "warning" },
+            { label: "Target Illuminance Level", val: `${lux} Lux` }
+          ],
+          compliance: lpd <= 12 ? "complied" : "warning",
+          complianceMsg: lpd <= 12
+            ? "Lighting Power Density is within standard energy code allowances."
+            : "LPD exceeds standard 12 W/m² allowance; consider higher efficiency LED luminaires."
         };
       }
 

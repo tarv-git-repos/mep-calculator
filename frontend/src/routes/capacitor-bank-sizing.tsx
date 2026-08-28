@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -9,6 +9,8 @@ import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { Download, Plus, X, ChevronDown, ChevronUp, Zap, Activity } from "lucide-react";
 import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/capacitor-bank-sizing")({
   component: CapacitorBankSizingPage,
@@ -235,10 +237,10 @@ function CapacitorBankSizingPage() {
         for (let r = stepStartRow; r <= stepEndRow; r++) {
           const cell = ws.getCell(r, 5);
           cell.border = {
-            top: r === stepStartRow ? { style: 'medium' } : undefined,
-            bottom: r === stepEndRow ? { style: 'medium' } : undefined,
-            left: { style: 'medium' },
-            right: { style: 'medium' }
+            top: r === stepStartRow ? { style: 'medium' as const } : undefined,
+            bottom: r === stepEndRow ? { style: 'medium' as const } : undefined,
+            left: { style: 'medium' as const },
+            right: { style: 'medium' as const }
           };
         }
       }
@@ -254,66 +256,123 @@ function CapacitorBankSizingPage() {
     saveAs(new Blob([buffer]), "Capacitor_Bank_Calculations.xlsx");
   };
 
-  const exportPdf = () => {
-    const doc = new jsPDF();
-    const base64ImageURL = getDiagramBase64();
-    
-    panels.forEach((p, index) => {
-      if (index > 0) doc.addPage();
-      const c = calculatePanel(p);
+  const exportPdf = async () => {
+    try {
+      const doc = new jsPDF();
+      const base64ImageURL = getDiagramBase64();
 
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("P.F. CORRECTION CAPACITOR CALCULATION", 14, 20);
-      
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`PROJECT: ${project}`, 14, 30);
-      doc.text(`PANEL REF: ${p.panelRef}`, 14, 36);
+      let currentY = addPdfHeader(doc, "P.F. CORRECTION CAPACITOR CALCULATION", {
+        projectName: project || "PFC Project",
+        calcNo: "TRV-CAP-001",
+      });
 
-      doc.text(`Total Connected Load = ${p.totalLoadKw} kW`, 14, 50);
-      doc.text(`Max Demand Load (IFC) = ${p.maxDemandLoadKw} kW`, 14, 56);
-      
-      doc.text(`Assumed Existing P.F = ${p.initialPf}`, 14, 68);
-      doc.text(`Target P.F = ${p.targetPf}`, 14, 74);
+      panels.forEach((p, index) => {
+        if (index > 0) {
+          doc.addPage();
+          currentY = addPdfHeader(doc, "P.F. CORRECTION CAPACITOR CALCULATION", {
+            projectName: project || "PFC Project",
+            calcNo: "TRV-CAP-001",
+          });
+        }
 
-      doc.text(`θ1 = ${c.theta1Deg.toFixed(2)}°`, 14, 86);
-      doc.text(`θ2 = ${c.theta2Deg.toFixed(2)}°`, 14, 92);
-      doc.text(`Tan θ = ${c.tanThetaDiff.toFixed(3)} kVAr/kW`, 14, 98);
-      
-      doc.setFont("helvetica", 'bold');
-      doc.text(`Therefore kVAr = ${c.requiredKvar.toFixed(2)} kVAr`, 14, 110);
-      doc.text(`Proposed Capacitor Bank = ${c.proposedKvar} kVAr`, 14, 118);
+        const c = calculatePanel(p);
 
-      doc.setFont("helvetica", 'normal');
-      doc.text("STEPS OF CAPACITOR BANK:", 100, 118);
-      let y = 126;
-      for (let i = 0; i < c.numFullSteps; i++) {
-          doc.text(`STEP-${i + 1} = ${p.stepUnit}kVAr(2x${p.stepUnit/2}kVAr)`, 100, y);
-          y += 6;
+        // Panel Section Title
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 41, 59);
+        doc.text(`PANEL: ${p.name} (${p.panelRef})`, 14, currentY + 6);
+        currentY += 10;
+
+        // Table 1: Input Parameters
+        const inputData = [
+          ["Total Connected Load", `${Number(p.totalLoadKw || 0).toFixed(2)} kW`, "Sub / System Ref", sub || "-"],
+          ["Max Demand Load (IFC)", `${Number(p.maxDemandLoadKw || 0).toFixed(2)} kW`, "System Voltage", `${p.voltageKv} kV`],
+          ["Assumed Existing P.F (Cos θ1)", `${p.initialPf}`, "Target P.F (Cos θ2)", `${p.targetPf}`],
+          ["Overcurrent Safety Factor", `${p.overcurrentFactor}`, "Capacitor Step Unit", `${p.stepUnit} kVAr`],
+        ];
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [["Parameter", "Value", "Parameter", "Value"]],
+          body: inputData,
+          theme: "grid",
+          styles: { fontSize: 8, cellPadding: 2.5 },
+          headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: "bold" },
+          columnStyles: {
+            0: { fontStyle: "bold", cellWidth: 45 },
+            1: { cellWidth: 39 },
+            2: { fontStyle: "bold", cellWidth: 45 },
+            3: { cellWidth: 39 },
+          },
+          margin: { left: 14, right: 14 }
+        });
+
+        currentY = (doc as any).lastAutoTable.finalY + 8;
+
+        // Table 2: Calculations & Steps Breakdown
+        const stepsDetail: string[] = [];
+        for (let i = 0; i < c.numFullSteps; i++) {
+          stepsDetail.push(`STEP-${i + 1}: ${p.stepUnit} kVAr (2x${p.stepUnit / 2}kVAr)`);
+        }
+        if (c.remainderStep > 0) {
+          stepsDetail.push(`STEP-${c.numFullSteps + 1}: ${c.remainderStep} kVAr (2x${c.remainderStep / 2}kVAr)`);
+        }
+
+        const calcData = [
+          ["Existing Angle (θ1)", `${c.theta1Deg.toFixed(2)}°`],
+          ["Target Angle (θ2)", `${c.theta2Deg.toFixed(2)}°`],
+          ["Tan θ (Tan θ1 - Tan θ2)", `${c.tanThetaDiff.toFixed(3)} kVAr/kW`],
+          ["Required Reactive Power (Qc)", `${c.requiredKvar.toFixed(2)} kVAr`],
+          ["Proposed Capacitor Bank", `${c.proposedKvar} kVAr`],
+          ["Capacitor Steps Breakdown", stepsDetail.join(" | ") || `1 x ${c.proposedKvar} kVAr`],
+          ["Required Breaker Amp (I)", `${c.ampI.toFixed(2)} A (Formula: [${p.overcurrentFactor} × ${c.proposedKvar}] / [1.732 × ${p.voltageKv}])`],
+        ];
+
+        autoTable(doc, {
+          startY: currentY,
+          head: [["Calculation Step / Metric", "Result"]],
+          body: calcData,
+          theme: "striped",
+          styles: { fontSize: 8, cellPadding: 2.5 },
+          headStyles: { fillColor: [15, 118, 110], textColor: [255, 255, 255], fontStyle: "bold" },
+          columnStyles: {
+            0: { fontStyle: "bold", cellWidth: 60 },
+            1: { cellWidth: 108 },
+          },
+          margin: { left: 14, right: 14 }
+        });
+
+        currentY = (doc as any).lastAutoTable.finalY + 6;
+
+        // Diagram Image
+        if (base64ImageURL) {
+          if (currentY + 55 > 270) {
+            doc.addPage();
+            currentY = 20;
+          }
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(30, 41, 59);
+          doc.text("Power Factor Phasor Diagram:", 14, currentY + 4);
+          doc.addImage(base64ImageURL, "JPEG", 14, currentY + 6, 85, 48);
+          currentY += 56;
+        }
+      });
+
+      if (currentY + 40 > 270) {
+        doc.addPage();
+        currentY = 15;
       }
-      if (c.remainderStep > 0) {
-          doc.text(`STEP-${c.numFullSteps + 1} = ${c.remainderStep}kVAr(2x${c.remainderStep/2}kVAr)`, 100, y);
-          y += 6;
-      }
-      doc.setFont("helvetica", 'bold');
-      doc.text(`TOTAL = ${c.proposedKvar} kVAr CAPACITORS`, 100, y + 2);
+      addPdfSignatureBlock(doc, currentY, currentUserName, project || "default", "capacitor-bank-sizing");
 
-      doc.setFont("helvetica", 'bold');
-      doc.text(`Amp (I) = (${p.overcurrentFactor} X kVAr)/(1.732 X ${p.voltageKv})`, 14, 130);
-      doc.text(`Amp (I) = ${c.ampI.toFixed(2)} A`, 14, 136);
-
-      // Add diagram image
-      if (base64ImageURL) {
-        doc.addImage(base64ImageURL, 'PNG', 100, 40, 90, 56);
-      }
-    });
-
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "capacitor-bank-sizing");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), "Capacitor_Bank_Calculations.pdf", "PDF Document", ["pdf"]);
+      const pdfBuffer = doc.output("arraybuffer");
+      await downloadFile(new Uint8Array(pdfBuffer), "Capacitor_Bank_Calculations.pdf", "PDF Document", ["pdf"]);
+      toast.success("PDF report generated successfully!");
+    } catch (err: any) {
+      console.error("Failed to export PDF:", err);
+      toast.error(`PDF Export Error: ${err?.message || String(err)}`);
+    }
   };
 
   const handleImportExcelRows = (mappedRows: any[]) => {
@@ -688,5 +747,5 @@ function getDiagramBase64() {
   ctx.fillText("KVA", 0, 0);
   ctx.restore();
 
-  return canvas.toDataURL('image/png');
+  return canvas.toDataURL('image/jpeg', 0.95);
 }

@@ -500,6 +500,10 @@ export const workspaceStore = {
       localStorage.setItem("mep_active_project_id", id);
       localStorage.setItem("mep_last_worked_project_id", id);
     }
+    if (typeof window !== "undefined") {
+      (window as any)._currentLoadedFile = null;
+      (window as any).__BIM_VIEWER_SPACES__ = null;
+    }
 
     const wdata = target.workspace_data || {};
     injectLocalStorageCache(wdata);

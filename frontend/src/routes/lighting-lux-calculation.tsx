@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -8,10 +8,13 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
-import { Plus, Download, Trash, Copy, Trash2, X, Database } from "lucide-react";
+import { Plus, Download, Trash, Copy, Trash2, X, Database, FileText, FileSpreadsheet, MessageSquare } from "lucide-react";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
@@ -41,6 +44,7 @@ interface LuxRow {
   uf: number;
   reqQty: number;
   remarks: string;
+  comments?: any[];
 }
 
 // Helper to compute calculated fields
@@ -102,6 +106,8 @@ function LightingLuxCalculationPage() {
   const [history, setHistory] = useState<LuxRow[][]>([]);
   const [redoStack, setRedoStack] = useState<LuxRow[][]>([]);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
 
   useEffect(() => {
     if (!project?.id) return;
@@ -402,12 +408,15 @@ function LightingLuxCalculationPage() {
     }));
     
     pushToHistory(rows, history, setHistory, setRedoStack);
-    setRows(prev => [...prev, ...newRows]);
+    setRows(prev => [...prev, ...newRows.map(computeRowOutputs)]);
   };
 
   const exportExcel = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Lighting Lux Calc");
+
+    const projectCode = project?.code || "DEFAULT";
+    const projectName = project?.name || "Untitled Project";
 
     // Add Project Info Block (Rows 1-3)
     worksheet.mergeCells("A1:I1");
@@ -417,12 +426,12 @@ function LightingLuxCalculationPage() {
 
     worksheet.mergeCells("A2:I2");
     worksheet.mergeCells("J2:O2");
-    worksheet.getCell("A2").value = `Project No : ${project.code}`;
+    worksheet.getCell("A2").value = `Project No : ${projectCode}`;
     worksheet.getCell("J2").value = "Client :";
 
     worksheet.mergeCells("A3:I3");
     worksheet.mergeCells("J3:O3");
-    worksheet.getCell("A3").value = `Project Name : ${project.name}`;
+    worksheet.getCell("A3").value = `Project Name : ${projectName}`;
     worksheet.getCell("J3").value = "End User :";
 
     // Style the metadata block
@@ -619,7 +628,90 @@ function LightingLuxCalculationPage() {
     const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
     addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "lighting-lux-calculation");
     const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `LUX_Calculation_${project.code}.xlsx`);
+    saveAs(new Blob([buffer]), `LUX_Calculation_${projectCode}.xlsx`);
+  };
+
+  const exportPdf = () => {
+    const doc = new jsPDF("p", "mm", "a4");
+
+    const projectCode = project?.code || "DEFAULT";
+    const projectName = project?.name || "Untitled Project";
+
+    const startY = addPdfHeader(doc, "LIGHTING LUX CALCULATION REPORT", {
+      calcNo: "CEC-EED-PXXX-101",
+      projectNo: projectCode,
+      projectName: projectName,
+    });
+
+    const headers = [
+      ["Sr.", "Location", "Type of Light", "IP Rating", "L(m)", "W(m)", "H(m)", "R.I", "Area(m²)", "Req. Lux", "Lumen", "M.F", "U.F", "Req. Qty", "Remarks"]
+    ];
+
+    const data = rows.map((r, i) => [
+      i + 1,
+      r.location || "-",
+      r.lightType || "-",
+      r.ipRating || "-",
+      r.length || 0,
+      r.width || 0,
+      r.height || 0,
+      r.roomIndex || 0,
+      r.area || 0,
+      r.reqLux || 0,
+      r.lumen || 0,
+      r.mf || 0,
+      r.uf || 0,
+      r.reqQty || 0,
+      r.remarks || ""
+    ]);
+
+    autoTable(doc, {
+      startY: startY + 4,
+      head: headers,
+      body: data,
+      theme: "grid",
+      headStyles: {
+        fillColor: [51, 65, 85],
+        textColor: [255, 255, 255],
+        fontSize: 7.5,
+        fontStyle: "bold",
+        halign: "center",
+        valign: "middle"
+      },
+      bodyStyles: {
+        fontSize: 7.5,
+        halign: "center",
+        valign: "middle"
+      },
+      styles: {
+        cellPadding: 2,
+        overflow: "linebreak"
+      },
+      columnStyles: {
+        0: { cellWidth: 8 },
+        1: { cellWidth: 20, halign: "left" },
+        2: { cellWidth: 20, halign: "left" },
+        3: { cellWidth: 12 },
+        4: { cellWidth: 10 },
+        5: { cellWidth: 10 },
+        6: { cellWidth: 10 },
+        7: { cellWidth: 10 },
+        8: { cellWidth: 12 },
+        9: { cellWidth: 12 },
+        10: { cellWidth: 12 },
+        11: { cellWidth: 10 },
+        12: { cellWidth: 10 },
+        13: { cellWidth: 12, fontStyle: "bold" },
+        14: { cellWidth: 16, halign: "left" }
+      },
+      margin: { left: 14, right: 14 }
+    });
+
+    const finalY = (doc as any).lastAutoTable?.finalY || 150;
+
+    addPdfSignatureBlock(doc, finalY + 5, currentUserName, project?.id || "default", "lighting-lux-calculation");
+
+    doc.save(`LUX_Calculation_${projectCode}.pdf`);
   };
 
   const columns: Column<LuxRow>[] = useMemo(() => [
@@ -869,28 +961,52 @@ function LightingLuxCalculationPage() {
 
   const renderContextMenu = (row: LuxRow) => {
     return (
-      <ContextMenuContent className="w-48">
+      <ContextMenuContent className="w-52">
+        <ContextMenuItem onClick={addRow}>
+          <Plus className="size-4 mr-2" /> Add Space Row
+        </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          const newRow = { ...row, id: `lux_${Math.random().toString(36).slice(2, 9)}` };
-          pushToHistory(rows, history, setHistory);
-          setRows(prev => {
-            const idx = prev.findIndex(r => r.id === row.id);
-            const next = [...prev];
-            next.splice(idx + 1, 0, newRow);
-            return next;
-          });
+          if (selected.size > 0) duplicateSelected();
+          else {
+            const newRow = { ...row, id: `lux_${Math.random().toString(36).slice(2, 9)}`, location: `${row.location} (Copy)` };
+            pushToHistory(rows, history, setHistory, setRedoStack);
+            setRows(prev => {
+              const idx = prev.findIndex(r => r.id === row.id);
+              const next = [...prev];
+              next.splice(idx + 1, 0, computeRowOutputs(newRow));
+              return next;
+            });
+          }
         }}>
           <Copy className="size-4 mr-2" /> Duplicate Row
         </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => {
+            if (row) {
+              setCommentTarget({
+                id: row.id,
+                name: row.location || `Space Row ${rows.findIndex(r => r.id === row.id) + 1}`,
+                type: 'space'
+              });
+              setAssignCommentOpen(true);
+            }
+          }}
+          className="text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-4 mr-2" /> Add comment
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => {
-          pushToHistory(rows, history, setHistory);
-          setRows(prev => prev.filter(r => r.id !== row.id));
-          setSelected(prev => {
-            const next = new Set(prev);
-            next.delete(row.id);
-            return next;
-          });
+          if (selected.size > 0) deleteSelected();
+          else {
+            pushToHistory(rows, history, setHistory, setRedoStack);
+            setRows(prev => prev.filter(r => r.id !== row.id));
+            setSelected(prev => {
+              const next = new Set(prev);
+              next.delete(row.id);
+              return next;
+            });
+          }
         }} className="text-red-600 dark:text-red-400 focus:text-red-600">
           <Trash className="size-4 mr-2" /> Delete Row
         </ContextMenuItem>
@@ -903,7 +1019,7 @@ function LightingLuxCalculationPage() {
       title="Lighting LUX Calculation" 
       subtitle="Design and calculate lighting levels for different spaces"
       actions={
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <ImportExcelBtn
             columnMapping={{
               "Location": "location",
@@ -920,6 +1036,18 @@ function LightingLuxCalculationPage() {
             onImport={handleImportExcelRows}
             className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors"
           />
+          <button
+            onClick={exportExcel}
+            className="flex items-center gap-1.5 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600/20 border border-emerald-600/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors cursor-pointer"
+          >
+            <FileSpreadsheet className="size-3.5" /> Export Excel
+          </button>
+          <button
+            onClick={exportPdf}
+            className="flex items-center gap-1.5 bg-rose-600/10 text-rose-600 dark:text-rose-400 hover:bg-rose-600/20 border border-rose-600/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors cursor-pointer"
+          >
+            <FileText className="size-3.5" /> Export PDF
+          </button>
         </div>
       }
     >
@@ -938,16 +1066,6 @@ function LightingLuxCalculationPage() {
                 <Plus className="size-3.5" /> Add Row
               </button>
               
-              <div className="w-px h-4 bg-border mx-1" />
-              
-              <button 
-                disabled={selected.size === 0}
-                onClick={deleteSelected}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 rounded text-[12.5px] font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <Trash className="size-3.5" /> Delete Selected
-              </button>
-
               <div className="w-px h-4 bg-border mx-1" />
               
               <button 
@@ -999,6 +1117,30 @@ function LightingLuxCalculationPage() {
           
         </div>
       </div>
+
+      {/* Assign Comment Modal Overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          onSave={(newComment) => {
+            pushToHistory(rows, history, setHistory, setRedoStack);
+            setRows(prev => prev.map(r => {
+              if (r.id === commentTarget.id) {
+                const comments = [...(r.comments || []), newComment];
+                return { ...r, comments };
+              }
+              return r;
+            }));
+          }}
+        />
+      )}
     </AppShell>
   );
 }

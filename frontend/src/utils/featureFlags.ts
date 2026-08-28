@@ -1,6 +1,8 @@
 import { Profile } from "@/contexts/AuthContext";
 
 export const DEFAULT_UNLOCKED_FEATURES = [
+  'preliminary-cooling-load',
+  'chw-pipe-sizer',
   'ventilation',
   'plumbing-loading-unit',
   'plumbing-fixture-unit',
@@ -8,7 +10,12 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'plumbing-supply-pipe-sizer',
   'busbar-calculation',
   'busbar-voltage-drop',
-  'generator-sizing'
+  'generator-sizing',
+  'cable-tray-sizing',
+  'capacitor-bank-sizing',
+  'lighting-lux-calculation',
+  'project-load-schedule',
+  'load-summary'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -29,14 +36,14 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   const routeKey = rawKey.split('?')[0];
   const features = profile?.features || {};
 
+  // Unlocked by default during development (unconditional for unlocked features)
+  if (DEFAULT_UNLOCKED_FEATURES.includes(routeKey)) {
+    return false;
+  }
+
   // Check if explicitly set in user features (from SuperAdmin App Permissions toggle)
   if (features[routeKey] !== undefined) {
     return features[routeKey] === false;
-  }
-
-  // Unlocked by default during development (unless explicitly set to false in user features)
-  if (DEFAULT_UNLOCKED_FEATURES.includes(routeKey)) {
-    return false;
   }
 
   // Legacy groupings backwards compatibility fallback if routeKey was not explicitly toggled

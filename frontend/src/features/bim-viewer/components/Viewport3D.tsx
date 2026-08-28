@@ -8,6 +8,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '../store/viewer-store';
 import { Toolbar } from './Toolbar';
 import { DropOverlay } from './DropOverlay';
+import { workspaceStore } from '@/lib/workspace-store';
+import { saveProjectIfcFile, getProjectIfcFile, deleteProjectIfcFile } from '@/lib/projectIfcStorage';
 
 export function Viewport3D() {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -131,6 +133,12 @@ const loadIfcFile = async (file: File) => {
 
 (window as any).loadIfcFile = async (file: File) => {
     if (!file?.name.toLowerCase().endsWith('.ifc')) return;
+
+    (window as any)._currentLoadedFile = file;
+    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
+    if (activeProjId) {
+      saveProjectIfcFile(activeProjId, file);
+    }
 
     ui.btn3d.classList.add('active');
     ui.btn2d.classList.remove('active');
@@ -469,7 +477,16 @@ const loadIfcFile = async (file: File) => {
 
         await fragments.core.update(true);
         world.scene.three.add(model.object);
-        world.camera.controls.fitToSphere(model.object, true);
+        try {
+            const fitBox = new THREE.Box3().setFromObject(model.object);
+            const fitSphere = new THREE.Sphere();
+            fitBox.getBoundingSphere(fitSphere);
+            if (fitSphere.radius > 0) {
+                await world.camera.controls.fitToSphere(fitSphere, true);
+            }
+        } catch (fitErr) {
+            console.warn("Camera fitToSphere safely skipped:", fitErr);
+        }
         world.camera.controls.addEventListener("update", () => fragments.core.update());
 
         const maxDim = Math.max(size.x, size.y, size.z);
@@ -852,6 +869,34 @@ const loadIfcFile = async (file: File) => {
                 console.groupEnd();
                 console.groupEnd();
             });
+
+            const extractedBimSpaces: any[] = [];
+            storeys.forEach(st => {
+                st.spaces.forEach(sp => {
+                    const fullSpace = spaceDataMap.find((e: any) => e.expressId === sp.expressId) || sp;
+                    const cleanLongName = String(sp.longName || fullSpace.longName || "").trim();
+                    const cleanName = String(sp.name || fullSpace.name || "").trim();
+                    const displayName = cleanLongName || cleanName || `Space ${sp.expressId}`;
+                    const storeyName = String(st.name || "Ground Floor").trim();
+                    const area = parseFloat(String(fullSpace.quantities?.Area || fullSpace.quantities?.NetArea || sp.quantities?.Area || sp.area || 0)) || 0;
+                    let height = parseFloat(String(fullSpace.quantities?.Height || fullSpace.quantities?.UnboundedHeight || sp.quantities?.Height || sp.height || 3.0)) || 3.0;
+                    if (height > 100) height = height / 1000;
+
+                    extractedBimSpaces.push({
+                        id: `bim-${sp.expressId}`,
+                        name: displayName,
+                        level: storeyName,
+                        zone: "Default",
+                        area: Math.round(area * 100) / 100,
+                        height: Math.round(height * 100) / 100,
+                        fixtures: String(fullSpace.quantities?.Occupants || sp.quantities?.Occupants || ""),
+                    });
+                });
+            });
+
+            if (extractedBimSpaces.length > 0) {
+                (window as any).__BIM_VIEWER_SPACES__ = extractedBimSpaces;
+            }
         };
 
         const updateTagsForLevel = (selectedExpressId: string) => {
@@ -956,7 +1001,16 @@ const loadIfcFile = async (file: File) => {
                     (cam as any).updateProjectionMatrix();
                 }
                 await world.camera.controls.rotateTo(0, 0, true);
-                await world.camera.controls.fitToSphere(model.object, true);
+                try {
+                    const fitBox = new THREE.Box3().setFromObject(model.object);
+                    const fitSphere = new THREE.Sphere();
+                    fitBox.getBoundingSphere(fitSphere);
+                    if (fitSphere.radius > 0) {
+                        await world.camera.controls.fitToSphere(fitSphere, true);
+                    }
+                } catch (fitErr) {
+                    console.warn("Level camera fitToSphere safely skipped:", fitErr);
+                }
             }
         };
 
@@ -1070,7 +1124,16 @@ const loadIfcFile = async (file: File) => {
                 floorPlanManager.activePlaneId = null;
                 updateTagsForLevel('');
             }
-            world.camera.controls.fitToSphere(model.object, true);
+            try {
+                const fitBox = new THREE.Box3().setFromObject(model.object);
+                const fitSphere = new THREE.Sphere();
+                fitBox.getBoundingSphere(fitSphere);
+                if (fitSphere.radius > 0) {
+                    await world.camera.controls.fitToSphere(fitSphere, true);
+                }
+            } catch (fitErr) {
+                console.warn("3D button camera fitToSphere safely skipped:", fitErr);
+            }
         };
 
         const applyGrayscaleMode = (enableGrayscale: boolean) => {
@@ -1445,10 +1508,39 @@ ui.viewport.addEventListener('drop', (e: DragEvent) => {
             onClipToggle: () => ui.btnClip.onclick && ui.btnClip.onclick(),
             onTagsToggle: () => ui.btnTags.onclick && ui.btnTags.onclick(),
             onSpacesToggle: () => ui.btnSpaces.onclick && ui.btnSpaces.onclick(),
-            onLevelChange: (val: string) => { ui.selectLevel.value = val; ui.selectLevel.onchange && ui.selectLevel.onchange(); }
+            onLevelChange: (val: string) => { ui.selectLevel.value = val; ui.selectLevel.onchange && ui.selectLevel.onchange(); },
+            onExportSchedule: () => { if ((window as any)._onGenerateSchedule) (window as any)._onGenerateSchedule(); },
+            onRemoveModel: async () => {
+                if (confirm("Are you sure you want to remove the loaded IFC model from this project?")) {
+                    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
+                    if (activeProjId) {
+                        await deleteProjectIfcFile(activeProjId);
+                    }
+                    (window as any)._currentLoadedFile = null;
+                    (window as any).__BIM_VIEWER_SPACES__ = null;
+                    store().setIsLoaded(false);
+                    store().setIsLoading(false);
+                    window.location.reload();
+                }
+            }
         };
         
         setIsReady(true);
+
+        // Preload saved project IFC file if present for active project
+        const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
+        getProjectIfcFile(activeProjId).then((savedFile) => {
+          if (savedFile && (window as any).loadIfcFile) {
+            console.log(`Preloading saved project IFC file: "${savedFile.name}" for project "${activeProjId}"...`);
+            (window as any).loadIfcFile(savedFile);
+          } else {
+            console.log(`No saved IFC file found for project "${activeProjId}". Displaying clean upload state.`);
+            (window as any)._currentLoadedFile = null;
+            (window as any).__BIM_VIEWER_SPACES__ = null;
+            store().setIsLoaded(false);
+            store().setIsLoading(false);
+          }
+        });
 
         return () => {
             document.getElementById = getElementByIdBackup;
@@ -1471,6 +1563,8 @@ ui.viewport.addEventListener('drop', (e: DragEvent) => {
                 onTagsToggle={cb.onTagsToggle}
                 onSpacesToggle={cb.onSpacesToggle}
                 onLevelChange={cb.onLevelChange}
+                onExportSchedule={cb.onExportSchedule}
+                onRemoveModel={cb.onRemoveModel}
             />
         </div>
     );

@@ -11,11 +11,6 @@ import {
   Info, Gauge, FileText, Printer, FileSpreadsheet, Bookmark, HelpCircle, Wrench
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import ExcelJS from "exceljs";
-import saveAsPkg from "file-saver";
-const saveAs = saveAsPkg.saveAs || saveAsPkg;
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 
@@ -282,6 +277,11 @@ function ChwPipeSizerPage() {
   };
 
   const handleExportExcel = async () => {
+    const exceljsModule = await import('exceljs');
+    const ExcelJS = exceljsModule.default || (window as any).ExcelJS;
+    const fileSaverModule = await import('file-saver');
+    const saveAs = fileSaverModule.saveAs || fileSaverModule.default?.saveAs || fileSaverModule.default || ((window as any).saveAs);
+
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Pipe Sizer");
 
@@ -323,14 +323,18 @@ function ChwPipeSizerPage() {
     sheet.addRow(["Reynolds Number", Math.round(calculatedData.reynoldsNumber).toLocaleString()]);
     sheet.addRow(["Flow Regime", calculatedData.regime]);
 
-    
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "chw-pipe-sizer");
+    const sigRow = (sheet as any).rowCount ? (sheet as any).rowCount + 2 : 20;
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "chw-pipe-sizer");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_pipe_sizer_report.xlsx`);
   };
 
-  const handlePrintPDF = () => {
+  const handlePrintPDF = async () => {
+    const jsPDFModule = await import('jspdf');
+    const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+    const autoTableModule = await import('jspdf-autotable');
+    const autoTable = autoTableModule.default || autoTableModule;
+
     const doc = new jsPDF("p", "pt", "a4");
 
     doc.setFont("helvetica", "bold");

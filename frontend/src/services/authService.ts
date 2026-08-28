@@ -2,7 +2,6 @@ import axios from 'axios';
 import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
-  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
   if (typeof window !== 'undefined') {
     if (window.location.port === '8081' || window.location.port === '5173') {
       return ''; // Route through Vite proxy to eliminate CORS errors during local frontend development

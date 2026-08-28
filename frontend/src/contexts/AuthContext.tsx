@@ -87,7 +87,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
     return null;
   });
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(LOCAL_STORAGE_USER_KEY) === null;
+    }
+    return true;
+  });
 
   const setUserData = (data: AuthUserData | null) => {
     if (data && typeof window !== 'undefined') {
@@ -251,7 +256,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    checkAuth();
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+
+    checkAuth().finally(() => {
+      clearTimeout(timer);
+    });
 
     const handleRevoked = (e: any) => {
       const msg = e.detail || "Your account was logged in on another device.";

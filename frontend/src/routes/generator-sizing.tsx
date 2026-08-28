@@ -7,7 +7,9 @@ import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Download, FileSpreadsheet, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info } from "lucide-react";
+import { Download, FileSpreadsheet, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles } from "lucide-react";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { TaskComment } from "@/lib/ventilation-calc";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import {
   ContextMenu,
@@ -62,6 +64,7 @@ interface GenRow {
   powerFail: number | string;
   remark: string;
   excludeEmergency?: boolean;
+  comments?: TaskComment[];
 }
 
 const STARTER_MULTIPLIERS: Record<StarterType, number> = {
@@ -73,6 +76,7 @@ const STARTER_MULTIPLIERS: Record<StarterType, number> = {
 };
 
 const STANDARD_SIZES = [
+  5, 7.5, 10, 12.5, 15, 20, 25, 30, 35, 40, 45, 50, 62.5, 75, 82.5, 100,
   125, 160, 200, 250, 320, 400, 500, 625, 750, 800, 1000, 1250, 1500, 1600, 2000, 2500,
   2750, 3000, 3250, 3500, 3750, 4000, 4250, 4500, 4750, 5000
 ];
@@ -142,6 +146,9 @@ function GeneratorSizingPage() {
 
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
   const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
+
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
 
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
@@ -418,7 +425,7 @@ function GeneratorSizingPage() {
     } else if (maxCalcSize > 0) {
       autoSize = Math.ceil(maxCalcSize / 50) * 50;
     } else {
-      autoSize = 125;
+      autoSize = STANDARD_SIZES[0] || 5;
     }
 
     const selectedSize = userSelectedSize !== null ? userSelectedSize : autoSize;
@@ -768,7 +775,10 @@ function GeneratorSizingPage() {
         const standby = Number(r.standby) || 0;
         const acl = totalConn - standby;
         const em = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
-        const pwrFail = acl + em;
+        const pwrFailNum = Number(r.powerFail);
+        const pwrFail = !isNaN(pwrFailNum) && r.powerFail !== "" && r.powerFail !== null && r.powerFail !== undefined
+          ? pwrFailNum.toFixed(2)
+          : (r.powerFail ? String(r.powerFail) : "0.00");
         const mult = Number(r.multiplier) || 1;
         const startCur = kwPerUnit * 1.739 * mult;
 
@@ -785,7 +795,7 @@ function GeneratorSizingPage() {
           standby.toFixed(2),
           acl.toFixed(2),
           em.toFixed(2),
-          pwrFail.toFixed(2),
+          pwrFail,
           getSanitizedVal(remarkVal)
         ];
       });
@@ -994,28 +1004,6 @@ function GeneratorSizingPage() {
                     onImport={handleImportExcelRows}
                   />
 
-                  <div className="w-px h-4 bg-border mx-1" />
-
-                  <select
-                    className="h-8 text-[12.5px] font-medium bg-surface-2 hover:bg-surface-3 border border-transparent hover:border-border rounded px-2 outline-none cursor-pointer transition-colors"
-                    value={currentProject}
-                    onChange={(e) => {
-                      if (e.target.value !== "NEW_PROJECT") {
-                        setCurrentProject(e.target.value);
-                        pushState(projects[e.target.value] || []);
-                      }
-                    }}
-                  >
-                    {Object.keys(projects).map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-
-                  <TBtn onClick={createNewProject}>
-                    <FolderKanban className="size-3.5" /> New Project
-                  </TBtn>
                   <TBtn primary onClick={addRow}>
                     <Plus className="size-3.5" /> New Row
                   </TBtn>
@@ -1124,193 +1112,303 @@ function GeneratorSizingPage() {
                               const actualKw = totalKw - rSb;
 
                               return (
-                                <tr
-                                  key={r.id}
-                                  className={`hover:bg-surface-2 transition-colors cursor-pointer ${selectedRows.has(r.id) ? "bg-primary/5" : ""} ${draggedRowIndex === rowIndex ? "opacity-50" : ""}`}
-                                  draggable
-                                  onDragStart={(e) => handleDragStart(e, rowIndex)}
-                                  onDragOver={(e) => handleDragOver(e, rowIndex)}
-                                  onDrop={handleDrop}
-                                  onDragEnd={handleDrop}
-                                  onClick={(e) => {
-                                    const tagName = (e.target as HTMLElement).tagName;
-                                    if (tagName === "TD") {
-                                      toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                    }
-                                  }}
-                                  onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    // Fallback to simple alert or custom right-click if Radix fails
-                                    alert("Context Menu: \n- Edit Row\n- Duplicate\n- Delete");
-                                  }}
-                                >
-                                  <td className="p-0 border-r border-border">
-                                    <div className="flex items-center justify-center gap-1.5 h-9 px-1">
-                                      <GripVertical className="size-3.5 text-muted-foreground/50 cursor-grab active:cursor-grabbing hover:text-foreground" />
-                                      <input
-                                        type="checkbox"
-                                        className="cursor-pointer"
-                                        checked={selectedRows.has(r.id)}
-                                        onChange={() => {}}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                                <ContextMenu key={r.id}>
+                                  <ContextMenuTrigger asChild>
+                                    <tr
+                                      key={r.id}
+                                      className={`hover:bg-surface-2 transition-colors cursor-pointer ${selectedRows.has(r.id) ? "bg-primary/5" : ""} ${draggedRowIndex === rowIndex ? "opacity-50" : ""}`}
+                                      draggable
+                                      onDragStart={(e) => handleDragStart(e, rowIndex)}
+                                      onDragOver={(e) => handleDragOver(e, rowIndex)}
+                                      onDrop={handleDrop}
+                                      onDragEnd={handleDrop}
+                                      onClick={(e) => {
+                                        const tagName = (e.target as HTMLElement).tagName;
+                                        if (tagName === "TD") {
                                           toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                        }}
-                                      />
-                                    </div>
-                                  </td>
-                                  <td className="p-0 border-r border-border">
-                                    <input
-                                      data-row={rowIndex}
-                                      data-col={0}
-                                      type="text"
-                                      className="w-full h-9 px-3 bg-transparent outline-none focus:bg-white"
-                                      value={r.desc}
-                                      onChange={(e) => updateRow(r.id, "desc", e.target.value)}
-                                      placeholder="Description"
-                                    />
-                                  </td>
-                                  <td className="p-0 border-r border-border">
-                                    <input
-                                      data-row={rowIndex}
-                                      data-col={1}
-                                      type="number"
-                                      className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                      value={r.unit}
-                                      onChange={(e) => updateRow(r.id, "unit", e.target.value)}
-                                    />
-                                  </td>
-                                  <td className="p-0 border-r border-border">
-                                    <input
-                                      data-row={rowIndex}
-                                      data-col={2}
-                                      type="number"
-                                      className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                      value={r.kwPerUnit}
-                                      onChange={(e) => updateRow(r.id, "kwPerUnit", e.target.value)}
-                                    />
-                                  </td>
-                                  <td className="p-0 border-r border-border">
-                                    <select
-                                      data-row={rowIndex}
-                                      data-col={3}
-                                      className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white cursor-pointer"
-                                      value={r.starter}
-                                      onChange={(e) => updateRow(r.id, "starter", e.target.value)}
-                                    >
-                                      <option value="DOL">DOL</option>
-                                      <option value="SD">Star Delta</option>
-                                      <option value="Soft Starter">Soft Starter</option>
-                                      <option value="VFD">VFD</option>
-                                      <option value="None">None</option>
-                                    </select>
-                                  </td>
-                                  <td className="p-0 border-r border-border bg-primary/10">
-                                    <input
-                                      data-row={rowIndex}
-                                      data-col={4}
-                                      type="number"
-                                      className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                      value={r.multiplier}
-                                      onChange={(e) =>
-                                        updateRow(r.id, "multiplier", e.target.value)
-                                      }
-                                    />
-                                  </td>
-                                  <td className="px-3 py-2 text-center font-semibold text-foreground border-r border-border">
-                                    {startCur.toFixed(2)}
-                                  </td>
-                                  <td className="px-3 py-2 text-center text-muted-foreground border-r border-border">
-                                    {totalKw.toFixed(2)}
-                                  </td>
-                                  <td className="p-0 border-r border-border">
-                                    <input
-                                      data-row={rowIndex}
-                                      data-col={5}
-                                      type="number"
-                                      className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                      value={r.standby}
-                                      onChange={(e) => updateRow(r.id, "standby", e.target.value)}
-                                    />
-                                  </td>
-                                  <td className="px-3 py-2 text-center font-semibold text-primary border-r border-border">
-                                    {actualKw.toFixed(2)}
-                                  </td>
-                                  <td className="p-0 border-r border-border relative group/em">
-                                    <div className="flex items-center w-full h-full">
-                                      <input
-                                        data-row={rowIndex}
-                                        data-col={6}
-                                        type="number"
-                                        className={`w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${r.excludeEmergency ? "opacity-30 line-through" : ""}`}
-                                        value={r.emergency}
-                                        onChange={(e) =>
-                                          updateRow(r.id, "emergency", e.target.value)
                                         }
-                                        disabled={r.excludeEmergency}
-                                      />
-                                      <button
-                                        onClick={() =>
-                                          updateRow(r.id, "excludeEmergency", !r.excludeEmergency)
+                                      }}
+                                      onContextMenu={() => {
+                                        if (!selectedRows.has(r.id)) {
+                                          toggleSelection(r.id, false, false);
                                         }
-                                        className="absolute right-1 opacity-0 group-hover/em:opacity-100 p-1 text-muted-foreground hover:text-red-500 transition-opacity bg-white shadow-sm rounded border border-border"
-                                        title={
-                                          r.excludeEmergency
-                                            ? "Include Emergency Load"
-                                            : "Exclude Emergency Load"
-                                        }
-                                      >
-                                        {r.excludeEmergency ? (
-                                          <Plus className="size-3" />
-                                        ) : (
-                                          <Trash2 className="size-3" />
-                                        )}
-                                      </button>
-                                    </div>
-                                  </td>
-                                  <td className="p-0 flex items-center border-r border-border">
-                                    <input
-                                      data-row={rowIndex}
-                                      data-col={7}
-                                      type="number"
-                                      className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
-                                      value={r.powerFail}
-                                      onChange={(e) => updateRow(r.id, "powerFail", e.target.value)}
-                                    />
-                                    <select
-                                      className="h-9 w-12 px-1 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[11px] font-medium"
-                                      defaultValue=""
-                                      onChange={(e) => {
-                                        setPowerFailPercent(r.id, e.target.value);
-                                        e.target.value = "";
                                       }}
                                     >
-                                      <option value="" disabled>
-                                        %
-                                      </option>
-                                      <option value="10">10%</option>
-                                      <option value="20">20%</option>
-                                      <option value="30">30%</option>
-                                      <option value="40">40%</option>
-                                      <option value="50">50%</option>
-                                      <option value="60">60%</option>
-                                      <option value="70">70%</option>
-                                      <option value="80">80%</option>
-                                      <option value="90">90%</option>
-                                      <option value="100">100%</option>
-                                    </select>
-                                  </td>
-                                  <td className="p-0 border-r border-border">
-                                    <input
-                                      data-row={rowIndex}
-                                      data-col={8}
-                                      type="text"
-                                      className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white"
-                                      value={!r.remark || r.remark === "undefined" ? "" : r.remark}
-                                      onChange={(e) => updateRow(r.id, "remark", e.target.value)}
-                                    />
-                                  </td>
-                                </tr>
+                                      <td className="p-0 border-r border-border">
+                                        <div className="flex items-center justify-center gap-1.5 h-9 px-1">
+                                          <GripVertical className="size-3.5 text-muted-foreground/50 cursor-grab active:cursor-grabbing hover:text-foreground" />
+                                          <input
+                                            type="checkbox"
+                                            className="cursor-pointer"
+                                            checked={selectedRows.has(r.id)}
+                                            onChange={() => {}}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                            }}
+                                          />
+                                        </div>
+                                      </td>
+                                      <td className="p-0 border-r border-border">
+                                        <div className="flex items-center gap-1.5 w-full px-2">
+                                          {r.comments && r.comments.length > 0 && (
+                                            <span
+                                              className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
+                                              title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setCommentTarget({
+                                                  id: r.id,
+                                                  name: r.desc || `Row ${rowIndex + 1}`,
+                                                  type: "space",
+                                                });
+                                                setAssignCommentOpen(true);
+                                              }}
+                                            >
+                                              <MessageSquare className="size-3.5" />
+                                            </span>
+                                          )}
+                                          <input
+                                            data-row={rowIndex}
+                                            data-col={0}
+                                            type="text"
+                                            className="w-full h-9 bg-transparent outline-none focus:bg-white flex-1"
+                                            value={r.desc}
+                                            onChange={(e) => updateRow(r.id, "desc", e.target.value)}
+                                            placeholder="Description"
+                                          />
+                                        </div>
+                                      </td>
+                                      <td className="p-0 border-r border-border">
+                                        <input
+                                          data-row={rowIndex}
+                                          data-col={1}
+                                          type="number"
+                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          value={r.unit}
+                                          onChange={(e) => updateRow(r.id, "unit", e.target.value)}
+                                        />
+                                      </td>
+                                      <td className="p-0 border-r border-border">
+                                        <input
+                                          data-row={rowIndex}
+                                          data-col={2}
+                                          type="number"
+                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          value={r.kwPerUnit}
+                                          onChange={(e) => updateRow(r.id, "kwPerUnit", e.target.value)}
+                                        />
+                                      </td>
+                                      <td className="p-0 border-r border-border">
+                                        <select
+                                          data-row={rowIndex}
+                                          data-col={3}
+                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white cursor-pointer"
+                                          value={r.starter}
+                                          onChange={(e) => updateRow(r.id, "starter", e.target.value)}
+                                        >
+                                          <option value="DOL">DOL</option>
+                                          <option value="SD">Star Delta</option>
+                                          <option value="Soft Starter">Soft Starter</option>
+                                          <option value="VFD">VFD</option>
+                                          <option value="None">None</option>
+                                        </select>
+                                      </td>
+                                      <td className="p-0 border-r border-border bg-primary/10">
+                                        <input
+                                          data-row={rowIndex}
+                                          data-col={4}
+                                          type="number"
+                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          value={r.multiplier}
+                                          onChange={(e) =>
+                                            updateRow(r.id, "multiplier", e.target.value)
+                                          }
+                                        />
+                                      </td>
+                                      <td className="px-3 py-2 text-center font-semibold text-foreground border-r border-border">
+                                        {startCur.toFixed(2)}
+                                      </td>
+                                      <td className="px-3 py-2 text-center text-muted-foreground border-r border-border">
+                                        {totalKw.toFixed(2)}
+                                      </td>
+                                      <td className="p-0 border-r border-border">
+                                        <input
+                                          data-row={rowIndex}
+                                          data-col={5}
+                                          type="number"
+                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          value={r.standby}
+                                          onChange={(e) => updateRow(r.id, "standby", e.target.value)}
+                                        />
+                                      </td>
+                                      <td className="px-3 py-2 text-center font-semibold text-primary border-r border-border">
+                                        {actualKw.toFixed(2)}
+                                      </td>
+                                      <td className="p-0 border-r border-border relative group/em">
+                                        <div className="flex items-center w-full h-full">
+                                          <input
+                                            data-row={rowIndex}
+                                            data-col={6}
+                                            type="number"
+                                            className={`w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${r.excludeEmergency ? "opacity-30 line-through" : ""}`}
+                                            value={r.emergency}
+                                            onChange={(e) =>
+                                              updateRow(r.id, "emergency", e.target.value)
+                                            }
+                                            disabled={r.excludeEmergency}
+                                          />
+                                          <button
+                                            onClick={() =>
+                                              updateRow(r.id, "excludeEmergency", !r.excludeEmergency)
+                                            }
+                                            className="absolute right-1 opacity-0 group-hover/em:opacity-100 p-1 text-muted-foreground hover:text-red-500 transition-opacity bg-white shadow-sm rounded border border-border"
+                                            title={
+                                              r.excludeEmergency
+                                                ? "Include Emergency Load"
+                                                : "Exclude Emergency Load"
+                                            }
+                                          >
+                                            {r.excludeEmergency ? (
+                                              <Plus className="size-3" />
+                                            ) : (
+                                              <Trash2 className="size-3" />
+                                            )}
+                                          </button>
+                                        </div>
+                                      </td>
+                                      <td className="p-0 flex items-center border-r border-border">
+                                        <input
+                                          data-row={rowIndex}
+                                          data-col={7}
+                                          type="number"
+                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
+                                          value={r.powerFail}
+                                          onChange={(e) => updateRow(r.id, "powerFail", e.target.value)}
+                                        />
+                                        <select
+                                          className="h-9 w-12 px-1 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[11px] font-medium"
+                                          defaultValue=""
+                                          onChange={(e) => {
+                                            setPowerFailPercent(r.id, e.target.value);
+                                            e.target.value = "";
+                                          }}
+                                        >
+                                          <option value="" disabled>
+                                            %
+                                          </option>
+                                          <option value="10">10%</option>
+                                          <option value="20">20%</option>
+                                          <option value="30">30%</option>
+                                          <option value="40">40%</option>
+                                          <option value="50">50%</option>
+                                          <option value="60">60%</option>
+                                          <option value="70">70%</option>
+                                          <option value="80">80%</option>
+                                          <option value="90">90%</option>
+                                          <option value="100">100%</option>
+                                        </select>
+                                      </td>
+                                      <td className="p-0 border-r border-border">
+                                        <input
+                                          data-row={rowIndex}
+                                          data-col={8}
+                                          type="text"
+                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white"
+                                          value={!r.remark || r.remark === "undefined" ? "" : r.remark}
+                                          onChange={(e) => updateRow(r.id, "remark", e.target.value)}
+                                        />
+                                      </td>
+                                    </tr>
+                                  </ContextMenuTrigger>
+                                  <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-xl p-1 text-[13px] text-popover-foreground z-[999]">
+                                    <ContextMenuItem
+                                      onClick={() => {
+                                        const el = document.querySelector(`input[data-row="${rowIndex}"][data-col="0"]`) as HTMLInputElement;
+                                        if (el) el.focus();
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                    >
+                                      <Edit3 className="size-3.5 text-muted-foreground" />
+                                      <span>{selectedRows.size > 1 && selectedRows.has(r.id) ? `Edit Row (${selectedRows.size} selected)` : "Edit Row"}</span>
+                                    </ContextMenuItem>
+
+                                    <ContextMenuItem
+                                      onClick={() => {
+                                        const targets = selectedRows.has(r.id) ? Array.from(selectedRows) : [r.id];
+                                        const newClones: GenRow[] = [];
+                                        rows.forEach((row) => {
+                                          if (targets.includes(row.id)) {
+                                            newClones.push({
+                                              ...row,
+                                              id: `gen_${Date.now()}_${Math.floor(Math.random() * 1000)}_${Math.floor(Math.random() * 1000)}`,
+                                              desc: row.desc ? `${row.desc} (Copy)` : "Copy Row",
+                                            });
+                                          }
+                                        });
+                                        const newRows = [...rows, ...newClones];
+                                        pushState(newRows);
+                                        toast.success(`Duplicated ${newClones.length} row(s)`);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                    >
+                                      <Copy className="size-3.5 text-muted-foreground" />
+                                      <span>{selectedRows.size > 1 && selectedRows.has(r.id) ? `Duplicate Selected (${selectedRows.size})` : "Duplicate Row"}</span>
+                                    </ContextMenuItem>
+
+                                    <ContextMenuItem
+                                      onClick={() => {
+                                        setCommentTarget({
+                                          id: r.id,
+                                          name: r.desc || `Row ${rowIndex + 1}`,
+                                          type: "space",
+                                        });
+                                        setAssignCommentOpen(true);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-blue-600 dark:text-blue-400"
+                                    >
+                                      <MessageSquare className="size-3.5" />
+                                      <span>Add comment</span>
+                                    </ContextMenuItem>
+
+                                    <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                                    <ContextMenuItem
+                                      onClick={() => {
+                                        const targets = selectedRows.has(r.id) ? Array.from(selectedRows) : [r.id];
+                                        const newRows = rows.map((row) => {
+                                          if (targets.includes(row.id)) {
+                                            return { ...row, excludeEmergency: !r.excludeEmergency };
+                                          }
+                                          return row;
+                                        });
+                                        pushState(newRows);
+                                        toast.info(`${r.excludeEmergency ? "Included" : "Excluded"} emergency load for ${targets.length} row(s)`);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                    >
+                                      <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+                                      <span>{r.excludeEmergency ? "Include Emergency Load" : "Exclude Emergency Load"}</span>
+                                    </ContextMenuItem>
+
+                                    <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                                    <ContextMenuItem
+                                      onClick={() => {
+                                        const targets = selectedRows.has(r.id) ? Array.from(selectedRows) : [r.id];
+                                        const newRows = rows.filter((row) => !targets.includes(row.id));
+                                        pushState(newRows);
+                                        clearSelection();
+                                        toast.info(`Deleted ${targets.length} row(s)`);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                      <span>{selectedRows.size > 1 && selectedRows.has(r.id) ? `Delete Selected (${selectedRows.size})` : "Delete Row"}</span>
+                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+                                    </ContextMenuItem>
+                                  </ContextMenuContent>
+                                </ContextMenu>
                               );
                             })
                           )}
@@ -1645,6 +1743,33 @@ function GeneratorSizingPage() {
           )}
         </div>
       </div>
+
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          onSave={(newComment) => {
+            if (!commentTarget) return;
+            const targetId = commentTarget.id;
+            const targetRow = rows.find((r) => r.id === targetId);
+            if (!targetRow) return;
+            const existingComments = targetRow.comments || [];
+            const updatedComments = [...existingComments, newComment];
+
+            const newRows = rows.map((r) =>
+              r.id === targetId ? { ...r, comments: updatedComments } : r
+            );
+            pushState(newRows);
+            toast.success("Comment added successfully");
+          }}
+        />
+      )}
     </AppShell>
   );
 }

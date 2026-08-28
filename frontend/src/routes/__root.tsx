@@ -38,11 +38,16 @@ import { useState } from "react";
 import { AutoUpdaterPopup } from "@/components/AutoUpdaterPopup";
 
 function AuthGuard({ children }: { children: ReactNode }) {
+  const [mounted, setMounted] = useState(false);
   const { session, profile, loading, isLoggedin, logout } = useAuth();
   const routerState = useRouterState();
   const [showPricing, setShowPricing] = useState(false);
   
-  if (loading) return (
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || loading) return (
     <div className="flex h-screen w-screen items-center justify-center bg-slate-950">
       <div className="text-sky-400 font-medium">Loading session...</div>
     </div>

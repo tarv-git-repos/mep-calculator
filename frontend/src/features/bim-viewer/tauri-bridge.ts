@@ -102,13 +102,14 @@ if (isElectron) {
   // Web Browser Fallback (e.g. http://localhost:5174 or public website)
   (window as any).api = {
     getFilePath: (file: File): string => {
-      const key = (file as any).path || file.name;
+      const key = (file as any).path || file.name || "project_model.ifc";
       webFileStore.set(key, file);
-      webFileStore.set(file.name, file);
+      if (file.name) webFileStore.set(file.name, file);
+      (window as any)._currentLoadedFile = file;
       return key;
     },
     processIfc: async (key: string): Promise<{ frag: string; json: string }> => {
-      const file = webFileStore.get(key);
+      let file = webFileStore.get(key) || (key ? webFileStore.get(key.split('/').pop() || '') : null) || (window as any)._currentLoadedFile;
       if (!file) throw new Error(`File reference not found for key: ${key}`);
       return await convertIfcInBrowser(file);
     },

@@ -118,6 +118,8 @@ function ProjectLoadSchedulePage() {
   const setBoards = useElectricalNetworkStore(state => state.setBoards);
   const recalculateNetwork = useElectricalNetworkStore(state => state.recalculateNetwork);
   const updateBoardGlobal = useElectricalNetworkStore(state => state.updateBoard);
+  const addBoard = useElectricalNetworkStore(state => state.addBoard);
+  const deleteBoard = useElectricalNetworkStore(state => state.deleteBoard);
 
   const [activeBoardId, setActiveBoardId] = useState<string>("board-1");
   const [isCompactView, setIsCompactView] = useState(false);
@@ -1056,7 +1058,7 @@ function ProjectLoadSchedulePage() {
       <div className="flex flex-col h-full bg-slate-50 text-slate-800 font-sans">
         
         {/* Top Header */}
-        <div className="flex items-center justify-between p-4 bg-white border-b border-slate-200 shadow-sm shrink-0">
+        <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-slate-200 shadow-2xs shrink-0">
           <div>
             <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               Load Schedule <span className="text-xs font-normal text-slate-500">Hierarchical MEP Load Distribution Manager</span>
@@ -1084,10 +1086,23 @@ function ProjectLoadSchedulePage() {
                 boards={boards} 
                 onNodeClick={(id) => {
                   setActiveBoardId(id);
-                  setView("table");
+                  setView("schedule");
                 }} 
                 onConnectBoard={(source, target) => {
                   updateBoardGlobal(target, { fedFrom: source });
+                }}
+                onAddBoard={(newBoard) => {
+                  addBoard(newBoard);
+                  setActiveBoardId(newBoard.id);
+                }}
+                onUpdateBoard={(id, updates) => {
+                  updateBoardGlobal(id, updates);
+                }}
+                onDeleteBoard={async (id) => {
+                  if (await confirm("Delete this board?")) {
+                    deleteBoard(id);
+                    if (activeBoardId === id) setActiveBoardId("SUMMARY");
+                  }
                 }}
               />
             </div>
@@ -1099,27 +1114,27 @@ function ProjectLoadSchedulePage() {
             <div className="flex-1 flex flex-col bg-white overflow-hidden">
               
               {/* Board Configuration Section */}
-              <div className="flex gap-4 p-4 border-b border-slate-200 bg-slate-50 shrink-0">
+              <div className="flex gap-3 px-3 py-2 border-b border-slate-200 bg-slate-50 shrink-0 items-center">
                 {/* General Config */}
-                <div className="flex-1 bg-white p-3 rounded border border-slate-200 shadow-sm">
-                  <div className="text-xs font-semibold text-blue-700 mb-3 flex items-center gap-1">
+                <div className="flex-1 bg-white px-3 py-2 rounded-lg border border-slate-200 shadow-2xs">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-blue-700 mb-1 flex items-center gap-1">
                     <Zap className="size-3" /> General Configuration
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Board Name</label>
-                      <input className="w-full h-8 px-2 border border-slate-300 rounded text-sm" value={activeBoard.name} onChange={e => updateBoard({name: e.target.value})} />
+                      <label className="text-[9px] uppercase text-slate-500 font-bold mb-0.5 block">Board Name</label>
+                      <input className="w-full h-7 px-2 border border-slate-300 rounded text-xs" value={activeBoard.name} onChange={e => updateBoard({name: e.target.value})} />
                     </div>
-                    <div className="w-32">
-                      <label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Phase Type</label>
-                      <select className="w-full h-8 px-2 border border-slate-300 rounded text-sm bg-white" value={activeBoard.phaseType} onChange={e => updateBoard({phaseType: e.target.value})}>
+                    <div className="w-28">
+                      <label className="text-[9px] uppercase text-slate-500 font-bold mb-0.5 block">Phase Type</label>
+                      <select className="w-full h-7 px-1.5 border border-slate-300 rounded text-xs bg-white" value={activeBoard.phaseType} onChange={e => updateBoard({phaseType: e.target.value})}>
                         <option>3-Phase</option>
                         <option>1-Phase</option>
                       </select>
                     </div>
-                    <div className="w-32">
-                      <label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Board Type</label>
-                      <select className="w-full h-8 px-2 border border-slate-300 rounded text-sm bg-white" value={activeBoard.type} onChange={e => {
+                    <div className="w-28">
+                      <label className="text-[9px] uppercase text-slate-500 font-bold mb-0.5 block">Board Type</label>
+                      <select className="w-full h-7 px-1.5 border border-slate-300 rounded text-xs bg-white" value={activeBoard.type} onChange={e => {
                         updateBoard({type: e.target.value, circuits: []}); // Clear circuits on type change to avoid schema mismatch
                       }}>
                         <option>DB</option>
@@ -1131,9 +1146,9 @@ function ProjectLoadSchedulePage() {
                         <option>EDB</option>
                       </select>
                     </div>
-                    <div className="w-40">
-                      <label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Fed From</label>
-                      <select className="w-full h-8 px-2 border border-slate-300 rounded text-sm bg-white" value={activeBoard.fedFrom || "DEWA/GRID"} onChange={e => updateBoard({fedFrom: e.target.value})}>
+                    <div className="w-36">
+                      <label className="text-[9px] uppercase text-slate-500 font-bold mb-0.5 block">Fed From</label>
+                      <select className="w-full h-7 px-1.5 border border-slate-300 rounded text-xs bg-white" value={activeBoard.fedFrom || "DEWA/GRID"} onChange={e => updateBoard({fedFrom: e.target.value})}>
                         <option value="DEWA/GRID">DEWA/GRID</option>
                         {boards.filter(b => b.id !== activeBoard.id).map(b => (
                           <option key={b.id} value={b.id}>{b.name}</option>
@@ -1144,41 +1159,42 @@ function ProjectLoadSchedulePage() {
                 </div>
 
                 {/* Incomer Config */}
-                <div className="flex-[1.5] bg-emerald-50/50 p-3 rounded border border-emerald-200 shadow-sm">
-                  <div className="text-xs font-semibold text-emerald-700 mb-3 flex items-center gap-1">
+                <div className="flex-[1.4] bg-emerald-50/50 px-3 py-2 rounded-lg border border-emerald-200 shadow-2xs">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 mb-1 flex items-center gap-1">
                     <Network className="size-3" /> Incomer Specifications
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5">
                     {isDB ? (
                       <>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Rating</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.rating} onChange={e => updateIncomer("rating", e.target.value)} /></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">SP/TP</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.sptp} onChange={e => updateIncomer("sptp", e.target.value)} /></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Fault KA</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.faultKa} onChange={e => updateIncomer("faultKa", e.target.value)} /></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Cable Size</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.cableSize} onChange={e => updateIncomer("cableSize", e.target.value)} /></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">ECC Size</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.eccSize} onChange={e => updateIncomer("eccSize", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Rating</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.rating} onChange={e => updateIncomer("rating", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">SP/TP</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.sptp} onChange={e => updateIncomer("sptp", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Fault KA</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.faultKa} onChange={e => updateIncomer("faultKa", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Cable Size</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.cableSize} onChange={e => updateIncomer("cableSize", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">ECC Size</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.eccSize} onChange={e => updateIncomer("eccSize", e.target.value)} /></div>
                       </>
                     ) : (
                       <>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Inc 1 Rating</label><select className="w-full h-8 px-1 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.inc1} onChange={e => updateIncomer("inc1", e.target.value)}><option>1600A</option><option>2500A</option></select></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Inc 2 Rating</label><select className="w-full h-8 px-1 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.inc2} onChange={e => updateIncomer("inc2", e.target.value)}><option>1600A</option><option>2500A</option></select></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Meter Type</label><select className="w-full h-8 px-1 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.meterType} onChange={e => updateIncomer("meterType", e.target.value)}><option>None</option><option>KWH</option></select></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">SP/TP</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.sptp} onChange={e => updateIncomer("sptp", e.target.value)} /></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Fault KA</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.faultKa} onChange={e => updateIncomer("faultKa", e.target.value)} /></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">Cable Size</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.cableSize} onChange={e => updateIncomer("cableSize", e.target.value)} /></div>
-                        <div className="flex-1"><label className="text-[10px] uppercase text-emerald-700/70 font-bold mb-1 block">ECC Size</label><input className="w-full h-8 px-2 border border-emerald-200 rounded text-sm bg-white" value={activeBoard.incomer.eccSize} onChange={e => updateIncomer("eccSize", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Inc 1 Rating</label><select className="w-full h-7 px-1 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.inc1} onChange={e => updateIncomer("inc1", e.target.value)}><option>1600A</option><option>2500A</option></select></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Inc 2 Rating</label><select className="w-full h-7 px-1 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.inc2} onChange={e => updateIncomer("inc2", e.target.value)}><option>1600A</option><option>2500A</option></select></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Meter Type</label><select className="w-full h-7 px-1 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.meterType} onChange={e => updateIncomer("meterType", e.target.value)}><option>None</option><option>KWH</option></select></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">SP/TP</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.sptp} onChange={e => updateIncomer("sptp", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Fault KA</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.faultKa} onChange={e => updateIncomer("faultKa", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">Cable Size</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.cableSize} onChange={e => updateIncomer("cableSize", e.target.value)} /></div>
+                        <div className="flex-1"><label className="text-[9px] uppercase text-emerald-700/70 font-bold mb-0.5 block">ECC Size</label><input className="w-full h-7 px-2 border border-emerald-200 rounded text-xs bg-white" value={activeBoard.incomer.eccSize} onChange={e => updateIncomer("eccSize", e.target.value)} /></div>
                       </>
                     )}
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 justify-center shrink-0">
-                  <button onClick={autoSizeAndGroup} className="h-8 px-3 text-xs bg-white border border-slate-300 rounded shadow-sm hover:bg-slate-50 flex items-center gap-1"><Network className="size-3"/> Auto-Size & Group</button>
-                  <button onClick={autoBalancePhases} className="h-8 px-3 text-xs bg-white border border-slate-300 rounded shadow-sm hover:bg-slate-50 flex items-center gap-1"><Zap className="size-3"/> Auto Balance Phases</button>
-                  <button onClick={() => setIsCompactView(!isCompactView)} className={`h-8 px-3 text-xs border border-slate-300 rounded shadow-sm flex items-center gap-1 transition-colors ${isCompactView ? "bg-slate-700 text-white border-white/20 hover:bg-slate-800" : "bg-white hover:bg-slate-50"}`}>
+                {/* Right Actions */}
+                <div className="grid grid-cols-2 gap-1.5 shrink-0">
+                  <button onClick={autoSizeAndGroup} className="h-7 px-2.5 text-[11px] font-medium bg-white border border-slate-300 rounded shadow-2xs hover:bg-slate-50 flex items-center gap-1 whitespace-nowrap"><Network className="size-3"/> Auto-Size</button>
+                  <button onClick={autoBalancePhases} className="h-7 px-2.5 text-[11px] font-medium bg-white border border-slate-300 rounded shadow-2xs hover:bg-slate-50 flex items-center gap-1 whitespace-nowrap"><Zap className="size-3"/> Auto Balance</button>
+                  <button onClick={() => setIsCompactView(!isCompactView)} className={`h-7 px-2.5 text-[11px] font-medium border border-slate-300 rounded shadow-2xs flex items-center gap-1 whitespace-nowrap transition-colors ${isCompactView ? "bg-slate-700 text-white border-white/20 hover:bg-slate-800" : "bg-white hover:bg-slate-50"}`}>
                     {isCompactView ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
                     {isCompactView ? "Full View" : "Compact View"}
                   </button>
-                  <button onClick={exportSchedule} className="h-8 px-3 text-xs bg-[#3178c6] text-white rounded shadow-sm hover:bg-[#2968ad] flex items-center gap-1"><Download className="size-3"/> Export Schedule</button>
+                  <button onClick={exportSchedule} className="h-7 px-2.5 text-[11px] font-medium bg-[#3178c6] text-white rounded shadow-2xs hover:bg-[#2968ad] flex items-center gap-1 whitespace-nowrap"><Download className="size-3"/> Export</button>
                 </div>
               </div>
 

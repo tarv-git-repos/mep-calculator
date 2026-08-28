@@ -17,6 +17,8 @@ import { calculateVentilation } from "@/lib/ventilation-calc";
 import { exportVentilationExcel } from "@/lib/exportVentilationExcel";
 import { exportVentilationPDF } from "@/lib/exportVentilationPDF";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
+import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
+import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -536,6 +538,58 @@ function SpacesView() {
   const confirm = useConfirm();
   const prompt = usePrompt();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ifcFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [sourceModalOpen, setSourceModalOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [pendingRecords, setPendingRecords] = useState<any[]>([]);
+  const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set());
+  const [lastClickedPendingIndex, setLastClickedPendingIndex] = useState<number | null>(null);
+
+  const handleSelect3DViewer = async () => {
+    const extracted = extractSpacesFromActiveViewer();
+    if (extracted.length > 0) {
+      setPendingRecords(extracted);
+      setSelectedPending(new Set(extracted.map((p) => p.id)));
+      setImportOpen(true);
+      toast.success(`Extracted ${extracted.length} spaces from 3D BIM Viewer!`);
+    } else {
+      const answer = await confirm(
+        "No active 3D model spaces detected in memory. Would you like to select an IFC model file to parse spaces?",
+        {
+          title: "Import from 3D BIM Model",
+          confirmText: "Select IFC File",
+          cancelText: "Cancel",
+        }
+      );
+      if (answer && ifcFileInputRef.current) {
+        ifcFileInputRef.current.click();
+      }
+    }
+  };
+
+  const handleIFCFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      toast.loading("Parsing 3D IFC Model spaces...", { id: "ifc-parse" });
+      const extracted = await extractSpacesFromIFCFile(file);
+      toast.dismiss("ifc-parse");
+      if (extracted.length === 0) {
+        toast.error("No IFCSPACE elements found in the selected model.");
+        return;
+      }
+      setPendingRecords(extracted);
+      setSelectedPending(new Set(extracted.map((p) => p.id)));
+      setImportOpen(true);
+      toast.success(`Successfully imported ${extracted.length} spaces from 3D IFC Model!`);
+    } catch (err) {
+      toast.dismiss("ifc-parse");
+      toast.error("Failed to parse IFC file. Please ensure it is a valid BIM IFC model.");
+    } finally {
+      if (e.target) e.target.value = "";
+    }
+  };
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
@@ -549,10 +603,6 @@ function SpacesView() {
   });
 
   // Modal states
-  const [importOpen, setImportOpen] = useState(false);
-  const [pendingRecords, setPendingRecords] = useState<any[]>([]);
-  const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set());
-  const [lastClickedPendingIndex, setLastClickedPendingIndex] = useState<number | null>(null);
   const [importBulkValues, setImportBulkValues] = useState({
     level: "",
     zone: "",
@@ -2788,7 +2838,7 @@ function SpacesView() {
           </Popover>
           
           <div className="ml-auto flex items-center gap-1">
-            <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
+            <TBtn onClick={() => setSourceModalOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
             <TBtn onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
             <TBtn onClick={triggerAutoZoning}><Sparkles className="size-3.5 text-primary" /> Auto-Zone</TBtn>
             <TBtn primary onClick={handleNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
@@ -3593,6 +3643,20 @@ function SpacesView() {
             </div>
           </div>
         )}
+
+        <ImportSourceModal
+          isOpen={sourceModalOpen}
+          onClose={() => setSourceModalOpen(false)}
+          onSelectExcel={() => setImportOpen(true)}
+          onSelect3DViewer={handleSelect3DViewer}
+        />
+        <input
+          type="file"
+          ref={ifcFileInputRef}
+          onChange={handleIFCFileUpload}
+          accept=".ifc"
+          className="hidden"
+        />
 
         {/* Auto zoning floor selection */}
         {autoZoneFloorSelectOpen && (

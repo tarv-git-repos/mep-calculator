@@ -76,9 +76,19 @@ export function AssignCommentModal({
           }
         });
 
-        const filteredUsers = assignedUserIds.size > 0 ? allUsers.filter((u: any) => assignedUserIds.has(u.id)) : allUsers;
+        const rawFilteredUsers = assignedUserIds.size > 0 ? allUsers.filter((u: any) => assignedUserIds.has(u.id)) : allUsers;
 
-        setAvailableUsers(filteredUsers);
+        const seenKeys = new Set<string>();
+        const uniqueUsers: any[] = [];
+        rawFilteredUsers.forEach((u: any) => {
+          const key = String(u.name || u.email || u.id).trim().toLowerCase();
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueUsers.push(u);
+          }
+        });
+
+        setAvailableUsers(uniqueUsers);
         setAvailableTeams(filteredTeams);
       } catch (err) {
         console.error("Failed to load assignees", err);
@@ -93,7 +103,7 @@ export function AssignCommentModal({
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (isEffectiveReadOnly) {
       toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
       onClose();
@@ -117,8 +127,13 @@ export function AssignCommentModal({
       timestamp: new Date().toISOString()
     };
 
-    onSave(newComment);
-    onClose();
+    try {
+      await onSave(newComment);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      onClose();
+    }
   };
 
   const toggleUser = (userId: string) => {

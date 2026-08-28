@@ -372,6 +372,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(globalLicenseCache);
   const [showPioneerModal, setShowPioneerModal] = useState(false);
 
+  useEffect(() => {
+    // Background prefetch heavy 3D BIM Viewer libraries & WebAssembly engine during idle time
+    const timer = setTimeout(() => {
+      import('@/features/bim-viewer/App').catch(() => {});
+      import('web-ifc').catch(() => {});
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
+
   const [notifTick, setNotifTick] = useState(0);
   const [isNotifHoverOpen, setIsNotifHoverOpen] = useState(false);
   const [isNotifPopoverOpen, setIsNotifPopoverOpen] = useState(false);
@@ -2430,7 +2439,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   </span>
                 </div>
                 <button
-                  onClick={() => setShowPricingModal(true)}
+                  onClick={() => setPricingModalOpen(true)}
                   className="px-2.5 py-1 bg-white text-amber-800 rounded font-bold hover:bg-amber-100 transition-colors shrink-0"
                 >
                   Renew Now

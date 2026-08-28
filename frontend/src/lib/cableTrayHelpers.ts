@@ -7,6 +7,7 @@ export interface Cable {
   size: string;
   qty: number | "";
   customOd?: number | string;
+  comments?: any[];
 }
 
 export interface Tray {
@@ -17,6 +18,7 @@ export interface Tray {
   spareCapacity?: number | string;
   spacingFactor?: number | string;
   cables: Cable[];
+  comments?: any[];
 }
 
 export const TRAY_RANGES = [
