@@ -8,16 +8,14 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
   Download, Upload, Sparkles, AlertTriangle, CheckCircle2,
-  Info, Gauge, FileText, Printer, FileSpreadsheet, Bookmark, HelpCircle, Wrench, Plus, Minus
+  Info, Gauge, FileText, Printer, FileSpreadsheet, Bookmark, HelpCircle, Wrench, Plus, Minus, MessageSquare
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import ExcelJS from "exceljs";
-import saveAsPkg from "file-saver";
-const saveAs = saveAsPkg.saveAs || saveAsPkg;
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { api } from "@/services/api";
 
 export const Route = createFileRoute("/chw-pump-head")({
   head: () => ({
@@ -67,6 +65,32 @@ function ChwPumpHeadPage() {
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
 
+  // Comment System State
+  const [commentsList, setCommentsList] = useState<any[]>([]);
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+
+  useEffect(() => {
+    try {
+      const pId = project?.id || "default";
+      const savedComments = localStorage.getItem(`mep_calc_comments_${pId}_/chw-pump-head`);
+      if (savedComments) {
+        setCommentsList(JSON.parse(savedComments));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [project?.id]);
+
+  const saveComments = (newList: any[]) => {
+    setCommentsList(newList);
+    try {
+      const pId = project?.id || "default";
+      localStorage.setItem(`mep_calc_comments_${pId}_/chw-pump-head`, JSON.stringify(newList));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Load from local storage
   useEffect(() => {
@@ -251,6 +275,11 @@ function ChwPumpHeadPage() {
   };
 
   const handleExportExcel = async () => {
+    const exceljsModule = await import('exceljs');
+    const ExcelJS = exceljsModule.default || (window as any).ExcelJS;
+    const fileSaverModule = await import('file-saver');
+    const saveAs = fileSaverModule.saveAs || fileSaverModule.default?.saveAs || fileSaverModule.default || ((window as any).saveAs);
+
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Pump Head");
 
@@ -295,14 +324,18 @@ function ChwPumpHeadPage() {
     sheet.addRow(["Total calculated head", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`]);
     sheet.addRow(["Motor Power Requirement", `${calculatedData.motorPowerKw.toFixed(2)} kW / ${calculatedData.motorPowerHp.toFixed(2)} HP`]);
 
-    
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "chw-pump-head");
+    const sigRow = (sheet as any).rowCount ? (sheet as any).rowCount + 2 : 20;
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "chw-pump-head");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_pump_head_report.xlsx`);
   };
 
-  const handlePrintPDF = () => {
+  const handlePrintPDF = async () => {
+    const jsPDFModule = await import('jspdf');
+    const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+    const autoTableModule = await import('jspdf-autotable');
+    const autoTable = autoTableModule.default || autoTableModule;
+
     const doc = new jsPDF("p", "pt", "a4");
 
     doc.setFont("helvetica", "bold");
@@ -415,17 +448,18 @@ function ChwPumpHeadPage() {
       },
     });
 
-    
     const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
     addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "chw-pump-head");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };
 
-
-
   return (
     <AppShell title="CHW Pump Head" hideSubHeader={true}>
+      <CalculationReviewBar 
+        calculatorTitle="CHW Pump Head"
+        calculatorPath="/chw-pump-head"
+      />
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
@@ -511,6 +545,15 @@ function ChwPumpHeadPage() {
                         <Upload className="size-3.5" /> Import JSON
                         <input type="file" onChange={handleImportJSON} accept=".json" className="hidden" />
                       </label>
+                      <TBtn 
+                        onClick={() => {
+                          setCommentTargetItem({ id: "pump-head-calc-main", name: "CHW Pump Head Duty Sizing" });
+                          setCommentModalOpen(true);
+                        }}
+                        className="h-8.5 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 hover:bg-amber-100"
+                      >
+                        <MessageSquare className="size-3.5 text-amber-600" /> Add Comment / Assign Task
+                      </TBtn>
                     </div>
                     <div className="flex items-center gap-2">
                       <TBtn onClick={() => setShowFormulaPanel(!showFormulaPanel)} className="h-8.5 text-xs">
@@ -578,7 +621,6 @@ function ChwPumpHeadPage() {
                       {/* Left: Inputs Panel (5 cols) */}
                       <div className="lg:col-span-5 flex flex-col gap-6">
                         
-
                         {/* FLOW DEMAND PARAMETERS */}
                         <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
                           <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2 border-b border-border/40 pb-2">
@@ -809,8 +851,25 @@ function ChwPumpHeadPage() {
                       <div className="lg:col-span-7 flex flex-col gap-6">
                         
                         {/* PUMP HEAD DUTY HIGHLIGHT CARD */}
-                        <div className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-2xl p-6 shadow-md text-white select-none">
-                          <span className="text-[10.5px] font-bold uppercase tracking-widest text-orange-100 block mb-2">Pump Head Duty</span>
+                        <div className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-2xl p-6 shadow-md text-white select-none relative group">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="text-[10.5px] font-bold uppercase tracking-widest text-orange-100 block">Pump Head Duty</span>
+                            <button
+                              onClick={() => {
+                                setCommentTargetItem({ id: "pump-head-duty", name: "Pump Head Duty Sizing" });
+                                setCommentModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-full text-xs font-semibold backdrop-blur-sm transition-all"
+                            >
+                              <MessageSquare className="size-3" />
+                              Add Comment / Assign Task
+                              {commentsList.filter(c => c.itemId === "pump-head-duty").length > 0 && (
+                                <span className="bg-white text-orange-600 text-[10px] font-extrabold rounded-full px-1.5 py-0.2">
+                                  {commentsList.filter(c => c.itemId === "pump-head-duty").length}
+                                </span>
+                              )}
+                            </button>
+                          </div>
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <span className="text-[11px] font-semibold text-orange-200 block mb-0.5">Flow Rate</span>
@@ -1103,6 +1162,45 @@ function ChwPumpHeadPage() {
 
         </div>
       </div>
+
+      <AssignCommentModal
+        isOpen={commentModalOpen}
+        onClose={() => setCommentModalOpen(false)}
+        targetItem={commentTargetItem}
+        comments={commentsList}
+        onSave={async (commentData) => {
+          const newComment = {
+            id: `cmt_${Date.now()}`,
+            text: commentData.text,
+            authorName: currentUserName,
+            authorRole: profile?.role || "Engineer",
+            timestamp: new Date().toISOString(),
+            assignedUsers: commentData.assignedUsers || [],
+            itemId: commentTargetItem?.id,
+          };
+          const updated = [...commentsList, newComment];
+          saveComments(updated);
+
+          // Dispatch notification to assigned team members
+          const targetProj = project || { id: "default", name: "Active Project" };
+          if (commentData.assignedUsers && commentData.assignedUsers.length > 0) {
+            for (const user of commentData.assignedUsers) {
+              try {
+                await api.sendNotification({
+                  userId: user.id || user.email,
+                  title: `💬 New Task Assigned: ${commentTargetItem?.name || "Pump Head Sizing"}`,
+                  message: `"${commentData.text}" assigned by ${currentUserName}`,
+                  type: "TASK_ASSIGNED",
+                  projectId: targetProj.id,
+                  calculatorPath: "/chw-pump-head"
+                });
+              } catch (e) {
+                console.error("Failed to send notification:", e);
+              }
+            }
+          }
+        }}
+      />
     </AppShell>
   );
 }

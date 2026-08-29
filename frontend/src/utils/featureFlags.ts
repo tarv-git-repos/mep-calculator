@@ -3,6 +3,7 @@ import { Profile } from "@/contexts/AuthContext";
 export const DEFAULT_UNLOCKED_FEATURES = [
   'preliminary-cooling-load',
   'chw-pipe-sizer',
+  'chw-pump-head',
   'ventilation',
   'plumbing-loading-unit',
   'plumbing-fixture-unit',
@@ -33,7 +34,7 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   }
 
   const rawKey = path.startsWith('/') ? path.substring(1) : path;
-  const routeKey = rawKey.split('?')[0];
+  const routeKey = rawKey.split('?')[0].toLowerCase().replace(/\/$/, '');
   const features = profile?.features || {};
 
   // Unlocked by default during development (unconditional for unlocked features)
