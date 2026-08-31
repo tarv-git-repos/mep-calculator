@@ -4,16 +4,16 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import * as dotenv from 'dotenv';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env') });
-
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import transporter from './nodemailer.js';
 import { WELCOME_EMAIL_TEMPLATE, EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from './emailTemplates.js';
 import { createClient } from '@supabase/supabase-js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -1123,9 +1123,10 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email is required' });
     }
 
-    const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
-    const user = users.find((u) => u.email === cleanEmail);
+    const users = await readUsers(true);
+    const userIndex = users.findIndex((u) => u.email && u.email.toLowerCase() === cleanEmail);
+    const user = userIndex !== -1 ? users[userIndex] : null;
 
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'User not found with this email' });
@@ -1135,7 +1136,9 @@ const server = http.createServer(async (req, res) => {
     user.resetOtp = otp;
     user.resetOtpExpireAt = Date.now() + 15 * 60 * 1000;
 
-    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    users[userIndex] = user;
+    await writeUsers(users);
+    invalidateUserCache();
 
     console.log(`\n🔑 [PASSWORD RESET OTP] Target: ${cleanEmail} | OTP: [ ${otp} ]\n`);
 
@@ -3639,7 +3642,7 @@ const server = http.createServer(async (req, res) => {
   return sendJSON(res, 404, { success: false, message: 'Endpoint not found' });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n==================================================`);
   console.log(`🚀 MEP Calculator Auth Engine running on http://localhost:${PORT}`);
   console.log(`☁️ Supabase Cloud DB Connected for Credentials`);
