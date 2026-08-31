@@ -238,7 +238,9 @@ export const authService = {
 
   async sendResetOtp(email: string): Promise<AuthResponse> {
     try {
-      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-reset-otp`, { email });
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-reset-otp`, {
+        email: (email || '').trim().toLowerCase()
+      });
       return data;
     } catch (error: any) {
       return {
@@ -251,8 +253,8 @@ export const authService = {
   async resetPassword(email: string, otp: string, newPassword: string): Promise<AuthResponse> {
     try {
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/reset-password`, {
-        email,
-        otp,
+        email: (email || '').trim().toLowerCase(),
+        otp: (otp || '').trim(),
         newPassword,
       });
       return data;
