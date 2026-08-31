@@ -11,7 +11,7 @@ interface AssignCommentModalProps {
   onClose: () => void;
   targetId: string;
   targetName: string;
-  targetType?: string;
+  targetType: 'space' | 'zone' | 'equipment';
   onSave: (comment: TaskComment) => void;
 }
 
@@ -161,7 +161,7 @@ export function AssignCommentModal({
             <div>
               <h2 className="text-[15px] font-bold leading-tight">Assign Task / Comment</h2>
               <p className="text-[11.5px] text-muted-foreground font-medium">
-                {(targetType || 'item').toUpperCase()}: <span className="font-semibold text-foreground/80">{targetName || 'Current Calculation'}</span>
+                {targetType.toUpperCase()}: <span className="font-semibold text-foreground/80">{targetName}</span>
               </p>
             </div>
           </div>

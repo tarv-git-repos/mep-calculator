@@ -5,6 +5,7 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'chw-pipe-sizer',
   'chw-pump-head',
   'ventilation',
+  'fresh-air-cooling-load',
   'plumbing-loading-unit',
   'plumbing-fixture-unit',
   'plumbing-water-demand',
