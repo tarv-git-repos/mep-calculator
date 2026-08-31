@@ -735,25 +735,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (updatedWdata.zones) updatedWdata.zones = removeCommentFromList(updatedWdata.zones);
       if (updatedWdata.equipment) updatedWdata.equipment = removeCommentFromList(updatedWdata.equipment);
 
-      // Clean up from PCL and CHW localStorage stores if present
-      if (typeof localStorage !== "undefined") {
-        try {
-          const keysToClean = ["pcl_rows", "chw_pipe_rows", "chw_pump_rows"];
-          if (targetProjId) {
-            keysToClean.push(`mep_pcl_rows_${targetProjId}`, `mep_chw_pipe_rows_${targetProjId}`, `mep_chw_pump_rows_${targetProjId}`);
-          }
-          keysToClean.forEach(k => {
-            const raw = localStorage.getItem(k);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed)) {
-                localStorage.setItem(k, JSON.stringify(removeCommentFromList(parsed)));
-              }
-            }
-          });
-        } catch (e) {}
-      }
-
       const recipientUser = notif.authorEmail || notif.authorName || notif.authorId || "Comment Author";
       const completionNotif = {
         id: `taskdone_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -905,49 +886,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           } catch (e) {}
         }
 
-        const defaultPcl = localStorage.getItem("pcl_rows");
-        if (defaultPcl) {
-          try {
-            const pclData = JSON.parse(defaultPcl);
-            if (Array.isArray(pclData)) {
-              addNotifs(pclData, "Cooling Space", "Active Project", "default", "/preliminary-cooling-load");
-            }
-          } catch (e) {}
-        }
-
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && (
-            key.startsWith("mep_loading_unit_calc_") ||
-            key.startsWith("mep_fixture_unit_calc_") ||
-            key.startsWith("mep_busbar_calc_") ||
-            key.startsWith("mep_busbar_vd_calc_") ||
-            key.startsWith("mep_pcl_rows_") ||
-            key.startsWith("mep_chw_pipe_rows_") ||
-            key.startsWith("mep_chw_pump_rows_")
-          )) {
+          if (key && (key.startsWith("mep_loading_unit_calc_") || key.startsWith("mep_fixture_unit_calc_") || key.startsWith("mep_busbar_calc_") || key.startsWith("mep_busbar_vd_calc_"))) {
             const raw = localStorage.getItem(key);
             if (raw) {
               const data = JSON.parse(raw);
-              if (key.startsWith("mep_pcl_rows_")) {
-                const projId = key.replace("mep_pcl_rows_", "");
-                const projObj = projects.find((p: any) => p.id === projId);
-                if (Array.isArray(data)) {
-                  addNotifs(data, "Cooling Space", projObj?.name || "Active Project", projId, "/preliminary-cooling-load");
-                }
-              } else if (key.startsWith("mep_chw_pipe_rows_")) {
-                const projId = key.replace("mep_chw_pipe_rows_", "");
-                const projObj = projects.find((p: any) => p.id === projId);
-                if (Array.isArray(data)) {
-                  addNotifs(data, "CHW Pipe Section", projObj?.name || "Active Project", projId, "/chw-pipe-sizing");
-                }
-              } else if (key.startsWith("mep_chw_pump_rows_")) {
-                const projId = key.replace("mep_chw_pump_rows_", "");
-                const projObj = projects.find((p: any) => p.id === projId);
-                if (Array.isArray(data)) {
-                  addNotifs(data, "CHW Pump System", projObj?.name || "Active Project", projId, "/chw-pump-head");
-                }
-              } else if (key.startsWith("mep_busbar_calc_")) {
+              if (key.startsWith("mep_busbar_calc_")) {
                 const projId = key.replace("mep_busbar_calc_", "");
                 const projObj = projects.find((p: any) => p.id === projId);
                 const panels = data.panels || data;
@@ -1384,7 +1329,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   useEffect(() => {
     runLicenseSeatHeartbeat();
-    const interval = setInterval(runLicenseSeatHeartbeat, 15000);
+    const interval = setInterval(runLicenseSeatHeartbeat, 8000);
 
     const handleUnload = () => {
       const orgId = userData?.organization_id || profile?.organization_id;
@@ -1397,6 +1342,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return () => {
       clearInterval(interval);
       window.removeEventListener('beforeunload', handleUnload);
+      handleUnload();
     };
   }, [runLicenseSeatHeartbeat, userId, userData?.organization_id, profile?.organization_id]);
 
@@ -2635,7 +2581,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       {hoveredGroup && (
         <div
           onClick={() => setHoveredGroup(null)}
-          className="fixed z-40 bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar"
+          className="fixed z-[9999] bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar"
           style={{
             left: `${sidebarOpen ? 272 : 72}px`,
             top: `${Math.max(88, hoveredGroup.top - 60)}px`,

@@ -4,10 +4,10 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare } from "lucide-react";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag } from "lucide-react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
-import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
@@ -33,6 +33,7 @@ interface LUSpace {
   std: string;
   fixtures: Record<string, number>;
   comments?: any[];
+  flagged?: boolean;
 }
 
 export interface StandardCategoryOption {
@@ -273,7 +274,7 @@ export const LU_FIXTURES_META = [
   { id: 'servicesink', short: 'Service Sink' },
   { id: 'hose_bibb', short: 'Hose Bibb' },
   { id: 'dishwasher', short: 'DISH WASHER' },
-  { id: 'hose_bibb_1', short: 'Hose Bibb' }
+  { id: 'hose_bibb_1', short: 'Bib Tap' }
 ];
 
 // UPC Abu Dhabi / UBC Table 6-9 Lookup Table (WSFU -> L/min)
@@ -630,7 +631,7 @@ function LoadingUnitPage() {
       displayFlow: ip ? `${flowGPM.toFixed(1)} GPM` : `${flowLPS.toFixed(3)} L/s`,
       displaySelectedFlow: ip ? `${(selectedFlowLPS * 15.8503).toFixed(1)} GPM` : `${selectedFlowLPS.toFixed(1)} L/s`
     };
-  }, [iopSpaces, standardPreset, selectedCategory, ip, showSpaceQty, showFloorsCol]);
+  }, [iopSpaces, standardPreset, selectedCategory, weightOverrides, ip, showSpaceQty, showFloorsCol]);
 
   // Selection Handlers
   const handleToggleSelectAll = (checked: boolean) => {
@@ -1346,6 +1347,209 @@ function LoadingUnitPage() {
     }
   };
 
+  // PDF Export Function
+  const handleExportPDF = async () => {
+    try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default || autoTableModule;
+
+      const doc = new jsPDF("l", "mm", "a4");
+
+      const activeProj: any = workspaceStore.getState()?.project || project || {};
+      const projectNo = activeProj.code || activeProj.project_number || activeProj.projectNumber || calcMeta.projectNo || 'P539';
+      const calcNo = activeProj.calcNo || activeProj.calc_number || calcMeta.calcNo || `CEC-MED-${projectNo}-202 Rev. No:1`;
+
+      // 1. Add PDF Header
+      let startY = addPdfHeader(doc, "Loading Unit & Pipe Sizing Calculation", {
+        calcNo,
+        projectNo,
+        projectName: activeProj.name || activeProj.project_name || calcMeta.projectName || '',
+        client: activeProj.client || activeProj.client_name || calcMeta.client || '',
+        endUser: activeProj.endUser || activeProj.location || calcMeta.endUser || '',
+        date: calcMeta.date || undefined,
+      });
+
+      const activeFixtures = LU_FIXTURES_META;
+      const isWsfu = standardPreset === "abudhabi" || standardPreset === "ipc_upc";
+      const unitLabel = isWsfu ? "WSFU" : "LU";
+      const currentWeights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
+
+      // 2. Main Fixture Schedule Headers
+      const headers = [
+        "Description",
+        ...activeFixtures.map(f => `${f.name} (${currentWeights[f.id] || f.defaultW})`),
+        `LU / Space`,
+        ...(showSpaceQty ? ["Space Qty"] : []),
+        ...(showFloorsCol ? ["No. of Floors"] : []),
+        `TOTAL ${unitLabel}`
+      ];
+
+      // 3. Main Fixture Schedule Rows (Grouped by Floor)
+      const tableRows: any[] = [];
+
+      floorSections.forEach(fl => {
+        const floorItems = iopSpaces.filter(s => (s.floor || "6th FLOOR") === fl);
+        if (floorItems.length === 0) return;
+
+        tableRows.push([
+          { content: `${fl.toUpperCase()}`, colSpan: headers.length, styles: { fillColor: [242, 220, 219], fontStyle: "bold", halign: "center" } }
+        ]);
+
+        floorItems.forEach((item: LUSpace) => {
+          const unitLU = calculations.spaceUnitLU[item.id] || 0;
+          const totalLu = calculations.spaceTotalsLU[item.id] || 0;
+
+          const rowData = [
+            item.desc || "Space",
+            ...activeFixtures.map(f => item.fixtures[f.id] || ""),
+            Number(unitLU.toFixed(1)),
+            ...(showSpaceQty ? [item.qty || 1] : []),
+            ...(showFloorsCol ? [item.floors || 1] : []),
+            Number(totalLu.toFixed(1))
+          ];
+          tableRows.push(rowData);
+        });
+      });
+
+      // Total Building LU Summary Row
+      tableRows.push([
+        { content: "TOTAL BUILDING LOADING UNITS", colSpan: headers.length - 1, styles: { fontStyle: "bold", halign: "right" } },
+        { content: `${calculations.totalLU.toFixed(1)} ${unitLabel}`, styles: { fontStyle: "bold", textColor: [180, 0, 0], halign: "center" } }
+      ]);
+
+      const runAutoTable = (options: any) => {
+        if (typeof autoTable === 'function') {
+          autoTable(doc, options);
+        } else if ((doc as any).autoTable) {
+          (doc as any).autoTable(options);
+        }
+      };
+
+      runAutoTable({
+        startY: startY + 4,
+        head: [headers],
+        body: tableRows,
+        theme: "grid",
+        headStyles: {
+          fillColor: [239, 236, 225],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 7.5,
+          halign: "center",
+          valign: "middle"
+        },
+        bodyStyles: {
+          fontSize: 7.5,
+          halign: "center",
+          valign: "middle"
+        },
+        columnStyles: {
+          0: { halign: "left", fontStyle: "bold", cellWidth: 32 }
+        },
+        styles: {
+          cellPadding: 1.8
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      let finalY = (doc as any).lastAutoTable?.finalY || startY + 50;
+
+      // 4. Building Water Demand Table (Matching Excel Sheet Format Exactly)
+      const appTitle = standardPreset === "abudhabi" 
+        ? "MEDIUM FREQUENCY APPLICATION" 
+        : standardPreset === "dubai" 
+        ? "BUILDING WATER DEMAND (DBC / BS EN 806)" 
+        : "INTERNATIONAL PLUMBING CODE DEMAND";
+
+      const summaryTableRows = [
+        [{ content: appTitle, colSpan: 2, styles: { fontStyle: "bold", halign: "center", fillColor: [242, 242, 242] } }],
+        ["No of Booster Pump", "1W+1A+1S"],
+        [`Total Water Supply Fixture (${unitLabel})`, `${calculations.totalLU.toFixed(1)}`],
+        ["Flow due to loading unit (l/s)", `${calculations.flowLPS.toFixed(3)}`],
+        ["Total Water demand considered (l/s)", `${calculations.selectedFlowLPS.toFixed(1)}`],
+        ["Diversity (if any)", ""],
+        [
+          { content: "Selected Water Flow Rate (Q) L/s", styles: { fontStyle: "bold", fillColor: [253, 235, 218], halign: "center" } },
+          { content: `${calculations.selectedFlowLPS.toFixed(1)}`, styles: { fontStyle: "bold", fillColor: [253, 235, 218], halign: "center" } }
+        ]
+      ];
+
+      runAutoTable({
+        startY: finalY + 6,
+        body: summaryTableRows,
+        theme: "grid",
+        bodyStyles: {
+          fontSize: 8.5,
+          valign: "middle"
+        },
+        columnStyles: {
+          0: { fontStyle: "normal", cellWidth: 95, halign: "left" },
+          1: { fontStyle: "normal", cellWidth: 65, halign: "center" }
+        },
+        styles: { cellPadding: 2 },
+        margin: { left: 14 }
+      });
+
+      finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
+
+      // 5. Signature Block Table (Matching Excel Sheet Format: Name, Signature, Date)
+      let currentUserName = "";
+      if (typeof window !== "undefined") {
+        try {
+          const user = JSON.parse(localStorage.getItem('mep_user') || '{}');
+          const profile = JSON.parse(localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile') || '{}');
+          currentUserName = user.name || user.user?.name || profile.name || profile.user?.name || (window as any).currentMepUserName || "";
+        } catch (e) {}
+      }
+
+      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails((project as any)?.id || "default", "/plumbing-loading-unit", currentUserName);
+
+      const sigHeader = [["", "Originated by", "Reviewed by", "Approved by"]];
+      const sigBody = [
+        ["Name:", originatedName || "System Admin", reviewerName || "", approverName || ""],
+        ["Signature:", "", "", ""],
+        ["Date:", originatedDate || formatDateStr(new Date().toISOString()), reviewerDate || "", approverDate || ""]
+      ];
+
+      runAutoTable({
+        startY: finalY + 8,
+        head: sigHeader,
+        body: sigBody,
+        theme: "grid",
+        headStyles: {
+          fillColor: [253, 235, 218],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 9,
+          halign: "center",
+          valign: "middle"
+        },
+        bodyStyles: {
+          fontSize: 8.5,
+          valign: "middle",
+          halign: "center"
+        },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 30, halign: "left" },
+          1: { cellWidth: 70 },
+          2: { cellWidth: 70 },
+          3: { cellWidth: 70 }
+        },
+        styles: { cellPadding: 2.5 },
+        margin: { left: 14 }
+      });
+
+      doc.save(`Loading_Unit_Calculation_${projectNo}.pdf`);
+      toast.success("PDF report generated successfully!");
+
+    } catch (err: any) {
+      console.error("PDF export error:", err);
+      toast.error(err?.message || "Failed to generate PDF export.");
+    }
+  };
+
   // Group by floor for listing
   const floorsGrouped = useMemo(() => {
     const grouped: Record<string, LUSpace[]> = {};
@@ -1383,6 +1587,12 @@ function LoadingUnitPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-start md:justify-end mt-1 md:mt-0">
               <button
+                onClick={handleExportPDF}
+                className="flex items-center gap-1.5 bg-[#3178c6] hover:bg-[#2762a4] text-white rounded-xl px-3.5 py-2 text-[12px] sm:text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-xs"
+              >
+                📄 Export PDF
+              </button>
+              <button
                 onClick={handleExportExcel}
                 className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3.5 py-2 text-[12px] sm:text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-xs"
               >
@@ -1402,6 +1612,7 @@ function LoadingUnitPage() {
                     const newPreset = e.target.value as StandardPreset;
                     setStandardPreset(newPreset);
                     setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset]);
+                    setWeightOverrides({});
                   }}
                   className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[220px]"
                 >
@@ -1415,7 +1626,10 @@ function LoadingUnitPage() {
                 <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Demand Category:</span>
                 <select
                   value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedCategory(e.target.value);
+                    setWeightOverrides({});
+                  }}
                   className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[210px]"
                 >
                   {STANDARD_CATEGORIES[standardPreset].map(cat => (
@@ -1423,11 +1637,6 @@ function LoadingUnitPage() {
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div className="flex bg-slate-200 dark:bg-slate-800 p-1 rounded-xl gap-1 select-none shrink-0 self-start md:self-auto">
-              <button type="button" onClick={() => setUnitSystem("si")} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
-              <button type="button" onClick={() => setUnitSystem("ip")} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
             </div>
           </div>
 
@@ -1780,18 +1989,47 @@ function LoadingUnitPage() {
                                   >
                                     <Info className="size-3.5" />
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setIopSpaces(prev => prev.filter(item => item.id !== s.id));
-                                      setSelectedIds(prev => prev.filter(id => id !== s.id));
-                                      toast.info("Space deleted");
-                                    }}
-                                    className="text-red-500/70 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
-                                    title="Delete Space"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </button>
+                                  {(() => {
+                                    const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
+                                    const isMissingDesc = !s.desc || s.desc.trim() === "";
+                                    const isNoFixtures = totalFixtures === 0;
+                                    const isMissingQty = showSpaceQty && (!s.qty || Number(s.qty) <= 0);
+                                    const isMissingFloorQty = showFloorsCol && (!s.floorQty || Number(s.floorQty) <= 0);
+                                    const isMissingValues = isMissingDesc || isNoFixtures || isMissingQty || isMissingFloorQty;
+                                    const isFlagActive = s.flagged || isMissingValues;
+
+                                    const missingMsg: string[] = [];
+                                    if (isMissingDesc) missingMsg.push("description");
+                                    if (isNoFixtures) missingMsg.push("fixtures (0 selected)");
+                                    if (isMissingQty) missingMsg.push("space quantity");
+                                    if (isMissingFloorQty) missingMsg.push("floor quantity");
+
+                                    const tooltipTitle = missingMsg.length > 0
+                                      ? `Missing required value(s): ${missingMsg.join(", ")}`
+                                      : s.flagged ? "Unflag space" : "Flag space";
+
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                          const newFlagged = !s.flagged;
+                                          setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
+                                        }}
+                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer group flex items-center justify-center"
+                                        title={tooltipTitle}
+                                      >
+                                        <Flag 
+                                          className={`size-3.5 transition-all duration-200 ${
+                                            isFlagActive 
+                                              ? "fill-red-500 text-red-500 scale-110" 
+                                              : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                          }`} 
+                                        />
+                                      </button>
+                                    );
+                                  })()}
                                 </div>
                               </td>
                             </tr>
@@ -1943,6 +2181,31 @@ function LoadingUnitPage() {
           >
             <MessageSquare className="size-3.5" /> Add comment
           </button>
+          {(() => {
+            const targetSpace = iopSpaces.find(s => s.id === contextMenu.spaceId);
+            const totalFixtures = Object.values(targetSpace?.fixtures || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
+            const isMissingDesc = !targetSpace?.desc || targetSpace?.desc.trim() === "";
+            const isNoFixtures = totalFixtures === 0;
+            const isMissingQty = showSpaceQty && (!targetSpace?.qty || Number(targetSpace.qty) <= 0);
+            const isMissingFloorQty = showFloorsCol && (!targetSpace?.floorQty || Number(targetSpace.floorQty) <= 0);
+            const isMissingValues = isMissingDesc || isNoFixtures || isMissingQty || isMissingFloorQty;
+            const isFlagActive = targetSpace?.flagged || isMissingValues;
+
+            return (
+              <button
+                onClick={() => {
+                  const targets = selectedIds.includes(contextMenu.spaceId) ? selectedIds : [contextMenu.spaceId];
+                  const newFlagged = !targetSpace?.flagged;
+                  setIopSpaces(prev => prev.map(s => targets.includes(s.id) ? { ...s, flagged: newFlagged } : s));
+                  setContextMenu(null);
+                }}
+                className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
+              >
+                <Flag className={`size-3.5 ${isFlagActive ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                {targetSpace?.flagged ? "Unflag Space" : isMissingValues ? "Flag Space (Warning Active)" : "Flag Space"}
+              </button>
+            );
+          })()}
           <div className="my-1 border-t border-border/60"></div>
           <button
             onClick={handleBulkDelete}
