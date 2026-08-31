@@ -462,11 +462,9 @@ function FreshAirCoolingLoadPage() {
       <div className="flex flex-col h-full min-h-0 bg-transparent font-sans">
         {/* Review Lifecycle Status Bar */}
         <CalculationReviewBar
-          calculationType="fresh-air-cooling-load"
-          calculationName="Fresh Air Cooling Load"
-          calculationData={{
-            dbIn, wbIn, dbOut, wbOut, flowRate, safetyFactor, unitSystem, calc, projectInfo
-          }}
+          projectId={project?.id || "default"}
+          calculatorPath="/fresh-air-cooling-load"
+          calculatorTitle="Fresh Air Cooling Load"
         />
 
         <div className="flex-1 min-w-0 flex flex-col pt-3 gap-4 overflow-y-auto h-full px-6 pb-8">
@@ -1128,10 +1126,10 @@ function FreshAirCoolingLoadPage() {
           setCommentModalOpen(false);
           setCommentTargetItem(null);
         }}
-        targetItem={commentTargetItem || { id: "fresh-air-coil-duty", name: "Fresh Air Cooling Coil Sizing" }}
-        calculationType="fresh-air-cooling-load"
-        comments={commentsList}
-        onSaveComment={(comment) => {
+        targetId={commentTargetItem?.id || "fresh-air-coil-duty"}
+        targetName={commentTargetItem?.name || "Fresh Air Cooling Coil"}
+        targetType="equipment"
+        onSave={(comment) => {
           const updated = [comment, ...commentsList];
           saveComments(updated);
 
@@ -1152,4 +1150,3 @@ function FreshAirCoolingLoadPage() {
     </AppShell>
   );
 }
-export default FreshAirCoolingLoadPage;
