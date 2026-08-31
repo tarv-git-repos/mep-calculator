@@ -1163,7 +1163,7 @@ function PreliminaryCoolingLoadPage() {
                 tr
               } : row));
             }}
-            className="font-semibold text-[13px] font-sans"
+            className="font-normal text-[13px] font-sans flex-1 min-w-0"
           />
         </div>
       ),
