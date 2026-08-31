@@ -3,15 +3,17 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import * as dotenv from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import transporter from './nodemailer.js';
 import { WELCOME_EMAIL_TEMPLATE, EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from './emailTemplates.js';
-import * as dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -848,13 +850,15 @@ const server = http.createServer(async (req, res) => {
     await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
     invalidateUserCache();
 
+    console.log(`\n🔑 [ACCOUNT VERIFY OTP] Target: ${user.email} | OTP: [ ${otp} ]\n`);
+
     const mailOption = {
       from: SENDER_EMAIL,
       to: user.email,
       subject: 'Account Verification OTP',
       html: EMAIL_VERIFY_TEMPLATE.replace(/\{\{otp\}\}/g, otp)
         .replace(/\{\{email\}\}/g, user.email)
-        .replace(/\{\{name\}\}/g, user.name),
+        .replace(/\{\{name\}\}/g, user.name || 'Engineer'),
     };
 
     try {
@@ -1127,20 +1131,22 @@ const server = http.createServer(async (req, res) => {
 
     await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
+    console.log(`\n🔑 [PASSWORD RESET OTP] Target: ${cleanEmail} | OTP: [ ${otp} ]\n`);
+
     const mailOption = {
       from: SENDER_EMAIL,
       to: cleanEmail,
       subject: 'Password Reset OTP',
       html: PASSWORD_RESET_TEMPLATE.replace(/\{\{otp\}\}/g, otp)
         .replace(/\{\{email\}\}/g, cleanEmail)
-        .replace(/\{\{name\}\}/g, user.name),
+        .replace(/\{\{name\}\}/g, user.name || 'Engineer'),
     };
 
-      try {
-        await transporter.sendMail(mailOption);
-      } catch (err) {
-        console.error('Reset mail error:', err);
-      }
+    try {
+      await transporter.sendMail(mailOption);
+    } catch (err) {
+      console.error('Reset mail error:', err);
+    }
 
     return sendJSON(res, 200, { success: true, message: 'Password reset OTP sent to your email' });
   }
