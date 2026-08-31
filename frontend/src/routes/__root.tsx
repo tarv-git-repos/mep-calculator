@@ -59,6 +59,7 @@ function AuthGuard({ children }: { children: ReactNode }) {
   );
   
   const isLoginPage = routerState.location.pathname === '/login';
+  const isPrivacyPage = routerState.location.pathname === '/privacy';
   const isAdminPage = routerState.location.pathname.startsWith('/admin');
   
   if (!isLoggedin && !isLoginPage) {
@@ -72,15 +73,24 @@ function AuthGuard({ children }: { children: ReactNode }) {
     }
   }
 
+  // Primary Policy (EULA) Acceptance Gating for Authenticated Users (ID 1)
+  if (session && profile && !isLoginPage && !isPrivacyPage) {
+    const hasAccepted = profile.privacyPolicyAccepted === true ||
+      (typeof window !== 'undefined' && localStorage.getItem('privacy_policy_accepted') === 'true');
+    if (!hasAccepted) {
+      return <Navigate to="/privacy" replace />;
+    }
+  }
+
   // Security & Smart Routing
-  if (session && profile && !isLoginPage) {
+  if (session && profile && !isLoginPage && !isPrivacyPage) {
     if (profile.role !== 'SUPER_ADMIN' && profile.role !== 'ORG_ADMIN' && isAdminPage) {
       return <Navigate to="/" replace />;
     }
   }
 
   // Subscription Enforcement
-  if (session && profile && !isLoginPage) {
+  if (session && profile && !isLoginPage && !isPrivacyPage) {
     if (profile.role !== 'SUPER_ADMIN' && profile.subscription_expires) {
       const expiryDate = new Date(profile.subscription_expires);
       if (new Date() > expiryDate) {

@@ -16,30 +16,31 @@ export const Route = createFileRoute("/teams")({
 });
 
 function TeamsPage() {
-  const { profile } = useAuth();
-  const isAdmin = ["SUPER_ADMIN", "ORG_ADMIN"].includes(profile?.role || "");
+  const { profile, userData } = useAuth();
+  const currentRole = userData?.role || profile?.role || "";
+  const isAdmin = ["SUPER_ADMIN", "ORG_ADMIN"].includes(currentRole);
   
   const [teams, setTeams] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
 
   const assignableUsers = useMemo(() => {
-    if (profile?.role === 'SUPER_ADMIN') {
+    if (currentRole === 'SUPER_ADMIN') {
       return users;
     }
-    const myOrgId = profile?.organization_id;
+    const myOrgId = profile?.organization_id || userData?.organization_id;
     return users.filter(u => 
       u.role !== 'SUPER_ADMIN' && 
       (!myOrgId || u.organization_id === myOrgId || !u.organization_id)
     );
-  }, [users, profile?.role, profile?.organization_id]);
+  }, [users, currentRole, profile?.organization_id, userData?.organization_id]);
 
   const assignableTeams = useMemo(() => {
-    if (profile?.role === 'SUPER_ADMIN') {
+    if (currentRole === 'SUPER_ADMIN') {
       return teams;
     }
-    const myOrgId = profile?.organization_id;
+    const myOrgId = profile?.organization_id || userData?.organization_id;
     return teams.filter(t => !myOrgId || t.organization_id === myOrgId || !t.organization_id);
-  }, [teams, profile?.role, profile?.organization_id]);
+  }, [teams, currentRole, profile?.organization_id, userData?.organization_id]);
   
   const [newTeamName, setNewTeamName] = useState("");
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -66,40 +67,24 @@ function TeamsPage() {
   }, [assignableUsers, selectedTeam, teams, userSearch]);
 
   const loadData = async () => {
-    if (profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') {
-       setIsLoading(true);
-       try {
-         const [u, t] = await Promise.all([
-           api.getUsers(),
-           api.getTeams()
-         ]);
-         setUsers(u);
-         setTeams(t);
-       } finally {
-         setIsLoading(false);
-       }
-    } else {
-       setIsLoading(false);
+    setIsLoading(true);
+    try {
+      const [u, t] = await Promise.all([
+        api.getUsers(),
+        api.getTeams()
+      ]);
+      setUsers(u || []);
+      setTeams(t || []);
+    } catch (err) {
+      console.error("Failed to load teams data", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
     loadData();
-  }, [profile]);
-
-  if (profile?.role !== 'SUPER_ADMIN' && profile?.role !== 'ORG_ADMIN') {
-    return (
-      <AppShell title="Teams" subtitle="Manage Organization Teams">
-        <div className="flex h-[calc(100vh-80px)] items-center justify-center bg-background">
-          <div className="flex flex-col items-center gap-3">
-            <ShieldAlert className="size-16 text-rose-500/80" />
-            <h2 className="text-xl font-bold">Access Denied</h2>
-            <p className="text-sm text-muted-foreground">Only Administrators can manage teams.</p>
-          </div>
-        </div>
-      </AppShell>
-    );
-  }
+  }, [profile, userData]);
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -307,8 +292,16 @@ function TeamsPage() {
             </div>            </>)}
 
             {/* Teams List */}
-            <div className="lg:col-span-2 flex flex-col gap-4">
-               <h3 className="font-bold text-foreground text-lg mb-2">Organization Teams</h3>
+            <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} flex flex-col gap-4`}>
+               <div className="flex items-center justify-between mb-2">
+                 <h3 className="font-bold text-foreground text-lg">Organization Teams</h3>
+                 {!isAdmin && (
+                   <span className="text-[11px] font-semibold text-muted-foreground bg-slate-200/70 dark:bg-zinc-800/80 px-3 py-1 rounded-full border border-border/50">
+                     View-Only Mode
+                   </span>
+                 )}
+               </div>
+
                {isLoading ? (
                  <div className="p-8 flex flex-col items-center justify-center text-muted-foreground text-sm gap-3">
                    <div className="size-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -319,7 +312,7 @@ function TeamsPage() {
                     No teams created yet.
                  </div>
                ) : (
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div className={`grid grid-cols-1 ${isAdmin ? 'md:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3'} gap-4`}>
                     {assignableTeams.map(team => (
                        <div key={team.id} className="bg-card border border-border p-5 rounded-2xl shadow-sm flex flex-col gap-4 group/team">
                           <div className="flex justify-between items-center">
@@ -328,13 +321,15 @@ function TeamsPage() {
                                 <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
                                    {(team.team_members || []).length} Members
                                 </span>
-                                <button
-                                  onClick={() => handleDeleteTeam(team.id)}
-                                  className="opacity-0 group-hover/team:opacity-100 p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
-                                  title="Delete Team"
-                                >
-                                  <Trash2 className="size-4" />
-                                </button>
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => handleDeleteTeam(team.id)}
+                                    className="opacity-0 group-hover/team:opacity-100 p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
+                                    title="Delete Team"
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </button>
+                                )}
                              </div>
                           </div>
                         <div className="flex flex-col gap-2 border-t border-border/50 pt-3 mt-1">
@@ -352,13 +347,15 @@ function TeamsPage() {
                                        <span className="font-bold text-foreground leading-none">{displayName}</span>
                                        {displayEmail && <span className="text-[9px] text-muted-foreground">{displayEmail}</span>}
                                     </div>
-                                    <button 
-                                      onClick={() => handleRemoveUser(team.id, rawId)}
-                                      className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-rose-500 transition-all p-1 cursor-pointer"
-                                      title="Remove User"
-                                    >
-                                      <Trash2 className="size-3" />
-                                    </button>
+                                    {isAdmin && (
+                                      <button 
+                                        onClick={() => handleRemoveUser(team.id, rawId)}
+                                        className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-rose-500 transition-all p-1 cursor-pointer"
+                                        title="Remove User"
+                                      >
+                                        <Trash2 className="size-3" />
+                                      </button>
+                                    )}
                                  </div>
                               );
                            })}

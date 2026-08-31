@@ -1169,6 +1169,16 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'OTP Expired' });
     }
 
+    if (user.password) {
+      const isSameAsOld = await bcrypt.compare(newPassword, user.password);
+      if (isSameAsOld) {
+        return sendJSON(res, 200, {
+          success: false,
+          message: 'New password cannot be the same as your previous password. Please choose a different password.'
+        });
+      }
+    }
+
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     user.password = hashedPassword;
     user.resetOtp = '';
