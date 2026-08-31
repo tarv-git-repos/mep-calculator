@@ -1590,14 +1590,30 @@ function PreliminaryCoolingLoadPage() {
                     {/* DataGrid container */}
                     <div className="flex-1 min-h-0 relative flex flex-col">
                       {rows.length === 0 ? (
-                        <div className="flex-1 h-full min-h-[350px] flex flex-col items-center justify-center p-8 bg-surface-2 border border-dashed rounded-b-2xl">
-                          <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
-                            <Upload className="size-6" />
+                        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
+                          <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
+                            <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
+                              <Upload className="size-6" />
+                            </div>
+                            <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Loaded</h3>
+                            <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                              Start by importing a Revit Excel space schedule sheet or manually add spaces. The system will automatically detect space classifications, apply heat dissipation densities, and compute cooling load metrics.
+                            </p>
+                            <div className="flex items-center gap-3 w-full">
+                              <button
+                                onClick={() => setImportOpen(true)}
+                                className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                              >
+                                <Upload className="size-3.5" /> Import Revit Excel
+                              </button>
+                              <button
+                                onClick={handleAddNewSpace}
+                                className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
+                              >
+                                <Plus className="size-3.5" /> + Add Space
+                              </button>
+                            </div>
                           </div>
-                          <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Loaded</h3>
-                          <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed text-center">
-                            Start by importing a Revit space schedule or manually add spaces.
-                          </p>
                         </div>
                       ) : (
                         <DataGrid
