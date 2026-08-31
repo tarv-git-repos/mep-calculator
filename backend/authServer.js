@@ -3,17 +3,15 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import * as dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import transporter from './nodemailer.js';
 import { WELCOME_EMAIL_TEMPLATE, EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from './emailTemplates.js';
+import * as dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env') });
-
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -223,16 +221,8 @@ async function readUsers(forceRefresh = false) {
     const { data, error } = await supabase.from('custom_users').select('*');
     let users = [];
     if (!error && Array.isArray(data)) {
-      const seenIds = new Set();
-      const seenEmails = new Set();
-
       users = data.map(u => {
-        const idKey = String(u.id || '').toLowerCase();
-        const emailKey = String(u.email || '').toLowerCase();
-        if (idKey) seenIds.add(idKey);
-        if (emailKey) seenEmails.add(emailKey);
-
-        const loc = localMap.get(idKey) || localMap.get(emailKey) || {};
+        const loc = localMap.get(String(u.id || '').toLowerCase()) || localMap.get(String(u.email || '').toLowerCase()) || {};
         const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
         const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
         const orgId = u.organization_id || loc.organization_id || u.features?.organization_id || loc.features?.organization_id || null;
@@ -241,12 +231,6 @@ async function readUsers(forceRefresh = false) {
         return {
           ...loc,
           ...u,
-          password: loc.password || u.password,
-          resetOtp: (loc.resetOtp !== undefined && loc.resetOtp !== '') ? loc.resetOtp : (u.resetOtp || ''),
-          resetOtpExpireAt: loc.resetOtpExpireAt || u.resetOtpExpireAt || 0,
-          verifyOtp: (loc.verifyOtp !== undefined && loc.verifyOtp !== '') ? loc.verifyOtp : (u.verifyOtp || ''),
-          verifyOtpExpireAt: loc.verifyOtpExpireAt || u.verifyOtpExpireAt || 0,
-          isAccountVerified: (loc.isAccountVerified !== undefined) ? loc.isAccountVerified : (u.isAccountVerified ?? true),
           role: effRole,
           organization_id: orgId,
           company: comp,
@@ -266,17 +250,6 @@ async function readUsers(forceRefresh = false) {
             subscription_expires: expDate
           }
         };
-      });
-
-      // Preserve any local users that are not yet in Supabase data
-      (localUsers || []).forEach(loc => {
-        const idKey = String(loc.id || '').toLowerCase();
-        const emailKey = String(loc.email || '').toLowerCase();
-        if ((!idKey || !seenIds.has(idKey)) && (!emailKey || !seenEmails.has(emailKey))) {
-          users.push(loc);
-          if (idKey) seenIds.add(idKey);
-          if (emailKey) seenEmails.add(emailKey);
-        }
       });
       users = users.filter(u => u.email !== 'parassadafuule05@gmail.com');
       
@@ -754,9 +727,9 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email and password are required' });
     }
 
-    const cleanEmail = (email || '').trim().toLowerCase();
-    const users = await readUsers(true);
-    const userIndex = users.findIndex((u) => u.email && u.email.trim().toLowerCase() === cleanEmail);
+    const users = await readUsers();
+    const cleanEmail = email.trim().toLowerCase();
+    const userIndex = users.findIndex((u) => u.email === cleanEmail);
     const user = userIndex !== -1 ? users[userIndex] : null;
 
     if (!user) {
@@ -875,15 +848,13 @@ const server = http.createServer(async (req, res) => {
     await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
     invalidateUserCache();
 
-    console.log(`\n🔑 [ACCOUNT VERIFY OTP] Target: ${user.email} | OTP: [ ${otp} ]\n`);
-
     const mailOption = {
       from: SENDER_EMAIL,
       to: user.email,
       subject: 'Account Verification OTP',
       html: EMAIL_VERIFY_TEMPLATE.replace(/\{\{otp\}\}/g, otp)
         .replace(/\{\{email\}\}/g, user.email)
-        .replace(/\{\{name\}\}/g, user.name || 'Engineer'),
+        .replace(/\{\{name\}\}/g, user.name),
     };
 
     try {
@@ -1142,10 +1113,9 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email is required' });
     }
 
+    const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
-    const users = await readUsers(true);
-    const userIndex = users.findIndex((u) => u.email && u.email.toLowerCase() === cleanEmail);
-    const user = userIndex !== -1 ? users[userIndex] : null;
+    const user = users.find((u) => u.email === cleanEmail);
 
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'User not found with this email' });
@@ -1154,12 +1124,11 @@ const server = http.createServer(async (req, res) => {
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     user.resetOtp = otp;
     user.resetOtpExpireAt = Date.now() + 15 * 60 * 1000;
+    console.log(`\n🔑 ==========================================`);
+    console.log(`🔑 PASSWORD RESET OTP for ${cleanEmail}: [ ${otp} ]`);
+    console.log(`🔑 ==========================================\n`);
 
-    users[userIndex] = user;
-    await writeUsers(users);
-    invalidateUserCache();
-
-    console.log(`\n🔑 [PASSWORD RESET OTP] Target: ${cleanEmail} | OTP: [ ${otp} ]\n`);
+    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
     const mailOption = {
       from: SENDER_EMAIL,
@@ -1167,14 +1136,14 @@ const server = http.createServer(async (req, res) => {
       subject: 'Password Reset OTP',
       html: PASSWORD_RESET_TEMPLATE.replace(/\{\{otp\}\}/g, otp)
         .replace(/\{\{email\}\}/g, cleanEmail)
-        .replace(/\{\{name\}\}/g, user.name || 'Engineer'),
+        .replace(/\{\{name\}\}/g, user.name),
     };
 
-    try {
-      await transporter.sendMail(mailOption);
-    } catch (err) {
-      console.error('Reset mail error:', err);
-    }
+      try {
+        await transporter.sendMail(mailOption);
+      } catch (err) {
+        console.error('Reset mail error:', err);
+      }
 
     return sendJSON(res, 200, { success: true, message: 'Password reset OTP sent to your email' });
   }
@@ -1187,26 +1156,20 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email, OTP, and new password are required' });
     }
 
-    const cleanEmail = (email || '').trim().toLowerCase();
-    const cleanOtp = String(otp || '').replace(/\D/g, '').trim();
-    const users = await readUsers(true);
-    const userIndex = users.findIndex((u) => u.email && u.email.trim().toLowerCase() === cleanEmail);
-    const user = userIndex !== -1 ? users[userIndex] : null;
-
-    console.log(`\n🔐 [RESET PASSWORD REQUEST] Target: "${cleanEmail}" | Received OTP: "${cleanOtp}" | Stored OTP: "${user?.resetOtp}" | ExpireAt: ${user?.resetOtpExpireAt}`);
+    const users = await readUsers();
+    const cleanEmail = email.trim().toLowerCase();
+    const user = users.find((u) => u.email === cleanEmail);
 
     if (!user) {
-      return sendJSON(res, 200, { success: false, message: 'User not found with this email' });
+      return sendJSON(res, 200, { success: false, message: 'User not found' });
     }
 
-    if (!user.resetOtp || String(user.resetOtp).trim() !== cleanOtp) {
-      console.warn(`❌ [RESET OTP MISMATCH] Received: "${cleanOtp}" vs Stored: "${user.resetOtp}" for ${cleanEmail}`);
+    if (!user.resetOtp || String(user.resetOtp).trim() !== String(otp).trim()) {
       return sendJSON(res, 200, { success: false, message: 'Invalid OTP' });
     }
 
-    if (user.resetOtpExpireAt && Number(user.resetOtpExpireAt) < Date.now()) {
-      console.warn(`❌ [RESET OTP EXPIRED] Expired at ${user.resetOtpExpireAt} (Now: ${Date.now()}) for ${cleanEmail}`);
-      return sendJSON(res, 200, { success: false, message: 'OTP Expired. Please request a new OTP code.' });
+    if (user.resetOtpExpireAt < Date.now()) {
+      return sendJSON(res, 200, { success: false, message: 'OTP Expired' });
     }
 
     if (user.password) {
@@ -1224,11 +1187,7 @@ const server = http.createServer(async (req, res) => {
     user.resetOtp = '';
     user.resetOtpExpireAt = 0;
 
-    users[userIndex] = user;
-    await writeUsers(users);
-    invalidateUserCache();
-
-    logActivity(user, 'RESET_PASSWORD', 'Password reset successfully via OTP');
+    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
     return sendJSON(res, 200, { success: true, message: 'Password reset successfully' });
   }
@@ -3666,7 +3625,7 @@ const server = http.createServer(async (req, res) => {
   return sendJSON(res, 404, { success: false, message: 'Endpoint not found' });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, () => {
   console.log(`\n==================================================`);
   console.log(`🚀 MEP Calculator Auth Engine running on http://localhost:${PORT}`);
   console.log(`☁️ Supabase Cloud DB Connected for Credentials`);
