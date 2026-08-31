@@ -3,9 +3,6 @@ import { getHardwareFingerprint } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
   if (typeof window !== 'undefined') {
-    if (window.location.port === '8081' || window.location.port === '5173') {
-      return ''; // Route through Vite proxy to eliminate CORS errors during local frontend development
-    }
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return 'http://localhost:4000';
     }
@@ -238,9 +235,7 @@ export const authService = {
 
   async sendResetOtp(email: string): Promise<AuthResponse> {
     try {
-      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-reset-otp`, {
-        email: (email || '').trim().toLowerCase()
-      });
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-reset-otp`, { email });
       return data;
     } catch (error: any) {
       return {
@@ -253,8 +248,8 @@ export const authService = {
   async resetPassword(email: string, otp: string, newPassword: string): Promise<AuthResponse> {
     try {
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/reset-password`, {
-        email: (email || '').trim().toLowerCase(),
-        otp: (otp || '').trim(),
+        email,
+        otp,
         newPassword,
       });
       return data;

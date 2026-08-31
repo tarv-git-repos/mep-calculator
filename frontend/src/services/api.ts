@@ -3,9 +3,6 @@ import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFinge
 
 const getBackendUrl = () => {
   if (typeof window !== 'undefined') {
-    if (window.location.port === '8081' || window.location.port === '5173') {
-      return ''; // Route through Vite proxy to eliminate CORS errors during local frontend development
-    }
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return 'http://localhost:4000';
     }
