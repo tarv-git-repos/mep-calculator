@@ -68,7 +68,7 @@ export function EditChwPumpModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in font-sans">
-      <div className="relative w-full max-w-2xl bg-card border border-border rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-in">
+      <div className={`relative w-full bg-card border border-border rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-[max-width] duration-300 ease-in-out ${showPreview ? "max-w-4xl" : "max-w-2xl"}`}>
         
         {/* Header */}
         <header className="px-6 py-4 border-b border-border/60 flex items-center justify-between bg-card shrink-0">
@@ -286,10 +286,14 @@ export function EditChwPumpModal({
 
           </div>
 
-          {/* Right Calculations Preview Drawer */}
-          {showPreview && (
-            <div className="w-[300px] border-l border-border bg-surface-2/60 p-5 flex flex-col gap-4 overflow-y-auto shrink-0 animate-slide-in font-sans">
-              <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 font-bold text-xs uppercase tracking-wider border-b border-border/50 pb-2">
+          {/* Right Calculations Preview Drawer with smooth slide transition */}
+          <div
+            className={`shrink-0 bg-surface-2/60 border-l border-border overflow-hidden transition-[width,opacity,padding] duration-300 ease-in-out flex flex-col ${
+              showPreview ? "w-[360px] opacity-100 p-6" : "w-0 opacity-0 p-0 border-l-transparent"
+            }`}
+          >
+            <div className="w-[312px] space-y-4 flex flex-col h-full overflow-y-auto custom-scrollbar">
+              <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 font-bold text-xs uppercase tracking-wider border-b border-border/50 pb-2 shrink-0">
                 <Zap className="size-4" /> Hydraulic Solver Preview
               </div>
 
@@ -315,7 +319,7 @@ export function EditChwPumpModal({
                 </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Footer */}
