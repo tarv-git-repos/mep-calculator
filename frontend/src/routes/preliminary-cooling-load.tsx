@@ -31,6 +31,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
 
 
 export const Route = createFileRoute("/preliminary-cooling-load")({
@@ -256,6 +257,7 @@ function PreliminaryCoolingLoadPage() {
   });
 
   const [rows, setRows] = useState<PclRow[]>([]);
+  const [editingSpace, setEditingSpace] = useState<PclRow | null>(null);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
 
@@ -1604,12 +1606,25 @@ function PreliminaryCoolingLoadPage() {
                           selected={selected}
                           onToggle={toggle}
                           onToggleAll={toggleAll}
+                          onRowDoubleClick={(r) => setEditingSpace(r)}
                           renderContextMenu={renderSpaceContextMenu}
                           groupBy={(r) => r.floor}
                           groupOrder={sortedFloorsForGrid}
                           renderGroupHeader={renderFloorGroupHeader}
                           renderGroupContextMenu={renderFloorGroupContextMenu}
                           onToggleGroup={handleToggleGroup}
+                        />
+                      )}
+                      {editingSpace && (
+                        <EditPclSpaceModal
+                          space={editingSpace}
+                          onClose={() => setEditingSpace(null)}
+                          onSave={(updated) => {
+                            saveRows(rows.map((r) => r.id === updated.id ? updated : r));
+                            setEditingSpace(null);
+                          }}
+                          availableFloors={sortedFloorsForGrid}
+                          spaceDensities={SPACE_DENSITIES}
                         />
                       )}
                     </div>

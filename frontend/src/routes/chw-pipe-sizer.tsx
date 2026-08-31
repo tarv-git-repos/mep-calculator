@@ -13,6 +13,7 @@ import {
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import { EditChwPipeModal } from "@/components/workspace/EditChwPipeModal";
 
 export const Route = createFileRoute("/chw-pipe-sizer")({
   head: () => ({
@@ -90,6 +91,7 @@ function ChwPipeSizerPage() {
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [hasCalculated, setHasCalculated] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
 
@@ -679,10 +681,19 @@ function ChwPipeSizerPage() {
                         
 
                         {/* Inputs Card */}
-                        <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative">
-                          <div className="flex items-center gap-2 pb-2.5 border-b border-border/60">
-                            <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Inputs</h3>
+                        <div 
+                          onDoubleClick={() => setEditModalOpen(true)}
+                          className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative group/card cursor-pointer select-none"
+                          title="Double-click to open full parameter editor modal"
+                        >
+                          <div className="flex items-center justify-between pb-2.5 border-b border-border/60">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Inputs</h3>
+                            </div>
+                            <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full opacity-80 group-hover/card:opacity-100 transition-opacity">
+                              Double-click to Edit
+                            </span>
                           </div>
 
                           {inputError && (
@@ -845,10 +856,19 @@ function ChwPipeSizerPage() {
                             )}
 
                             {/* Pipe Selection Card */}
-                            <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative">
-                              <div className="flex items-center gap-2 pb-2.5 border-b border-border/60">
-                                <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pipe Selection</h3>
+                            <div 
+                              onDoubleClick={() => setEditModalOpen(true)}
+                              className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative group/pipe cursor-pointer select-none"
+                              title="Double-click to open full parameter editor modal"
+                            >
+                              <div className="flex items-center justify-between pb-2.5 border-b border-border/60">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pipe Selection</h3>
+                                </div>
+                                <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full opacity-80 group-hover/pipe:opacity-100 transition-opacity">
+                                  Double-click to Edit
+                                </span>
                               </div>
 
                               <div className="flex flex-col gap-3 font-sans text-xs">
@@ -1118,6 +1138,19 @@ function ChwPipeSizerPage() {
           </div>
         </div>
       </div>
+      {editModalOpen && (
+        <EditChwPipeModal
+          params={sizingParams}
+          unitSystem={unitSystem}
+          onClose={() => setEditModalOpen(false)}
+          onSave={(updated) => {
+            saveParams(updated, unitSystem, projectInfo);
+            setEditModalOpen(false);
+            setHasCalculated(true);
+          }}
+          calculatedData={calculatedData}
+        />
+      )}
     </div>
   </AppShell>
   );

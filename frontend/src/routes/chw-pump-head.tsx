@@ -15,6 +15,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { EditChwPumpModal } from "@/components/workspace/EditChwPumpModal";
 import { api } from "@/services/api";
 
 export const Route = createFileRoute("/chw-pump-head")({
@@ -64,6 +65,7 @@ function ChwPumpHeadPage() {
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   // Comment System State
   const [commentsList, setCommentsList] = useState<any[]>([]);
@@ -851,15 +853,25 @@ function ChwPumpHeadPage() {
                       <div className="lg:col-span-7 flex flex-col gap-6">
                         
                         {/* PUMP HEAD DUTY HIGHLIGHT CARD */}
-                        <div className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-2xl p-6 shadow-md text-white select-none relative group">
+                        <div 
+                          onDoubleClick={() => setEditModalOpen(true)}
+                          className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-2xl p-6 shadow-md text-white select-none relative group/duty cursor-pointer"
+                          title="Double-click to open full parameter editor modal"
+                        >
                           <div className="flex justify-between items-start mb-2">
-                            <span className="text-[10.5px] font-bold uppercase tracking-widest text-orange-100 block">Pump Head Duty</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10.5px] font-bold uppercase tracking-widest text-orange-100 block">Pump Head Duty</span>
+                              <span className="text-[10px] font-semibold text-orange-100 bg-white/20 px-2 py-0.5 rounded-full opacity-80 group-hover/duty:opacity-100 transition-opacity">
+                                Double-click to Edit
+                              </span>
+                            </div>
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setCommentTargetItem({ id: "pump-head-duty", name: "Pump Head Duty Sizing" });
                                 setCommentModalOpen(true);
                               }}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-full text-xs font-semibold backdrop-blur-sm transition-all"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-full text-xs font-semibold backdrop-blur-sm transition-all cursor-pointer"
                             >
                               <MessageSquare className="size-3" />
                               Add Comment / Assign Task
@@ -1201,6 +1213,18 @@ function ChwPumpHeadPage() {
           }
         }}
       />
+      {editModalOpen && (
+        <EditChwPumpModal
+          params={sizingParams}
+          unitSystem={unitSystem}
+          onClose={() => setEditModalOpen(false)}
+          onSave={(updated) => {
+            saveParams(updated, unitSystem, projectInfo);
+            setEditModalOpen(false);
+          }}
+          calculatedData={calculatedData}
+        />
+      )}
     </AppShell>
   );
 }
