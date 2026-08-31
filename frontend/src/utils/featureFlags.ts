@@ -6,6 +6,8 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'chw-pump-head',
   'ventilation',
   'fresh-air-cooling-load',
+  'condensate-drain-calc',
+  'condensate-drain',
   'plumbing-loading-unit',
   'plumbing-fixture-unit',
   'plumbing-water-demand',
