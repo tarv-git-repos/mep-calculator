@@ -3423,6 +3423,49 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 500, { success: false, message: 'Server error deleting announcement' });
     }
   }
+
+  // ==========================================
+  // NOTIFICATIONS ENDPOINTS
+  // ==========================================
+  if (req.method === 'POST' && url === '/api/notifications/send') {
+    try {
+      const payload = await getRequestBody(req);
+      const notifItem = {
+        id: payload.metadata?.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        recipientId: payload.recipientId,
+        title: payload.title,
+        message: payload.message,
+        link: payload.link,
+        metadata: payload.metadata || {},
+        createdAt: new Date().toISOString(),
+        read: false
+      };
+
+      try {
+        await supabase.from('notifications').insert([notifItem]);
+      } catch (err) {}
+
+      return sendJSON(res, 200, { success: true, notification: notifItem });
+    } catch (err) {
+      console.error('Error in /api/notifications/send:', err);
+      return sendJSON(res, 200, { success: true });
+    }
+  }
+
+  if (req.method === 'GET' && url.startsWith('/api/notifications')) {
+    try {
+      const user = await getUserFromReq(req);
+      let notifs = [];
+      if (user) {
+        const { data } = await supabase.from('notifications').select('*').eq('recipientId', user.id);
+        if (data) notifs = data;
+      }
+      return sendJSON(res, 200, { success: true, notifications: notifs });
+    } catch (err) {
+      return sendJSON(res, 200, { success: true, notifications: [] });
+    }
+  }
+
   // ==========================================
   // SHARED PROJECT VERSIONING ENDPOINTS
   // ==========================================

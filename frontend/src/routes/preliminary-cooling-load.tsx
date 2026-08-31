@@ -2229,12 +2229,32 @@ function PreliminaryCoolingLoadPage() {
             try {
               const currentUserName = userData?.name || profile?.name || "Design Engineer";
               const userIds = comment.assignedUsers || [];
+              const projId = activeProjectId || project?.id || "default";
+              const projName = project?.name || projectInfo.projectName || "Active Project";
+
+              const commentWithMeta = {
+                ...comment,
+                targetId: commentTargetItem.id,
+                targetName: commentTargetItem.name,
+                targetType: "Cooling Space",
+                projectName: projName,
+                projectId: projId,
+                calculatorPath: "/preliminary-cooling-load",
+              };
 
               // Attach comment to row state so visual comment badge appears
-              saveRows(rows.map(r => r.id === commentTargetItem.id ? {
+              const updatedRows = rows.map(r => r.id === commentTargetItem.id ? {
                 ...r,
-                comments: [...(r.comments || []), comment]
-              } : r));
+                comments: [...(r.comments || []), commentWithMeta]
+              } : r);
+              saveRows(updatedRows);
+              if (project?.id) {
+                localStorage.setItem(`mep_pcl_rows_${project.id}`, JSON.stringify(updatedRows));
+              }
+
+              // Instant notification event dispatch
+              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
+              window.dispatchEvent(new Event("storage"));
 
               if (userIds.length > 0) {
                 for (const uId of userIds) {
@@ -2246,11 +2266,12 @@ function PreliminaryCoolingLoadPage() {
                       link: `/preliminary-cooling-load?commentTargetType=${commentTargetItem.type}&commentTargetId=${commentTargetItem.id}&commentTargetName=${encodeURIComponent(commentTargetItem.name)}`,
                       metadata: {
                         id: comment.id,
-                        projectId: activeProjectId || project?.id,
+                        projectId: projId,
+                        projectName: projName,
                         calculatorPath: "/preliminary-cooling-load",
                         targetId: commentTargetItem.id,
                         targetName: commentTargetItem.name,
-                        targetType: commentTargetItem.type,
+                        targetType: "Cooling Space",
                         authorName: currentUserName,
                         text: comment.text,
                         createdAt: comment.timestamp,
