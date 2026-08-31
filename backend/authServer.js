@@ -233,6 +233,12 @@ async function readUsers(forceRefresh = false) {
         return {
           ...loc,
           ...u,
+          password: loc.password || u.password,
+          resetOtp: (loc.resetOtp !== undefined && loc.resetOtp !== '') ? loc.resetOtp : (u.resetOtp || ''),
+          resetOtpExpireAt: loc.resetOtpExpireAt || u.resetOtpExpireAt || 0,
+          verifyOtp: (loc.verifyOtp !== undefined && loc.verifyOtp !== '') ? loc.verifyOtp : (u.verifyOtp || ''),
+          verifyOtpExpireAt: loc.verifyOtpExpireAt || u.verifyOtpExpireAt || 0,
+          isAccountVerified: (loc.isAccountVerified !== undefined) ? loc.isAccountVerified : (u.isAccountVerified ?? true),
           role: effRole,
           organization_id: orgId,
           company: comp,
@@ -729,7 +735,7 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email and password are required' });
     }
 
-    const users = await readUsers();
+    const users = await readUsers(true);
     const cleanEmail = email.trim().toLowerCase();
     const userIndex = users.findIndex((u) => u.email === cleanEmail);
     const user = userIndex !== -1 ? users[userIndex] : null;
@@ -1159,9 +1165,10 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email, OTP, and new password are required' });
     }
 
-    const users = await readUsers();
     const cleanEmail = email.trim().toLowerCase();
-    const user = users.find((u) => u.email === cleanEmail);
+    const users = await readUsers(true);
+    const userIndex = users.findIndex((u) => u.email === cleanEmail);
+    const user = userIndex !== -1 ? users[userIndex] : null;
 
     if (!user) {
       return sendJSON(res, 200, { success: false, message: 'User not found' });
@@ -1171,7 +1178,7 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Invalid OTP' });
     }
 
-    if (user.resetOtpExpireAt < Date.now()) {
+    if (user.resetOtpExpireAt && Number(user.resetOtpExpireAt) < Date.now()) {
       return sendJSON(res, 200, { success: false, message: 'OTP Expired' });
     }
 
@@ -1190,7 +1197,11 @@ const server = http.createServer(async (req, res) => {
     user.resetOtp = '';
     user.resetOtpExpireAt = 0;
 
-    await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
+    users[userIndex] = user;
+    await writeUsers(users);
+    invalidateUserCache();
+
+    logActivity(user, 'RESET_PASSWORD', 'Password reset successfully via OTP');
 
     return sendJSON(res, 200, { success: true, message: 'Password reset successfully' });
   }
