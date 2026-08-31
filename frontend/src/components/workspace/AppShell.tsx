@@ -1384,7 +1384,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   useEffect(() => {
     runLicenseSeatHeartbeat();
-    const interval = setInterval(runLicenseSeatHeartbeat, 8000);
+    const interval = setInterval(runLicenseSeatHeartbeat, 15000);
 
     const handleUnload = () => {
       const orgId = userData?.organization_id || profile?.organization_id;
@@ -1397,7 +1397,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return () => {
       clearInterval(interval);
       window.removeEventListener('beforeunload', handleUnload);
-      handleUnload();
     };
   }, [runLicenseSeatHeartbeat, userId, userData?.organization_id, profile?.organization_id]);
 

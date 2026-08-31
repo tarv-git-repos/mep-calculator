@@ -126,6 +126,10 @@ export function EditPclSpaceModal({
     const finalKw = finalWatts / 1000;
     const finalTr = finalKw / 3.51685;
 
+    const isNoArea = areaNum <= 0;
+    const isNoType = !tempSpace.type || tempSpace.type.trim() === "";
+    const isFlagged = tempSpace.flagged !== undefined ? tempSpace.flagged : (isNoArea || isNoType);
+
     const finalized: PclSpace = {
       ...tempSpace,
       name: tempSpace.name.trim() || space.name,
@@ -134,6 +138,7 @@ export function EditPclSpaceModal({
       dissipation: finalWatts,
       kw: Number(finalKw.toFixed(2)),
       tr: Number(finalTr.toFixed(2)),
+      flagged: isFlagged,
     };
 
     onSave(finalized);

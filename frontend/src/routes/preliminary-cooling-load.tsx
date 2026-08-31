@@ -257,7 +257,25 @@ function PreliminaryCoolingLoadPage() {
     notes: "Preliminary room-by-room cooling load analysis based on standard target heat dissipation densities.",
   });
 
-  const [rows, setRows] = useState<PclRow[]>([]);
+  const [rows, setRows] = useState<PclRow[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const activeProjId = localStorage.getItem("mep_active_project_id");
+      const projKey = activeProjId ? `mep_pcl_rows_${activeProjId}` : "pcl_rows";
+      const saved = localStorage.getItem(projKey) || localStorage.getItem("pcl_rows");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [
+      { id: "1", name: "G-01 Main Office Lobby", area: 85, type: "Lobby - Residential", density: 180, dissipation: 15300, kw: 15.3, tr: 15.3 / 3.517, floor: "GF" },
+      { id: "2", name: "1F-02 Executive Office Cabin", area: 24, type: "Office - Cabin", density: 120, dissipation: 2880, kw: 2.88, tr: 2.88 / 3.517, floor: "1F" },
+      { id: "3", name: "1F-03 Main Meeting Room", area: 45, type: "Office - Meeting Room", density: 120, dissipation: 5400, kw: 5.4, tr: 5.4 / 3.517, floor: "1F" },
+      { id: "4", name: "B-01 Electrical Room", area: 35, type: "Typ. Electrical Room", density: 100, dissipation: 3500, kw: 3.5, tr: 3.5 / 3.517, floor: "BF" },
+      { id: "5", name: "B-02 Server Room", area: 25, type: "Server Room", density: 300, dissipation: 7500, kw: 7.5, tr: 7.5 / 3.517, floor: "BF" },
+    ];
+  });
   const [editingSpace, setEditingSpace] = useState<PclRow | null>(null);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
@@ -317,48 +335,37 @@ function PreliminaryCoolingLoadPage() {
     setCommentModalOpen(true);
   };
 
-  // Load from local storage on mount
+  // Sync with project changes
+  const isInitialMount = useRef(true);
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("pcl_rows");
-      if (saved) {
-        setRows(JSON.parse(saved));
-      } else {
-        // Populate default values
-        const defaults: PclRow[] = [
-          { id: "1", name: "G-01 Main Office Lobby", area: 85, type: "Lobby - Residential", density: 180, dissipation: 15300, kw: 15.3, tr: 15.3 / 3.517, floor: "GF" },
-          { id: "2", name: "1F-02 Executive Office Cabin", area: 24, type: "Office - Cabin", density: 120, dissipation: 2880, kw: 2.88, tr: 2.88 / 3.517, floor: "1F" },
-          { id: "3", name: "1F-03 Main Meeting Room", area: 45, type: "Office - Meeting Room", density: 120, dissipation: 5400, kw: 5.4, tr: 5.4 / 3.517, floor: "1F" },
-          { id: "4", name: "B-01 Electrical Room", area: 35, type: "Typ. Electrical Room", density: 100, dissipation: 3500, kw: 3.5, tr: 3.5 / 3.517, floor: "BF" },
-          { id: "5", name: "B-02 Server Room", area: 25, type: "Server Room", density: 300, dissipation: 7500, kw: 7.5, tr: 7.5 / 3.517, floor: "BF" },
-        ];
-        setRows(defaults);
-      }
-      
-      const savedInfo = localStorage.getItem("pcl_project_info");
-      if (savedInfo) {
-        setProjectInfo(JSON.parse(savedInfo));
-      }
-    } catch (e) {
-      console.error("Failed to load preliminary cooling load data", e);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
     }
-  }, []);
-
-  // Auto-save useEffect
-  useEffect(() => {
-    localStorage.setItem("pcl_rows", JSON.stringify(rows));
-    localStorage.setItem("pcl_rowCount", rows.length.toString());
-    localStorage.setItem("pcl_project_info", JSON.stringify(projectInfo));
-    // We do NOT call forceSaveToCloud here to avoid spamming the backend on every keystroke,
-    // unless required, but the prompt says "In the manual save function... add forceSaveToCloud".
-    // Wait, since this file doesn't have a manual save function, we can just let the global save handler (if any) handle it,
-    // or we could add a debounced save. But leaving it as pure localStorage auto-save per the instructions for generic keys.
-  }, [rows, projectInfo]);
+    const projId = activeProjectId || project?.id;
+    const projKey = projId ? `mep_pcl_rows_${projId}` : "pcl_rows";
+    const saved = localStorage.getItem(projKey) || localStorage.getItem("pcl_rows");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setRows(parsed);
+        }
+      } catch (e) {}
+    }
+  }, [activeProjectId, project?.id]);
 
   // Save to local storage and sync on rows change
   const saveRows = (newRows: PclRow[]) => {
     setRows(newRows);
     try {
+      localStorage.setItem("pcl_rows", JSON.stringify(newRows));
+      localStorage.setItem("pcl_rowCount", newRows.length.toString());
+      localStorage.setItem("pcl_project_info", JSON.stringify(projectInfo));
+      const projId = activeProjectId || project?.id;
+      if (projId) {
+        localStorage.setItem(`mep_pcl_rows_${projId}`, JSON.stringify(newRows));
+      }
       // Trigger PlumbingZoneLinker sync
       if (typeof (window as any).PlumbingZoneLinker?.syncFromPCL === "function") {
         (window as any).PlumbingZoneLinker.syncFromPCL();
@@ -818,9 +825,10 @@ function PreliminaryCoolingLoadPage() {
           const areaCleaned = rawArea.replace(/[^\d\.]/g, "");
           const area = parseFloat(areaCleaned) || 0;
 
-          const inferredType = inferTypeFromName(nameVal) || "Apartment - Dwelling Unit";
-          const density = SPACE_DENSITIES[inferredType] || 120;
+          const inferredType = inferTypeFromName(nameVal) || "";
+          const density = inferredType ? (SPACE_DENSITIES[inferredType] || 120) : 0;
           const floor = levelVal || extractFloor(nameVal) || "GF";
+          const isMissing = !inferredType || !area || area <= 0;
 
           parsed.push({
             id: `pending-${r}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -831,6 +839,7 @@ function PreliminaryCoolingLoadPage() {
             area,
             kw: (area * density) / 1000,
             tr: ((area * density) / 1000) / 3.517,
+            flagged: isMissing,
           });
         }
 
@@ -892,22 +901,29 @@ function PreliminaryCoolingLoadPage() {
       return;
     }
 
-    const nextRows = [...rows];
-    importList.forEach((r, idx) => {
-      nextRows.push({
-        id: `pcl-${Date.now()}-${idx}-${Math.random()}`,
+    const isDefaultData = rows.length === 5 && rows.some((r) => r.name === "G-01 Main Office Lobby");
+    const baseRows = isDefaultData ? [] : [...rows];
+
+    const importedSpaces: PclRow[] = importList.map((r, idx) => {
+      const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
+      const isNoType = !r.type || r.type.trim() === "";
+      const isFlagged = Boolean(r.flagged || isNoArea || isNoType);
+
+      return {
+        id: `pcl-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
         name: r.name,
         area: r.area,
-        type: r.type,
-        density: r.density,
-        dissipation: r.area * r.density,
-        kw: r.kw,
-        tr: r.tr,
-        floor: r.floor,
-      });
+        type: r.type || "",
+        density: r.density || (SPACE_DENSITIES[r.type] || 0),
+        dissipation: (Number(r.area) || 0) * (r.density || 0),
+        kw: r.kw || 0,
+        tr: r.tr || 0,
+        floor: r.floor || "GF",
+        flagged: isFlagged,
+      };
     });
 
-    saveRows(nextRows);
+    saveRows([...baseRows, ...importedSpaces]);
     setImportOpen(false);
     setPendingRecords([]);
     setSelectedPending(new Set());
@@ -1215,12 +1231,16 @@ function PreliminaryCoolingLoadPage() {
               const kw = dissipation / 1000;
               const tr = kw / 3.517;
 
+              const isNoArea = nextArea === "" || Number(nextArea) <= 0;
+              const isNoType = !row.type || row.type.trim() === "";
+
               return {
                 ...row,
                 area: nextArea,
                 dissipation,
                 kw,
-                tr
+                tr,
+                flagged: isNoArea || isNoType ? true : false
               };
             }));
           }}
@@ -1249,13 +1269,17 @@ function PreliminaryCoolingLoadPage() {
               const kw = dissipation / 1000;
               const tr = kw / 3.517;
 
+              const isNoArea = row.area === "" || Number(row.area) <= 0;
+              const isNoType = !nextType || nextType.trim() === "";
+
               return {
                 ...row,
                 type: nextType,
                 density,
                 dissipation,
                 kw,
-                tr
+                tr,
+                flagged: isNoArea || isNoType ? true : false
               };
             }));
           }}
@@ -1315,12 +1339,13 @@ function PreliminaryCoolingLoadPage() {
           className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
           title={
             (() => {
+              if (r.flagged) return "Unflag space";
               const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
               const isNoType = !r.type || r.type.trim() === "";
               if (isNoArea && isNoType) return "Missing space area and type";
               if (isNoArea) return "Missing space area";
               if (isNoType) return "Missing space type";
-              return r.flagged ? "Unflag space" : "Flag space";
+              return "Flag space";
             })()
           }
         >
