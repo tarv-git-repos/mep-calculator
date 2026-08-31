@@ -754,9 +754,9 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email and password are required' });
     }
 
+    const cleanEmail = (email || '').trim().toLowerCase();
     const users = await readUsers(true);
-    const cleanEmail = email.trim().toLowerCase();
-    const userIndex = users.findIndex((u) => u.email === cleanEmail);
+    const userIndex = users.findIndex((u) => u.email && u.email.trim().toLowerCase() === cleanEmail);
     const user = userIndex !== -1 ? users[userIndex] : null;
 
     if (!user) {
@@ -1187,21 +1187,26 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Email, OTP, and new password are required' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanOtp = String(otp || '').replace(/\D/g, '').trim();
     const users = await readUsers(true);
-    const userIndex = users.findIndex((u) => u.email === cleanEmail);
+    const userIndex = users.findIndex((u) => u.email && u.email.trim().toLowerCase() === cleanEmail);
     const user = userIndex !== -1 ? users[userIndex] : null;
 
+    console.log(`\n🔐 [RESET PASSWORD REQUEST] Target: "${cleanEmail}" | Received OTP: "${cleanOtp}" | Stored OTP: "${user?.resetOtp}" | ExpireAt: ${user?.resetOtpExpireAt}`);
+
     if (!user) {
-      return sendJSON(res, 200, { success: false, message: 'User not found' });
+      return sendJSON(res, 200, { success: false, message: 'User not found with this email' });
     }
 
-    if (!user.resetOtp || String(user.resetOtp).trim() !== String(otp).trim()) {
+    if (!user.resetOtp || String(user.resetOtp).trim() !== cleanOtp) {
+      console.warn(`❌ [RESET OTP MISMATCH] Received: "${cleanOtp}" vs Stored: "${user.resetOtp}" for ${cleanEmail}`);
       return sendJSON(res, 200, { success: false, message: 'Invalid OTP' });
     }
 
     if (user.resetOtpExpireAt && Number(user.resetOtpExpireAt) < Date.now()) {
-      return sendJSON(res, 200, { success: false, message: 'OTP Expired' });
+      console.warn(`❌ [RESET OTP EXPIRED] Expired at ${user.resetOtpExpireAt} (Now: ${Date.now()}) for ${cleanEmail}`);
+      return sendJSON(res, 200, { success: false, message: 'OTP Expired. Please request a new OTP code.' });
     }
 
     if (user.password) {
