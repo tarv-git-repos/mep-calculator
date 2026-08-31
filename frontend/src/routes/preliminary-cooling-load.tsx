@@ -1120,6 +1120,10 @@ function PreliminaryCoolingLoadPage() {
     setSelected(new Set());
   };
 
+  const getSpaceEditIds = (rId: string): string[] => {
+    return selected.has(rId) ? Array.from(selected) : [rId];
+  };
+
   // DataGrid Column definitions for PCL
   const columns: Column<PclRow>[] = [
     {
@@ -1144,24 +1148,31 @@ function PreliminaryCoolingLoadPage() {
           <InlineInput
             value={r.name}
             onCommit={(newName) => {
+              const editIds = getSpaceEditIds(r.id);
+              const editSet = new Set(editIds);
               const floor = extractFloor(newName);
-              const defaultType = inferTypeFromName(newName) || r.type;
-              const density = SPACE_DENSITIES[defaultType] || 120;
-              const numArea = r.area !== "" ? Number(r.area) : 0;
-              const dissipation = numArea * density;
-              const kw = dissipation / 1000;
-              const tr = kw / 3.517;
+              const defaultType = inferTypeFromName(newName);
 
-              saveRows(rows.map(row => row.id === r.id ? {
-                ...row,
-                name: newName,
-                floor,
-                type: defaultType,
-                density,
-                dissipation,
-                kw,
-                tr
-              } : row));
+              saveRows(rows.map(row => {
+                if (!editSet.has(row.id)) return row;
+                const nextType = defaultType || row.type;
+                const density = SPACE_DENSITIES[nextType] || (row.density || 120);
+                const numArea = row.area !== "" ? Number(row.area) : 0;
+                const dissipation = numArea * density;
+                const kw = dissipation / 1000;
+                const tr = kw / 3.517;
+
+                return {
+                  ...row,
+                  name: newName,
+                  floor: floor || row.floor,
+                  type: nextType,
+                  density,
+                  dissipation,
+                  kw,
+                  tr
+                };
+              }));
             }}
             className="font-normal text-[13px] font-sans flex-1 min-w-0"
           />
@@ -1182,19 +1193,26 @@ function PreliminaryCoolingLoadPage() {
           value={r.area}
           placeholder="20"
           onCommit={(newAreaStr) => {
+            const editIds = getSpaceEditIds(r.id);
+            const editSet = new Set(editIds);
             const nextArea = newAreaStr === "" ? "" : Number(newAreaStr);
             const numArea = nextArea !== "" ? Number(nextArea) : 0;
-            const dissipation = numArea * r.density;
-            const kw = dissipation / 1000;
-            const tr = kw / 3.517;
 
-            saveRows(rows.map(row => row.id === r.id ? {
-              ...row,
-              area: nextArea,
-              dissipation,
-              kw,
-              tr
-            } : row));
+            saveRows(rows.map(row => {
+              if (!editSet.has(row.id)) return row;
+              const density = row.density || (SPACE_DENSITIES[row.type] || 120);
+              const dissipation = numArea * density;
+              const kw = dissipation / 1000;
+              const tr = kw / 3.517;
+
+              return {
+                ...row,
+                area: nextArea,
+                dissipation,
+                kw,
+                tr
+              };
+            }));
           }}
           className="font-mono text-center text-[13px]"
         />
@@ -1210,20 +1228,26 @@ function PreliminaryCoolingLoadPage() {
           value={r.type || ""}
           onChange={(e) => {
             const nextType = e.target.value;
+            const editIds = getSpaceEditIds(r.id);
+            const editSet = new Set(editIds);
             const density = SPACE_DENSITIES[nextType] || 0;
-            const numArea = r.area !== "" ? Number(r.area) : 0;
-            const dissipation = numArea * density;
-            const kw = dissipation / 1000;
-            const tr = kw / 3.517;
 
-            saveRows(rows.map(row => row.id === r.id ? {
-              ...row,
-              type: nextType,
-              density,
-              dissipation,
-              kw,
-              tr
-            } : row));
+            saveRows(rows.map(row => {
+              if (!editSet.has(row.id)) return row;
+              const numArea = row.area !== "" ? Number(row.area) : 0;
+              const dissipation = numArea * density;
+              const kw = dissipation / 1000;
+              const tr = kw / 3.517;
+
+              return {
+                ...row,
+                type: nextType,
+                density,
+                dissipation,
+                kw,
+                tr
+              };
+            }));
           }}
           className={`w-full bg-transparent border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[12.5px] cursor-pointer font-sans ${!r.type ? "text-muted-foreground/45" : "text-foreground font-medium"}`}
         >
