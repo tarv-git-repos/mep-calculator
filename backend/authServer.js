@@ -223,8 +223,16 @@ async function readUsers(forceRefresh = false) {
     const { data, error } = await supabase.from('custom_users').select('*');
     let users = [];
     if (!error && Array.isArray(data)) {
+      const seenIds = new Set();
+      const seenEmails = new Set();
+
       users = data.map(u => {
-        const loc = localMap.get(String(u.id || '').toLowerCase()) || localMap.get(String(u.email || '').toLowerCase()) || {};
+        const idKey = String(u.id || '').toLowerCase();
+        const emailKey = String(u.email || '').toLowerCase();
+        if (idKey) seenIds.add(idKey);
+        if (emailKey) seenEmails.add(emailKey);
+
+        const loc = localMap.get(idKey) || localMap.get(emailKey) || {};
         const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
         const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
         const orgId = u.organization_id || loc.organization_id || u.features?.organization_id || loc.features?.organization_id || null;
@@ -258,6 +266,17 @@ async function readUsers(forceRefresh = false) {
             subscription_expires: expDate
           }
         };
+      });
+
+      // Preserve any local users that are not yet in Supabase data
+      (localUsers || []).forEach(loc => {
+        const idKey = String(loc.id || '').toLowerCase();
+        const emailKey = String(loc.email || '').toLowerCase();
+        if ((!idKey || !seenIds.has(idKey)) && (!emailKey || !seenEmails.has(emailKey))) {
+          users.push(loc);
+          if (idKey) seenIds.add(idKey);
+          if (emailKey) seenEmails.add(emailKey);
+        }
       });
       users = users.filter(u => u.email !== 'parassadafuule05@gmail.com');
       
