@@ -1,0 +1,817 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 6917
+>>
+stream
+0.200025 w
+0 G
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: PROFILE, SETTINGS & STABILITY \(CHECKLIST AUDIT\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 15 Tf
+17.25 TL
+0.059 0.09 0.165 rg
+40. 761.8899999999999864 Td
+(Executive Summary: Profile, Settings & App Stability) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.278 0.333 0.412 rg
+40. 745.8899999999999864 Td
+(This audit report evaluates the MEP Calculator codebase against the FENMO \(Globel\) Application QA/UAT Checklist for User) Tj
+T* (Profile Persistence, Engineering Standards Configuration, Theme/Unit Preferences, Error Boundaries & Runtime Stability \(IDs 38) Tj
+T* (and 41\).) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+40. 699.8899999999999864 35. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45. 687.6649999999999636 Td
+(ID) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+75. 699.8899999999999864 190. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+80. 687.6649999999999636 Td
+(Checklist Item) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+265. 699.8899999999999864 55. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+270. 687.6649999999999636 Td
+(Severity) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+320. 699.8899999999999864 100. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+325. 687.6649999999999636 Td
+(Audit Result) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+420. 699.8899999999999864 135. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+425. 687.6649999999999636 Td
+(Action Required) Tj
+ET
+0. G
+0.200025 w
+1. g
+0.78 G
+0.1 w
+1. g
+40. 680.1150000000000091 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 668.3149999999999409 Td
+(ID 38) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 680.1150000000000091 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 668.3149999999999409 Td
+(Profile Settings Save & Cloud Persistence) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 680.1150000000000091 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 668.3149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 680.1150000000000091 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 668.3149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 680.1150000000000091 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 668.3149999999999409 Td
+(None - Name, designation,) Tj
+T* (company & avatar sync active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 651.7149999999999181 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 639.9149999999999636 Td
+(ID 41) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 651.7149999999999181 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 639.9149999999999636 Td
+(Application Performance & Crash Prevention) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 651.7149999999999181 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 639.9149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 651.7149999999999181 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 639.9149999999999636 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 651.7149999999999181 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 639.9149999999999636 Td
+(None - Error boundaries & offline) Tj
+T* (fallbacks operational) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 607.3149999999999409 Td
+(1. Detailed Component Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+40. 593.3149999999999409 45. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+46. 580.0899999999999181 Td
+(Item ID) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+85. 593.3149999999999409 165. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+91. 580.0899999999999181 Td
+(Architecture Component) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+250. 593.3149999999999409 305. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+256. 580.0899999999999181 Td
+(Technical Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 571.5399999999999636 45. -48.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 558.7400000000000091 Td
+(ID 38) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+85. 571.5399999999999636 165. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+91. 558.7400000000000091 Td
+(Settings & Profile Management) Tj
+T* (File: frontend/src/routes/settings.tsx) Tj
+T* (Endpoints: /api/user/profile &) Tj
+T* (/api/user/update-profile) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+250. 571.5399999999999636 305. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+256. 558.7400000000000091 Td
+(EVIDENCE: Supports live editing of full name, designation, organization, profile) Tj
+T* (avatar, theme \(dark/light/system\), units \(IP/SI\), autosave interval, and engineering) Tj
+T* (calculation standards. Updates persist across localStorage and database records) Tj
+T* (with real-time UI synchronization.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 522.7400000000000091 45. -48.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 509.9399999999999409 Td
+(ID 41) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+85. 522.7400000000000091 165. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+91. 509.9399999999999409 Td
+(Performance & Crash Resilience) Tj
+T* (Architecture: React Error Boundaries &) Tj
+T* (Offline Fallback Stores) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+250. 522.7400000000000091 305. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+256. 509.9399999999999409 Td
+(EVIDENCE: Error boundaries intercept unhandled component exceptions without) Tj
+T* (crashing the shell. LocalStorage fallback caches maintain full calculation) Tj
+T* (capabilities during network drops, syncing automatically when connectivity) Tj
+T* (resumes.) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 3355
+>>
+stream
+0.200025 w
+0.89 0.91 0.94 RG
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: PROFILE, SETTINGS & STABILITY \(ARCHITECTURE SPEC\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 766.8899999999999864 Td
+(2. Settings Synchronization & Profile Lifecycle) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.2 0.255 0.333 rg
+40. 752.8899999999999864 Td
+(The following diagram illustrates how user profile attributes and calculation preferences synchronize across local and cloud layers:) Tj
+ET
+0.97 0.98 0.99 rg
+40. 738.8899999999999864 515.2799999999999727 -220. re
+f
+0.8 0.84 0.88 RG
+40. 738.8899999999999864 515.2799999999999727 -220. re
+S
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 718.8899999999999864 Td
+(1. Local Preferences Store \(Instant UI Feedback\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 704.8899999999999864 Td
+(• Instant theme toggle applies dark/light classes to HTML document root without page reload.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 692.8899999999999864 Td
+(• Unit conversions \(IP vs SI\) propagate dynamically to all active calculator inputs.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 672.8899999999999864 Td
+(2. Cloud Profile Sync Pipeline) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 658.8899999999999864 Td
+(• `handleSaveToCloud` dispatches `POST /api/user/update-profile`.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 646.8899999999999864 Td
+(• Updates user name, designation, organization affiliation, and avatar in database.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 634.8899999999999864 Td
+(• Header user menu and avatar icon update instantly across open browser tabs.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 614.8899999999999864 Td
+(3. Resilience & Crash Prevention Engine) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 600.8899999999999864 Td
+(• Defensive try/catch wrappers around all calculation math routines prevent NaN propagation.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 588.8899999999999864 Td
+(• Dynamic route chunk lazy-loading ensures minimal initial memory footprint.) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+40. 498.8899999999999864 Td
+(3. Audit Conclusion & Compliance Status) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.278 0.333 0.412 rg
+40. 484.8899999999999864 Td
+(All requirements under Profile, User Settings & App Stability are fully verified, robust, and 100% compliant with enterprise desktop and) Tj
+T* (web quality criteria. No code modifications are required for this module.) Tj
+ET
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260831120438+05'30')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000010665 00000 n 
+0000012490 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000007121 00000 n 
+0000007258 00000 n 
+0000010728 00000 n 
+0000010853 00000 n 
+0000010983 00000 n 
+0000011116 00000 n 
+0000011254 00000 n 
+0000011378 00000 n 
+0000011507 00000 n 
+0000011639 00000 n 
+0000011775 00000 n 
+0000011903 00000 n 
+0000012030 00000 n 
+0000012159 00000 n 
+0000012292 00000 n 
+0000012394 00000 n 
+0000012740 00000 n 
+0000012826 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <A834F8C6982C9437B1CC302A0E590FF9> <A834F8C6982C9437B1CC302A0E590FF9> ]
+>>
+startxref
+12930
+%%EOF

@@ -1,0 +1,985 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 9493
+>>
+stream
+0.200025 w
+0 G
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: APP LIFECYCLE & UPDATES \(CHECKLIST AUDIT\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 15 Tf
+17.25 TL
+0.059 0.09 0.165 rg
+40. 761.8899999999999864 Td
+(Executive Summary: App Lifecycle & Auto-Updates) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.278 0.333 0.412 rg
+40. 745.8899999999999864 Td
+(This audit report evaluates the MEP Calculator codebase for Desktop & Web Application Lifecycle, Tauri Native Packaging,) Tj
+T* (Auto-Updater Integration, Schema Migrations, Backward Compatibility & Clean Uninstallations.) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+40. 711.8899999999999864 115. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45. 699.6649999999999636 Td
+(Module Component) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+155. 711.8899999999999864 185. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+160. 699.6649999999999636 Td
+(Lifecycle Scope) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+340. 711.8899999999999864 50. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+345. 699.6649999999999636 Td
+(Severity) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+390. 711.8899999999999864 80. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+395. 699.6649999999999636 Td
+(Audit Result) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+470. 711.8899999999999864 85. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+475. 699.6649999999999636 Td
+(Action Required) Tj
+ET
+0. G
+0.200025 w
+1. g
+0.78 G
+0.1 w
+1. g
+40. 692.1150000000000091 115. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 680.3149999999999409 Td
+(Tauri Desktop Runtime) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+155. 692.1150000000000091 185. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+160. 680.3149999999999409 Td
+(Rust native shell + WebKit/WebView2 bundle) Tj
+T* (\(Windows NSIS\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+340. 692.1150000000000091 50. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+345. 680.3149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+390. 692.1150000000000091 80. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+395. 680.3149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+470. 692.1150000000000091 85. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+475. 680.3149999999999409 Td
+(None - Native bundle) Tj
+T* (config verified) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 663.7149999999999181 115. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 651.9149999999999636 Td
+(Over-The-Air \(OTA\) Updates) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+155. 663.7149999999999181 185. -37.5999999999999943 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+160. 651.9149999999999636 Td
+(Tauri mini-sign updater with Supabase) Tj
+T* (update.json endpoints) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+340. 663.7149999999999181 50. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+345. 651.9149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+390. 663.7149999999999181 80. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+395. 651.9149999999999636 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+470. 663.7149999999999181 85. -37.5999999999999943 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+475. 651.9149999999999636 Td
+(None - Signed) Tj
+T* (updater pipeline) Tj
+T* (active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 626.1150000000000091 115. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 614.3149999999999409 Td
+(Schema Migration Safety) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+155. 626.1150000000000091 185. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+160. 614.3149999999999409 Td
+(Graceful column fallback & automatic local JSON) Tj
+T* (schema sync) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+340. 626.1150000000000091 50. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+345. 614.3149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+390. 626.1150000000000091 80. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+395. 614.3149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+470. 626.1150000000000091 85. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+475. 614.3149999999999409 Td
+(None - Non-breaking) Tj
+T* (migrations verified) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 597.7149999999999181 115. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 585.9149999999999636 Td
+(Crash & Process) Tj
+T* (Cleanliness) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+155. 597.7149999999999181 185. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+160. 585.9149999999999636 Td
+(Single-instance lock, clean memory cleanup on) Tj
+T* (exit) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+340. 597.7149999999999181 50. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+345. 585.9149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+390. 597.7149999999999181 80. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+395. 585.9149999999999636 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+470. 597.7149999999999181 85. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+475. 585.9149999999999636 Td
+(None - Safe thread) Tj
+T* (termination active) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 553.3150000000000546 Td
+(1. Detailed Component Verification & Findings) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+40. 539.3150000000000546 50. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+46. 526.0899999999999181 Td
+(Ref) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+90. 539.3150000000000546 165. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+96. 526.0899999999999181 Td
+(Architecture Component) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+255. 539.3150000000000546 300. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+261. 526.0899999999999181 Td
+(Technical Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 517.5399999999999636 50. -39.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 504.7400000000000091 Td
+(LIFE-01) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+90. 517.5399999999999636 165. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+96. 504.7400000000000091 Td
+(Tauri Desktop Packaging) Tj
+T* (File: frontend/src-tauri/tauri.conf.json) Tj
+T* (Identifier: com.vikram.mepcalculator) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+255. 517.5399999999999636 300. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+261. 504.7400000000000091 Td
+(EVIDENCE: Bundles NSIS Windows standalone installer with multi-resolution) Tj
+T* (application icons \(32x32, 128x128, .ico, .icns\), single-instance enforcement, and) Tj
+T* (native window resize bounds \(800x600 minimum\).) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 477.9400000000000546 50. -39.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 465.1400000000000432 Td
+(LIFE-02) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+90. 477.9400000000000546 165. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+96. 465.1400000000000432 Td
+(Cryptographic Auto-Updater) Tj
+T* (Config: plugins.updater \(pubkey: minisign\)) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+255. 477.9400000000000546 300. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+261. 465.1400000000000432 Td
+(EVIDENCE: Configured with mini-sign public key cryptography and redundant) Tj
+T* (HTTPS update manifests \(Supabase Storage & Render\). Client verifies signatures) Tj
+T* (before applying binary patches.) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 438.3400000000000318 50. -39.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 425.5400000000000205 Td
+(LIFE-03) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+90. 438.3400000000000318 165. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+96. 425.5400000000000205 Td
+(Schema & Data Backward Compatibility) Tj
+T* (File: backend/authServer.js) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+255. 438.3400000000000318 300. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+261. 425.5400000000000205 Td
+(EVIDENCE: All database queries implement defensive column fallbacks \(e.g. `if) Tj
+T* (\(error.includes\('organization_id'\)\) retryWithoutColumn`\). Automatically migrates) Tj
+T* (legacy calculator JSON keys to unified workspace structures.) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 3196
+>>
+stream
+0.200025 w
+0.89 0.91 0.94 RG
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: APP LIFECYCLE & UPDATES \(ARCHITECTURE SPEC\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 766.8899999999999864 Td
+(2. Application Lifecycle & OTA Update Pipeline) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.2 0.255 0.333 rg
+40. 752.8899999999999864 Td
+(The following diagram outlines the desktop release, cryptographic validation, and auto-update cycle:) Tj
+ET
+0.97 0.98 0.99 rg
+40. 738.8899999999999864 515.2799999999999727 -220. re
+f
+0.8 0.84 0.88 RG
+40. 738.8899999999999864 515.2799999999999727 -220. re
+S
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 718.8899999999999864 Td
+(1. Build & Release Packaging) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 704.8899999999999864 Td
+(• Cargo/Tauri compiler generates compressed NSIS executable `MEP_Calculator_Setup.exe`.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 692.8899999999999864 Td
+(• Release binary is cryptographically signed with minisign private key -> generates signature hash.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 672.8899999999999864 Td
+(2. Background Update Detection & Verification) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 658.8899999999999864 Td
+(• Desktop app queries `update.json` manifest on application startup in the background.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 646.8899999999999864 Td
+(• Validates semantic version \(e.g. 0.0.4 -> 0.0.5\) and checks minisign signature against public key.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 626.8899999999999864 Td
+(3. Seamless Binary Replacement & Migration) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 612.8899999999999864 Td
+(• Downloads binary delta patch and replaces executable upon user confirmation.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 600.8899999999999864 Td
+(• Preserves local user tokens and calculation caches during update restart without data loss.) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+40. 498.8899999999999864 Td
+(3. Audit Conclusion & Compliance Status) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.278 0.333 0.412 rg
+40. 484.8899999999999864 Td
+(The App Lifecycle & Updates module is fully verified, robust, and 100% compliant with enterprise desktop distribution and cryptographic) Tj
+T* (auto-update standards. No code modifications are required for this module.) Tj
+ET
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260831120916+05'30')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000013082 00000 n 
+0000014907 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000009697 00000 n 
+0000009834 00000 n 
+0000013145 00000 n 
+0000013270 00000 n 
+0000013400 00000 n 
+0000013533 00000 n 
+0000013671 00000 n 
+0000013795 00000 n 
+0000013924 00000 n 
+0000014056 00000 n 
+0000014192 00000 n 
+0000014320 00000 n 
+0000014447 00000 n 
+0000014576 00000 n 
+0000014709 00000 n 
+0000014811 00000 n 
+0000015157 00000 n 
+0000015243 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <F5D07451B8FF9498A0ECC03F6413E048> <F5D07451B8FF9498A0ECC03F6413E048> ]
+>>
+startxref
+15347
+%%EOF

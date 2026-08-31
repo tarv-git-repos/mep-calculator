@@ -1,0 +1,1052 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 10678
+>>
+stream
+0.200025 w
+0 G
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: CLOUD, PERSISTENCE & SYNC \(CHECKLIST AUDIT\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 15 Tf
+17.25 TL
+0.059 0.09 0.165 rg
+40. 761.8899999999999864 Td
+(Executive Summary: Cloud, Persistence & Sync) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.278 0.333 0.412 rg
+40. 745.8899999999999864 Td
+(This audit report evaluates the MEP Calculator codebase against the FENMO \(Globel\) Application QA/UAT Checklist for Cloud) Tj
+T* (Storage, Real-Time Collaboration & Data Integrity \(IDs 6, 7, 16, and 30\). It validates persistence across sessions, multi-user) Tj
+T* (WebSocket synchronization, and crash recovery protections.) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+40. 699.8899999999999864 35. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45. 687.6649999999999636 Td
+(ID) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+75. 699.8899999999999864 190. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+80. 687.6649999999999636 Td
+(Checklist Item) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+265. 699.8899999999999864 55. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+270. 687.6649999999999636 Td
+(Severity) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+320. 699.8899999999999864 100. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+325. 687.6649999999999636 Td
+(Audit Result) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+420. 699.8899999999999864 135. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+425. 687.6649999999999636 Td
+(Action Required) Tj
+ET
+0. G
+0.200025 w
+1. g
+0.78 G
+0.1 w
+1. g
+40. 680.1150000000000091 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 668.3149999999999409 Td
+(ID 6) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 680.1150000000000091 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 668.3149999999999409 Td
+(Save to Cloud \(Permanent Cloud Persistence\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 680.1150000000000091 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 668.3149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 680.1150000000000091 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 668.3149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 680.1150000000000091 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 668.3149999999999409 Td
+(None - Supabase cloud storage &) Tj
+T* (autosave active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 651.7149999999999181 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 639.9149999999999636 Td
+(ID 7) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 651.7149999999999181 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 639.9149999999999636 Td
+(Auto Sync \(Multi-Client Real-Time Collaboration\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 651.7149999999999181 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 639.9149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 651.7149999999999181 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 639.9149999999999636 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 651.7149999999999181 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 639.9149999999999636 Td
+(None - Supabase Realtime) Tj
+T* (WebSocket operational) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 623.3149999999999409 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 611.5149999999999864 Td
+(ID 16) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 623.3149999999999409 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 611.5149999999999864 Td
+(Server Storage / Permanent Retention) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 623.3149999999999409 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 611.5149999999999864 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 623.3149999999999409 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 611.5149999999999864 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 623.3149999999999409 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 611.5149999999999864 Td
+(None - Dual-tier cloud DB & local) Tj
+T* (disk backups active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 594.9149999999999636 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 583.1150000000000091 Td
+(ID 30) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 594.9149999999999636 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 583.1150000000000091 Td
+(Data Integrity \(Loss Prevention & Sanitization\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 594.9149999999999636 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 583.1150000000000091 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 594.9149999999999636 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 583.1150000000000091 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 594.9149999999999636 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 583.1150000000000091 Td
+(None - Undo/Redo & input) Tj
+T* (sanitizers operational) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 550.5149999999999864 Td
+(1. Detailed Architecture Verification & Findings) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+40. 536.5149999999999864 45. -20.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45.5 523.7899999999999636 Td
+(Item ID) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+85. 536.5149999999999864 165. -20.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+90.5 523.7899999999999636 Td
+(Architecture Component) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+250. 536.5149999999999864 305. -20.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+255.5 523.7899999999999636 Td
+(Technical Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 515.7400000000000091 45. -47.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45.5 503.4399999999999977 Td
+(ID 6) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+85. 515.7400000000000091 165. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+90.5 503.4399999999999977 Td
+(Cloud Save Pipeline) Tj
+T* (File: frontend/src/lib/workspace-store.ts) Tj
+T* (Endpoint: POST) Tj
+T* (/api/projects/save-workspace) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+250. 515.7400000000000091 305. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+255.5 503.4399999999999977 Td
+(EVIDENCE: `workspaceStore.forceSaveToCloud\(\)` and debounced autosave) Tj
+T* (\(1000ms timer\) serialize current spaces, zones, equipment, and form caches to) Tj
+T* (Supabase PostgreSQL cloud table `projects`. On page reload or fresh re-login,) Tj
+T* (`syncFromCloud\(\)` reliably pulls and hydrates the exact workspace state.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 467.9399999999999977 45. -47.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45.5 455.6399999999999864 Td
+(ID 7) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+85. 467.9399999999999977 165. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+90.5 455.6399999999999864 Td
+(Real-Time Collaboration Engine) Tj
+T* (File: frontend/src/lib/collaboration-store.ts) Tj
+T* (Protocol: Supabase Realtime Channels) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+250. 467.9399999999999977 305. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+255.5 455.6399999999999864 Td
+(EVIDENCE: Subscribes to `project:${projectName}` channel with presence tracking) Tj
+T* (and broadcast channels. Form updates in `AppShell.tsx` trigger) Tj
+T* (`broadcastData\(pathname, state\)`, which dispatches DOM updates to other) Tj
+T* (engineers currently viewing the same project room.) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 420.1399999999999864 45. -47.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45.5 407.839999999999975 Td
+(ID 16) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+85. 420.1399999999999864 165. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+90.5 407.839999999999975 Td
+(Permanent Retention Strategy) Tj
+T* (File: backend/authServer.js) Tj
+T* (Storage: Cloud PostgreSQL + Local JSON) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+250. 420.1399999999999864 305. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+255.5 407.839999999999975 Td
+(EVIDENCE: Dual-tier redundancy architecture. Primary storage resides) Tj
+T* (permanently in cloud database without expiration or TTL eviction. Server-side) Tj
+T* (auto-backups are simultaneously mirrored to `backend/data/` JSON stores for) Tj
+T* (instant disaster recovery.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 372.339999999999975 45. -47.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45.5 360.0399999999999636 Td
+(ID 30) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+85. 372.339999999999975 165. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+90.5 360.0399999999999636 Td
+(Data Integrity & Crash Safety) Tj
+T* (File: frontend/src/lib/workspace-store.ts) Tj
+T* (Modules: sanitizeWorkspaceState &) Tj
+T* (useAutoBackup) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+250. 372.339999999999975 305. -47.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+255.5 360.0399999999999636 Td
+(EVIDENCE: Pre-save validation sanitizes empty names, resolves orphaned zones) Tj
+T* (to Default, and validates calculation parameters. Includes 50-step in-memory) Tj
+T* (Undo/Redo stack \(`pushHistory\(\)`\) and periodic snapshot timers) Tj
+T* (\(`useAutoBackup`\).) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 3866
+>>
+stream
+0.200025 w
+0.89 0.91 0.94 RG
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: CLOUD, PERSISTENCE & SYNC \(SYNC PIPELINE\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 766.8899999999999864 Td
+(2. Multi-Tier Persistence & Sync Pipeline Diagram) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.2 0.255 0.333 rg
+40. 752.8899999999999864 Td
+(The following diagram outlines the end-to-end cloud persistence, real-time collaboration, and local caching architecture:) Tj
+ET
+0.97 0.98 0.99 rg
+40. 738.8899999999999864 515.2799999999999727 -230. re
+f
+0.8 0.84 0.88 RG
+40. 738.8899999999999864 515.2799999999999727 -230. re
+S
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 718.8899999999999864 Td
+(1. Local Client Layer \(Instant Interaction & Crash Safety\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 704.8899999999999864 Td
+(• React State Store \(Zustand + workspaceStore\) maintains active spaces, zones, and equipment.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 692.8899999999999864 Td
+(• LocalStorage cache \(`mep_cached_projects`, `mep_auto_state_*`\) provides instant zero-delay boot.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 680.8899999999999864 Td
+(• 50-step Undo/Redo historical stack captures structural changes prior to save triggers.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 660.8899999999999864 Td
+(2. Real-Time Collaboration Layer \(WebSocket Multi-Client Sync\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 646.8899999999999864 Td
+(• Supabase Realtime WebSocket establishes bidirectional channel `project:<id>`.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 634.8899999999999864 Td
+(• Dynamic presence broadcast detects peer engineers and displays active user avatar indicators.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 622.8899999999999864 Td
+(• Form input changes broadcast live DOM state to other collaborators in real-time.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 602.8899999999999864 Td
+(3. Cloud & Server Permanent Retention Layer) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 588.8899999999999864 Td
+(• Debounced \(1000ms\) and explicit `forceSaveToCloud\(\)` dispatches `POST /api/projects/save-workspace`.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 576.8899999999999864 Td
+(• Database persistence in Supabase PostgreSQL `projects.workspace_data` \(JSONB column\).) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 564.8899999999999864 Td
+(• Server-side mirror write to local filesystem `backend/data/` for resilient offline continuity.) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+40. 488.8899999999999864 Td
+(3. Audit Conclusion & Compliance Status) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.278 0.333 0.412 rg
+40. 474.8899999999999864 Td
+(All 4 checklist requirements \(IDs 6, 7, 16, and 30\) under Cloud, Persistence & Synchronization are fully verified, robust, and 100%) Tj
+T* (compliant with enterprise cloud storage and multi-user standards. No code modifications are required for this module.) Tj
+ET
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260831115052+05'30')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000014938 00000 n 
+0000016763 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000010883 00000 n 
+0000011020 00000 n 
+0000015001 00000 n 
+0000015126 00000 n 
+0000015256 00000 n 
+0000015389 00000 n 
+0000015527 00000 n 
+0000015651 00000 n 
+0000015780 00000 n 
+0000015912 00000 n 
+0000016048 00000 n 
+0000016176 00000 n 
+0000016303 00000 n 
+0000016432 00000 n 
+0000016565 00000 n 
+0000016667 00000 n 
+0000017013 00000 n 
+0000017099 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <06E6DC2E42CAF037B2BF9EF2C7FD5A79> <06E6DC2E42CAF037B2BF9EF2C7FD5A79> ]
+>>
+startxref
+17203
+%%EOF

@@ -1,0 +1,939 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 8849
+>>
+stream
+0.200025 w
+0 G
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: NOTIFICATIONS & ACTIVITY LOGS \(CHECKLIST AUDIT\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 15 Tf
+17.25 TL
+0.059 0.09 0.165 rg
+40. 761.8899999999999864 Td
+(Executive Summary: Notifications & Activity Logs) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.278 0.333 0.412 rg
+40. 745.8899999999999864 Td
+(This audit report evaluates the MEP Calculator codebase against the FENMO \(Globel\) Application QA/UAT Checklist for) Tj
+T* (Real-Time Notifications, Notification Center Interaction & Security Audit Logging \(IDs 10, 11, and 29\). It validates recipient) Tj
+T* (targeting, unread counters, and enterprise activity logs.) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+40. 699.8899999999999864 35. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45. 687.6649999999999636 Td
+(ID) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+75. 699.8899999999999864 190. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+80. 687.6649999999999636 Td
+(Checklist Item) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+265. 699.8899999999999864 55. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+270. 687.6649999999999636 Td
+(Severity) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+320. 699.8899999999999864 100. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+325. 687.6649999999999636 Td
+(Audit Result) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+420. 699.8899999999999864 135. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+425. 687.6649999999999636 Td
+(Action Required) Tj
+ET
+0. G
+0.200025 w
+1. g
+0.78 G
+0.1 w
+1. g
+40. 680.1150000000000091 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 668.3149999999999409 Td
+(ID 10) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 680.1150000000000091 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 668.3149999999999409 Td
+(Notification Generation \(Triggers & Targeted) Tj
+T* (Delivery\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 680.1150000000000091 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 668.3149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 680.1150000000000091 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 668.3149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 680.1150000000000091 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 668.3149999999999409 Td
+(None - Event dispatch & recipient) Tj
+T* (mapping operational) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 651.7149999999999181 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 639.9149999999999636 Td
+(ID 11) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 651.7149999999999181 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 639.9149999999999636 Td
+(Notification Center \(Bell Icon, Badge & Task) Tj
+T* (Actions\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 651.7149999999999181 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 639.9149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 651.7149999999999181 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 639.9149999999999636 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 651.7149999999999181 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 639.9149999999999636 Td
+(None - Interactive drawer & task) Tj
+T* (completion active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 623.3149999999999409 35. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 611.5149999999999864 Td
+(ID 29) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 623.3149999999999409 190. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+80. 611.5149999999999864 Td
+(Admin & Security Activity Logs) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 623.3149999999999409 55. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+270. 611.5149999999999864 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 623.3149999999999409 100. -28.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+325. 611.5149999999999864 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 623.3149999999999409 135. -28.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+425. 611.5149999999999864 Td
+(None - 1000-event audit log &) Tj
+T* (RBAC views operational) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 578.9149999999999636 Td
+(1. Detailed Component Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+40. 564.9149999999999636 45. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+46. 551.6899999999999409 Td
+(Item ID) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+85. 564.9149999999999636 165. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+91. 551.6899999999999409 Td
+(Architecture Component) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+250. 564.9149999999999636 305. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+256. 551.6899999999999409 Td
+(Technical Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 543.1399999999999864 45. -58. re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 530.3399999999999181 Td
+(ID 10) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+85. 543.1399999999999864 165. -58. re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+91. 530.3399999999999181 Td
+(Notification Dispatch Pipeline) Tj
+T* (Files: AssignCommentModal.tsx &) Tj
+T* (CalculationReviewBar.tsx) Tj
+T* (Events: mep-notification-added &) Tj
+T* (coord_notifs) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+250. 543.1399999999999864 305. -58. re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+256. 530.3399999999999181 Td
+(EVIDENCE: Automatically fires notifications upon task assignment, comment) Tj
+T* (creation, and workflow state submissions. Evaluates user ID, user name, and email) Tj
+T* (to ensure only assigned engineers and coordinators receive the notification.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 485.1399999999999864 45. -58. re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 472.339999999999975 Td
+(ID 11) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+85. 485.1399999999999864 165. -58. re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+91. 472.339999999999975 Td
+(Notification Center & Task Completion) Tj
+T* (File: frontend/src/components/workspace/A) Tj
+T* (ppShell.tsx) Tj
+T* (Components: Bell Icon, Unread Badge,) Tj
+T* (Completion Dispatcher) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+250. 485.1399999999999864 305. -58. re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+256. 472.339999999999975 Td
+(EVIDENCE: Displays live unread count badge on the header bell. Popover lists) Tj
+T* (assigned tasks by project, calculation path, target space/zone, and timestamp.) Tj
+T* (Clicking 'Mark Complete' removes the comment and dispatches a task completion) Tj
+T* (receipt back to the author.) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 427.1399999999999864 45. -48.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 414.339999999999975 Td
+(ID 29) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+85. 427.1399999999999864 165. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+91. 414.339999999999975 Td
+(Enterprise Audit & Activity Logging) Tj
+T* (File: backend/authServer.js) Tj
+T* (Endpoints: /api/admin/activity-logs &) Tj
+T* (/api/org/activity-logs) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+250. 427.1399999999999864 305. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+256. 414.339999999999975 Td
+(EVIDENCE: Every security and management event \(login, signup, password reset,) Tj
+T* (team creation, project creation, license key actions, module calculations\) is logged) Tj
+T* (with timestamp, user ID, email, action type, and JSON payload. Super Admin &) Tj
+T* (Org Admin RBAC views enforce strict tenant isolation.) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 3648
+>>
+stream
+0.200025 w
+0.89 0.91 0.94 RG
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: NOTIFICATIONS & ACTIVITY LOGS \(LOGGING SPEC\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 766.8899999999999864 Td
+(2. Activity Logging & Notification Flow Architecture) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.2 0.255 0.333 rg
+40. 752.8899999999999864 Td
+(The following diagram outlines the notification routing and persistent security logging pipeline:) Tj
+ET
+0.97 0.98 0.99 rg
+40. 738.8899999999999864 515.2799999999999727 -220. re
+f
+0.8 0.84 0.88 RG
+40. 738.8899999999999864 515.2799999999999727 -220. re
+S
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 718.8899999999999864 Td
+(1. Notification Generation & Delivery Lifecycle) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 704.8899999999999864 Td
+(• Trigger event occurs \(e.g. Space Comment assigned to Rahul, or Sr. Review submitted for Ventilation\).) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 692.8899999999999864 Td
+(• Notification record added to workspace data \(`coord_notifs` / `task_completion_notifs`\).) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 680.8899999999999864 Td
+(• Local event `mep-notification-added` fires to instantly update header bell badge and count.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 660.8899999999999864 Td
+(2. Notification Center Interaction & Completion) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 646.8899999999999864 Td
+(• Engineer clicks notification -> routes directly to the calculator module with relevant space highlighted.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 634.8899999999999864 Td
+(• Engineer resolves task -> clicks 'Complete Task'. Comment is cleared and completion alert returned.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 614.8899999999999864 Td
+(3. Security Audit Logging & Compliance) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 600.8899999999999864 Td
+(• Backend `logActivity\(user, action_type, details\)` appends event to `backend/data/activity_logs.json`.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 588.8899999999999864 Td
+(• Rotates up to 1000 latest audit events to maintain fast query response times.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 576.8899999999999864 Td
+(• Admin panel filters logs by date range, action category, user email, and organization.) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+40. 498.8899999999999864 Td
+(3. Audit Conclusion & Compliance Status) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.278 0.333 0.412 rg
+40. 484.8899999999999864 Td
+(All 3 checklist requirements \(IDs 10, 11, and 29\) under Notifications & Activity Logs are fully verified, robust, and 100% compliant with) Tj
+T* (enterprise application governance standards. No code modifications are required for this module.) Tj
+ET
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260831120022+05'30')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000012890 00000 n 
+0000014715 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000009053 00000 n 
+0000009190 00000 n 
+0000012953 00000 n 
+0000013078 00000 n 
+0000013208 00000 n 
+0000013341 00000 n 
+0000013479 00000 n 
+0000013603 00000 n 
+0000013732 00000 n 
+0000013864 00000 n 
+0000014000 00000 n 
+0000014128 00000 n 
+0000014255 00000 n 
+0000014384 00000 n 
+0000014517 00000 n 
+0000014619 00000 n 
+0000014965 00000 n 
+0000015051 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <B89CB95DADF1025491E0913A31A33818> <B89CB95DADF1025491E0913A31A33818> ]
+>>
+startxref
+15155
+%%EOF

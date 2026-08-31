@@ -3,7 +3,7 @@ import { X, Sparkles, Table } from "lucide-react";
 import { toast } from "sonner";
 import { workspaceStore } from "@/lib/workspace-store";
 import { predictSpacePressure } from "@/lib/ai-occupancy";
-import type { Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
+import { Extracted3DSpace, sortSpacesByFloorAndName, isMepValidSpaceName, autoAssignBimZones } from "@/lib/bimViewerSpaceExtractor";
 
 interface BimScheduleReviewModalProps {
   isOpen: boolean;
@@ -27,8 +27,11 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
   });
 
   useEffect(() => {
-    setRecords(initialRecords);
-    setSelectedIds(new Set(initialRecords.map((r) => r.id)));
+    const validFiltered = (initialRecords || []).filter((r) => isMepValidSpaceName(r.name));
+    const sorted = sortSpacesByFloorAndName(validFiltered);
+    const zoned = autoAssignBimZones(sorted);
+    setRecords(zoned);
+    setSelectedIds(new Set(zoned.map((r) => r.id)));
   }, [initialRecords]);
 
   if (!isOpen) return null;

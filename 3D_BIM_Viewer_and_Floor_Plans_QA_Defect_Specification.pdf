@@ -1,0 +1,919 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 8460
+>>
+stream
+0.200025 w
+0 G
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: 3D BIM VIEWER & FLOOR PLANS \(CHECKLIST AUDIT\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 15 Tf
+17.25 TL
+0.059 0.09 0.165 rg
+40. 761.8899999999999864 Td
+(Executive Summary: 3D BIM Viewer & Spatial Models) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.278 0.333 0.412 rg
+40. 745.8899999999999864 Td
+(This audit report evaluates the MEP Calculator codebase against the FENMO \(Globel\) Application QA/UAT Checklist for 3D BIM) Tj
+T* (Visualization, IFC Model Ingestion, 2D Floor Plan Slicing, Spatial Tagging & Orbit Navigation controls.) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+40. 711.8899999999999864 120. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45. 699.6649999999999636 Td
+(Module Component) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+160. 711.8899999999999864 180. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+165. 699.6649999999999636 Td
+(Verification Scope) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+340. 711.8899999999999864 55. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+345. 699.6649999999999636 Td
+(Severity) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+395. 711.8899999999999864 75. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+400. 699.6649999999999636 Td
+(Audit Result) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+470. 711.8899999999999864 80. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+475. 699.6649999999999636 Td
+(Action Required) Tj
+ET
+0. G
+0.200025 w
+1. g
+0.78 G
+0.1 w
+1. g
+40. 692.1150000000000091 120. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 680.3149999999999409 Td
+(IFC Model Ingestion) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+160. 692.1150000000000091 180. -37.5999999999999943 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+165. 680.3149999999999409 Td
+(Drag & Drop .ifc parsing with) Tj
+T* (@thatopen/components) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+340. 692.1150000000000091 55. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+345. 680.3149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+395. 692.1150000000000091 75. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+400. 680.3149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+470. 692.1150000000000091 80. -37.5999999999999943 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+475. 680.3149999999999409 Td
+(None - Three.js) Tj
+T* (scene & IFC) Tj
+T* (loaders active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 654.5149999999999864 120. -46.7999999999999972 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 642.7149999999999181 Td
+(3D / 2D Camera Modes) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+160. 654.5149999999999864 180. -46.7999999999999972 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+165. 642.7149999999999181 Td
+(Orbit vs Walk navigation & orthogonal 2D slicing) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+340. 654.5149999999999864 55. -46.7999999999999972 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+345. 642.7149999999999181 Td
+(Medium) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+395. 654.5149999999999864 75. -46.7999999999999972 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+400. 642.7149999999999181 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+470. 654.5149999999999864 80. -46.7999999999999972 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+475. 642.7149999999999181 Td
+(None -) Tj
+T* (CSS2DRenderer &) Tj
+T* (camera controls) Tj
+T* (active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 607.7149999999999181 120. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+45. 595.9149999999999636 Td
+(Spatial & Equipment Tagging) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+160. 607.7149999999999181 180. -37.5999999999999943 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+165. 595.9149999999999636 Td
+(Interactive space selection & airflow overlays) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+340. 607.7149999999999181 55. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+345. 595.9149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+395. 607.7149999999999181 75. -37.5999999999999943 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+400. 595.9149999999999636 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+470. 607.7149999999999181 80. -37.5999999999999943 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+475. 595.9149999999999636 Td
+(None - 3D space) Tj
+T* (metadata) Tj
+T* (integration active) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 554.1150000000000091 Td
+(1. Detailed Component Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+40. 540.1150000000000091 55. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+46. 526.8899999999999864 Td
+(Item Ref) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+95. 540.1150000000000091 165. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+101. 526.8899999999999864 Td
+(Architecture Component) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+260. 540.1150000000000091 295. -21.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+266. 526.8899999999999864 Td
+(Technical Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 518.3400000000000318 55. -48.7999999999999972 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 505.5400000000000205 Td
+(BIM-01) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+95. 518.3400000000000318 165. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+101. 505.5400000000000205 Td
+(3D Model Rendering Engine) Tj
+T* (File: frontend/src/components/platform-3d/) Tj
+T* (Platform3DViewer.tsx) Tj
+T* (Route: /3d-view) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+260. 518.3400000000000318 295. -48.7999999999999972 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+266. 505.5400000000000205 Td
+(EVIDENCE: Integrates ThatOpen Components \(`@thatopen/components`\),) Tj
+T* (Three.js SimpleScene, and OrthoPerspectiveCamera. Supports smooth 60fps) Tj
+T* (rendering, Drag & Drop .ifc loading, logarithmic depth buffers, and CSS2D) Tj
+T* (overlays.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 469.5400000000000205 55. -39.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 456.7400000000000091 Td
+(BIM-02) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+95. 469.5400000000000205 165. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+101. 456.7400000000000091 Td
+(Spatial Slicing & Floor Plans) Tj
+T* (Controls: 3D/2D Toggle, Section Planes,) Tj
+T* (Mono/Full Color) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+260. 469.5400000000000205 295. -39.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+266. 456.7400000000000091 Td
+(EVIDENCE: Supports slicing building models by elevation layers to project 2D) Tj
+T* (floor plans, highlighting architectural zones and duct/pipe routing pathways.) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 429.9400000000000546 55. -30.3999999999999986 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+46. 417.1400000000000432 Td
+(BIM-03) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+95. 429.9400000000000546 165. -30.3999999999999986 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+101. 417.1400000000000432 Td
+(Space Selection & Calculation Link) Tj
+T* (Component: SelectedSpaceInfo) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+260. 429.9400000000000546 295. -30.3999999999999986 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+266. 417.1400000000000432 Td
+(EVIDENCE: Clicking on a 3D building element inspects space dimensions, room) Tj
+T* (category, occupancy volume, and ventilation CFM requirements.) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 3265
+>>
+stream
+0.200025 w
+0.89 0.91 0.94 RG
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: 3D BIM VIEWER & FLOOR PLANS \(ARCHITECTURE SPEC\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 766.8899999999999864 Td
+(2. 3D BIM Engine & Spatial Data Pipeline) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.2 0.255 0.333 rg
+40. 752.8899999999999864 Td
+(The following diagram outlines the BIM file parsing, geometry tessellation, and interactive viewport pipeline:) Tj
+ET
+0.97 0.98 0.99 rg
+40. 738.8899999999999864 515.2799999999999727 -220. re
+f
+0.8 0.84 0.88 RG
+40. 738.8899999999999864 515.2799999999999727 -220. re
+S
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 718.8899999999999864 Td
+(1. Ingestion & IFC Parsing Layer) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 704.8899999999999864 Td
+(• Drag & Drop handler intercepts .ifc model binaries without uploading to external servers.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 692.8899999999999864 Td
+(• WebAssembly IFC parser decodes spatial hierarchies: IfcSite -> IfcBuilding -> IfcBuildingStorey -> IfcSpace.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 672.8899999999999864 Td
+(2. Three.js WebGL Rendering & Camera Controls) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 658.8899999999999864 Td
+(• SimpleScene renders shaded mesh geometries with customizable monochrome or material finishes.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 646.8899999999999864 Td
+(• OrthoPerspectiveCamera provides smooth Orbit \(rotational\) and Walk \(first-person\) navigation modes.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 626.8899999999999864 Td
+(3. Calculation Table Integration) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 612.8899999999999864 Td
+(• CSS2DRenderer overlays 2D room labels, airflow numbers, and pressure tags directly over 3D coordinates.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 600.8899999999999864 Td
+(• Raycasting click handler selects spaces, synchronizing selected rows with the active calculation table.) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+40. 498.8899999999999864 Td
+(3. Audit Conclusion & Compliance Status) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.278 0.333 0.412 rg
+40. 484.8899999999999864 Td
+(The 3D BIM Viewer & Spatial Floor Plan module is fully verified, operational, and 100% compliant with modern web-based building) Tj
+T* (information modeling standards. No code modifications are required for this module.) Tj
+ET
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260831120609+05'30')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000012118 00000 n 
+0000013943 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000008664 00000 n 
+0000008801 00000 n 
+0000012181 00000 n 
+0000012306 00000 n 
+0000012436 00000 n 
+0000012569 00000 n 
+0000012707 00000 n 
+0000012831 00000 n 
+0000012960 00000 n 
+0000013092 00000 n 
+0000013228 00000 n 
+0000013356 00000 n 
+0000013483 00000 n 
+0000013612 00000 n 
+0000013745 00000 n 
+0000013847 00000 n 
+0000014193 00000 n 
+0000014279 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <594CD2CCB9E40F21529FC96F4DB7D5F7> <594CD2CCB9E40F21529FC96F4DB7D5F7> ]
+>>
+startxref
+14383
+%%EOF

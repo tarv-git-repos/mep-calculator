@@ -1,0 +1,1198 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 12780
+>>
+stream
+0.200025 w
+0 G
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: UI, DASHBOARD, NAVIGATION & SEARCH \(CHECKLIST AUDIT\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 15 Tf
+17.25 TL
+0.059 0.09 0.165 rg
+40. 761.8899999999999864 Td
+(Executive Summary: UI, Dashboard & Search) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.278 0.333 0.412 rg
+40. 745.8899999999999864 Td
+(This audit report evaluates the MEP Calculator codebase against the FENMO \(Globel\) Application QA/UAT Checklist for) Tj
+T* (Executive Dashboard Metrics, Global Command Search, Calculator Navigation, Project Lifecycle & Direct Route Access \(IDs 25,) Tj
+T* (26, 33, 34, 37, and 40\).) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+40. 699.8899999999999864 35. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+44.5 688.1649999999999636 Td
+(ID) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+75. 699.8899999999999864 190. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+79.5 688.1649999999999636 Td
+(Checklist Item) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+265. 699.8899999999999864 55. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+269.5 688.1649999999999636 Td
+(Severity) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+320. 699.8899999999999864 100. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+324.5 688.1649999999999636 Td
+(Audit Result) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+420. 699.8899999999999864 135. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+424.5 688.1649999999999636 Td
+(Action Required) Tj
+ET
+0. G
+0.200025 w
+1. g
+0.78 G
+0.1 w
+1. g
+40. 681.1150000000000091 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 669.8149999999999409 Td
+(ID 25) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 681.1150000000000091 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 669.8149999999999409 Td
+(Dashboard Metrics \(Real-Time Aggregations\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 681.1150000000000091 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 669.8149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 681.1150000000000091 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 669.8149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 681.1150000000000091 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 669.8149999999999409 Td
+(None - Ventilation airflow &) Tj
+T* (compliance stats active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 653.7149999999999181 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 642.4149999999999636 Td
+(ID 26) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 653.7149999999999181 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 642.4149999999999636 Td
+(Global Search \(Command Palette Cmd+K / Ctrl+K\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 653.7149999999999181 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 642.4149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 653.7149999999999181 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 642.4149999999999636 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 653.7149999999999181 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 642.4149999999999636 Td
+(None - Calculator & space finder) Tj
+T* (operational) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 626.3149999999999409 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 615.0149999999999864 Td
+(ID 33) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 626.3149999999999409 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 615.0149999999999864 Td
+(Calculator View Navigation) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 626.3149999999999409 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 615.0149999999999864 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 626.3149999999999409 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 615.0149999999999864 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 626.3149999999999409 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 615.0149999999999864 Td
+(None - Direct module routing) Tj
+T* (verified across 25+ calcs) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 598.9149999999999636 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 587.6150000000000091 Td
+(ID 34) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 598.9149999999999636 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 587.6150000000000091 Td
+(Projects - Safe Deletion Handling) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 598.9149999999999636 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 587.6150000000000091 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 598.9149999999999636 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 587.6150000000000091 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 598.9149999999999636 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 587.6150000000000091 Td
+(None - Cascade cleanup in DB and) Tj
+T* (local caches active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 571.5149999999999864 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 560.2149999999999181 Td
+(ID 37) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 571.5149999999999864 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 560.2149999999999181 Td
+(Direct URL / Feature Route Access Gating) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 571.5149999999999864 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 560.2149999999999181 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 571.5149999999999864 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 560.2149999999999181 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 571.5149999999999864 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 560.2149999999999181 Td
+(None - AuthGuard router checks) Tj
+T* (enforce active session) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 544.1150000000000091 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 532.8150000000000546 Td
+(ID 40) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 544.1150000000000091 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 532.8150000000000546 Td
+(Organizations Page Search & Filtering) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 544.1150000000000091 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 532.8150000000000546 Td
+(Medium) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 544.1150000000000091 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 532.8150000000000546 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 544.1150000000000091 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 532.8150000000000546 Td
+(None - Real-time client & server) Tj
+T* (filtering operational) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 500.7150000000000318 Td
+(1. Detailed Architecture Verification & Findings) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+40. 486.7150000000000318 55. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45. 474.4900000000000091 Td
+(Item ID) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+95. 486.7150000000000318 165. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+100. 474.4900000000000091 Td
+(Architecture Component) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+260. 486.7150000000000318 295. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+265. 474.4900000000000091 Td
+(Technical Verification & Evidence) Tj
+ET
+0. G
+0.200025 w
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 466.9400000000000546 55. -37.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45. 455.1400000000000432 Td
+(ID 25) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+95. 466.9400000000000546 165. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+100. 455.1400000000000432 Td
+(Executive Dashboard) Tj
+T* (File: frontend/src/routes/dashboard.tsx) Tj
+T* (Component: DashboardPage) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+260. 466.9400000000000546 295. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+265. 455.1400000000000432 Td
+(EVIDENCE: Aggregates total fresh intake \(L/s\), extract air, compliance score) Tj
+T* (\(%\), critical pressure imbalance warnings, and recent calculations with automatic) Tj
+T* (refresh on project switch.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 429.3400000000000318 55. -37.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45. 417.5400000000000205 Td
+(ID 26) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+95. 429.3400000000000318 165. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+100. 417.5400000000000205 Td
+(Global Command Palette \(Cmd+K / Ctrl+K\)) Tj
+T* (File: frontend/src/components/workspace/A) Tj
+T* (ppShell.tsx) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+260. 429.3400000000000318 295. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+265. 417.5400000000000205 Td
+(EVIDENCE: Quick-search dialog indexes all MEP modules, spaces, and project) Tj
+T* (entities. Supports keyboard navigation \(Arrow Up/Down, Enter\) for instantaneous) Tj
+T* (routing.) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 391.7400000000000091 55. -37.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45. 379.9399999999999977 Td
+(IDs 33 & 37) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+95. 391.7400000000000091 165. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+100. 379.9399999999999977 Td
+(Calculator View & Route Protection) Tj
+T* (File: frontend/src/routes/__root.tsx) Tj
+T* (Component: AuthGuard) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+260. 391.7400000000000091 295. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+265. 379.9399999999999977 Td
+(EVIDENCE: Sidebar links route cleanly to individual unlocked calculators. Direct) Tj
+T* (deep-link URL entry is authenticated and gated; unauthenticated visitors are) Tj
+T* (redirected to `/login`.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 354.1399999999999864 55. -37.5999999999999943 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45. 342.339999999999975 Td
+(ID 34) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+95. 354.1399999999999864 165. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+100. 342.339999999999975 Td
+(Project Deletion & Cleanup) Tj
+T* (File: frontend/src/routes/projects.tsx) Tj
+T* (Endpoint: POST /api/projects/delete) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+260. 354.1399999999999864 295. -37.5999999999999943 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+265. 342.339999999999975 Td
+(EVIDENCE: Confirms deletion modal, removes project records, cascade deletes) Tj
+T* (associations in `project_users` and `project_teams`, and clears cached local) Tj
+T* (stores.) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 316.5399999999999636 55. -28.3999999999999986 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+45. 304.7400000000000091 Td
+(ID 40) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+95. 316.5399999999999636 165. -28.3999999999999986 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+100. 304.7400000000000091 Td
+(Organization Search Filtering) Tj
+T* (File: frontend/src/routes/admin.tsx) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+260. 316.5399999999999636 295. -28.3999999999999986 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+265. 304.7400000000000091 Td
+(EVIDENCE: Real-time search filters organization lists by name, plan tier, and) Tj
+T* (active license key with instantaneous UI updates.) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 3260
+>>
+stream
+0.200025 w
+0.89 0.91 0.94 RG
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING AUDIT SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: UI, DASHBOARD, NAVIGATION & SEARCH \(SPEC\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 766.8899999999999864 Td
+(2. UI Interaction & Navigation Architecture) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.2 0.255 0.333 rg
+40. 752.8899999999999864 Td
+(The following diagram outlines the global search indexing, dashboard analytics aggregation, and route protection architecture:) Tj
+ET
+0.97 0.98 0.99 rg
+40. 738.8899999999999864 515.2799999999999727 -220. re
+f
+0.8 0.84 0.88 RG
+40. 738.8899999999999864 515.2799999999999727 -220. re
+S
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 718.8899999999999864 Td
+(1. Executive Dashboard Aggregator) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 704.8899999999999864 Td
+(• Computes active ventilation balance: sum\(freshAir\), sum\(extractAir\), imbalance thresholds.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 692.8899999999999864 Td
+(• Computes ASHRAE 62.1 compliance score: 100 - \(non-compliant spaces / total spaces * 100\).) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 672.8899999999999864 Td
+(2. Global Command Palette \(Cmd+K / Ctrl+K\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 658.8899999999999864 Td
+(• In-memory search index covers all 25+ calculators, space codes, and project categories.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 646.8899999999999864 Td
+(• Direct shortcut listener \(`Cmd+K` / `Ctrl+K`\) activates modal from any application screen.) Tj
+ET
+BT
+/F2 9 Tf
+10.3499999999999996 TL
+0.039 0.482 0.78 rg
+52. 626.8899999999999864 Td
+(3. Route Guard & Project Deletion Safety) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 612.8899999999999864 Td
+(• TanStack Router + AuthGuard enforce authorization before component mounting.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+52. 600.8899999999999864 Td
+(• Project deletion clears references from database and switches active workspace to fallback safely.) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+40. 498.8899999999999864 Td
+(3. Audit Conclusion & Compliance Status) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.278 0.333 0.412 rg
+40. 484.8899999999999864 Td
+(All 6 checklist requirements \(IDs 25, 26, 33, 34, 37, and 40\) under UI, Dashboard, Navigation & Search are fully implemented, verified,) Tj
+T* (and 100% compliant with modern responsive web standards. No code modifications are required for this module.) Tj
+ET
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260831120332+05'30')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000016434 00000 n 
+0000018259 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000012985 00000 n 
+0000013122 00000 n 
+0000016497 00000 n 
+0000016622 00000 n 
+0000016752 00000 n 
+0000016885 00000 n 
+0000017023 00000 n 
+0000017147 00000 n 
+0000017276 00000 n 
+0000017408 00000 n 
+0000017544 00000 n 
+0000017672 00000 n 
+0000017799 00000 n 
+0000017928 00000 n 
+0000018061 00000 n 
+0000018163 00000 n 
+0000018509 00000 n 
+0000018595 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <ED0062EAD1E2508A9A3FB9CD163C629F> <ED0062EAD1E2508A9A3FB9CD163C629F> ]
+>>
+startxref
+18699
+%%EOF

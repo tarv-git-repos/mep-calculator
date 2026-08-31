@@ -10,6 +10,7 @@ import { Toolbar } from './Toolbar';
 import { DropOverlay } from './DropOverlay';
 import { workspaceStore } from '@/lib/workspace-store';
 import { saveProjectIfcFile, getProjectIfcFile, deleteProjectIfcFile } from '@/lib/projectIfcStorage';
+import { isMepValidSpaceName, sortSpacesByFloorAndName, autoAssignBimZones } from '@/lib/bimViewerSpaceExtractor';
 
 export function Viewport3D() {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -487,7 +488,10 @@ const loadIfcFile = async (file: File) => {
         } catch (fitErr) {
             console.warn("Camera fitToSphere safely skipped:", fitErr);
         }
-        world.camera.controls.addEventListener("update", () => fragments.core.update());
+        world.camera.controls.addEventListener("update", () => {
+            fragments.core.update();
+            updateDynamicTagScales();
+        });
 
         const maxDim = Math.max(size.x, size.y, size.z);
         world.camera.three.near = 1.0;
@@ -870,19 +874,21 @@ const loadIfcFile = async (file: File) => {
                 console.groupEnd();
             });
 
-            const extractedBimSpaces: any[] = [];
+            const rawExtracted: any[] = [];
             storeys.forEach(st => {
                 st.spaces.forEach(sp => {
                     const fullSpace = spaceDataMap.find((e: any) => e.expressId === sp.expressId) || sp;
                     const cleanLongName = String(sp.longName || fullSpace.longName || "").trim();
                     const cleanName = String(sp.name || fullSpace.name || "").trim();
                     const displayName = cleanLongName || cleanName || `Space ${sp.expressId}`;
+                    if (!isMepValidSpaceName(displayName)) return;
+
                     const storeyName = String(st.name || "Ground Floor").trim();
                     const area = parseFloat(String(fullSpace.quantities?.Area || fullSpace.quantities?.NetArea || sp.quantities?.Area || sp.area || 0)) || 0;
                     let height = parseFloat(String(fullSpace.quantities?.Height || fullSpace.quantities?.UnboundedHeight || sp.quantities?.Height || sp.height || 3.0)) || 3.0;
                     if (height > 100) height = height / 1000;
 
-                    extractedBimSpaces.push({
+                    rawExtracted.push({
                         id: `bim-${sp.expressId}`,
                         name: displayName,
                         level: storeyName,
@@ -894,9 +900,37 @@ const loadIfcFile = async (file: File) => {
                 });
             });
 
+            const sortedSpaces = sortSpacesByFloorAndName(rawExtracted);
+            const extractedBimSpaces = autoAssignBimZones(sortedSpaces);
             if (extractedBimSpaces.length > 0) {
                 (window as any).__BIM_VIEWER_SPACES__ = extractedBimSpaces;
             }
+        };
+
+        const updateDynamicTagScales = () => {
+            if (!tags || tags.length === 0) return;
+            const cam = world.camera.three;
+            const isOrtho = (cam as any).isOrthographicCamera;
+            
+            let scaleMultiplier = 1.0;
+            if (isOrtho) {
+                const currentZoom = (cam as any).zoom || 1.0;
+                // As camera zooms out (currentZoom gets smaller), tag font scale increases dynamically up to 30.0x so text stays 100% readable!
+                scaleMultiplier = Math.max(0.4, Math.min(30.0, 22.0 / currentZoom));
+            } else {
+                const target = world.camera.controls.getTarget(new THREE.Vector3());
+                const dist = cam.position.distanceTo(target);
+                scaleMultiplier = Math.max(0.4, Math.min(30.0, dist / 15.0));
+            }
+
+            tags.forEach(t => {
+                if (!t.visible) return;
+                const baseW = (t as any).baseWidth || 2.4;
+                const aspect = (t as any).aspectRatio || (1280 / 480);
+                const curW = baseW * scaleMultiplier;
+                const curH = curW / aspect;
+                t.scale.set(curW, curH, 1.0);
+            });
         };
 
         const updateTagsForLevel = (selectedExpressId: string) => {
@@ -926,6 +960,7 @@ const loadIfcFile = async (file: File) => {
                 }
             });
 
+            updateDynamicTagScales();
             log2dSpaceDebugInfo(selectedExpressId);
         };
 
@@ -1199,35 +1234,51 @@ const loadIfcFile = async (file: File) => {
 
         const createRoomTagSprite = (longName: string, floorLabel: string, name: string, area: number): THREE.Sprite => {
             const canvas = document.createElement('canvas');
-            canvas.width = 1024;
-            canvas.height = 384;
+            canvas.width = 1280;
+            canvas.height = 480;
             const ctx = canvas.getContext('2d')!;
 
-            ctx.clearRect(0, 0, 1024, 384);
+            ctx.clearRect(0, 0, 1280, 480);
+
+            // Draw crisp background pill container with border shadow
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+            ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.lineWidth = 14;
+
+            const x = 40, y = 30, w = 1200, h = 420, r = 36;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            const line1 = `${longName || 'Room'} (${name || ''})`;
-            const line2 = `${area.toFixed(1)} m²`;
+            const roomTitle = (longName || 'Room').trim().toUpperCase();
+            const subtitle = name && name !== longName ? `${name} • ${area.toFixed(1)} m²` : `${area.toFixed(1)} m²`;
 
-            // Auto-fit font size so long titles never clip at canvas boundaries
-            let fontSize1 = 64;
-            ctx.font = `bold ${fontSize1}px "Segoe UI", Arial, sans-serif`;
-            let textWidth = ctx.measureText(line1).width;
-            while (textWidth > 960 && fontSize1 > 24) {
+            // Auto-fit font size for long titles
+            let fontSize1 = 76;
+            ctx.font = `900 ${fontSize1}px "Segoe UI", Arial, sans-serif`;
+            let textWidth = ctx.measureText(roomTitle).width;
+            while (textWidth > 1100 && fontSize1 > 28) {
                 fontSize1 -= 2;
-                ctx.font = `bold ${fontSize1}px "Segoe UI", Arial, sans-serif`;
-                textWidth = ctx.measureText(line1).width;
+                ctx.font = `900 ${fontSize1}px "Segoe UI", Arial, sans-serif`;
+                textWidth = ctx.measureText(roomTitle).width;
             }
 
-            ctx.fillStyle = '#000000';
-            ctx.fillText(line1, 512, 130);
+            ctx.fillStyle = '#0f172a'; // Bold dark slate title
+            ctx.fillText(roomTitle, 640, 175);
 
-            const fontSize2 = Math.min(52, Math.round(fontSize1 * 0.85));
-            ctx.font = `bold ${fontSize2}px "Segoe UI", Arial, sans-serif`;
-            ctx.fillStyle = '#000000';
-            ctx.fillText(line2, 512, 250);
+            const fontSize2 = Math.min(54, Math.round(fontSize1 * 0.76));
+            ctx.font = `700 ${fontSize2}px "Segoe UI", Arial, sans-serif`;
+            ctx.fillStyle = '#334155'; // Subtitle text
+            ctx.fillText(subtitle, 640, 315);
 
             const texture = new THREE.CanvasTexture(canvas);
             texture.colorSpace = THREE.SRGBColorSpace;
@@ -1244,9 +1295,11 @@ const loadIfcFile = async (file: File) => {
 
             const sprite = new THREE.Sprite(mat);
             sprite.renderOrder = 9999;
-            const aspect = 1024 / 384;
-            const spriteWidth = TAG_WORLD_WIDTH_METERS || 1.5;
+            const aspect = 1280 / 480;
+            const spriteWidth = TAG_WORLD_WIDTH_METERS || 2.4;
             const spriteHeight = spriteWidth / aspect;
+            (sprite as any).baseWidth = spriteWidth;
+            (sprite as any).aspectRatio = aspect;
             sprite.scale.set(spriteWidth, spriteHeight, 1.0);
             return sprite;
         };

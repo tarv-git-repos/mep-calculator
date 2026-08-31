@@ -1,0 +1,1150 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 9861
+>>
+stream
+0.200025 w
+0 G
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(ENGINEERING DEFECT & REMEDIATION SPECIFICATION) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(MODULE: AUTHENTICATION & SECURITY \(CHECKLIST AUDIT\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 15 Tf
+17.25 TL
+0.059 0.09 0.165 rg
+40. 761.8899999999999864 Td
+(Executive Summary: Authentication & Security) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.278 0.333 0.412 rg
+40. 745.8899999999999864 Td
+(This audit report evaluates the MEP Calculator codebase against the FENMO \(Globel\) Application QA/UAT Checklist for the) Tj
+T* (Authentication & Security domain \(IDs 1, 2, 24, 27, and 28\). It isolates exact code vulnerabilities, missing business rules, and) Tj
+T* (provides automated drop-in remediation specifications for zero-ambiguity execution.) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+40. 699.8899999999999864 35. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+44.5 688.1649999999999636 Td
+(ID) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+75. 699.8899999999999864 190. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+79.5 688.1649999999999636 Td
+(Checklist Item) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+265. 699.8899999999999864 55. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+269.5 688.1649999999999636 Td
+(Severity) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+320. 699.8899999999999864 100. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+324.5 688.1649999999999636 Td
+(Audit Result) Tj
+ET
+0.04 0.48 0.78 rg
+0.78 G
+0. w
+0.04 0.48 0.78 rg
+420. 699.8899999999999864 135. -18.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+424.5 688.1649999999999636 Td
+(Action Required) Tj
+ET
+0. G
+0.200025 w
+1. g
+0.78 G
+0.1 w
+1. g
+40. 681.1150000000000091 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 669.8149999999999409 Td
+(ID 1) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 681.1150000000000091 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 669.8149999999999409 Td
+(Login -> OTP -> Primary Policy Page) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 681.1150000000000091 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 669.8149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 681.1150000000000091 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.863 0.149 0.149 rg
+324.5 669.8149999999999409 Td
+(GAP DETECTED) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 681.1150000000000091 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 669.8149999999999409 Td
+(Enforce Policy redirect in) Tj
+T* (AuthGuard) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 653.7149999999999181 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 642.4149999999999636 Td
+(ID 2) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 653.7149999999999181 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 642.4149999999999636 Td
+(Forgot Password \(No Previous Password Reuse\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 653.7149999999999181 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 642.4149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 653.7149999999999181 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.863 0.149 0.149 rg
+324.5 642.4149999999999636 Td
+(DEFECT DETECTED) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 653.7149999999999181 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 642.4149999999999636 Td
+(Add bcrypt comparison in) Tj
+T* (reset-password) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 626.3149999999999409 35. -18.1999999999999993 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 615.0149999999999864 Td
+(ID 24) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 626.3149999999999409 190. -18.1999999999999993 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 615.0149999999999864 Td
+(Email Login - Device Binding & Licensing) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 626.3149999999999409 55. -18.1999999999999993 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 615.0149999999999864 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 626.3149999999999409 100. -18.1999999999999993 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 615.0149999999999864 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 626.3149999999999409 135. -18.1999999999999993 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 615.0149999999999864 Td
+(None - HWID binding operational) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 608.1150000000000091 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 596.8149999999999409 Td
+(ID 27) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 608.1150000000000091 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 596.8149999999999409 Td
+(Device Login Persistence) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 608.1150000000000091 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 596.8149999999999409 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 608.1150000000000091 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.086 0.639 0.29 rg
+324.5 596.8149999999999409 Td
+(PASS \(100%\)) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 608.1150000000000091 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 596.8149999999999409 Td
+(None - 7d JWT & LocalStorage) Tj
+T* (active) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+40. 580.7149999999999181 35. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.314 g
+44.5 569.4149999999999636 Td
+(ID 28) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+75. 580.7149999999999181 190. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+79.5 569.4149999999999636 Td
+(Forgot Password - Reject Previous Password) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+265. 580.7149999999999181 55. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+269.5 569.4149999999999636 Td
+(High) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+320. 580.7149999999999181 100. -27.3999999999999986 re
+B
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.863 0.149 0.149 rg
+324.5 569.4149999999999636 Td
+(DEFECT DETECTED) Tj
+ET
+1. g
+0.78 G
+0.1 w
+1. g
+420. 580.7149999999999181 135. -27.3999999999999986 re
+B
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+424.5 569.4149999999999636 Td
+(Add previous password rejection) Tj
+T* (check) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 537.3150000000000546 Td
+(1. Detailed Defect Analysis & Root Causes) Tj
+ET
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+40. 523.3150000000000546 70. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+45. 511.089999999999975 Td
+(Defect Ref) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+110. 523.3150000000000546 170. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+115. 511.089999999999975 Td
+(Affected Component & Path) Tj
+ET
+0.28 0.33 0.41 rg
+0.78 G
+0. w
+0.28 0.33 0.41 rg
+280. 523.3150000000000546 275. -19.7749999999999986 re
+f
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+1. g
+285. 511.089999999999975 Td
+(Root Cause & Impact) Tj
+ET
+0. G
+0.200025 w
+0.96 g
+0.78 G
+0. w
+0.96 g
+40. 503.5400000000000205 70. -65.1999999999999886 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+45. 491.7400000000000091 Td
+(SEC-DEF-01) Tj
+T* (\(IDs 2 & 28\)) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+110. 503.5400000000000205 170. -65.1999999999999886 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+115. 491.7400000000000091 Td
+(Backend Route Handler) Tj
+T* (File: backend/authServer.js) Tj
+T* (Endpoint: POST /api/auth/reset-password) Tj
+T* (Lines: 1148 - 1180) Tj
+ET
+0.96 g
+0.78 G
+0. w
+0.96 g
+280. 503.5400000000000205 275. -65.1999999999999886 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+285. 491.7400000000000091 Td
+(ROOT CAUSE: The reset-password handler hashes the submitted new) Tj
+T* (password and writes it to DB without comparing it against the existing) Tj
+T* (password hash.) Tj
+T* () Tj
+T* (IMPACT: A user can reset their password to their current password,) Tj
+T* (violating the strict password change rule and UAT criteria.) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+40. 438.3400000000000318 70. -74.3999999999999915 re
+f
+BT
+/F2 8 Tf
+9.1999999999999993 TL
+0.706 0.157 0.157 rg
+45. 426.5400000000000205 Td
+(SEC-DEF-02) Tj
+T* (\(ID 1\)) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+110. 438.3400000000000318 170. -74.3999999999999915 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+115. 426.5400000000000205 Td
+(Frontend Route Guard) Tj
+T* (File: frontend/src/routes/__root.tsx) Tj
+T* (Component: AuthGuard) Tj
+T* (Lines: 64 - 80) Tj
+ET
+1. g
+0.78 G
+0. w
+1. g
+280. 438.3400000000000318 275. -74.3999999999999915 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.314 g
+285. 426.5400000000000205 Td
+(ROOT CAUSE: The route guard checks `isLoggedin` and) Tj
+T* (`isAccountVerified`, but fails to evaluate `profile.privacyPolicyAccepted !==) Tj
+T* (true`.) Tj
+T* () Tj
+T* (IMPACT: Newly registered and verified users navigate straight to the) Tj
+T* (workspace instead of being gated at the primary policy/EULA page) Tj
+T* (\(/privacy\).) Tj
+ET
+0. G
+0.200025 w
+0.78 G
+0. w
+0. G
+0.200025 w
+0. G
+0.200025 w
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 5546
+>>
+stream
+0.200025 w
+0.89 0.91 0.94 RG
+0.06 0.09 0.16 rg
+0. 841.8899999999999864 595.2799999999999727 -60. re
+f
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+1. g
+40. 813.8899999999999864 Td
+(AUTOMATED REMEDIATION BLUEPRINT) Tj
+ET
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.58 0.639 0.722 rg
+40. 797.8899999999999864 Td
+(EXACT CODE PATCHES FOR AUTHENTICATION & SECURITY) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.22 0.741 0.973 rg
+435.2799999999999727 803.8899999999999864 Td
+(FENMO \(GLOBEL\) MEP AUDIT) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+40. 766.8899999999999864 Td
+(2. Automated Code Remediation Specifications) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.039 0.482 0.78 rg
+40. 752.8899999999999864 Td
+(Remediation 1 \(SEC-DEF-01\): Prevent Previous Password Reuse in backend/authServer.js) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+40. 741.8899999999999864 Td
+(Apply the following bcrypt comparison block inside the POST /api/auth/reset-password handler:) Tj
+ET
+0.95 0.96 0.98 rg
+40. 731.8899999999999864 515.2799999999999727 -110. re
+f
+0.8 0.84 0.88 RG
+40. 731.8899999999999864 515.2799999999999727 -110. re
+S
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 719.8899999999999864 Td
+(// In backend/authServer.js \(around Line 1170\):) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 712.3899999999999864 Td
+(if \(user.password\) {) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 704.8899999999999864 Td
+(  const isSameAsOld = await bcrypt.compare\(newPassword, user.password\);) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 697.3899999999999864 Td
+(  if \(isSameAsOld\) {) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 689.8899999999999864 Td
+(    return sendJSON\(res, 200, {) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 682.3899999999999864 Td
+(      success: false,) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 674.8899999999999864 Td
+(      message: 'New password cannot be the same as your previous password. Please choose a different password.') Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 667.3899999999999864 Td
+(    }\);) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 659.8899999999999864 Td
+(  }) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 652.3899999999999864 Td
+(}) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 644.8899999999999864 Td
+(const hashedPassword = await bcrypt.hash\(newPassword, 10\);) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 637.3899999999999864 Td
+(user.password = hashedPassword;) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 629.8899999999999864 Td
+(user.resetOtp = '';) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 622.3899999999999864 Td
+(user.resetOtpExpireAt = 0;) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.039 0.482 0.78 rg
+40. 607.8899999999999864 Td
+(Remediation 2 \(SEC-DEF-02\): Enforce Primary Policy Route Gating in frontend/src/routes/__root.tsx) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.2 0.255 0.333 rg
+40. 596.8899999999999864 Td
+(Apply the following route guard check inside AuthGuard component in frontend/src/routes/__root.tsx:) Tj
+ET
+0.95 0.96 0.98 rg
+40. 586.8899999999999864 515.2799999999999727 -118. re
+f
+0.8 0.84 0.88 RG
+40. 586.8899999999999864 515.2799999999999727 -118. re
+S
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 574.8899999999999864 Td
+(// In frontend/src/routes/__root.tsx inside function AuthGuard\({ children }\):) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 566.3899999999999864 Td
+(const isPrivacyPage = routerState.location.pathname === '/privacy';) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 549.3899999999999864 Td
+(// Enforce Primary Policy \(EULA\) Acceptance for active authenticated sessions) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 540.8899999999999864 Td
+(if \(session && profile && !isLoginPage && !isPrivacyPage\) {) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 532.3899999999999864 Td
+(  const hasAccepted = profile.privacyPolicyAccepted === true || ) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 523.8899999999999864 Td
+(    \(typeof window !== 'undefined' && localStorage.getItem\('privacy_policy_accepted'\) === 'true'\);) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 515.3899999999999864 Td
+(  if \(!hasAccepted\) {) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 506.8899999999999864 Td
+(    return <Navigate to="/privacy" replace />;) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 498.3899999999999864 Td
+(  }) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.059 0.09 0.165 rg
+48. 489.8899999999999864 Td
+(}) Tj
+ET
+BT
+/F2 10.5 Tf
+12.0749999999999993 TL
+0.059 0.09 0.165 rg
+40. 454.8899999999999864 Td
+(3. Automated Execution & Verification Protocol) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.278 0.333 0.412 rg
+40. 442.8899999999999864 Td
+(When this PDF report is presented for execution, Antigravity will automatically:) Tj
+T* (1. Apply the bcrypt previous password check to backend/authServer.js.) Tj
+T* (2. Integrate the privacy policy route guard to frontend/src/routes/__root.tsx.) Tj
+T* (3. Perform live end-to-end testing \(Reset password with old vs new password, and verify /privacy gating on fresh signup\).) Tj
+T* (4. Mark Checklist IDs 1, 2, and 28 as 100% PASS in the QA Matrix.) Tj
+ET
+0.89 0.91 0.94 RG
+40. 35. m
+555.2799999999999727 35. l
+S
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+40. 20. Td
+(Automated MEP Application QA & Remediation Specification — Confidential) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+505.2799999999999727 20. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260831113316+05'30')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000015800 00000 n 
+0000017625 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000010065 00000 n 
+0000010202 00000 n 
+0000015863 00000 n 
+0000015988 00000 n 
+0000016118 00000 n 
+0000016251 00000 n 
+0000016389 00000 n 
+0000016513 00000 n 
+0000016642 00000 n 
+0000016774 00000 n 
+0000016910 00000 n 
+0000017038 00000 n 
+0000017165 00000 n 
+0000017294 00000 n 
+0000017427 00000 n 
+0000017529 00000 n 
+0000017875 00000 n 
+0000017961 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <6AA0F458BDF6DB63A28F36A4FB325627> <6AA0F458BDF6DB63A28F36A4FB325627> ]
+>>
+startxref
+18065
+%%EOF
