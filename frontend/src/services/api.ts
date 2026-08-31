@@ -91,6 +91,9 @@ export const api = {
 
     try {
       const cachedStr = localStorage.getItem('mep_local_users');
+      let orgOverrides: Record<string, string> = {};
+      try { orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
+
       if (cachedStr) {
         const cachedUsers = JSON.parse(cachedStr);
         const cachedMap = new Map();
@@ -100,7 +103,26 @@ export const api = {
         });
         usersList = usersList.map(u => {
           const c = cachedMap.get(String(u.id || '').toLowerCase()) || cachedMap.get(String(u.email || '').toLowerCase());
-          return c ? { ...u, ...c } : u;
+          const overrideOrg = orgOverrides[String(u.email || '').toLowerCase()] || orgOverrides[String(u.id || '').toLowerCase()];
+          let finalOrgId = u.organization_id || u.features?.organization_id;
+          if (overrideOrg !== undefined) {
+            finalOrgId = overrideOrg === 'No Organization' ? '' : overrideOrg;
+          } else if (!finalOrgId && c) {
+            finalOrgId = c.organization_id || c.features?.organization_id;
+          }
+          const finalRole = (u.role && u.role !== 'USER') ? u.role : (c?.role || u.features?.role || c?.features?.role || u.role);
+          return {
+            ...u,
+            ...(c || {}),
+            organization_id: finalOrgId,
+            role: finalRole,
+            features: {
+              ...(u.features || {}),
+              ...(c?.features || {}),
+              organization_id: finalOrgId,
+              role: finalRole
+            }
+          };
         });
       }
       localStorage.setItem('mep_local_users', JSON.stringify(usersList));
@@ -123,7 +145,14 @@ export const api = {
         const uId = String(u.id || '').toLowerCase();
         const uEmail = String(u.email || '').toLowerCase();
         if (uId === pidLower || uEmail === pidLower) {
-          return { ...u, role: newRole };
+          return { 
+            ...u, 
+            role: newRole,
+            features: {
+              ...(u.features || {}),
+              role: newRole
+            } 
+          };
         }
         return u;
       });
@@ -174,12 +203,23 @@ export const api = {
         const uId = String(u.id || '').toLowerCase();
         const uEmail = String(u.email || '').toLowerCase();
         if (uId === emailOrId || uEmail === emailOrId) {
+          const updatedOrg = updates.organization_id !== undefined ? (updates.organization_id || '') : (u.organization_id || u.features?.organization_id || '');
+          const updatedComp = updates.company || updates.organization || u.company || u.organization || u.features?.company || '';
+          const updatedRole = updates.role || u.role || u.features?.role;
           return {
             ...u,
             ...updates,
+            organization_id: updatedOrg,
+            company: updatedComp,
+            organization: updatedComp,
+            ...(updatedRole ? { role: updatedRole } : {}),
             features: {
               ...(u.features || {}),
               ...(updates.features || {}),
+              organization_id: updatedOrg,
+              company: updatedComp,
+              organization: updatedComp,
+              ...(updatedRole ? { role: updatedRole } : {}),
               ...(updates.subscription_expires ? { subscription_expires: updates.subscription_expires } : {})
             }
           };

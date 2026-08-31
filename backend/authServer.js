@@ -223,13 +223,18 @@ async function readUsers(forceRefresh = false) {
     if (!error && Array.isArray(data)) {
       users = data.map(u => {
         const loc = localMap.get(String(u.id || '').toLowerCase()) || localMap.get(String(u.email || '').toLowerCase()) || {};
-        const effRole = u.role || loc.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer');
+        const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
         const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
+        const orgId = u.organization_id || loc.organization_id || u.features?.organization_id || loc.features?.organization_id || null;
+        const comp = u.company || u.organization || loc.company || loc.organization || u.features?.company || loc.features?.company || u.features?.organization || loc.features?.organization || '';
+
         return {
           ...loc,
           ...u,
           role: effRole,
-          company: u.company || loc.company || u.features?.company || '',
+          organization_id: orgId,
+          company: comp,
+          organization: comp,
           designation: u.designation || loc.designation || u.features?.designation || '',
           profile_photo: u.profile_photo !== undefined && u.profile_photo !== null ? u.profile_photo : (u.features?.profile_photo !== undefined && u.features?.profile_photo !== null ? u.features.profile_photo : (loc.profile_photo || '')),
           settings: u.settings || loc.settings || u.features?.settings || {},
@@ -238,6 +243,10 @@ async function readUsers(forceRefresh = false) {
           features: {
             ...(loc.features || {}),
             ...(u.features || {}),
+            organization_id: orgId,
+            company: comp,
+            organization: comp,
+            role: effRole,
             subscription_expires: expDate
           }
         };
@@ -309,9 +318,15 @@ async function writeUsers(users) {
     const safeUsers = users.map(u => {
       const { privacyPolicyAccepted, company, designation, profile_photo, settings, ...user } = u;
       const expDate = user.subscription_expires || user.features?.subscription_expires || null;
+      const orgId = user.organization_id || user.features?.organization_id || null;
+      const comp = company || user.organization || user.features?.company || user.features?.organization || '';
+      const effRole = user.role || user.features?.role || 'Jr. Design Engineer';
       const features = {
         ...(user.features || {}),
-        company: company || user.features?.company || '',
+        organization_id: orgId,
+        company: comp,
+        organization: comp,
+        role: effRole,
         designation: designation || user.features?.designation || '',
         profile_photo: profile_photo !== undefined ? profile_photo : (user.features?.profile_photo || ''),
         settings: settings || user.features?.settings || {},
@@ -322,6 +337,8 @@ async function writeUsers(users) {
       }
       return {
         ...user,
+        role: effRole,
+        organization_id: orgId,
         active_hwid: u.active_hwid || null,
         subscription_expires: expDate,
         features
@@ -329,8 +346,8 @@ async function writeUsers(users) {
     });
     const { error } = await supabase.from('custom_users').upsert(safeUsers);
     if (error) {
-      // Fallback if subscription_expires top-level column is not present in Supabase table schema
-      const featuresOnlyUsers = safeUsers.map(({ subscription_expires, ...u }) => u);
+      // Fallback if subscription_expires or organization_id top-level column is not present in Supabase table schema
+      const featuresOnlyUsers = safeUsers.map(({ subscription_expires, organization_id, ...u }) => u);
       await supabase.from('custom_users').upsert(featuresOnlyUsers);
     }
   } catch (e) {
@@ -1192,21 +1209,24 @@ const server = http.createServer(async (req, res) => {
     }
     
     const fileSettings = readOrgSettings();
+    const localOrgs = readLocalOrgs();
     const safeUsers = filteredUsers.map(u => {
-      let resolvedCompany = u.company || u.organization_name || u.organization || '';
-      if (u.organization_id && (!resolvedCompany || resolvedCompany === 'Consitent')) {
-        const orgObj = Object.values(fileSettings).find(o => o && (o.id === u.organization_id || o.name === u.organization_id));
+      const orgId = u.organization_id || u.features?.organization_id || null;
+      let resolvedCompany = u.company || u.organization_name || u.organization || u.features?.company || u.features?.organization || '';
+      if (orgId && (!resolvedCompany || resolvedCompany === 'Consitent')) {
+        const orgObj = Object.values(fileSettings).find(o => o && (o.id === orgId || o.name === orgId)) || localOrgs.find(o => o && (o.id === orgId || o.name === orgId));
         if (orgObj && orgObj.name) resolvedCompany = orgObj.name;
       }
+      const effRole = (u.role && u.role !== 'USER') ? u.role : (u.features?.role || 'Jr. Design Engineer');
       return { 
         id: u.id, 
         name: u.name, 
         email: u.email, 
-        role: u.role,
+        role: effRole,
         features: u.features,
         subscription_expires: u.subscription_expires,
         isAccountVerified: u.isAccountVerified,
-        organization_id: u.organization_id,
+        organization_id: orgId,
         company: resolvedCompany,
         organization_name: resolvedCompany,
         organization: resolvedCompany
@@ -1800,10 +1820,12 @@ const server = http.createServer(async (req, res) => {
     if (targetUserIndex === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
     
     users[targetUserIndex].role = newRole;
+    if (!users[targetUserIndex].features) users[targetUserIndex].features = {};
+    users[targetUserIndex].features.role = newRole;
     await writeUsers(users);
 
     try {
-      await supabase.from('custom_users').update({ role: newRole }).or(`id.eq.${profileId},email.eq.${profileId}`);
+      await supabase.from('custom_users').update({ role: newRole, features: users[targetUserIndex].features }).or(`id.eq.${profileId},email.eq.${profileId}`);
     } catch (e) {
       console.error('Supabase update role error:', e);
     }
@@ -1909,14 +1931,25 @@ const server = http.createServer(async (req, res) => {
       }
 
       const newExp = updates.subscription_expires !== undefined ? updates.subscription_expires : (existing.subscription_expires || existing.features?.subscription_expires || null);
-      
+      const newOrgId = updates.organization_id !== undefined ? (updates.organization_id || null) : (existing.organization_id || existing.features?.organization_id || null);
+      const newComp = updates.company || updates.organization || existing.company || existing.organization || existing.features?.company || existing.features?.organization || '';
+      const newRole = updates.role || existing.role || existing.features?.role || 'Jr. Design Engineer';
+
       const updatedUser = {
         ...existing,
         ...updates,
+        organization_id: newOrgId,
+        company: newComp,
+        organization: newComp,
+        role: newRole,
         subscription_expires: newExp,
         features: {
           ...(existing.features || {}),
           ...(updates.features || {}),
+          organization_id: newOrgId,
+          company: newComp,
+          organization: newComp,
+          role: newRole,
           subscription_expires: newExp
         }
       };
@@ -1926,21 +1959,22 @@ const server = http.createServer(async (req, res) => {
       try {
         const dbPayload = {
           features: updatedUser.features,
-          ...(updates.role ? { role: updates.role } : {}),
+          role: newRole,
+          company: newComp,
+          organization: newComp,
+          organization_id: newOrgId,
           ...(updates.name ? { name: updates.name } : {}),
-          ...(updates.company !== undefined ? { company: updates.company } : {}),
           ...(updates.designation !== undefined ? { designation: updates.designation } : {})
         };
-        if (updates.organization_id !== undefined) {
-          dbPayload.organization_id = updates.organization_id || null;
-          dbPayload.organization = updates.organization || '';
-        }
         if (newExp !== undefined) {
           dbPayload.subscription_expires = newExp;
         }
 
         const { error } = await supabase.from('custom_users').update(dbPayload).or(`id.eq.${profileId},email.eq.${profileId}`);
-        if (error && newExp !== undefined) {
+        if (error) {
+          // If top-level columns fail on Supabase schema, update features JSON column which always exists
+          delete dbPayload.organization_id;
+          delete dbPayload.organization;
           delete dbPayload.subscription_expires;
           await supabase.from('custom_users').update(dbPayload).or(`id.eq.${profileId},email.eq.${profileId}`);
         }

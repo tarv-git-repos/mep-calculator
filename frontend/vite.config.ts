@@ -79,9 +79,9 @@ export default defineConfig({
     clean: false,
     prerender: { routes: ['/'] },
     output: {
-      dir: './dist-nitro-2',
-      serverDir: './dist-nitro-2/server',
-      publicDir: './dist-nitro-2/public'
+      dir: path.resolve(__dirname, 'dist-nitro-2'),
+      serverDir: path.resolve(__dirname, 'dist-nitro-2/server'),
+      publicDir: path.resolve(__dirname, 'dist-nitro-2/public')
     }
   },
   tanstackStart: {
