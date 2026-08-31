@@ -17,7 +17,16 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'capacitor-bank-sizing',
   'lighting-lux-calculation',
   'project-load-schedule',
-  'load-summary'
+  'load-summary',
+  'plumbing-sprinkler-kfactor',
+  'k-factor',
+  'plumbing-sprinkler-density',
+  'plumbing-hazen-williams',
+  'plumbing-fm200',
+  'plumbing-fire-water-demand',
+  'plumbing-fire-pump-duty',
+  'plumbing-fire-tank-capacity',
+  'plumbing-fire-tank-duration'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -60,6 +69,9 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   }
   if (routeKey === 'short-circuit-calculations') {
     if (features.shortCircuit === true) return false;
+  }
+  if (routeKey.startsWith('plumbing-sprinkler') || routeKey.startsWith('plumbing-fire') || routeKey === 'plumbing-hazen-williams' || routeKey === 'plumbing-fm200' || routeKey === 'k-factor') {
+    if (features.fireFighting === true || features.kfactor === true || features.sprinkler === true) return false;
   }
 
   // All other features are disabled by default (locked unless explicitly set to true)

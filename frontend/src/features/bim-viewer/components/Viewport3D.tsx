@@ -909,25 +909,29 @@ const loadIfcFile = async (file: File) => {
 
         const updateDynamicTagScales = () => {
             if (!tags || tags.length === 0) return;
-            const cam = world.camera.three;
-            const isOrtho = (cam as any).isOrthographicCamera;
-            
-            let scaleMultiplier = 1.0;
-            if (isOrtho) {
-                const currentZoom = (cam as any).zoom || 1.0;
-                // As camera zooms out (currentZoom gets smaller), tag font scale increases dynamically up to 30.0x so text stays 100% readable!
-                scaleMultiplier = Math.max(0.4, Math.min(30.0, 22.0 / currentZoom));
+            const cam = world.camera.three as any;
+            if (!cam) return;
+
+            let visibleWidth = 30.0;
+            if (cam.isOrthographicCamera) {
+                const orthoW = Math.abs((cam.right || 0) - (cam.left || 0));
+                const zoom = cam.zoom || 1.0;
+                visibleWidth = orthoW > 0 ? (orthoW / zoom) : 30.0;
             } else {
                 const target = world.camera.controls.getTarget(new THREE.Vector3());
                 const dist = cam.position.distanceTo(target);
-                scaleMultiplier = Math.max(0.4, Math.min(30.0, dist / 15.0));
+                const fovRad = ((cam.fov || 45) * Math.PI) / 180;
+                const aspect = cam.aspect || 1.6;
+                visibleWidth = 2 * dist * Math.tan(fovRad / 2) * aspect;
             }
+
+            // Target tag width: 9.5% of screen visible width so tags are BIG, prominent & 100% visible across the entire floor plan!
+            const targetTagWidth = Math.max(2.5, Math.min(120.0, visibleWidth * 0.095));
 
             tags.forEach(t => {
                 if (!t.visible) return;
-                const baseW = (t as any).baseWidth || 2.4;
                 const aspect = (t as any).aspectRatio || (1280 / 480);
-                const curW = baseW * scaleMultiplier;
+                const curW = targetTagWidth;
                 const curH = curW / aspect;
                 t.scale.set(curW, curH, 1.0);
             });
@@ -940,20 +944,18 @@ const loadIfcFile = async (file: File) => {
                 if ((t as any).element) { (t as any).element.style.opacity = '0'; (t as any).element.style.display = 'none'; }
             });
             if (!ui.btnTags.classList.contains('active')) return;
-            if (!ui.btnClip.classList.contains('active') && !ui.btn2d.classList.contains('active')) return;
-            if (selectedExpressId === '') return;
             const storey = storeys.find(st => st.expressId.toString() === selectedExpressId);
-            if (!storey) return;
-            const worldFloorHeight = getWorldHeight(storey.elevation);
             const currentVerticalAxis = (Math.abs(world.camera.three.up.z) > 0.5) ? 'z' : 'y';
 
             tags.forEach(t => {
                 const space = (t as any).originalSpace;
-                if (space && storey.spaces.some(sp => String(sp.expressId) === String(space.expressId))) {
+                const isSpaceOnStorey = !storey || storey.spaces.some(sp => String(sp.expressId) === String(space?.expressId));
+                if (space && isSpaceOnStorey) {
                     t.visible = true;
                     if ((t as any).element) { (t as any).element.style.opacity = '1'; (t as any).element.style.display = 'block'; }
                     if ((t as any).worldCenter) {
                         const wc = (t as any).worldCenter;
+                        const worldFloorHeight = storey ? getWorldHeight(storey.elevation) : wc.y;
                         if (currentVerticalAxis === 'y') t.position.set(wc.x, worldFloorHeight + 1.5, wc.z);
                         else t.position.set(wc.x, wc.y, worldFloorHeight + 1.5);
                     }
@@ -1333,17 +1335,35 @@ const loadIfcFile = async (file: File) => {
             obj.originalSpace = s;
 
             let positioned = false;
-            if (spaceCenters.has(s.expressId)) {
+            // 1. Calculate centroid directly from polygon if available
+            if (s.polygon && Array.isArray(s.polygon) && s.polygon.length > 0) {
+                const curBBox = new THREE.Box3().setFromObject(model.object);
+                const currentVerticalAxis = (Math.abs(world.camera.three.up.z) > 0.5) ? 'z' : 'y';
+                const modelHeight = currentVerticalAxis === 'y' ? (curBBox.max.y - curBBox.min.y) : (curBBox.max.z - curBBox.min.z);
+                const scale = modelHeight > 100 ? 1.0 : 0.001;
+
+                let sumX = 0, sumY = 0;
+                s.polygon.forEach((pt: any) => { sumX += pt.x; sumY += pt.y; });
+                const avgX = (sumX / s.polygon.length) * scale;
+                const avgY = (sumY / s.polygon.length) * scale;
+
+                const centerPos = localToWorld(avgX, avgY, 0);
+                obj.worldCenter = centerPos.clone();
+                obj.position.copy(centerPos);
+                positioned = true;
+            }
+
+            if (!positioned && spaceCenters.has(s.expressId)) {
                 const center = spaceCenters.get(s.expressId)!;
                 obj.worldCenter = center.clone();
                 obj.position.copy(center);
                 positioned = true;
-            } else if (s.labelPosition) {
+            } else if (!positioned && s.labelPosition) {
                 const pos = localToWorld(s.labelPosition.x, s.labelPosition.y, s.labelPosition.z);
                 obj.worldCenter = pos.clone();
                 obj.position.copy(pos);
                 positioned = true;
-            } else {
+            } else if (!positioned) {
                 const localId = expressIdToLocalId.get(s.expressId);
                 if (localId !== undefined) {
                     bboxer.list.clear();
@@ -1359,6 +1379,7 @@ const loadIfcFile = async (file: File) => {
                 const pos = localToWorld(s.placement.position.x, s.placement.position.y, s.placement.position.z);
                 obj.worldCenter = pos.clone(); obj.position.copy(pos);
             }
+            obj.frustumCulled = false;
             world.scene.three.add(obj); tags.push(obj);
 
             // Construct 2D Space Boundary Overlay

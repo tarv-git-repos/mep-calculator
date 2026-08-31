@@ -108,15 +108,15 @@ function Login() {
 
   const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const raw = e.clipboardData.getData('text').trim();
-    const digits = raw.replace(/\D/g, '').slice(0, 6).split('');
-    if (digits.length > 0) {
-      const newOtp = ['', '', '', '', '', ''];
+    const pastedText = e.clipboardData.getData('text').trim().slice(0, 6);
+    if (/^\d+$/.test(pastedText)) {
+      const digits = pastedText.split('');
+      const newOtp = [...otpArray];
       digits.forEach((d, i) => {
         if (i < 6) newOtp[i] = d;
       });
       setOtpArray(newOtp);
-      otpInputRefs.current[Math.min(digits.length - 1, 5)]?.focus();
+      otpInputRefs.current[Math.min(digits.length, 5)]?.focus();
     }
   };
 
@@ -266,8 +266,6 @@ function Login() {
         if (res.success) {
           toast.success(res.message || 'Reset OTP sent to your email.');
           setResetStep(2);
-          setOtpArray(['', '', '', '', '', '']);
-          setNewPassword('');
         } else {
           toast.error(res.message || 'Error sending reset code');
         }
@@ -544,7 +542,7 @@ function Login() {
                         value={otpArray[index] || ''}
                         onChange={(e) => handleOtpInput(e.target.value, index)}
                         onKeyDown={(e) => handleOtpKeyDown(e, index)}
-                        onPaste={handleOtpPaste}
+                        onPaste={index === 0 ? handleOtpPaste : undefined}
                         className="w-11 h-14 text-center text-2xl font-black bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-sky-500 focus:border-blue-600 dark:focus:border-sky-500 focus:bg-white dark:focus:bg-slate-950 shadow-xs transition-all"
                         required
                       />
@@ -653,7 +651,7 @@ function Login() {
                             value={otpArray[index] || ''}
                             onChange={(e) => handleOtpInput(e.target.value, index)}
                             onKeyDown={(e) => handleOtpKeyDown(e, index)}
-                            onPaste={handleOtpPaste}
+                            onPaste={index === 0 ? handleOtpPaste : undefined}
                             className="w-11 h-13 text-center text-xl font-black bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 dark:focus:ring-sky-500 focus:border-blue-600 dark:focus:border-sky-500 focus:bg-white dark:focus:bg-slate-950 text-sm shadow-xs"
                             required
                           />

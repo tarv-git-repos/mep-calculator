@@ -7,6 +7,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { TBtn } from "@/components/workspace/Button";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { TaskComment } from "@/lib/ventilation-calc";
@@ -122,6 +123,8 @@ function BusbarCalculationPage() {
       } catch (e) {}
     }
   }, [panels, project?.id]);
+
+  const [editingRow, setEditingRow] = useState<{ row: BusbarRow; panelId: string; sectionId: string } | null>(null);
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -1444,8 +1447,8 @@ function BusbarCalculationPage() {
                                             if (e.key === "ArrowRight") nextCol++;
                                             const nextEl = document.querySelector(`[data-pan="${pIdx}"][data-sec="${sIdx}"][data-row="${idx}"][data-col="${nextCol}"]`) as HTMLElement;
                                             if (nextEl) {
-                                              nextEl.focus();
-                                              if (nextEl instanceof HTMLInputElement) nextEl.select();
+                                               nextEl.focus();
+                                               if (nextEl instanceof HTMLInputElement) nextEl.select();
                                             }
                                           }
                                         }
@@ -1455,7 +1458,19 @@ function BusbarCalculationPage() {
                                     <tr 
                                       key={r.id} 
                                       data-row-id={r.id}
-                                      className={`hover:bg-surface-2 transition-colors cursor-pointer ${selectedRows.has(r.id) ? "bg-primary/5" : ""}`}
+                                      className={`transition-all duration-200 cursor-pointer ${
+                                        editingRow?.row.id === r.id
+                                          ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                          : editingRow !== null
+                                          ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                          : selectedRows.has(r.id)
+                                          ? "bg-primary/10"
+                                          : "hover:bg-surface-2"
+                                      }`}
+                                      onDoubleClick={() => {
+                                        setSelectedRows(new Set([r.id]));
+                                        setEditingRow({ row: r, panelId: panel.id, sectionId: section.id });
+                                      }}
                                       onClick={(e) => {
                                         const tagName = (e.target as HTMLElement).tagName;
                                         if (tagName === 'TD') {
@@ -1491,47 +1506,98 @@ function BusbarCalculationPage() {
                                           </div>
                                         </td>
                                         <td className="text-center text-muted-foreground font-medium border-r border-border w-6 px-0.5 text-[11.5px]">{idx + 1}</td>
-                                      <td className="p-0 border-r border-border">
-                                        <div className="flex items-center gap-1.5 w-full px-1">
-                                          {r.comments && r.comments.length > 0 && (
-                                            <span 
-                                              className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
-                                              title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setCommentTarget({
-                                                  id: r.id,
-                                                  name: r.desc || r.from || `Tap Off ${r.ref || r.id}`,
-                                                  type: 'space',
-                                                  panelId: panel.id,
-                                                  sectionId: section.id
-                                                });
-                                                setAssignCommentOpen(true);
-                                              }}
-                                            >
-                                              <MessageSquare className="size-3.5" />
-                                            </span>
-                                          )}
-                                          <input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} onKeyDown={(e) => handleKeyDown(e, 0)} type="text" className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white flex-1" value={r.desc} onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} />
-                                        </div>
-                                      </td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} onKeyDown={(e) => handleKeyDown(e, 1)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.length} onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} onKeyDown={(e) => handleKeyDown(e, 2)} type="number" step="0.1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.loadKw} onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
-                                      
-                                      <td className="px-2 py-1 text-center font-bold bg-surface-2 border-r border-border text-foreground">{r.tcl.toFixed(2)}</td>
-                                      
-                                      <td className="p-0 border-r border-border"><input data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} onKeyDown={(e) => handleKeyDown(e, 3)} type="number" step="0.01" max="1" className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" value={r.div} onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} /></td>
-                                      
-                                      <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground">{r.md.toFixed(2)}</td>
-                                      <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground">{r.current.toFixed(2)}</td>
-                                      <td className="px-2 py-1 text-center text-primary font-medium border-r border-border font-mono">{r.vd.toFixed(2)}</td>
-                                      <td className={`px-2 py-1 text-center border-r border-border font-mono font-medium ${r.vdPercent > 2.5 ? "text-destructive bg-destructive/5" : "text-primary"}`}>{r.vdPercent.toFixed(3)}%</td>
-                                      
-                                      <td className="text-center p-0">
-                                        <button onClick={() => removeRow(panel.id, section.id, r.id)} className="text-destructive/70 hover:text-destructive w-full h-8 flex items-center justify-center transition-colors">
-                                          <Trash2 className="size-3.5" />
-                                        </button>
-                                      </td>
+                                        <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                         <div className="flex items-center gap-1.5 w-full px-1">
+                                           {r.comments && r.comments.length > 0 && (
+                                             <span 
+                                               className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
+                                               title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
+                                               onClick={(e) => {
+                                                 e.stopPropagation();
+                                                 setCommentTarget({
+                                                   id: r.id,
+                                                   name: r.desc || r.from || `Tap Off ${r.ref || r.id}`,
+                                                   type: 'space',
+                                                   panelId: panel.id,
+                                                   sectionId: section.id
+                                                 });
+                                                 setAssignCommentOpen(true);
+                                               }}
+                                             >
+                                               <MessageSquare className="size-3.5" />
+                                             </span>
+                                           )}
+                                           <input 
+                                             data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
+                                             onKeyDown={(e) => handleKeyDown(e, 0)} 
+                                             onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                             type="text" 
+                                             className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white flex-1" 
+                                             value={r.desc} 
+                                             onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} 
+                                           />
+                                         </div>
+                                       </td>
+                                       <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                         <input 
+                                           data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} 
+                                           onKeyDown={(e) => handleKeyDown(e, 1)} 
+                                           onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                           type="number" step="0.1" 
+                                           className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                           value={r.length} 
+                                           onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                         />
+                                       </td>
+                                       <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                         <input 
+                                           data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} 
+                                           onKeyDown={(e) => handleKeyDown(e, 2)} 
+                                           onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                           type="number" step="0.1" 
+                                           className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                           value={r.loadKw} 
+                                           onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                         />
+                                       </td>
+                                       
+                                       <td className="px-2 py-1 text-center font-bold bg-surface-2 border-r border-border text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.tcl.toFixed(2)}</td>
+                                       
+                                       <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                         <input 
+                                           data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} 
+                                           onKeyDown={(e) => handleKeyDown(e, 3)} 
+                                           onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                           type="number" step="0.01" max="1" 
+                                           className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                           value={r.div} 
+                                           onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                         />
+                                       </td>
+                                       
+                                       <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.md.toFixed(2)}</td>
+                                       <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.current.toFixed(2)}</td>
+                                       <td className="px-2 py-1 text-center text-primary font-medium border-r border-border font-mono cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vd.toFixed(2)}</td>
+                                       <td className={`px-2 py-1 text-center border-r border-border font-mono font-medium cursor-pointer ${r.vdPercent > 2.5 ? "text-destructive bg-destructive/5" : "text-primary"}`} onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vdPercent.toFixed(3)}%</td>
+                                       
+                                       <td className="text-center p-0">
+                                         <div className="flex items-center justify-center gap-1">
+                                           <button 
+                                             onClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }} 
+                                             className="text-primary/70 hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors"
+                                             title="Edit Parameters & Calculations Preview"
+                                           >
+                                             <Info className="size-3.5" />
+                                           </button>
+                                           <button 
+                                             onClick={() => removeRow(panel.id, section.id, r.id)} 
+                                             className="text-destructive/70 hover:text-destructive p-1 rounded hover:bg-destructive/10 transition-colors"
+                                             title="Remove Tap Off"
+                                           >
+                                             <Trash2 className="size-3.5" />
+                                           </button>
+                                         </div>
+                                       </td>
                                     </tr>
                                   );
                                   })
@@ -1684,6 +1750,43 @@ function BusbarCalculationPage() {
           }}
         />
       )}
+
+      {editingRow && (() => {
+        const sec = flatCalculatedSections.find(s => s.id === editingRow.sectionId);
+        const rIndex = sec ? sec.calcRows.findIndex(r => r.id === editingRow.row.id) : 0;
+        const loadList = sec && rIndex >= 0 ? sec.calcRows.slice(rIndex).map(cr => ({
+          desc: cr.desc || "Tap Off",
+          loadKw: Number(cr.loadKw) || 0
+        })) : [];
+
+        return (
+          <EditBusbarRowModal
+            row={editingRow.row}
+            loadList={loadList}
+            rowIndex={rIndex >= 0 ? rIndex + 1 : 1}
+            sectionName={panels.find(p => p.id === editingRow.panelId)?.sections.find(s => s.id === editingRow.sectionId)?.name}
+            panelName={panels.find(p => p.id === editingRow.panelId)?.name}
+            ratingOptions={Object.entries(ALL_BUSBAR_DATA).map(([id, data]) => ({
+              id,
+              label: data.label,
+              r: data.r,
+              x: data.x
+            }))}
+            unitSystem={unitSystem}
+            onClose={() => setEditingRow(null)}
+            onSave={(updated) => {
+              if (updated.desc !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "desc", updated.desc);
+              if (updated.length !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "length", updated.length);
+              if (updated.loadKw !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "loadKw", updated.loadKw);
+              if (updated.div !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "div", updated.div);
+              if (updated.ratingId !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "ratingId", updated.ratingId);
+              if (updated.volts !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "volts", updated.volts);
+              if (updated.pf !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "pf", updated.pf);
+              setEditingRow(null);
+            }}
+          />
+        );
+      })()}
     </AppShell>
   );
 }

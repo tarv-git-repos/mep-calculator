@@ -517,13 +517,13 @@ export function DataGrid<T extends { id: string }>({
                           sel ? "bg-row-selected" : ""
                         } ${
                           isActiveRow
-                            ? "relative z-40 bg-white dark:bg-[#222226] shadow-[0_4px_25px_rgba(0,0,0,0.12)] ring-1 ring-primary/25 scale-[1.015] border-y border-y-primary/40 font-semibold"
+                            ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                             : ""
                         } ${
                           highlightedRowId === row.id
                             ? "row-highlight-flash"
                             : ""
-                        } ${isBlurred ? "blur-[1px] opacity-25 scale-[0.99] pointer-events-none" : ""}`}
+                        } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
                         style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}
                       >
                         {renderRowContent()}
@@ -570,13 +570,13 @@ export function DataGrid<T extends { id: string }>({
                     sel ? "bg-row-selected" : ""
                   } ${
                     isActiveRow
-                      ? "relative z-40 bg-white dark:bg-[#222226] shadow-[0_4px_25px_rgba(0,0,0,0.12)] ring-1 ring-primary/25 scale-[1.015] border-y border-y-primary/40 font-semibold"
+                      ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                       : ""
                   } ${
                     highlightedRowId === row.id
                       ? "row-highlight-flash"
                       : ""
-                  } ${isBlurred ? "blur-[1px] opacity-25 scale-[0.99] pointer-events-none" : ""}`}
+                  } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
                   style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}
                 >
                   {renderRowContent()}

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
 import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare } from "lucide-react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -405,6 +406,7 @@ function LoadingUnitPage() {
 
   // Selection states for Bulk Editing
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [editingSpace, setEditingSpace] = useState<{ space: LUSpace; floor: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' } | null>(null);
@@ -1555,6 +1557,9 @@ function LoadingUnitPage() {
                         <th rowSpan={2} className="p-2 text-center w-20 bg-[#0A7BC7]/10 text-[#0A7BC7] font-bold" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
                           {standardPreset === "dubai" ? "TOTAL LU" : "TOTAL WSFU"}
                         </th>
+                        <th rowSpan={2} className="p-2 text-center w-16 font-bold">
+                          Actions
+                        </th>
                       </tr>
                       <tr className="bg-slate-50 dark:bg-slate-900 border-b border-border">
                         {LU_FIXTURES_META.map(f => (
@@ -1604,7 +1609,7 @@ function LoadingUnitPage() {
                         
                         {/* Floor Section Header */}
                         <tr className="bg-slate-200 dark:bg-slate-800 border-b border-border text-foreground font-bold text-[11.5px]">
-                          <td colSpan={LU_FIXTURES_META.length + 6} className="p-2 px-3 text-center">
+                          <td colSpan={LU_FIXTURES_META.length + 7} className="p-2 px-3 text-center">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <Building2 className="size-4 text-[#0A7BC7]" />
@@ -1660,18 +1665,34 @@ function LoadingUnitPage() {
                           <td className="p-2 text-center">
                             <button onClick={() => handleAddSpaceToFloor(floor)} className="bg-[#0A7BC7] hover:bg-[#06456F] text-white px-3 py-1 rounded font-bold transition-all cursor-pointer border-0 text-xs">Add</button>
                           </td>
+                          <td className="p-1 text-center"></td>
                         </tr>
 
                         {/* Existing spaces on this floor */}
                         {floorsGrouped[floor].map((s) => {
                           const isSelected = selectedIds.includes(s.id);
+                          const isEditing = editingSpace?.space.id === s.id;
+                          const isModalOpen = editingSpace !== null;
+
                           return (
                             <tr
                               key={s.id}
+                              onDoubleClick={() => {
+                                setSelectedIds([s.id]);
+                                setEditingSpace({ space: s, floor });
+                              }}
                               onContextMenu={(e) => handleContextMenu(e, s.id)}
-                              className={`border-b border-border/50 transition-colors ${isSelected ? "bg-blue-500/10 dark:bg-blue-950/30 font-semibold" : "hover:bg-slate-50/50 dark:hover:bg-slate-900/30"}`}
+                              className={`transition-all duration-200 cursor-pointer ${
+                                isEditing
+                                  ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                  : isModalOpen
+                                  ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                  : isSelected
+                                  ? "bg-blue-500/10 dark:bg-blue-950/30 font-semibold"
+                                  : "hover:bg-slate-50/50 dark:hover:bg-slate-900/30"
+                              }`}
                             >
-                              <td className="p-2 text-center">
+                              <td className="p-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
@@ -1679,7 +1700,7 @@ function LoadingUnitPage() {
                                   className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
                                 />
                               </td>
-                              <td className="p-1.5">
+                              <td className="p-1.5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
                                 <div className="flex items-center gap-1.5 w-full">
                                   {s.comments && s.comments.length > 0 && (
                                     <span 
@@ -1689,30 +1710,90 @@ function LoadingUnitPage() {
                                       <MessageSquare className="size-3.5" />
                                     </span>
                                   )}
-                                  <input type="text" value={s.desc} onChange={e => handleSpaceDescChange(s.id, e.target.value)} className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-bold text-foreground" />
+                                  <input 
+                                    type="text" 
+                                    value={s.desc} 
+                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
+                                    onChange={e => handleSpaceDescChange(s.id, e.target.value)} 
+                                    className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-bold text-foreground" 
+                                  />
                                 </div>
                               </td>
                               {LU_FIXTURES_META.map(f => (
-                                <td key={f.id} className="p-1">
-                                  <input type="number" min="0" value={s.fixtures[f.id] || ""} onChange={e => handleFixtureChange(s.id, f.id, Number(e.target.value))} className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium" />
+                                <td key={f.id} className="p-1" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
+                                  <input 
+                                    type="number" 
+                                    min="0" 
+                                    value={s.fixtures[f.id] || ""} 
+                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
+                                    onChange={e => handleFixtureChange(s.id, f.id, Number(e.target.value))} 
+                                    className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium" 
+                                  />
                                 </td>
                               ))}
-                              <td className="p-2 text-center font-mono font-bold text-[#0A7BC7] bg-[#0A7BC7]/5">{(calculations.spaceUnitLU[s.id] || 0).toFixed(1)}</td>
-                              <td className="p-1 text-center">
+                              <td className="p-2 text-center font-mono font-bold text-[#0A7BC7] bg-[#0A7BC7]/5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
+                                {(calculations.spaceUnitLU[s.id] || 0).toFixed(1)}
+                              </td>
+                              <td className="p-1 text-center" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
                                 {showSpaceQty ? (
-                                  <input type="number" min="1" value={s.qty || 1} onChange={e => handleQtyChange(s.id, Number(e.target.value))} className="w-full text-center bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" title="Space Qty per floor" />
+                                  <input 
+                                    type="number" 
+                                    min="1" 
+                                    value={s.qty || 1} 
+                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
+                                    onChange={e => handleQtyChange(s.id, Number(e.target.value))} 
+                                    className="w-full text-center bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" 
+                                    title="Space Qty per floor" 
+                                  />
                                 ) : (
                                   <span className="text-muted-foreground font-mono text-[11px]">—</span>
                                 )}
                               </td>
-                              <td className="p-1 text-center">
+                              <td className="p-1 text-center" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
                                 {showFloorsCol ? (
-                                  <input type="number" min="1" value={s.floorQty || 1} onChange={e => handleFloorQtyChange(s.id, Number(e.target.value))} className="w-full text-center bg-sky-500/10 text-sky-700 dark:text-sky-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" title="No. of typical floors" />
+                                  <input 
+                                    type="number" 
+                                    min="1" 
+                                    value={s.floorQty || 1} 
+                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
+                                    onChange={e => handleFloorQtyChange(s.id, Number(e.target.value))} 
+                                    className="w-full text-center bg-sky-500/10 text-sky-700 dark:text-sky-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" 
+                                    title="No. of typical floors" 
+                                  />
                                 ) : (
                                   <span className="text-muted-foreground font-mono text-[11px]">—</span>
                                 )}
                               </td>
-                              <td className="p-2 text-center font-mono font-extrabold text-[#0A7BC7] bg-[#0A7BC7]/10">{(calculations.spaceTotalsLU[s.id] || 0).toFixed(1)}</td>
+                              <td className="p-2 text-center font-mono font-extrabold text-[#0A7BC7] bg-[#0A7BC7]/10" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
+                                {(calculations.spaceTotalsLU[s.id] || 0).toFixed(1)}
+                              </td>
+                              <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedIds([s.id]);
+                                      setEditingSpace({ space: s, floor });
+                                    }}
+                                    className="text-primary/70 hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
+                                    title="Edit Parameters & Calculations Breakdown"
+                                  >
+                                    <Info className="size-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setIopSpaces(prev => prev.filter(item => item.id !== s.id));
+                                      setSelectedIds(prev => prev.filter(id => id !== s.id));
+                                      toast.info("Space deleted");
+                                    }}
+                                    className="text-red-500/70 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+                                    title="Delete Space"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}
@@ -1908,6 +1989,36 @@ function LoadingUnitPage() {
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent("mep-notification-added"));
             }
+          }}
+        />
+      )}
+      {/* Double-Click Calculation Breakdown & Edit Modal */}
+      {editingSpace && (
+        <EditLoadingUnitRowModal
+          space={editingSpace.space}
+          rowIndex={(floorsGrouped[editingSpace.floor] || []).findIndex((sp) => sp.id === editingSpace.space.id) + 1 || 1}
+          floorName={editingSpace.floor}
+          standardPreset={standardPreset}
+          activeWeights={activeWeights}
+          showSpaceQty={showSpaceQty}
+          showFloorsCol={showFloorsCol}
+          onClose={() => setEditingSpace(null)}
+          onSave={(updated) => {
+            setIopSpaces((prev) =>
+              prev.map((sp) =>
+                sp.id === editingSpace.space.id
+                  ? {
+                      ...sp,
+                      desc: updated.desc,
+                      fixtures: updated.fixtures,
+                      qty: updated.qty,
+                      floorQty: updated.floorQty,
+                    }
+                  : sp
+              )
+            );
+            setEditingSpace(null);
+            toast.success(`Updated "${updated.desc || 'Space'}" parameters.`);
           }}
         />
       )}

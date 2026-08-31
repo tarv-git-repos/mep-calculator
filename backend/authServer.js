@@ -10,6 +10,14 @@ import { WELCOME_EMAIL_TEMPLATE, EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE 
 import * as dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[UNHANDLED REJECTION]', reason);
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_DIR = path.join(__dirname, 'data');
@@ -221,9 +229,23 @@ async function readUsers(forceRefresh = false) {
     const { data, error } = await supabase.from('custom_users').select('*');
     let users = [];
     if (!error && Array.isArray(data)) {
-      users = data.map(u => {
-        const loc = localMap.get(String(u.id || '').toLowerCase()) || localMap.get(String(u.email || '').toLowerCase()) || {};
-        const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
+      const dbMap = new Map();
+      data.forEach(u => {
+        if (u.id) dbMap.set(String(u.id).toLowerCase(), u);
+        if (u.email) dbMap.set(String(u.email).toLowerCase(), u);
+      });
+
+      const processedEmails = new Set();
+      const processedIds = new Set();
+
+      users = (localUsers || []).map(loc => {
+        const locId = String(loc.id || '').toLowerCase();
+        const locEmail = String(loc.email || '').toLowerCase();
+        if (locId) processedIds.add(locId);
+        if (locEmail) processedEmails.add(locEmail);
+
+        const u = dbMap.get(locId) || dbMap.get(locEmail) || {};
+        const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
         const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
         const orgId = u.organization_id || loc.organization_id || u.features?.organization_id || loc.features?.organization_id || null;
         const comp = u.company || u.organization || loc.company || loc.organization || u.features?.company || loc.features?.company || u.features?.organization || loc.features?.organization || '';
@@ -250,6 +272,33 @@ async function readUsers(forceRefresh = false) {
             subscription_expires: expDate
           }
         };
+      });
+
+      data.forEach(u => {
+        const uId = String(u.id || '').toLowerCase();
+        const uEmail = String(u.email || '').toLowerCase();
+        if ((!uId || !processedIds.has(uId)) && (!uEmail || !processedEmails.has(uEmail))) {
+          const effRole = (u.role && u.role !== 'USER') ? u.role : (u.features?.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
+          const expDate = u.subscription_expires || u.features?.subscription_expires || null;
+          const orgId = u.organization_id || u.features?.organization_id || null;
+          const comp = u.company || u.organization || u.features?.company || u.features?.organization || '';
+          users.push({
+            ...u,
+            role: effRole,
+            organization_id: orgId,
+            company: comp,
+            organization: comp,
+            subscription_expires: expDate,
+            features: {
+              ...(u.features || {}),
+              organization_id: orgId,
+              company: comp,
+              organization: comp,
+              role: effRole,
+              subscription_expires: expDate
+            }
+          });
+        }
       });
       users = users.filter(u => u.email !== 'parassadafuule05@gmail.com');
       
@@ -346,9 +395,13 @@ async function writeUsers(users) {
     });
     const { error } = await supabase.from('custom_users').upsert(safeUsers);
     if (error) {
-      // Fallback if subscription_expires or organization_id top-level column is not present in Supabase table schema
-      const featuresOnlyUsers = safeUsers.map(({ subscription_expires, organization_id, ...u }) => u);
-      await supabase.from('custom_users').upsert(featuresOnlyUsers);
+      for (const su of safeUsers) {
+        const { subscription_expires, organization_id, ...suFallback } = su;
+        const res = await supabase.from('custom_users').upsert([su]);
+        if (res.error) {
+          await supabase.from('custom_users').upsert([suFallback]);
+        }
+      }
     }
   } catch (e) {
     console.error('Error writing users to Supabase:', e);
@@ -861,6 +914,7 @@ const server = http.createServer(async (req, res) => {
       await transporter.sendMail(mailOption);
     } catch (err) {
       console.error('OTP resend mail error:', err);
+      return sendJSON(res, 200, { success: false, message: `Failed to send verification OTP: ${err.message || 'Email delivery failed'}` });
     }
 
     return sendJSON(res, 200, { success: true, message: 'Verification OTP Sent to Email' });
@@ -1124,9 +1178,6 @@ const server = http.createServer(async (req, res) => {
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     user.resetOtp = otp;
     user.resetOtpExpireAt = Date.now() + 15 * 60 * 1000;
-    console.log(`\n🔑 ==========================================`);
-    console.log(`🔑 PASSWORD RESET OTP for ${cleanEmail}: [ ${otp} ]`);
-    console.log(`🔑 ==========================================\n`);
 
     await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
@@ -1139,11 +1190,12 @@ const server = http.createServer(async (req, res) => {
         .replace(/\{\{name\}\}/g, user.name),
     };
 
-      try {
-        await transporter.sendMail(mailOption);
-      } catch (err) {
-        console.error('Reset mail error:', err);
-      }
+    try {
+      await transporter.sendMail(mailOption);
+    } catch (err) {
+      console.error('Reset mail error:', err);
+      return sendJSON(res, 200, { success: false, message: `Failed to send OTP email: ${err.message || 'Email delivery failed'}` });
+    }
 
     return sendJSON(res, 200, { success: true, message: 'Password reset OTP sent to your email' });
   }
@@ -1838,7 +1890,9 @@ const server = http.createServer(async (req, res) => {
     await writeUsers(users);
 
     try {
-      await supabase.from('custom_users').update({ role: newRole, features: users[targetUserIndex].features }).or(`id.eq.${profileId},email.eq.${profileId}`);
+      const existing = users[targetUserIndex];
+      if (existing.id) await supabase.from('custom_users').update({ role: newRole, features: existing.features }).eq('id', existing.id);
+      if (existing.email) await supabase.from('custom_users').update({ role: newRole, features: existing.features }).eq('email', existing.email);
     } catch (e) {
       console.error('Supabase update role error:', e);
     }
@@ -1983,13 +2037,17 @@ const server = http.createServer(async (req, res) => {
           dbPayload.subscription_expires = newExp;
         }
 
-        const { error } = await supabase.from('custom_users').update(dbPayload).or(`id.eq.${profileId},email.eq.${profileId}`);
-        if (error) {
-          // If top-level columns fail on Supabase schema, update features JSON column which always exists
+        let updateRes = existing.id ? await supabase.from('custom_users').update(dbPayload).eq('id', existing.id) : { error: true };
+        if ((updateRes.error || updateRes.count === 0) && existing.email) {
+          updateRes = await supabase.from('custom_users').update(dbPayload).eq('email', existing.email);
+        }
+
+        if (updateRes.error) {
           delete dbPayload.organization_id;
           delete dbPayload.organization;
           delete dbPayload.subscription_expires;
-          await supabase.from('custom_users').update(dbPayload).or(`id.eq.${profileId},email.eq.${profileId}`);
+          if (existing.id) await supabase.from('custom_users').update(dbPayload).eq('id', existing.id);
+          if (existing.email) await supabase.from('custom_users').update(dbPayload).eq('email', existing.email);
         }
       } catch (e) {}
     }

@@ -8,6 +8,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
@@ -124,6 +125,7 @@ function BusbarVoltageDropPage() {
   const [rows, setRows] = useState<BusbarVDRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeRowId, setActiveRowId] = useState<string>();
+  const [editingRow, setEditingRow] = useState<BusbarVDRow | null>(null);
   
   const [history, setHistory] = useState<BusbarVDRow[][]>([]);
   const [redoStack, setRedoStack] = useState<BusbarVDRow[][]>([]);
@@ -1002,6 +1004,11 @@ function BusbarVoltageDropPage() {
                     selected={selected}
                     onToggle={handleToggle}
                     onToggleAll={handleToggleAll}
+                    onRowDoubleClick={(row) => {
+                      setActiveRowId(row.id);
+                      setSelected(new Set([row.id]));
+                      setEditingRow(row);
+                    }}
                     renderContextMenu={(row) => (
                       <ContextMenuContent className="w-48">
                         <ContextMenuItem onClick={() => addRow(false)}>
@@ -1095,6 +1102,52 @@ function BusbarVoltageDropPage() {
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent("mep-notification-added"));
             }
+          }}
+        />
+      )}
+
+      {editingRow && (
+        <EditBusbarRowModal
+          row={{
+            id: editingRow.id,
+            desc: editingRow.ref || editingRow.tapOff,
+            length: editingRow.length,
+            loadKw: editingRow.smdbLoad || editingRow.tcl,
+            div: editingRow.df,
+            volts: editingRow.voltage,
+            pf: editingRow.pf,
+            r: globalR,
+            x: globalX
+          }}
+          sectionName={editingRow.from || "Busbar Section"}
+          panelName="LV Panel"
+          ratingOptions={DEFAULT_RATINGS.map(rt => ({
+            id: rt.rating,
+            label: rt.rating,
+            r: rt.r,
+            x: rt.x
+          }))}
+          unitSystem="si"
+          onClose={() => setEditingRow(null)}
+          onSave={(updated) => {
+            pushToHistory(rows, history, setHistory, setRedoStack);
+            setRows(prev => computeAllRows(prev.map(r => {
+              if (r.id === editingRow.id) {
+                return {
+                  ...r,
+                  ref: updated.desc || r.ref,
+                  tapOff: updated.desc || r.tapOff,
+                  length: Number(updated.length) || r.length,
+                  smdbLoad: Number(updated.loadKw) || r.smdbLoad,
+                  tcl: Number(updated.loadKw) || r.tcl,
+                  df: Number(updated.div) || r.df,
+                  voltage: Number(updated.volts) || r.voltage,
+                  pf: Number(updated.pf) || r.pf,
+                };
+              }
+              return r;
+            }), globalR, globalX));
+            setEditingRow(null);
           }}
         />
       )}
