@@ -9,7 +9,7 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   Plus, Trash2, Download, Upload, X, Sparkles, AlertTriangle, CheckCircle2,
   Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, Wrench, RefreshCw, Bookmark, HelpCircle,
-  Filter, ArrowUpDown, Edit3, MessageSquare
+  Filter, ArrowUpDown, Edit3, MessageSquare, Flag
 } from "lucide-react";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
@@ -56,6 +56,7 @@ interface PclRow {
   floor: string;
   selected?: boolean;
   comments?: any[];
+  flagged?: boolean;
 }
 
 const INFER_MAP: [string, string][] = [
@@ -267,6 +268,7 @@ function PreliminaryCoolingLoadPage() {
   const [query, setQuery] = useState("");
   const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [filterWarningsOnly, setFilterWarningsOnly] = useState(false);
   const [clipboard, setClipboard] = useState<PclRow[]>([]);
 
   // Floor ordering state matching Ventilation
@@ -286,11 +288,13 @@ function PreliminaryCoolingLoadPage() {
     floor: "",
     type: "",
     area: "",
+    flagged: false,
   });
   const [bulkEditFields, setBulkEditFields] = useState({
     floor: false,
     type: false,
     area: false,
+    flagged: false,
   });
 
   // Revit Excel / JSON Import Modal state
@@ -435,12 +439,14 @@ function PreliminaryCoolingLoadPage() {
     let count = 0;
     if (selectedFloor) count++;
     if (selectedType) count++;
+    if (filterWarningsOnly) count++;
     return count;
-  }, [selectedFloor, selectedType]);
+  }, [selectedFloor, selectedType, filterWarningsOnly]);
 
   const handleResetFilters = () => {
     setSelectedFloor(null);
     setSelectedType(null);
+    setFilterWarningsOnly(false);
   };
 
   const sortedFloorsForGrid = useMemo(() => {
@@ -482,10 +488,11 @@ function PreliminaryCoolingLoadPage() {
     return rows.filter((s) => {
       if (selectedFloor && s.floor !== selectedFloor) return false;
       if (selectedType && s.type !== selectedType) return false;
+      if (filterWarningsOnly && !s.flagged && s.area && s.type) return false;
       if (q && !`${s.name} ${s.floor} ${s.type}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, query, selectedFloor, selectedType]);
+  }, [rows, query, selectedFloor, selectedType, filterWarningsOnly]);
 
   const orderedRows = useMemo(() => {
     const groups: Record<string, PclRow[]> = {};
@@ -1107,6 +1114,9 @@ function PreliminaryCoolingLoadPage() {
         if (bulkEditFields.area) {
           nextRow.area = parseFloat(bulkEditValues.area) || r.area;
         }
+        if (bulkEditFields.flagged) {
+          nextRow.flagged = bulkEditValues.flagged;
+        }
         const numArea = nextRow.area !== "" ? Number(nextRow.area) : 0;
         nextRow.dissipation = numArea * nextRow.density;
         nextRow.kw = nextRow.dissipation / 1000;
@@ -1288,6 +1298,42 @@ function PreliminaryCoolingLoadPage() {
         <span className="text-muted-foreground/45 font-mono font-normal">{(((20 * (r.density || 120)) / 1000) / 3.517).toFixed(2)} TR</span>
       ) : `${r.tr.toFixed(2)} TR`,
     },
+    {
+      key: "flagged",
+      header: "",
+      width: 36,
+      align: "center",
+      render: (r) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            const editIds = getSpaceEditIds(r.id);
+            const editSet = new Set(editIds);
+            saveRows(rows.map((row) => (editSet.has(row.id) ? { ...row, flagged: !r.flagged } : row)));
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+          title={
+            (() => {
+              const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
+              const isNoType = !r.type || r.type.trim() === "";
+              if (isNoArea && isNoType) return "Missing space area and type";
+              if (isNoArea) return "Missing space area";
+              if (isNoType) return "Missing space type";
+              return r.flagged ? "Unflag space" : "Flag space";
+            })()
+          }
+        >
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${
+              r.flagged
+                ? "fill-red-500 text-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`}
+          />
+        </button>
+      ),
+    },
   ];
 
   const renderSpaceContextMenu = (row: PclRow) => {
@@ -1317,6 +1363,18 @@ function PreliminaryCoolingLoadPage() {
         >
           <Copy className="size-3.5 text-muted-foreground" />
           <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
+        </ContextMenuItem>
+
+        <ContextMenuItem
+          onClick={() => {
+            const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
+            const editSet = new Set(selectedIds);
+            saveRows(rows.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Space") : (isMulti ? "Flag Selected" : "Flag Space")}</span>
         </ContextMenuItem>
         
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -1523,6 +1581,21 @@ function PreliminaryCoolingLoadPage() {
                                 <option key={c} value={c}>{c}</option>
                               ))}
                             </select>
+                          </div>
+
+                          <div className="flex flex-col gap-1 pt-1.5 border-t border-border/60">
+                            <label className="flex items-center gap-2 text-[11.5px] font-semibold text-foreground cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={filterWarningsOnly}
+                                onChange={(e) => setFilterWarningsOnly(e.target.checked)}
+                                className="rounded border-gray-300 text-red-600 size-3.5 focus:ring-red-500"
+                              />
+                              <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                                <Flag className="size-3 fill-red-500 text-red-500" />
+                                Flagged / Warnings Only
+                              </span>
+                            </label>
                           </div>
                         </PopoverContent>
                       </Popover>
@@ -2195,6 +2268,46 @@ function PreliminaryCoolingLoadPage() {
                     placeholder="e.g. 50"
                     className="h-8 px-2.5 bg-surface-2 border border-border rounded-lg text-xs outline-none focus:border-primary mt-1"
                   />
+                )}
+              </div>
+
+              {/* Flag / Review Field */}
+              <div className="flex flex-col gap-1.5 border border-border/60 rounded-xl p-3 bg-slate-50/30 dark:bg-slate-900/5">
+                <label className="flex items-center gap-2 font-semibold text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={bulkEditFields.flagged}
+                    onChange={(e) => setBulkEditFields({ ...bulkEditFields, flagged: e.target.checked })}
+                    className="rounded border-gray-300 text-primary size-3.5"
+                  />
+                  <span className="flex items-center gap-1.5">
+                    <Flag className="size-3 text-red-500" />
+                    <span>Flag / Attention Status</span>
+                  </span>
+                </label>
+                {bulkEditFields.flagged && (
+                  <div className="flex items-center gap-4 mt-1 pl-5">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                      <input
+                        type="radio"
+                        name="bulkFlagStatus"
+                        checked={bulkEditValues.flagged === true}
+                        onChange={() => setBulkEditValues({ ...bulkEditValues, flagged: true })}
+                        className="text-primary size-3.5"
+                      />
+                      <span className="text-red-600 dark:text-red-400 font-medium">Flag Selected</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs">
+                      <input
+                        type="radio"
+                        name="bulkFlagStatus"
+                        checked={bulkEditValues.flagged === false}
+                        onChange={() => setBulkEditValues({ ...bulkEditValues, flagged: false })}
+                        className="text-primary size-3.5"
+                      />
+                      <span className="text-muted-foreground">Unflag Selected</span>
+                    </label>
+                  </div>
                 )}
               </div>
             </div>

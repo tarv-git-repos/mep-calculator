@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
-import { X, Info, Flame, Zap, Shield, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
+import { X, Info, Flame, Zap, Shield, CheckCircle2, AlertTriangle, Sparkles, Flag } from "lucide-react";
 
 export interface PclSpace {
   id: string;
@@ -14,6 +14,7 @@ export interface PclSpace {
   floor: string;
   selected?: boolean;
   comments?: any[];
+  flagged?: boolean;
 }
 
 interface EditPclSpaceModalProps {
@@ -161,6 +162,19 @@ export function EditPclSpaceModal({
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setTempSpace(prev => ({ ...prev, flagged: !prev.flagged }))}
+              className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${
+                tempSpace.flagged
+                  ? "bg-red-500/10 text-red-600 border-red-500/30 hover:bg-red-500/20"
+                  : "bg-surface-2 border-border/80 text-muted-foreground hover:text-foreground hover:bg-surface-3"
+              }`}
+              title={tempSpace.flagged ? "Unflag space" : "Flag space for review"}
+            >
+              <Flag className={`size-3.5 ${tempSpace.flagged ? "fill-red-500 text-red-500" : ""}`} />
+              <span>{tempSpace.flagged ? "Flagged" : "Flag"}</span>
+            </button>
             <button
               onClick={() => setShowPreview((prev) => !prev)}
               className={`flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${
