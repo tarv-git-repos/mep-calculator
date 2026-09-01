@@ -295,6 +295,173 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 }
 
 function PreliminaryCoolingLoadPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
+  const confirm = useConfirm();
+  const prompt = usePrompt();
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+
+  // State loaded from localStorage to keep 100% database compatibility
+  const [projectInfo, setProjectInfo] = useState({
+    projectName: "Preliminary Cooling Load Estimation",
+    projectNumber: "MEP-PCL-2026",
+    client: "Prestige Group developers",
+    consultant: "Consistent Engineering Consultants",
+    date: new Date().toISOString().split("T")[0],
+    revision: "Rev 0",
+    calcNumber: "CALC-HVAC-PCL01",
+    notes: "Preliminary room-by-room cooling load analysis based on standard target heat dissipation densities.",
+  });
+
+  const [rows, setRows] = useState<PclRow[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const activeProjId = localStorage.getItem("mep_active_project_id") || "default";
+      const projKey = `mep_pcl_rows_${activeProjId}`;
+      const savedProj = localStorage.getItem(projKey);
+      if (savedProj !== null) {
+        const parsed = JSON.parse(savedProj);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      const savedLegacy = localStorage.getItem("pcl_rows");
+      if (savedLegacy !== null) {
+        const parsed = JSON.parse(savedLegacy);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
+  const [editingSpace, setEditingSpace] = useState<PclRow | null>(null);
+  const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
+  const [showFormulaPanel, setShowFormulaPanel] = useState(false);
+
+  // Advanced selection, filter, sort and clipboard states
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [filterWarningsOnly, setFilterWarningsOnly] = useState(false);
+  const [clipboard, setClipboard] = useState<PclRow[]>([]);
+
+  // Floor ordering state matching Ventilation
+  const [floorOrder, setFloorOrder] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("pcl-floor-order");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+
+  // Bulk Edit Modal state
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditValues, setBulkEditValues] = useState({
+    floor: "",
+    type: "",
+    area: "",
+    flagged: false,
+  });
+  const [bulkEditFields, setBulkEditFields] = useState({
+    floor: false,
+    type: false,
+    area: false,
+    flagged: false,
+  });
+
+  // Revit Excel / JSON Import Modal state
+  const [importOpen, setImportOpen] = useState(false);
+  const [pendingRecords, setPendingRecords] = useState<any[]>([]);
+  const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set());
+  const [lastClickedPendingIndex, setLastClickedPendingIndex] = useState<number | null>(null);
+  const [importBulkValues, setImportBulkValues] = useState({
+    floor: "",
+    type: "",
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Comment & Task Assignment Modal State
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type: "space" | "zone" | "equipment" } | null>(null);
+
+  const handleOpenComment = (row: PclRow) => {
+    setCommentTargetItem({ id: row.id, name: row.name, type: "space" });
+    setCommentModalOpen(true);
+  };
+
+  // Sync with project changes
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    const projId = activeProjectId || project?.id || "default";
+    const projKey = `mep_pcl_rows_${projId}`;
+    const saved = localStorage.getItem(projKey);
+    if (saved !== null) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setRows(parsed);
+          setSelected(new Set());
+          return;
+        }
+      } catch (e) {}
+    } else {
+      // Clean slate for new project without existing PCL data
+      setRows([]);
+      setSelected(new Set());
+    }
+  }, [activeProjectId, project?.id]);
+
+  // Save to local storage and sync on rows change
+  const saveRows = (newRows: PclRow[]) => {
+    setRows(newRows);
+    try {
+      const projId = activeProjectId || project?.id || "default";
+      localStorage.setItem(`mep_pcl_rows_${projId}`, JSON.stringify(newRows));
+      localStorage.setItem("pcl_rows", JSON.stringify(newRows));
+      localStorage.setItem("pcl_rowCount", newRows.length.toString());
+      localStorage.setItem("pcl_project_info", JSON.stringify(projectInfo));
+      // Trigger PlumbingZoneLinker sync
+      if (typeof (window as any).PlumbingZoneLinker?.syncFromPCL === "function") {
+        (window as any).PlumbingZoneLinker.syncFromPCL();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Sizing Calculations
+  const calculatedData = useMemo(() => {
+    let totalArea = 0;
+    let totalW = 0;
+
+    rows.forEach(r => {
+      const a = r.area !== "" ? Number(r.area) : 0;
+      totalArea += a;
+      totalW += r.dissipation;
+    });
+
+    const totalKw = totalW / 1000;
+    const totalTr = totalKw / 3.517;
+    const avgDensity = totalArea > 0 ? totalW / totalArea : 0;
+
+    return {
+      totalArea,
+      totalKw,
+      totalTr,
+      avgDensity
+    };
+  }, [rows]);
+
+  // Validation Warnings
+  const validationLogs = useMemo(() => {
+    const logs: { type: "success" | "warning" | "danger" | "info"; msg: string }[] = [];
+
     if (calculatedData.avgDensity > 300) {
       logs.push({
         type: "warning",
