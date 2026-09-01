@@ -764,65 +764,148 @@ function PreliminaryCoolingLoadPage() {
         const workbook = XLSX.read(data, { type: "array" });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, raw: false });
 
-        if (jsonData.length === 0) {
-          alert("Empty file!");
+        if (!jsonData || jsonData.length === 0) {
+          alert("The selected Excel file is empty!");
           return;
         }
 
-        // Find headers
+        const norm = (str: any) => (str !== null && str !== undefined ? String(str).trim().toLowerCase() : "");
+
+        // 1. Find Data Table Header Row
         let headerRowIndex = -1;
         let headers: string[] = [];
-        for (let r = 0; r < jsonData.length; r++) {
+
+        for (let r = 0; r < Math.min(jsonData.length, 25); r++) {
           const row = jsonData[r];
-          if (row && row.length > 0) {
-            const rowNormalized = row.map((cell) => (cell ? String(cell).trim().toLowerCase() : ""));
-            const possibleHeaders = ["level", "floor", "name", "space name", "area"];
-            const hasHeader = rowNormalized.some((cell) => possibleHeaders.includes(cell));
-            if (hasHeader) {
+          if (!row || row.length === 0) continue;
+          const rowNorm = row.map(norm);
+
+          // Ignore top metadata rows like 'project name :', 'calculation no:'
+          const isMetaRow = rowNorm.some(h => h.startsWith("project") || h.startsWith("calculation") || h.startsWith("client"));
+          if (isMetaRow) continue;
+
+          const hasArea = rowNorm.some(h => h.includes("area") || h.includes("sq. m") || h.includes("sq.m") || h.includes("sqm") || h.includes("m2") || h.includes("m²"));
+          const hasNameOrDesc = rowNorm.some(h => h.includes("description") || h.includes("name") || h.includes("space") || h.includes("room") || h.includes("sr. no") || h.includes("sr no") || h.includes("level") || h.includes("floor"));
+
+          if (hasArea && hasNameOrDesc) {
+            headerRowIndex = r;
+            headers = rowNorm;
+            break;
+          }
+        }
+
+        // Fallback: scan for any row containing area
+        if (headerRowIndex === -1) {
+          for (let r = 0; r < Math.min(jsonData.length, 25); r++) {
+            const row = jsonData[r];
+            if (!row || row.length === 0) continue;
+            const rowNorm = row.map(norm);
+            if (rowNorm.some(h => h.includes("area") || h.includes("name") || h.includes("level") || h.includes("floor") || h.includes("description"))) {
               headerRowIndex = r;
-              headers = rowNormalized;
+              headers = rowNorm;
               break;
             }
           }
         }
 
         if (headerRowIndex === -1) {
-          alert("Missing header row! Excel must contain columns: Level/Floor, Name, Area.");
+          alert("Could not detect table headers in Excel. Please ensure the file contains columns such as Name / Description and Area.");
           return;
         }
 
-        let idxLevel = headers.indexOf("level");
-        if (idxLevel === -1) idxLevel = headers.indexOf("floor");
-        
-        let idxName = headers.indexOf("name");
-        if (idxName === -1) idxName = headers.indexOf("space name");
-        
-        const idxArea = headers.indexOf("area");
+        const findCol = (patterns: (string | RegExp)[]) => {
+          return headers.findIndex(h => {
+            if (!h) return false;
+            return patterns.some(p => typeof p === "string" ? h === p || h.includes(p) : p.test(h));
+          });
+        };
 
-        if ((idxLevel === -1 && idxName === -1) || idxArea === -1) {
-          alert("Missing Level/Floor, Name, or Area columns.");
+        let idxLevel = findCol([/^level$/i, /^floor$/i, /^storey$/i, /^story$/i, "floor level", "level / floor", "level", "floor", "flr", "lvl"]);
+        let idxName = findCol([/^name$/i, /^space\s*name$/i, /^room\s*name$/i, /^description$/i, "space name", "room name", "space description", "description", "room", "space", "name"]);
+        let idxArea = findCol([/^area$/i, /^area\s*\(.*?\)$/i, "area (sq. m)", "area (sqm)", "area (m2)", "area (m²)", "area", "sq. m", "sq.m", "sqm", "m2", "m²"]);
+        let idxType = findCol([/^type$/i, /^space\s*type$/i, /^room\s*type$/i, /^category$/i, "type of space", "space type", "room type", "category", "type"]);
+        let idxOcc = findCol([/^occupancy$/i, /^occupancy\s*\(.*?\)$/i, "occupancy (no.)", "occupancy", "occupants", "number of people", "fixtures"]);
+
+        // Fallbacks for standard column positions if not named explicitly
+        if (idxName === -1 && headers.length > 1) {
+          idxName = 1;
+        }
+        if (idxArea === -1 && headers.length > 2) {
+          idxArea = 2;
+        }
+
+        if (idxArea === -1 && idxName === -1) {
+          alert("Missing Name / Description or Area columns in Excel sheet.");
           return;
         }
 
+        let currentActiveFloor = "GF";
         const parsed: any[] = [];
+
         for (let r = headerRowIndex + 1; r < jsonData.length; r++) {
           const row = jsonData[r];
           if (!row || row.length === 0) continue;
 
+          const firstCellStr = norm(row[0]);
+          const allCellsStr = row.map(norm).join(" ");
+
+          // 1. Detect Floor Section Banners (e.g. 'GROUND FLOOR', 'FIRST FLOOR', 'TYPICAL FLOOR', 'BASEMENT FLOOR')
+          if (firstCellStr.includes("floor") || firstCellStr.includes("ground") || firstCellStr.includes("basement") || firstCellStr.includes("roof") || firstCellStr.includes("typical") || firstCellStr.includes("level")) {
+            const match = firstCellStr.match(/(basement|ground|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th)?|roof|mezzanine|podium|typical)\s*(?:floor|level)?/i);
+            if (match) {
+              const matchedStr = match[0].toUpperCase();
+              if (matchedStr.includes("GROUND")) currentActiveFloor = "GF";
+              else if (matchedStr.includes("BASEMENT")) currentActiveFloor = "BF";
+              else if (matchedStr.includes("ROOF")) currentActiveFloor = "RF";
+              else if (matchedStr.includes("FIRST") || matchedStr.includes("1ST") || matchedStr.includes("1 ")) currentActiveFloor = "1F";
+              else if (matchedStr.includes("SECOND") || matchedStr.includes("2ND") || matchedStr.includes("2 ")) currentActiveFloor = "2F";
+              else if (matchedStr.includes("THIRD") || matchedStr.includes("3RD") || matchedStr.includes("3 ")) currentActiveFloor = "3F";
+              else currentActiveFloor = matchedStr;
+              continue;
+            }
+          }
+
+          // Skip total rows, references, or signature lines
+          if (
+            allCellsStr.includes("total cooling load") ||
+            allCellsStr.includes("total fresh air") ||
+            allCellsStr.includes("fresh air load") ||
+            allCellsStr.includes("reference:") ||
+            allCellsStr.includes("originated by") ||
+            allCellsStr.includes("reviewed by") ||
+            allCellsStr.includes("approved by") ||
+            allCellsStr.includes("architectural drawings") ||
+            allCellsStr.includes("dbr")
+          ) {
+            continue;
+          }
+
           const levelVal = idxLevel !== -1 ? String(row[idxLevel] || "").trim() : "";
           const nameVal = idxName !== -1 ? String(row[idxName] || "").trim() : "";
+          const rawArea = idxArea !== -1 ? String(row[idxArea] || "").trim() : "";
+          const rawType = idxType !== -1 ? String(row[idxType] || "").trim() : "";
+          const rawOcc = idxOcc !== -1 ? String(row[idxOcc] || "").trim() : "";
 
-          if (!nameVal && !levelVal) continue;
+          // If both name and area are empty, skip row
+          if (!nameVal && !rawArea) continue;
 
-          const rawArea = String(row[idxArea] || "").trim();
           const areaCleaned = rawArea.replace(/[^\d\.]/g, "");
           const area = parseFloat(areaCleaned) || 0;
 
-          const inferredType = inferTypeFromName(nameVal) || "";
+          // Inferred or explicit type
+          let inferredType = rawType || inferTypeFromName(nameVal) || "";
+          // Check if inferred type is valid in SPACE_DENSITIES
+          if (inferredType && !SPACE_DENSITIES[inferredType]) {
+            const matchedKey = Object.keys(SPACE_DENSITIES).find(
+              k => k.toLowerCase() === inferredType.toLowerCase() || inferredType.toLowerCase().includes(k.toLowerCase())
+            );
+            if (matchedKey) inferredType = matchedKey;
+          }
+
           const density = inferredType ? (SPACE_DENSITIES[inferredType] || 120) : 0;
-          const floor = levelVal || extractFloor(nameVal) || "GF";
+          const floor = levelVal || extractFloor(nameVal) || currentActiveFloor || "GF";
           const isMissing = !inferredType || !area || area <= 0;
 
           parsed.push({
@@ -832,17 +915,23 @@ function PreliminaryCoolingLoadPage() {
             type: inferredType,
             density,
             area,
+            occupancy: rawOcc ? (parseInt(rawOcc) || rawOcc) : undefined,
             kw: (area * density) / 1000,
             tr: ((area * density) / 1000) / 3.517,
             flagged: isMissing,
           });
         }
 
+        if (parsed.length === 0) {
+          alert("No valid space records found in the uploaded file.");
+          return;
+        }
+
         setPendingRecords(parsed);
         setSelectedPending(new Set(parsed.map((p) => p.id)));
       } catch (err) {
-        console.error(err);
-        alert("Failed to parse Excel file.");
+        console.error("Excel parse error:", err);
+        alert("Failed to parse Excel file. Please verify file format.");
       }
     };
     reader.readAsArrayBuffer(file);
