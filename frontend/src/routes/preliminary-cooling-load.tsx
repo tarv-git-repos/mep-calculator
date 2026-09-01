@@ -1040,92 +1040,220 @@ function PreliminaryCoolingLoadPage() {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Cooling Load");
 
-    sheet.getColumn(1).width = 8;
-    sheet.getColumn(2).width = 25;
-    sheet.getColumn(3).width = 14;
-    sheet.getColumn(4).width = 28;
-    sheet.getColumn(5).width = 20;
-    sheet.getColumn(6).width = 22;
-    sheet.getColumn(7).width = 15;
+    // Colors matching demo Preliminary Cooling Load report
+    const COLOR_TITLE_BG = "F58220";      // Main Title Banner Orange
+    const COLOR_SECTION_BG = "C35200";    // Section Stats & Schedule Header Dark Orange
+    const COLOR_TABLE_HEADER = "F58220";  // Table Column Header Orange
+    const COLOR_FLOOR_BG = "FED7AA";      // Floor banner light peach
+    const COLOR_TOTAL_BG = "FED7AA";      // Total row light peach
+    const COLOR_TEXT_WHITE = "FFFFFF";
 
+    // Column widths
+    sheet.getColumn(1).width = 8;   // S.No
+    sheet.getColumn(2).width = 28;  // Name of Space
+    sheet.getColumn(3).width = 16;  // Area (m²)
+    sheet.getColumn(4).width = 30;  // Type of Space
+    sheet.getColumn(5).width = 28;  // Cooling load Density (W/m²)
+    sheet.getColumn(6).width = 20;  // Cooling Load (kW)
+    sheet.getColumn(7).width = 18;  // Cooling Load (TR)
+
+    // Row 1: Title Banner
     sheet.mergeCells("A1:G1");
     const cellA1 = sheet.getCell("A1");
     cellA1.value = "PRELIMINARY COOLING LOAD REPORT";
-    cellA1.font = { name: "Segoe UI", size: 14, bold: true, color: { argb: "FFFFFF" } };
-    cellA1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "0A7BC7" } };
+    cellA1.font = { name: "Segoe UI", size: 14, bold: true, color: { argb: COLOR_TEXT_WHITE } };
+    cellA1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_TITLE_BG } };
     cellA1.alignment = { horizontal: "center", vertical: "middle" };
+    sheet.getRow(1).height = 28;
 
-    sheet.addRow([]);
-    sheet.addRow(["Consistent Engineering Consultants", "", "", "", "", "Date: " + projectInfo.date]);
+    // Row 2: Empty
     sheet.addRow([]);
 
+    // Row 3: Company & Date
+    const row3 = sheet.addRow(["Consistent Engineering Consultants", "", "", "", "", "", "Date: " + (projectInfo.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }))]);
+    row3.getCell(1).font = { name: "Segoe UI", size: 11, bold: true, color: { argb: "000000" } };
+    row3.getCell(7).font = { name: "Segoe UI", size: 10, color: { argb: "333333" } };
+    row3.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
+
+    // Row 4: Empty
+    sheet.addRow([]);
+
+    // Row 5: Section Header - PROJECT SUMMARY STATS
     sheet.addRow(["📊 PROJECT SUMMARY STATS"]);
-    sheet.getRow(5).getCell(1).font = { name: "Segoe UI", size: 11, bold: true, color: { argb: "FFFFFF" } };
-    sheet.getRow(5).getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "06456F" } };
     sheet.mergeCells("A5:G5");
+    const cellA5 = sheet.getCell("A5");
+    cellA5.font = { name: "Segoe UI", size: 11, bold: true, color: { argb: COLOR_TEXT_WHITE } };
+    cellA5.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_SECTION_BG } };
+    cellA5.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    sheet.getRow(5).height = 22;
 
-    sheet.addRow(["Total Spaces:", rows.length, "", "Total Load (TR):", "", Number(calculatedData.totalTr.toFixed(2))]);
-    sheet.addRow(["Total Floor Area (m²):", Number(calculatedData.totalArea.toFixed(1)), "", "Total Load (kW):", "", Number(calculatedData.totalKw.toFixed(2))]);
-    sheet.addRow(["Average Load Density (W/m²):", Number(calculatedData.avgDensity.toFixed(1))]);
+    // Rows 6-8: Summary Stats Grid
+    const r6 = sheet.addRow(["Total Spaces:", "", rows.length, "Total Load (TR):", "", "", Number(calculatedData.totalTr.toFixed(2))]);
+    sheet.mergeCells(`A6:B6`);
+    sheet.mergeCells(`D6:F6`);
+    r6.getCell(1).font = { name: "Segoe UI", size: 10, bold: true };
+    r6.getCell(3).font = { name: "Segoe UI", size: 10, bold: true };
+    r6.getCell(3).alignment = { horizontal: "right" };
+    r6.getCell(4).font = { name: "Segoe UI", size: 10, bold: true };
+    r6.getCell(7).font = { name: "Segoe UI", size: 10, bold: true };
+    r6.getCell(7).alignment = { horizontal: "right" };
+    r6.getCell(7).numFmt = "0.00";
 
+    const r7 = sheet.addRow(["Total Floor Area (m²):", "", Number(calculatedData.totalArea.toFixed(1)), "Total Load (TR):", "", "", Number(calculatedData.totalTr.toFixed(2))]);
+    sheet.mergeCells(`A7:B7`);
+    sheet.mergeCells(`D7:F7`);
+    r7.getCell(1).font = { name: "Segoe UI", size: 10, bold: true };
+    r7.getCell(3).font = { name: "Segoe UI", size: 10, bold: true };
+    r7.getCell(3).alignment = { horizontal: "right" };
+    r7.getCell(3).numFmt = "0.0";
+    r7.getCell(4).font = { name: "Segoe UI", size: 10, bold: true };
+    r7.getCell(7).font = { name: "Segoe UI", size: 10, bold: true };
+    r7.getCell(7).alignment = { horizontal: "right" };
+    r7.getCell(7).numFmt = "0.00";
+
+    const r8 = sheet.addRow(["Total Cooling Load (kW):", "", Number(calculatedData.totalKw.toFixed(2)), "Average Load Density (W/m²):", "", "", Number(calculatedData.avgDensity.toFixed(1))]);
+    sheet.mergeCells(`A8:B8`);
+    sheet.mergeCells(`D8:F8`);
+    r8.getCell(1).font = { name: "Segoe UI", size: 10, bold: true };
+    r8.getCell(3).font = { name: "Segoe UI", size: 10, bold: true };
+    r8.getCell(3).alignment = { horizontal: "right" };
+    r8.getCell(3).numFmt = "0.00";
+    r8.getCell(4).font = { name: "Segoe UI", size: 10, bold: true };
+    r8.getCell(7).font = { name: "Segoe UI", size: 10, bold: true };
+    r8.getCell(7).alignment = { horizontal: "right" };
+    r8.getCell(7).numFmt = "0.0";
+
+    // Row 9: Empty
     sheet.addRow([]);
-    sheet.addRow(["❄️ COOLING LOAD SCHEDULE"]);
-    sheet.getRow(10).getCell(1).font = { name: "Segoe UI", size: 11, bold: true, color: { argb: "FFFFFF" } };
-    sheet.getRow(10).getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "06456F" } };
-    sheet.mergeCells("A10:G10");
 
-    sheet.addRow(["S.No", "Name of Space", "Area (m²)", "Type of Space", "Heat Density (W/m²)", "Cooling Load (kW)", "Load (TR)"]);
-    const headerRow = sheet.getRow(11);
+    // Row 10: Section Header - COOLING LOAD SCHEDULE
+    sheet.addRow(["⚙️ COOLING LOAD SCHEDULE"]);
+    sheet.mergeCells("A10:G10");
+    const cellA10 = sheet.getCell("A10");
+    cellA10.font = { name: "Segoe UI", size: 11, bold: true, color: { argb: COLOR_TEXT_WHITE } };
+    cellA10.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_SECTION_BG } };
+    cellA10.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    sheet.getRow(10).height = 22;
+
+    // Row 11: Table Headers
+    const headerRow = sheet.addRow([
+      "S.No",
+      "Name of Space",
+      "Area (m²)",
+      "Type of Space",
+      "Cooling load Density (W/m²)",
+      "Cooling Load (kW)",
+      "Cooling Load (TR)"
+    ]);
+    sheet.getRow(11).height = 22;
     headerRow.eachCell((cell) => {
-      cell.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: "FFFFFF" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "0A7BC7" } };
-      cell.alignment = { horizontal: "center", vertical: "middle" };
-      cell.border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
+      cell.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: COLOR_TEXT_WHITE } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_TABLE_HEADER } };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cell.border = { top: { style: "thin", color: { argb: "FFFFFF" } }, bottom: { style: "thin", color: { argb: "FFFFFF" } }, left: { style: "thin", color: { argb: "FFFFFF" } }, right: { style: "thin", color: { argb: "FFFFFF" } } };
     });
 
+    // Grouping by Floor
     const grouped: Record<string, PclRow[]> = {};
     rows.forEach(row => {
-      if (!grouped[row.floor]) grouped[row.floor] = [];
-      grouped[row.floor].push(row);
+      const fl = row.floor || "General";
+      if (!grouped[fl]) grouped[fl] = [];
+      grouped[fl].push(row);
     });
 
     let sNo = 1;
-    Object.keys(grouped).sort().forEach(floor => {
-      const floorHeaderRow = sheet.addRow(["📍 Floor: " + floor]);
-      sheet.mergeCells(`A${floorHeaderRow.number}:G${floorHeaderRow.number}`);
-      floorHeaderRow.getCell(1).font = { name: "Segoe UI", size: 11, bold: true, color: { argb: "06456F" } };
-      floorHeaderRow.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "DCEFFB" } };
+    const floorList = Object.keys(grouped).length > 0 ? Object.keys(grouped).sort() : ["General"];
 
-      grouped[floor].forEach(r => {
+    floorList.forEach(floor => {
+      const floorRows = grouped[floor] || [];
+      const floorHeaderRow = sheet.addRow([`Floor: ${floor}`]);
+      sheet.mergeCells(`A${floorHeaderRow.number}:G${floorHeaderRow.number}`);
+      const fCell = floorHeaderRow.getCell(1);
+      fCell.font = { name: "Segoe UI", size: 10.5, bold: true, color: { argb: "9A3412" } };
+      fCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_FLOOR_BG } };
+      fCell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      floorHeaderRow.height = 20;
+
+      floorRows.forEach(r => {
+        const areaVal = typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0);
+        const densityVal = r.density || 120;
+        const kwVal = typeof r.kw === "number" ? r.kw : (areaVal * densityVal) / 1000;
+        const trVal = typeof r.tr === "number" ? r.tr : kwVal / 3.517;
+
         const dataRow = sheet.addRow([
           sNo++,
           r.name,
-          r.area,
-          r.type,
-          r.density,
-          Number(r.kw.toFixed(2)),
-          Number(r.tr.toFixed(2))
+          Number(areaVal.toFixed(1)),
+          r.type || "Unassigned",
+          Number(densityVal.toFixed(1)),
+          Number(kwVal.toFixed(2)),
+          Number(trVal.toFixed(2))
         ]);
+
+        dataRow.getCell(1).alignment = { horizontal: "center" };
+        dataRow.getCell(2).alignment = { horizontal: "left" };
+        dataRow.getCell(3).alignment = { horizontal: "right" };
+        dataRow.getCell(3).numFmt = "0.0";
+        dataRow.getCell(4).alignment = { horizontal: "left" };
+        dataRow.getCell(5).alignment = { horizontal: "right" };
+        dataRow.getCell(5).numFmt = "0.0";
+        dataRow.getCell(6).alignment = { horizontal: "right" };
+        dataRow.getCell(6).numFmt = "0.00";
+        dataRow.getCell(7).alignment = { horizontal: "right" };
+        dataRow.getCell(7).numFmt = "0.00";
+
         dataRow.eachCell((cell) => {
           cell.font = { name: "Segoe UI", size: 10 };
-          cell.border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } };
+          cell.border = {
+            top: { style: "thin", color: { argb: "E5E7EB" } },
+            bottom: { style: "thin", color: { argb: "E5E7EB" } },
+            left: { style: "thin", color: { argb: "E5E7EB" } },
+            right: { style: "thin", color: { argb: "E5E7EB" } }
+          };
         });
       });
     });
 
-    const totalRow = sheet.addRow(["TOTAL", "", Number(calculatedData.totalArea.toFixed(1)), "", Number(calculatedData.avgDensity.toFixed(1)), Number(calculatedData.totalKw.toFixed(2)), Number(calculatedData.totalTr.toFixed(2))]);
+    // TOTAL Summary Row
+    const totalRow = sheet.addRow([
+      "TOTAL",
+      "",
+      Number(calculatedData.totalArea.toFixed(1)),
+      "",
+      Number(calculatedData.avgDensity.toFixed(1)),
+      Number(calculatedData.totalKw.toFixed(2)),
+      Number(calculatedData.totalTr.toFixed(2))
+    ]);
     sheet.mergeCells(`A${totalRow.number}:B${totalRow.number}`);
+    totalRow.height = 22;
+
+    totalRow.getCell(1).alignment = { horizontal: "left", indent: 1 };
+    totalRow.getCell(3).alignment = { horizontal: "right" };
+    totalRow.getCell(3).numFmt = "0.0";
+    totalRow.getCell(5).alignment = { horizontal: "right" };
+    totalRow.getCell(5).numFmt = "0.0";
+    totalRow.getCell(6).alignment = { horizontal: "right" };
+    totalRow.getCell(6).numFmt = "0.00";
+    totalRow.getCell(7).alignment = { horizontal: "right" };
+    totalRow.getCell(7).numFmt = "0.00";
+
     totalRow.eachCell((cell) => {
-      cell.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: "06456F" } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "DCEFFB" } };
-      cell.border = { top: { style: "thin" }, bottom: { style: "double", color: { argb: "06456F" } }, left: { style: "thin" }, right: { style: "thin" } };
+      cell.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: "000000" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_TOTAL_BG } };
+      cell.border = {
+        top: { style: "thin", color: { argb: "C35200" } },
+        bottom: { style: "double", color: { argb: "C35200" } },
+        left: { style: "thin", color: { argb: "C35200" } },
+        right: { style: "thin", color: { argb: "C35200" } }
+      };
     });
 
-    
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "preliminary-cooling-load");
+    // Signature block
+    const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "preliminary-cooling-load");
+
     const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.xlsx`);
+    saveAs(new Blob([buffer]), `${(projectInfo.projectName || "Preliminary_Cooling_Load").replace(/\s+/g, "_")}_report.xlsx`);
   };
 
   const handlePrintPDF = () => {
