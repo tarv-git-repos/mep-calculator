@@ -39,20 +39,16 @@ import { AutoUpdaterPopup } from "@/components/AutoUpdaterPopup";
 
 function AuthGuard({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
-  const [safetyTimePassed, setSafetyTimePassed] = useState(false);
   const { session, profile, loading, isLoggedin, logout } = useAuth();
   const routerState = useRouterState();
   const [showPricing, setShowPricing] = useState(false);
   
   useEffect(() => {
     setMounted(true);
-    const timer = setTimeout(() => {
-      setSafetyTimePassed(true);
-    }, 1500);
-    return () => clearTimeout(timer);
   }, []);
 
-  if ((!mounted || loading) && !safetyTimePassed) return (
+  // Only show loading screen if initial client mounting is pending and user is not yet loaded from localStorage
+  if (!mounted && loading && !isLoggedin) return (
     <div className="flex h-screen w-screen items-center justify-center bg-slate-950">
       <div className="text-sky-400 font-medium">Loading session...</div>
     </div>

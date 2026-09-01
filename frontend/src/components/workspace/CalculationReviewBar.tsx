@@ -66,7 +66,24 @@ export function CalculationReviewBar({
     const roleUpper = roleVal.toUpperCase();
     const metaUpper = metaRole.toUpperCase();
 
-    // 1. DISCIPLINE COORDINATOR: ONLY if role or designation is explicitly "Discipline Coordinator"
+    // 1. ABSOLUTE GUARD: System Admin, Org Admin, Super Admin, Project Manager, Viewer, etc.
+    // MUST NEVER have access to Review, Approve, or Reject buttons!
+    if (
+      roleUpper === "ORG_ADMIN" || 
+      roleUpper === "SUPER_ADMIN" || 
+      roleUpper === "ADMIN" ||
+      roleUpper === "PROJECT_MANAGER" ||
+      roleUpper === "VIEWER" ||
+      metaUpper === "ORG_ADMIN" ||
+      metaUpper === "SUPER_ADMIN" ||
+      metaUpper === "ADMIN" ||
+      metaUpper === "PROJECT_MANAGER" ||
+      metaUpper === "VIEWER"
+    ) {
+      return "Jr. / Design Engineer";
+    }
+
+    // 2. DISCIPLINE COORDINATOR: ONLY if role or designation is explicitly "Discipline Coordinator"
     const isExplicitCoordinator = 
       roleVal === "Discipline Coordinator" ||
       desVal === "Discipline Coordinator" ||
@@ -77,28 +94,22 @@ export function CalculationReviewBar({
       return "Discipline Coordinator";
     }
 
-    // 2. SR. DESIGN ENGINEER / LEAD / ADMIN
+    // 3. SR. DESIGN ENGINEER: ONLY if role or designation is explicitly "Sr. Design Engineer" / "Senior Design Engineer"
     const isExplicitSenior = 
       roleVal === "Sr. Design Engineer" ||
       desVal === "Sr. Design Engineer" ||
       roleVal === "Senior Design Engineer" ||
       desVal === "Senior Design Engineer" ||
-      roleVal.toLowerCase().includes("senior") ||
-      desVal.toLowerCase().includes("senior") ||
-      roleVal.toLowerCase().includes("sr.") ||
-      desVal.toLowerCase().includes("sr.") ||
-      roleUpper === "ORG_ADMIN" ||
-      roleUpper === "SUPER_ADMIN" ||
-      roleUpper === "ADMIN" ||
-      metaUpper === "ORG_ADMIN" ||
-      metaUpper === "SUPER_ADMIN" ||
-      !roleVal; // default admin user
+      roleVal.toLowerCase() === "sr. design engineer" ||
+      desVal.toLowerCase() === "sr. design engineer" ||
+      roleVal.toLowerCase() === "senior design engineer" ||
+      desVal.toLowerCase() === "senior design engineer";
 
     if (isExplicitSenior) {
       return "Sr. Design Engineer";
     }
 
-    // Default fallback: Jr. / Design Engineer
+    // Default fallback: Jr. / Design Engineer (No action buttons)
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
