@@ -2298,17 +2298,6 @@ function LoadingUnitPage() {
                               </td>
                               <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedIds([s.id]);
-                                      setEditingSpace({ space: s, floor });
-                                    }}
-                                    className="text-primary/70 hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
-                                    title="Edit Parameters & Calculations Breakdown"
-                                  >
-                                    <Info className="size-3.5" />
-                                  </button>
                                   {(() => {
                                     const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
                                     const isMissingDesc = !s.desc || s.desc.trim() === "";
