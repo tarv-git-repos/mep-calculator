@@ -1075,12 +1075,12 @@ function PreliminaryCoolingLoadPage() {
 
     // Column widths (7 columns)
     sheet.getColumn(1).width = 8;   // S.No
-    sheet.getColumn(2).width = 30;  // Name of Space
+    sheet.getColumn(2).width = 32;  // Name of Space
     sheet.getColumn(3).width = 16;  // Area (m²)
     sheet.getColumn(4).width = 30;  // Type of Space
-    sheet.getColumn(5).width = 28;  // Cooling load Density (W/m²)
-    sheet.getColumn(6).width = 20;  // Cooling Load (kW)
-    sheet.getColumn(7).width = 18;  // Cooling Load (TR)
+    sheet.getColumn(5).width = 18;  // Cooling load Density (W/m²)
+    sheet.getColumn(6).width = 16;  // Cooling Load (kW)
+    sheet.getColumn(7).width = 16;  // Cooling Load (TR)
 
     // Row 2: Title Row
     sheet.getRow(2).height = 24;
@@ -1210,11 +1210,11 @@ function PreliminaryCoolingLoadPage() {
       "Name of Space",
       "Area (m²)",
       "Type of Space",
-      "Cooling load Density (W/m²)",
-      "Cooling Load (kW)",
-      "Cooling Load (TR)"
+      "Cooling load\nDensity\n(W/m²)",
+      "Cooling Load\n(kW)",
+      "Cooling\nLoad (TR)"
     ]);
-    sheet.getRow(14).height = 24;
+    sheet.getRow(14).height = 45;
     headerRow.eachCell((cell, colNumber) => {
       cell.font = boldFont;
       cell.fill = (colNumber === 6 || colNumber === 7) ? blueFill : grayFill;
@@ -1262,14 +1262,14 @@ function PreliminaryCoolingLoadPage() {
 
         dataRow.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
         dataRow.getCell(2).alignment = { horizontal: "left", vertical: "middle" };
-        dataRow.getCell(3).alignment = { horizontal: "right", vertical: "middle" };
+        dataRow.getCell(3).alignment = { horizontal: "center", vertical: "middle" };
         dataRow.getCell(3).numFmt = "0.0";
         dataRow.getCell(4).alignment = { horizontal: "left", vertical: "middle" };
-        dataRow.getCell(5).alignment = { horizontal: "right", vertical: "middle" };
+        dataRow.getCell(5).alignment = { horizontal: "center", vertical: "middle" };
         dataRow.getCell(5).numFmt = "0.0";
-        dataRow.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
+        dataRow.getCell(6).alignment = { horizontal: "center", vertical: "middle" };
         dataRow.getCell(6).numFmt = "0.00";
-        dataRow.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
+        dataRow.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
         dataRow.getCell(7).numFmt = "0.00";
 
         dataRow.eachCell((cell, colNumber) => {
@@ -1293,13 +1293,14 @@ function PreliminaryCoolingLoadPage() {
     totalRow.height = 25;
 
     totalRow.getCell(1).alignment = { horizontal: "right", vertical: "middle" };
-    totalRow.getCell(3).alignment = { horizontal: "right", vertical: "middle" };
+    totalRow.getCell(3).alignment = { horizontal: "center", vertical: "middle" };
     totalRow.getCell(3).numFmt = "0.0";
-    totalRow.getCell(5).alignment = { horizontal: "right", vertical: "middle" };
+    totalRow.getCell(4).alignment = { horizontal: "center", vertical: "middle" };
+    totalRow.getCell(5).alignment = { horizontal: "center", vertical: "middle" };
     totalRow.getCell(5).numFmt = "0.0";
-    totalRow.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
+    totalRow.getCell(6).alignment = { horizontal: "center", vertical: "middle" };
     totalRow.getCell(6).numFmt = "0.00";
-    totalRow.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
+    totalRow.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
     totalRow.getCell(7).numFmt = "0.00";
 
     totalRow.eachCell((cell, colNumber) => {
@@ -1310,7 +1311,7 @@ function PreliminaryCoolingLoadPage() {
 
     // Signature block
     const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "preliminary-cooling-load");
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "/preliminary-cooling-load", 7);
 
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${(projectInfo.projectName || "Preliminary_Cooling_Load").replace(/\s+/g, "_")}_report.xlsx`);
