@@ -708,6 +708,17 @@ function LoadingUnitPage() {
 
   const handleResetWeightsToDefault = () => {
     setWeightOverrides({});
+    if (project?.id) {
+      try {
+        const key = `mep_loading_unit_calc_${project.id}`;
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          const data = JSON.parse(stored);
+          data.weightOverrides = {};
+          localStorage.setItem(key, JSON.stringify(data));
+        }
+      } catch (e) {}
+    }
     toast.info("Reset fixture weights to standard defaults.");
   };
 
