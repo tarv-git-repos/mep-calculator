@@ -34,9 +34,19 @@ export function formatDateStr(rawDate?: string): string {
   return datePart;
 }
 
-export function getExporterUserName(metaUserName?: string): string {
-  if (metaUserName && metaUserName.trim() && metaUserName !== "System Admin") {
-    return metaUserName.trim();
+export function getExporterUserName(metaUserName?: any): string {
+  if (typeof metaUserName === 'object' && metaUserName !== null) {
+    if (typeof metaUserName.originatedName === 'string' && metaUserName.originatedName.trim()) {
+      return metaUserName.originatedName.trim();
+    }
+    if (typeof metaUserName.name === 'string' && metaUserName.name.trim()) {
+      return metaUserName.name.trim();
+    }
+  }
+
+  const safeName = typeof metaUserName === 'string' ? metaUserName.trim() : "";
+  if (safeName && safeName !== "System Admin") {
+    return safeName;
   }
 
   if (typeof window !== "undefined") {
@@ -70,7 +80,7 @@ export function getExporterUserName(metaUserName?: string): string {
     } catch (e) {}
   }
 
-  return metaUserName?.trim() || "System Admin";
+  return safeName || "System Admin";
 }
 
 export function resolveLatestReviewState(projectId: string, calculatorPath: string) {
@@ -195,18 +205,29 @@ export function getSignatureBlockDetails(
 export function addPdfSignatureBlock(
   doc: jsPDF,
   startY: number,
-  creatorName: string,
-  projectId: string,
-  calculatorPath: string
+  creatorOrDetails: any,
+  projectId?: string,
+  calculatorPath?: string
 ): number {
+  let details: any;
+  if (creatorOrDetails && typeof creatorOrDetails === "object" && "originatedName" in creatorOrDetails) {
+    details = creatorOrDetails;
+  } else {
+    details = getSignatureBlockDetails(
+      projectId || "default",
+      calculatorPath || "/ventilation",
+      typeof creatorOrDetails === "string" ? creatorOrDetails : ""
+    );
+  }
+
   const {
-    originatedName,
-    originatedDate,
-    reviewerName,
-    reviewerDate,
-    approverName,
-    approverDate
-  } = getSignatureBlockDetails(projectId, calculatorPath, creatorName);
+    originatedName = "System Admin",
+    originatedDate = formatDateStr(new Date().toISOString()),
+    reviewerName = "",
+    reviewerDate = "",
+    approverName = "",
+    approverDate = ""
+  } = details;
 
   const head = [["", "Originated by", "Reviewed by", "Approved by"]];
   const body = [
@@ -214,7 +235,17 @@ export function addPdfSignatureBlock(
     ["Date:", originatedDate, reviewerDate, approverDate],
   ];
 
-  autoTable(doc, {
+  const callTable = (pdfDoc: any, options: any) => {
+    if (typeof autoTable === "function") {
+      autoTable(pdfDoc, options);
+    } else if (typeof (autoTable as any)?.default === "function") {
+      (autoTable as any).default(pdfDoc, options);
+    } else if (typeof pdfDoc.autoTable === "function") {
+      pdfDoc.autoTable(options);
+    }
+  };
+
+  callTable(doc, {
     startY: startY + 10,
     head: head,
     body: body,
