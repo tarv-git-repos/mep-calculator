@@ -46,12 +46,12 @@ export function EditPclSpaceModal({
 
   // Handle automatic or custom density update
   const defaultDensity = useMemo(() => {
-    return spaceDensities[tempSpace.type] || 120;
+    return tempSpace.type ? (spaceDensities[tempSpace.type] || 0) : 0;
   }, [tempSpace.type, spaceDensities]);
 
   const liveCalculations = useMemo(() => {
     const areaNum = typeof tempSpace.area === "number" ? tempSpace.area : parseFloat(String(tempSpace.area)) || 0;
-    const densityNum = tempSpace.density > 0 ? tempSpace.density : defaultDensity;
+    const densityNum = tempSpace.type ? (customDensityOverride ? tempSpace.density : (spaceDensities[tempSpace.type] || tempSpace.density || 0)) : 0;
     const dissipationWatts = areaNum * densityNum;
     const kw = dissipationWatts / 1000;
     const tr = kw / 3.51685;
@@ -64,20 +64,20 @@ export function EditPclSpaceModal({
       tr,
       btuh: tr * 12000,
     };
-  }, [tempSpace.area, tempSpace.density, defaultDensity]);
+  }, [tempSpace.area, tempSpace.density, tempSpace.type, customDensityOverride, spaceDensities]);
 
   const handleTypeChange = (newType: string) => {
-    const nextDensity = spaceDensities[newType] || 120;
+    const nextDensity = newType ? (spaceDensities[newType] || 0) : 0;
+    setCustomDensityOverride(false);
     setTempSpace((prev) => {
       const areaNum = typeof prev.area === "number" ? prev.area : parseFloat(String(prev.area)) || 0;
-      const densityToUse = customDensityOverride ? prev.density : nextDensity;
-      const watts = areaNum * densityToUse;
+      const watts = areaNum * nextDensity;
       const kw = watts / 1000;
       const tr = kw / 3.51685;
       return {
         ...prev,
         type: newType,
-        density: densityToUse,
+        density: nextDensity,
         dissipation: watts,
         kw: Number(kw.toFixed(2)),
         tr: Number(tr.toFixed(2)),
@@ -87,8 +87,8 @@ export function EditPclSpaceModal({
 
   const handleAreaChange = (val: number | "") => {
     setTempSpace((prev) => {
-      const areaNum = typeof val === "number" ? val : parseFloat(String(val)) || 0;
-      const densityToUse = prev.density > 0 ? prev.density : defaultDensity;
+      const areaNum = typeof val === "number" ? val : (val === "" ? 0 : parseFloat(String(val)) || 0);
+      const densityToUse = prev.type ? (customDensityOverride ? prev.density : (spaceDensities[prev.type] || prev.density || 0)) : 0;
       const watts = areaNum * densityToUse;
       const kw = watts / 1000;
       const tr = kw / 3.51685;
@@ -105,7 +105,7 @@ export function EditPclSpaceModal({
   const handleDensityChange = (val: number) => {
     setCustomDensityOverride(true);
     setTempSpace((prev) => {
-      const areaNum = typeof prev.area === "number" ? prev.area : parseFloat(String(prev.area)) || 0;
+      const areaNum = typeof prev.area === "number" ? prev.area : (prev.area === "" ? 0 : parseFloat(String(prev.area)) || 0);
       const watts = areaNum * val;
       const kw = watts / 1000;
       const tr = kw / 3.51685;
@@ -120,20 +120,23 @@ export function EditPclSpaceModal({
   };
 
   const handleSave = () => {
-    const areaNum = typeof tempSpace.area === "number" ? tempSpace.area : parseFloat(String(tempSpace.area)) || 0;
-    const finalDensity = tempSpace.density > 0 ? tempSpace.density : defaultDensity;
+    const areaNum = typeof tempSpace.area === "number" ? tempSpace.area : (tempSpace.area === "" ? 0 : parseFloat(String(tempSpace.area)) || 0);
+    const finalDensity = tempSpace.type ? (customDensityOverride ? tempSpace.density : (spaceDensities[tempSpace.type] || tempSpace.density || 0)) : 0;
     const finalWatts = areaNum * finalDensity;
     const finalKw = finalWatts / 1000;
     const finalTr = finalKw / 3.51685;
 
+    const isNoName = !tempSpace.name || tempSpace.name.trim() === "";
     const isNoArea = areaNum <= 0;
     const isNoType = !tempSpace.type || tempSpace.type.trim() === "";
-    const isFlagged = tempSpace.flagged !== undefined ? tempSpace.flagged : (isNoArea || isNoType);
+    const isMissing = isNoName || isNoArea || isNoType;
+    const isFlagged = isMissing ? true : (tempSpace.flagged ?? false);
 
     const finalized: PclSpace = {
       ...tempSpace,
       name: tempSpace.name.trim() || space.name,
-      area: areaNum,
+      area: tempSpace.area === "" ? "" : areaNum,
+      type: tempSpace.type || "",
       density: finalDensity,
       dissipation: finalWatts,
       kw: Number(finalKw.toFixed(2)),
@@ -223,10 +226,11 @@ export function EditPclSpaceModal({
                 <div>
                   <label className={labelClass}>Category Classification</label>
                   <select
-                    value={tempSpace.type}
+                    value={tempSpace.type || ""}
                     onChange={(e) => handleTypeChange(e.target.value)}
                     className={`${inputClass} cursor-pointer`}
                   >
+                    <option value="">Select Category...</option>
                     {Object.keys(spaceDensities).map((t) => (
                       <option key={t} value={t}>{t} ({spaceDensities[t]} W/m²)</option>
                     ))}

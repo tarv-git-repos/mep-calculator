@@ -45,6 +45,39 @@ export const Route = createFileRoute("/preliminary-cooling-load")({
   component: PreliminaryCoolingLoadPage,
 });
 
+
+export function checkIfPclMissingData(r: PclRow): { isMissing: boolean; reason: string } {
+  const isNoName = !r.name || r.name.trim() === "";
+  const isNoArea = r.area === "" || r.area === undefined || r.area === null || parseFloat(String(r.area)) <= 0 || isNaN(parseFloat(String(r.area)));
+  const isNoType = !r.type || r.type.trim() === "" || r.type.toLowerCase() === "select" || r.type.toLowerCase().includes("select type");
+
+  if (isNoName && isNoArea && isNoType) {
+    return { isMissing: true, reason: "Missing space name, area, and space type" };
+  }
+  if (isNoArea && isNoType) {
+    return { isMissing: true, reason: "Missing space area and space type" };
+  }
+  if (isNoName && isNoArea) {
+    return { isMissing: true, reason: "Missing space name and space area" };
+  }
+  if (isNoName && isNoType) {
+    return { isMissing: true, reason: "Missing space name and space type" };
+  }
+  if (isNoName) {
+    return { isMissing: true, reason: "Missing space name" };
+  }
+  if (isNoArea) {
+    return { isMissing: true, reason: "Missing space area" };
+  }
+  if (isNoType) {
+    return { isMissing: true, reason: "Missing space type (heat density not assigned)" };
+  }
+  if (r.flagged) {
+    return { isMissing: false, reason: "Flagged for engineering review" };
+  }
+  return { isMissing: false, reason: "Complied" };
+}
+
 interface PclRow {
   id: string;
   name: string;
@@ -262,164 +295,6 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 }
 
 function PreliminaryCoolingLoadPage() {
-  const { userData, profile } = useAuth();
-  const currentUserName = userData?.name || profile?.name || "System Admin";
-
-  const confirm = useConfirm();
-  const prompt = usePrompt();
-  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
-
-  // State loaded from localStorage to keep 100% database compatibility
-  const [projectInfo, setProjectInfo] = useState({
-    projectName: "Preliminary Cooling Load Estimation",
-    projectNumber: "MEP-PCL-2026",
-    client: "Prestige Group developers",
-    consultant: "Consistent Engineering Consultants",
-    date: new Date().toISOString().split("T")[0],
-    revision: "Rev 0",
-    calcNumber: "CALC-HVAC-PCL01",
-    notes: "Preliminary room-by-room cooling load analysis based on standard target heat dissipation densities.",
-  });
-
-  const [rows, setRows] = useState<PclRow[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const activeProjId = localStorage.getItem("mep_active_project_id");
-      const projKey = activeProjId ? `mep_pcl_rows_${activeProjId}` : "pcl_rows";
-      const saved = localStorage.getItem(projKey) || localStorage.getItem("pcl_rows");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {}
-    return [];
-  });
-  const [editingSpace, setEditingSpace] = useState<PclRow | null>(null);
-  const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
-  const [showFormulaPanel, setShowFormulaPanel] = useState(false);
-
-  // Advanced selection, filter, sort and clipboard states
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
-  const [query, setQuery] = useState("");
-  const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
-  const [selectedType, setSelectedType] = useState<string | null>(null);
-  const [filterWarningsOnly, setFilterWarningsOnly] = useState(false);
-  const [clipboard, setClipboard] = useState<PclRow[]>([]);
-
-  // Floor ordering state matching Ventilation
-  const [floorOrder, setFloorOrder] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem("pcl-floor-order");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-
-  // Bulk Edit Modal state
-  const [bulkEditOpen, setBulkEditOpen] = useState(false);
-  const [bulkEditValues, setBulkEditValues] = useState({
-    floor: "",
-    type: "",
-    area: "",
-    flagged: false,
-  });
-  const [bulkEditFields, setBulkEditFields] = useState({
-    floor: false,
-    type: false,
-    area: false,
-    flagged: false,
-  });
-
-  // Revit Excel / JSON Import Modal state
-  const [importOpen, setImportOpen] = useState(false);
-  const [pendingRecords, setPendingRecords] = useState<any[]>([]);
-  const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set());
-  const [lastClickedPendingIndex, setLastClickedPendingIndex] = useState<number | null>(null);
-  const [importBulkValues, setImportBulkValues] = useState({
-    floor: "",
-    type: "",
-  });
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Comment & Task Assignment Modal State
-  const [commentModalOpen, setCommentModalOpen] = useState(false);
-  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type: "space" | "zone" | "equipment" } | null>(null);
-
-  const handleOpenComment = (row: PclRow) => {
-    setCommentTargetItem({ id: row.id, name: row.name, type: "space" });
-    setCommentModalOpen(true);
-  };
-
-  // Sync with project changes
-  const isInitialMount = useRef(true);
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    const projId = activeProjectId || project?.id;
-    const projKey = projId ? `mep_pcl_rows_${projId}` : "pcl_rows";
-    const saved = localStorage.getItem(projKey) || localStorage.getItem("pcl_rows");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setRows(parsed);
-        }
-      } catch (e) {}
-    }
-  }, [activeProjectId, project?.id]);
-
-  // Save to local storage and sync on rows change
-  const saveRows = (newRows: PclRow[]) => {
-    setRows(newRows);
-    try {
-      localStorage.setItem("pcl_rows", JSON.stringify(newRows));
-      localStorage.setItem("pcl_rowCount", newRows.length.toString());
-      localStorage.setItem("pcl_project_info", JSON.stringify(projectInfo));
-      const projId = activeProjectId || project?.id;
-      if (projId) {
-        localStorage.setItem(`mep_pcl_rows_${projId}`, JSON.stringify(newRows));
-      }
-      // Trigger PlumbingZoneLinker sync
-      if (typeof (window as any).PlumbingZoneLinker?.syncFromPCL === "function") {
-        (window as any).PlumbingZoneLinker.syncFromPCL();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Sizing Calculations
-  const calculatedData = useMemo(() => {
-    let totalArea = 0;
-    let totalW = 0;
-
-    rows.forEach(r => {
-      const a = r.area !== "" ? Number(r.area) : 0;
-      totalArea += a;
-      totalW += r.dissipation;
-    });
-
-    const totalKw = totalW / 1000;
-    const totalTr = totalKw / 3.517;
-    const avgDensity = totalArea > 0 ? totalW / totalArea : 0;
-
-    return {
-      totalArea,
-      totalKw,
-      totalTr,
-      avgDensity
-    };
-  }, [rows]);
-
-  // Validation Warnings
-  const validationLogs = useMemo(() => {
-    const logs: { type: "success" | "warning" | "danger" | "info"; msg: string }[] = [];
-
     if (calculatedData.avgDensity > 300) {
       logs.push({
         type: "warning",
@@ -513,7 +388,10 @@ function PreliminaryCoolingLoadPage() {
     return rows.filter((s) => {
       if (selectedFloor && s.floor !== selectedFloor) return false;
       if (selectedType && s.type !== selectedType) return false;
-      if (filterWarningsOnly && !s.flagged && s.area && s.type) return false;
+      if (filterWarningsOnly) {
+        const check = checkIfPclMissingData(s);
+        if (!check.isMissing && !s.flagged) return false;
+      }
       if (q && !`${s.name} ${s.floor} ${s.type}`.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -714,23 +592,23 @@ function PreliminaryCoolingLoadPage() {
   const handleAddNewSpace = () => {
     const defaultNum = rows.length + 1;
     const defaultName = `GF-Space ${defaultNum}`;
-    const defaultType = "";
-    const density = 0;
-    const floor = extractFloor(defaultName);
+    const floor = extractFloor(defaultName) || "GF";
 
     const newRow: PclRow = {
-      id: `pcl-${Date.now()}`,
+      id: `pcl-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       name: defaultName,
       area: "",
-      type: defaultType,
-      density,
+      type: "",
+      density: 0,
       dissipation: 0,
       kw: 0,
       tr: 0,
-      floor,
+      floor: floor,
+      flagged: true, // Auto-flagged: area and type are missing
     };
 
     saveRows([...rows, newRow]);
+    toast.success(`New space "${newRow.name}" added`);
   };
 
   const handleDeleteSelected = async () => {
@@ -1390,16 +1268,23 @@ function PreliminaryCoolingLoadPage() {
               const editIds = getSpaceEditIds(r.id);
               const editSet = new Set(editIds);
               const floor = extractFloor(newName);
-              const defaultType = inferTypeFromName(newName);
 
               saveRows(rows.map(row => {
                 if (!editSet.has(row.id)) return row;
-                const nextType = defaultType || row.type;
-                const density = SPACE_DENSITIES[nextType] || (row.density || 120);
+                const nextType = row.type || "";
+                const density = nextType ? (SPACE_DENSITIES[nextType] || row.density || 0) : 0;
                 const numArea = row.area !== "" ? Number(row.area) : 0;
                 const dissipation = numArea * density;
                 const kw = dissipation / 1000;
                 const tr = kw / 3.517;
+
+                const check = checkIfPclMissingData({
+                  ...row,
+                  name: newName,
+                  type: nextType,
+                  area: row.area,
+                });
+                const flagged = check.isMissing ? true : (row.flagged ?? false);
 
                 return {
                   ...row,
@@ -1409,7 +1294,8 @@ function PreliminaryCoolingLoadPage() {
                   density,
                   dissipation,
                   kw,
-                  tr
+                  tr,
+                  flagged
                 };
               }));
             }}
@@ -1430,7 +1316,7 @@ function PreliminaryCoolingLoadPage() {
           type="number"
           min={1}
           value={r.area}
-          placeholder="20"
+          placeholder="—"
           onCommit={(newAreaStr) => {
             const editIds = getSpaceEditIds(r.id);
             const editSet = new Set(editIds);
@@ -1439,13 +1325,16 @@ function PreliminaryCoolingLoadPage() {
 
             saveRows(rows.map(row => {
               if (!editSet.has(row.id)) return row;
-              const density = row.density || (SPACE_DENSITIES[row.type] || 120);
+              const density = row.type ? (SPACE_DENSITIES[row.type] || row.density || 0) : 0;
               const dissipation = numArea * density;
               const kw = dissipation / 1000;
               const tr = kw / 3.517;
 
-              const isNoArea = nextArea === "" || Number(nextArea) <= 0;
-              const isNoType = !row.type || row.type.trim() === "";
+              const check = checkIfPclMissingData({
+                ...row,
+                area: nextArea,
+              });
+              const flagged = check.isMissing ? true : (row.flagged ?? false);
 
               return {
                 ...row,
@@ -1453,7 +1342,7 @@ function PreliminaryCoolingLoadPage() {
                 dissipation,
                 kw,
                 tr,
-                flagged: isNoArea || isNoType ? true : false
+                flagged
               };
             }));
           }}
@@ -1473,7 +1362,7 @@ function PreliminaryCoolingLoadPage() {
             const nextType = e.target.value;
             const editIds = getSpaceEditIds(r.id);
             const editSet = new Set(editIds);
-            const density = SPACE_DENSITIES[nextType] || 0;
+            const density = nextType ? (SPACE_DENSITIES[nextType] || 0) : 0;
 
             saveRows(rows.map(row => {
               if (!editSet.has(row.id)) return row;
@@ -1482,8 +1371,11 @@ function PreliminaryCoolingLoadPage() {
               const kw = dissipation / 1000;
               const tr = kw / 3.517;
 
-              const isNoArea = row.area === "" || Number(row.area) <= 0;
-              const isNoType = !nextType || nextType.trim() === "";
+              const check = checkIfPclMissingData({
+                ...row,
+                type: nextType,
+              });
+              const flagged = check.isMissing ? true : (row.flagged ?? false);
 
               return {
                 ...row,
@@ -1492,13 +1384,13 @@ function PreliminaryCoolingLoadPage() {
                 dissipation,
                 kw,
                 tr,
-                flagged: isNoArea || isNoType ? true : false
+                flagged
               };
             }));
           }}
           className={`w-full bg-transparent border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[12.5px] cursor-pointer font-sans ${!r.type ? "text-muted-foreground/45" : "text-foreground font-medium"}`}
         >
-          <option value="" disabled className="text-muted-foreground">Select</option>
+          <option value="" className="text-muted-foreground">Select Space Type...</option>
           {Object.keys(SPACE_DENSITIES).map(k => (
             <option key={k} value={k} className="bg-background text-foreground text-xs font-normal">
               {k} ({SPACE_DENSITIES[k]} W/m²)
@@ -1513,7 +1405,7 @@ function PreliminaryCoolingLoadPage() {
       width: 100,
       align: "right",
       mono: true,
-      render: (r) => r.type ? `${r.density} W/m²` : <span className="text-muted-foreground/45 font-mono font-normal">120 W/m²</span>,
+      render: (r) => r.type && r.density ? `${r.density} W/m²` : <span className="text-muted-foreground/35 font-mono">—</span>,
     },
     {
       key: "kw",
@@ -1521,8 +1413,8 @@ function PreliminaryCoolingLoadPage() {
       width: 90,
       align: "right",
       mono: true,
-      render: (r) => r.area === "" ? (
-        <span className="text-muted-foreground/45 font-mono font-normal">{((20 * (r.density || 120)) / 1000).toFixed(2)} kW</span>
+      render: (r) => (!r.area || !r.type || r.kw === 0) ? (
+        <span className="text-muted-foreground/35 font-mono">—</span>
       ) : `${r.kw.toFixed(2)} kW`,
     },
     {
@@ -1531,8 +1423,8 @@ function PreliminaryCoolingLoadPage() {
       width: 90,
       align: "right",
       mono: true,
-      render: (r) => r.area === "" ? (
-        <span className="text-muted-foreground/45 font-mono font-normal">{(((20 * (r.density || 120)) / 1000) / 3.517).toFixed(2)} TR</span>
+      render: (r) => (!r.area || !r.type || r.tr === 0) ? (
+        <span className="text-muted-foreground/35 font-mono">—</span>
       ) : `${r.tr.toFixed(2)} TR`,
     },
     {
@@ -1540,36 +1432,36 @@ function PreliminaryCoolingLoadPage() {
       header: "",
       width: 36,
       align: "center",
-      render: (r) => (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            const editIds = getSpaceEditIds(r.id);
-            const editSet = new Set(editIds);
-            saveRows(rows.map((row) => (editSet.has(row.id) ? { ...row, flagged: !r.flagged } : row)));
-          }}
-          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
-          title={
-            (() => {
-              const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
-              const isNoType = !r.type || r.type.trim() === "" || r.type.toLowerCase() === "select" || r.type.toLowerCase().includes("select type");
-              if (isNoArea && isNoType) return "Missing space area and space type";
-              if (isNoArea) return "Missing space area";
-              if (isNoType) return "Missing space type (heat density not assigned)";
-              return r.flagged ? "Unflag space" : "Flag space";
-            })()
-          }
-        >
-          <Flag
-            className={`size-3.5 transition-all duration-200 ${
-              r.flagged
-                ? "fill-red-500 text-red-500 scale-110"
-                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-            }`}
-          />
-        </button>
-      ),
+      render: (r) => {
+        const check = checkIfPclMissingData(r);
+        const isFlagged = Boolean(r.flagged || check.isMissing);
+        const tooltip = check.isMissing
+          ? check.reason
+          : (r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag for review");
+
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const editIds = getSpaceEditIds(r.id);
+              const editSet = new Set(editIds);
+              const nextFlag = !isFlagged;
+              saveRows(rows.map((row) => (editSet.has(row.id) ? { ...row, flagged: nextFlag } : row)));
+            }}
+            className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+            title={tooltip}
+          >
+            <Flag
+              className={`size-3.5 transition-all duration-200 ${
+                isFlagged
+                  ? "fill-red-500 text-red-500 scale-110"
+                  : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+              }`}
+            />
+          </button>
+        );
+      },
     },
   ];
 
@@ -1984,7 +1876,7 @@ function PreliminaryCoolingLoadPage() {
                         </div>
                       ) : (
                         <DataGrid
-                          rows={rows}
+                          rows={filteredRows}
                           columns={columns}
                           selected={selected}
                           onToggle={toggle}
@@ -1996,6 +1888,13 @@ function PreliminaryCoolingLoadPage() {
                           renderGroupHeader={renderFloorGroupHeader}
                           renderGroupContextMenu={renderFloorGroupContextMenu}
                           onToggleGroup={handleToggleGroup}
+                          rowClassName={(r) => {
+                            const check = checkIfPclMissingData(r);
+                            if (check.isMissing || r.flagged) {
+                              return "border-l-2 border-l-red-500 bg-red-500/[0.03]";
+                            }
+                            return "";
+                          }}
                         />
                       )}
                       {editingSpace && (
