@@ -2075,10 +2075,10 @@ function LoadingUnitPage() {
                         <th rowSpan={2} className="p-2 text-center w-16 bg-[#0A7BC7]/5 text-[#0A7BC7] font-bold" title="Unit value per 1 space">
                           {standardPreset === "dubai" ? "LU" : "WSFU"}
                         </th>
-                        <th className="p-1.5 text-center w-16 bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold border-b border-border/40" title="Quantity of spaces per typical floor">
+                        <th className="p-1.5 text-center w-16 text-foreground font-bold border-b border-border/40" title="Quantity of spaces per typical floor">
                           Space Qty
                         </th>
-                        <th className="p-1.5 text-center w-16 bg-sky-500/10 text-sky-700 dark:text-sky-300 font-bold border-b border-border/40" title="Number of typical floors">
+                        <th className="p-1.5 text-center w-16 text-foreground font-bold border-b border-border/40" title="Number of typical floors">
                           No. of Floors
                         </th>
                         <th rowSpan={2} className="p-2 text-center w-20 bg-[#0A7BC7]/10 text-[#0A7BC7] font-bold" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
@@ -2108,22 +2108,22 @@ function LoadingUnitPage() {
                           </th>
                         ))}
                         {/* Toggle button under Space Qty header */}
-                        <th className="p-1 text-center bg-amber-500/10 border-b border-border">
+                        <th className="p-1 text-center border-b border-border">
                           <button
                             type="button"
                             onClick={() => setShowSpaceQty(!showSpaceQty)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showSpaceQty ? "bg-amber-500 text-white border-amber-600 shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showSpaceQty ? "bg-[#0A7BC7] text-white border-[#0A7BC7] shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
                             title={showSpaceQty ? "Space Qty is ON. Click to turn OFF." : "Space Qty is OFF. Click to turn ON."}
                           >
                             {showSpaceQty ? "ON" : "OFF"}
                           </button>
                         </th>
                         {/* Toggle button under No. of Floors header */}
-                        <th className="p-1 text-center bg-sky-500/10 border-b border-border">
+                        <th className="p-1 text-center border-b border-border">
                           <button
                             type="button"
                             onClick={() => setShowFloorsCol(!showFloorsCol)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showFloorsCol ? "bg-sky-500 text-white border-sky-600 shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showFloorsCol ? "bg-[#0A7BC7] text-white border-[#0A7BC7] shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
                             title={showFloorsCol ? "No. of Floors is ON. Click to turn OFF." : "No. of Floors is OFF. Click to turn ON."}
                           >
                             {showFloorsCol ? "ON" : "OFF"}
@@ -2272,7 +2272,7 @@ function LoadingUnitPage() {
                                     value={s.qty || 1} 
                                     onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
                                     onChange={e => handleQtyChange(s.id, Number(e.target.value))} 
-                                    className="w-full text-center bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" 
+                                    className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium text-foreground" 
                                     title="Space Qty per floor" 
                                   />
                                 ) : (
@@ -2287,7 +2287,7 @@ function LoadingUnitPage() {
                                     value={s.floorQty || 1} 
                                     onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
                                     onChange={e => handleFloorQtyChange(s.id, Number(e.target.value))} 
-                                    className="w-full text-center bg-sky-500/10 text-sky-700 dark:text-sky-300 font-bold border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono" 
+                                    className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium text-foreground" 
                                     title="No. of typical floors" 
                                   />
                                 ) : (
