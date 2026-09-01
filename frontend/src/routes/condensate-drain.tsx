@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { kwToTr, trToKw, kwToBtu, btuToKw, mToFt, ftToM } from "@/utils/conversions";
@@ -124,7 +125,10 @@ function CondensateDrainPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
           <div className="flex flex-col gap-1 select-none">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CONDENSATE DRAIN</span>
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Condensate Drain Pipe Sizer</h1>
+            <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Condensate Drain Pipe Sizer</h1>
+              <CalculationReviewBar calculatorPath="/condensate-drain" calculatorTitle="Condensate Drain" />
+              </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
               Calculate condensate load and recommended drain pipe sizes with minimum slopes.
             </p>

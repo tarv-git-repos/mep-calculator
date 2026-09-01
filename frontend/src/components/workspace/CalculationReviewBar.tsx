@@ -32,7 +32,7 @@ export interface CalculationReviewState {
 }
 
 interface CalculationReviewBarProps {
-  projectId: string;
+  projectId?: string;
   calculatorPath: string;
   calculatorTitle: string;
   onReviewStateChange?: (state: CalculationReviewState) => void;
@@ -44,10 +44,10 @@ export function CalculationReviewBar({
   calculatorTitle,
   onReviewStateChange
 }: CalculationReviewBarProps) {
-  // If no valid project is selected, calculation review bar must be hidden
-  if (!projectId || projectId === "" || projectId === "none" || projectId === "active_project") {
-    return null;
-  }
+  const currentProj = workspaceStore.getState().project;
+  const effectiveProjectId = (projectId && projectId !== "none" && projectId !== "active_project") 
+    ? projectId 
+    : (currentProj?.id || "default");
 
   const { profile, userData } = useAuth();
   
@@ -111,13 +111,13 @@ export function CalculationReviewBar({
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
-  const storageKey = `mep_calc_review_${projectId || "default"}_${calculatorPath || "ventilation"}`;
+  const storageKey = `mep_calc_review_${effectiveProjectId}_${calculatorPath || "ventilation"}`;
 
   // 2. Calculation Review State
   const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
     // Priority 1: Backend Workspace Data
     const currentProj = workspaceStore.getState().project;
-    if (currentProj && currentProj.id === projectId) {
+    if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
       if (reviewStates[storageKey]) {
         return reviewStates[storageKey];
@@ -147,7 +147,7 @@ export function CalculationReviewBar({
   // Sync state when storageKey changes
   useEffect(() => {
     const currentProj = workspaceStore.getState().project;
-    if (currentProj && currentProj.id === projectId) {
+    if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
       if (reviewStates[storageKey]) {
         setReviewState(reviewStates[storageKey]);
@@ -170,7 +170,7 @@ export function CalculationReviewBar({
     const initialState: CalculationReviewState = { status: "DRAFT" };
     setReviewState(initialState);
     if (onReviewStateChange) onReviewStateChange(initialState);
-  }, [storageKey, projectId]);
+  }, [storageKey, effectiveProjectId]);
 
   // Helper to persist & sync state
   const updateReviewState = (next: CalculationReviewState, skipSaveBackend = false) => {
@@ -179,7 +179,7 @@ export function CalculationReviewBar({
     // Save to Backend
     if (!skipSaveBackend) {
       const currentProj = workspaceStore.getState().project;
-      if (currentProj && currentProj.id === projectId) {
+      if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
         const currentWdata = currentProj.workspace_data || {};
         const reviewStates = currentWdata.review_states || {};
         const updatedWdata = {
@@ -190,7 +190,7 @@ export function CalculationReviewBar({
           }
         };
         
-        api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+        api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
         workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
       }
     }
@@ -248,12 +248,12 @@ export function CalculationReviewBar({
           comments: srComments.trim() || "Ready for approval.",
           calculatorTitle,
           calculatorPath,
-          projectId,
+          projectId: effectiveProjectId,
           timestamp: new Date().toISOString()
         };
 
         const currentProj = workspaceStore.getState().project;
-        if (currentProj && currentProj.id === projectId) {
+        if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
           const currentWdata = currentProj.workspace_data || {};
           const existingCoord = Array.isArray(currentWdata.coord_notifs) ? currentWdata.coord_notifs : [];
           const reviewStates = currentWdata.review_states || {};
@@ -267,7 +267,7 @@ export function CalculationReviewBar({
             coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20)
           };
 
-          api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+          api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
         }
 
@@ -288,7 +288,7 @@ export function CalculationReviewBar({
             reviewedBy: currentUserName,
             reviewerComments: srComments.trim(),
             calculatorTitle,
-            projectId
+            projectId: effectiveProjectId
           } 
         }));
       }
@@ -398,12 +398,12 @@ export function CalculationReviewBar({
           reason: rejectReason.trim(),
           calculatorTitle,
           calculatorPath,
-          projectId,
+          projectId: effectiveProjectId,
           timestamp: new Date().toISOString()
         };
         
         const currentProj = workspaceStore.getState().project;
-        if (currentProj && currentProj.id === projectId) {
+        if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
           const currentWdata = currentProj.workspace_data || {};
           const existing = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
           const reviewStates = currentWdata.review_states || {};
@@ -415,7 +415,7 @@ export function CalculationReviewBar({
             },
             rejection_notifs: [notifRecord, ...existing].slice(0, 20)
           };
-          api.saveWorkspace(projectId, updatedWdata).catch(console.error);
+          api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
           workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
         } else {
           const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
@@ -429,7 +429,7 @@ export function CalculationReviewBar({
             rejectedBy: currentUserName,
             rejectionDescription: rejectReason.trim(),
             calculatorTitle,
-            projectId
+            projectId: effectiveProjectId
           }
         }));
       }

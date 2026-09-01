@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -479,7 +480,10 @@ function ConductorSizingPage() {
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL {'>'} CONDUCTOR (CABLE) Sizing</span>
               <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Conductor (Cable) Sizing</h1>
+                  <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Conductor (Cable) Sizing</h1>
+              <CalculationReviewBar calculatorPath="/conductor-sizing" calculatorTitle="Conductor Sizing" />
+              </div>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} segments</span>
                 </div>
               </div>

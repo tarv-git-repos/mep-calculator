@@ -26,6 +26,7 @@ import { api } from "@/services/api";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { AutoUpdateModal } from "./AutoUpdateModal";
 import { NotificationCenterView } from "./NotificationCenterView";
+import { CalculationReviewBar } from "./CalculationReviewBar";
 
 import {
   DropdownMenu,
@@ -2513,6 +2514,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                       {intelLabel || "Intelligence"}
                     </button>
                   )}
+                  {(() => {
+                    const nonCalcPaths = [
+                      "/dashboard", "/projects", "/bim-viewer", "/reports", "/report",
+                      "/teams", "/team", "/admin", "/settings", "/privacy", "/login",
+                      "/calculators", "/reset-password", "/notifications", "/company-hierarchy",
+                      "/3d-view", "/sanity-check-tool"
+                    ];
+                    if (!nonCalcPaths.includes(pathname) && Boolean(title)) {
+                      return (
+                        <CalculationReviewBar
+                          projectId={activeProjectId || "default"}
+                          calculatorPath={pathname}
+                          calculatorTitle={title || "Calculation"}
+                        />
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 {subtitle && <span className="text-[12px] text-muted-foreground font-medium leading-snug mt-1 block">{subtitle}</span>}
               </div>

@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
@@ -259,7 +260,10 @@ function CondensateDrainCalcPage() {
           <div className="flex justify-between items-start select-none">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CONDENSATE CALCULATION</span>
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Coil Condensate Calculator</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Coil Condensate Calculator</h1>
+              <CalculationReviewBar calculatorPath="/condensate-drain-calc" calculatorTitle="Condensate Drain Calc" />
+              </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Input entering and leaving air conditions for multiple cooling coils to formulate aggregate condensate drainage loads.
               </p>

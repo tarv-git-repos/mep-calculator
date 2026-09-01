@@ -10,7 +10,7 @@ import { Toolbar } from './Toolbar';
 import { DropOverlay } from './DropOverlay';
 import { workspaceStore } from '@/lib/workspace-store';
 import { saveProjectIfcFile, getProjectIfcFile, deleteProjectIfcFile } from '@/lib/projectIfcStorage';
-import { isMepValidSpaceName, sortSpacesByFloorAndName, autoAssignBimZones } from '@/lib/bimViewerSpaceExtractor';
+import { isMepValidSpaceName, sortSpacesByFloorAndName } from '@/lib/bimViewerSpaceExtractor';
 
 export function Viewport3D() {
     const viewportRef = useRef<HTMLDivElement>(null);
@@ -214,7 +214,8 @@ const loadIfcFile = async (file: File) => {
             const name = String(s.name || '').toLowerCase();
             const longName = String(s.longName || '').toLowerCase();
             const objectType = String(s.objectType || '').toLowerCase();
-            if (longName && /^\([A-Z]\)\s/i.test(longName)) return true;
+            if (longName && /^\([A-Z0-9]+\)/i.test(longName.trim())) return true;
+            if (name && /^\([A-Z0-9]+\)/i.test(name.trim())) return true;
             if (name.includes('garden') || longName.includes('garden') || objectType.includes('garden')) return true;
             return false;
         };
@@ -611,14 +612,16 @@ const loadIfcFile = async (file: File) => {
             }
         };
 
-        const areaPattern = /^\([A-Z]\)\s/i;
+        const areaPattern = /^\([A-Z0-9]+\)/i;
         const storeys: { name: string; elevation: number; expressId: number; spaces: any[]; localSpaceIds: Set<number>; localElementIds: Set<number> }[] = [];
         const findStoreys = (node: any) => {
             if (!node) return;
             if (node.type === 'IFCBUILDINGSTOREY') {
                 const spaceChildren = (node.children || []).filter((c: any) => {
                     if (c.type !== 'IFCSPACE') return false;
-                    if (c.longName && areaPattern.test(c.longName)) return false;
+                    const nameStr = String(c.name || '').trim();
+                    const longNameStr = String(c.longName || '').trim();
+                    if (areaPattern.test(nameStr) || areaPattern.test(longNameStr)) return false;
                     return true;
                 });
                 storeys.push({
@@ -897,8 +900,7 @@ const loadIfcFile = async (file: File) => {
                 });
             });
 
-            const sortedSpaces = sortSpacesByFloorAndName(rawExtracted);
-            const extractedBimSpaces = autoAssignBimZones(sortedSpaces);
+            const extractedBimSpaces = sortSpacesByFloorAndName(rawExtracted);
             if (extractedBimSpaces.length > 0) {
                 (window as any).__BIM_VIEWER_SPACES__ = extractedBimSpaces;
             }

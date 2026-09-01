@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -338,7 +339,10 @@ function WaterDemandPage() {
           <div className="flex justify-between items-start select-none">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; WATER DEMAND</span>
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Water Demand Sizer</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Water Demand Sizer</h1>
+              <CalculationReviewBar calculatorPath="/plumbing-water-demand" calculatorTitle="Water Demand Calculator" />
+              </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Estimate daily domestic load, irrigation requirements, swimming pool make-up, and fire reserves.
               </p>

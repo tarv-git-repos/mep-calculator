@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -182,7 +183,10 @@ function HazenWilliamsPage() {
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; HAZEN-WILLIAMS PRESSURE DROP</span>
               <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Hazen-Williams Pressure Drop</h1>
+                  <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Hazen-Williams Pressure Drop</h1>
+              <CalculationReviewBar calculatorPath="/plumbing-hazen-williams" calculatorTitle="Hazen-Williams Head Loss" />
+              </div>
                   <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 piping hydraulics sizer</span>
                 </div>
                 <button 

@@ -33,21 +33,22 @@ export default function App() {
   };
 
   const handleGenerateSchedule = async () => {
+    const activeSpaces = extractSpacesFromActiveViewer();
+    if (activeSpaces.length > 0) {
+      setPendingSpaces(activeSpaces);
+      setModalOpen(true);
+      toast.success(`Extracted ${activeSpaces.length} spaces from active 3D Viewer!`);
+      return;
+    }
+
     const win = typeof window !== 'undefined' ? (window as any) : {};
     const file = win._currentLoadedFile;
 
     if (file) {
       await processIfcFile(file);
     } else {
-      const activeSpaces = extractSpacesFromActiveViewer();
-      if (activeSpaces.length > 0) {
-        setPendingSpaces(activeSpaces);
-        setModalOpen(true);
-        toast.success(`Extracted ${activeSpaces.length} spaces from active 3D Viewer!`);
-      } else {
-        toast.info("Please select an IFC file to generate the space schedule.");
-        fileInputRef.current?.click();
-      }
+      toast.info("Please select an IFC file to generate the space schedule.");
+      fileInputRef.current?.click();
     }
   };
 

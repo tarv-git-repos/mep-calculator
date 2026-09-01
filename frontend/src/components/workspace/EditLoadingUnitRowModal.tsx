@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { X, Info, CheckCircle, AlertTriangle, Droplets, Calculator, Sliders, Layers, Building2 } from "lucide-react";
+import { StandardPreset, getFlowLPS } from "@/routes/plumbing-loading-unit";
 
 export const LU_FIXTURES_META = [
   { id: 'wc', short: 'W/C', label: 'Water Closet (W/C)' },
@@ -25,7 +26,7 @@ export interface EditLoadingUnitRowModalProps {
   };
   rowIndex?: number;
   floorName?: string;
-  standardPreset?: "dubai" | "abudhabi" | "ipc_upc";
+  standardPreset?: StandardPreset;
   activeWeights: Record<string, number>;
   showSpaceQty?: boolean;
   showFloorsCol?: boolean;
@@ -50,7 +51,7 @@ export function EditLoadingUnitRowModal({
   const [fixtures, setFixtures] = useState<Record<string, number>>({ ...space.fixtures });
   const [showPreview, setShowPreview] = useState(true);
 
-  const unitLabel = standardPreset === "dubai" ? "LU" : "WSFU";
+  const unitLabel = (standardPreset === "dubai" || standardPreset === "iop_bs") ? "LU" : "WSFU";
 
   // Calculate Unit LU for this space
   const unitLUBreakdown = useMemo(() => {
@@ -92,20 +93,8 @@ export function EditLoadingUnitRowModal({
     const floorMultiplier = showFloorsCol ? Math.max(1, Number(floorQty) || 1) : 1;
     const totalLU = unitLU * spaceMultiplier * floorMultiplier;
 
-    // Flow rate calculation (L/s & GPM)
-    let peakFlowLs = 0;
-    if (totalLU > 0) {
-      if (standardPreset === "dubai") {
-        // Dubai DBC / BS EN 806 formula: Q = 0.25 * sqrt(LU)
-        peakFlowLs = 0.25 * Math.sqrt(totalLU);
-      } else if (standardPreset === "abudhabi") {
-        // Abu Dhabi ADM / UPC formula approximation
-        peakFlowLs = 0.23 * Math.pow(totalLU, 0.52);
-      } else {
-        // IPC / UPC WSFU formula approximation
-        peakFlowLs = 0.21 * Math.pow(totalLU, 0.54);
-      }
-    }
+    // Flow rate calculation (L/s & GPM) using standard getFlowLPS
+    const peakFlowLs = getFlowLPS(totalLU, standardPreset);
     const peakFlowGpm = peakFlowLs * 15.8503;
 
     // Pipe Sizing recommendation based on target velocity <= 1.5 m/s
@@ -345,7 +334,7 @@ export function EditLoadingUnitRowModal({
                     {calcDetails.peakFlowLs.toFixed(2)} L/s ({calcDetails.peakFlowGpm.toFixed(1)} GPM)
                   </div>
                   <div className="text-[10px] font-mono text-neutral-500 mt-1">
-                    {standardPreset === "dubai" ? "Q = 0.25 × √(Total LU)" : "Standard Peak Demand Curve"}
+                    {standardPreset === "iop_bs" ? "BS 6700 Fig 24 / IoP Nomogram" : standardPreset === "dubai" ? "Q = 0.10 × √(Total LU)" : standardPreset === "abudhabi" ? "ADM Table 6-9 Lookup" : "IPC / UPC Hunter Curve"}
                   </div>
                 </div>
 
@@ -408,10 +397,16 @@ export function EditLoadingUnitRowModal({
               <div className="p-3 bg-white/60 dark:bg-black/20 rounded-xl border border-black/5 dark:border-white/5 space-y-1">
                 <div className="text-[10px] font-bold uppercase text-neutral-400">3. Peak Flow Rate (Q)</div>
                 <div className="text-[11px] font-mono text-neutral-500">
-                  {standardPreset === "dubai" ? "Q = 0.25 × √(Total LU)" : "Q = Standard Demand Curve Formula"}
+                  {standardPreset === "iop_bs" ? "BS 6700 Fig 24 / IoP Nomogram" : standardPreset === "dubai" ? "Q = 0.10 × √(Total LU)" : standardPreset === "abudhabi" ? "ADM Table 6-9 Lookup" : "IPC / UPC Hunter Curve"}
                 </div>
                 <div className="text-xs font-mono text-neutral-700 dark:text-neutral-300">
-                  Q = 0.25 × √({calcDetails.totalLU.toFixed(1)})
+                  {standardPreset === "iop_bs"
+                    ? `BS 6700 Fig 24 (${calcDetails.totalLU.toFixed(1)} LU)`
+                    : standardPreset === "dubai"
+                    ? `Q = 0.10 × √(${calcDetails.totalLU.toFixed(1)})`
+                    : standardPreset === "abudhabi"
+                    ? `ADM Table 6-9 (${calcDetails.totalLU.toFixed(1)} WSFU)`
+                    : `0.8 × (${calcDetails.totalLU.toFixed(1)})^0.65 GPM`}
                 </div>
                 <div className="text-xs font-mono text-primary font-bold">
                   Q = {calcDetails.peakFlowLs.toFixed(2)} L/s ({calcDetails.peakFlowGpm.toFixed(1)} GPM)

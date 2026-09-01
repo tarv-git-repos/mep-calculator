@@ -286,35 +286,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
-  // Periodic heartbeat session check (every 120s) without forcing re-renders if data hasn't changed
+  // Periodic heartbeat session check (every 15s) and on window focus when logged in
   useEffect(() => {
     if (!isLoggedin) return;
 
     const performSessionCheck = async () => {
-      try {
-        const res = await authService.getUserData();
-        if (res && res.success === false && (res.requireForceLogout || res.sessionRevoked)) {
-          toast.error(res.message || "Your account session was revoked on another device.", { duration: 6000 });
-          clearAllAuthStorage();
-          setUserDataState(null);
-          setIsLoggedin(false);
-        } else if (res && res.success && res.userData) {
-          const newStr = JSON.stringify(res.userData);
-          const oldStr = JSON.stringify(userData);
-          if (newStr !== oldStr) {
-            setUserData(res.userData);
-          }
-        }
-      } catch (e) {
-        // Silently catch network glitches without logging out or reloading
+      const res = await getUserData();
+      if (res && res.success === false && (res.requireForceLogout || res.message?.includes('another device'))) {
+        toast.error(res.message || "Your account was logged in on another device.", { duration: 6000 });
+        clearAllAuthStorage();
+        setUserDataState(null);
+        setIsLoggedin(false);
       }
     };
 
-    const interval = setInterval(performSessionCheck, 120000);
+    const interval = setInterval(performSessionCheck, 15000);
+    const handleFocus = () => { performSessionCheck(); };
+    window.addEventListener('focus', handleFocus);
+
     return () => {
       clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
     };
-  }, [isLoggedin, userData]);
+  }, [isLoggedin]);
 
   const session = userData ? { user: { id: userData.id, email: userData.email } } : null;
   const user = session?.user ?? null;

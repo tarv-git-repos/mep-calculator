@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -534,7 +535,10 @@ function ChwPipeSizerPage() {
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CHW PIPE SIZER</span>
               <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Pipe Sizer - CHW / CW</h1>
+                  <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Pipe Sizer - CHW / CW</h1>
+              <CalculationReviewBar calculatorPath="/chw-pipe-sizer" calculatorTitle="CHW Pipe Sizer" />
+              </div>
                   <span className="text-[15px] font-semibold text-muted-foreground">ASHRAE / SMACNA - Velocity &amp; Pressure Drop Method</span>
                 </div>
               </div>

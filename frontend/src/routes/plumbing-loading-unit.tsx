@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -427,10 +428,130 @@ const ADM_TABLE_6_9 = [
   { wsfu: 10000, lmin: 2911 }
 ];
 
-function getFlowLPS(totalLU: number, standard: StandardPreset): number {
+// Reference Lookup Tables & Empirical Calculations (from CIPHE, BS 8558, BS EN 806, IPC, UPC, AS/NZS 3500 & DIN 1988-300)
+
+export const BS_8558_IOP_LOOKUP: Record<number, number> = {
+  0: 0.00, 1: 0.09, 3: 0.15, 5: 0.20, 10: 0.30, 15: 0.38,
+  20: 0.44, 30: 0.56, 40: 0.67, 50: 0.77, 80: 1.06, 100: 1.25,
+  150: 1.68, 200: 2.11, 250: 2.44, 300: 2.80, 400: 3.55, 500: 4.10,
+  700: 5.25, 1000: 6.76, 2000: 11.30, 3000: 15.10, 4000: 18.50,
+  5000: 22.50, 6000: 25.20, 7000: 28.00, 7750: 30.00
+};
+
+export const BS_EN_806_LOOKUP: Record<number, number> = {
+  1: 0.10, 2: 0.20, 3: 0.24, 4: 0.27, 5: 0.29, 6: 0.32, 7: 0.34,
+  8: 0.36, 9: 0.38, 10: 0.40, 15: 0.46, 20: 0.52, 30: 0.62, 40: 0.70,
+  50: 0.78, 60: 0.83, 70: 0.90, 80: 0.95, 90: 1.00, 100: 1.05,
+  150: 1.25, 200: 1.40, 300: 1.70, 400: 2.00, 500: 2.30, 600: 2.60,
+  700: 2.80, 800: 3.00, 900: 3.20, 1000: 3.40, 2000: 5.25, 3000: 6.75,
+  5000: 9.00, 6000: 9.91, 7000: 10.87, 8000: 11.79, 9000: 12.66, 10000: 13.49
+};
+
+export const IPC_LOOKUP: Record<number, number> = {
+  1: 0.1893, 2: 0.3155, 3: 0.4101, 4: 0.5047, 5: 0.5930, 6: 0.6751,
+  7: 0.7445, 8: 0.8076, 9: 0.8643, 10: 0.9211, 11: 0.9716, 12: 1.0094,
+  13: 1.0410, 14: 1.0725, 15: 1.1041, 16: 1.1356, 17: 1.1609, 18: 1.1861,
+  19: 1.2113, 20: 1.2366, 25: 1.3564, 30: 1.4700, 35: 1.5709, 40: 1.6593,
+  45: 1.7476, 50: 1.8359, 60: 2.0189, 70: 2.2082, 80: 2.3974, 90: 2.5867,
+  100: 2.7444, 120: 3.0283, 140: 3.3122, 160: 3.5961, 180: 3.8485,
+  200: 4.1009, 225: 4.4163, 250: 4.7318, 275: 5.0472, 300: 5.3627,
+  400: 6.6245, 500: 7.8232, 750: 10.7253, 1000: 13.1228, 1250: 15.0786,
+  1500: 16.9713, 1750: 18.7378, 2000: 20.5043, 2500: 23.9743, 3000: 27.3181,
+  4000: 33.1224, 5000: 37.4125
+};
+
+export const UPC_LOOKUP: Record<number, number> = {
+  0: 0.00, 10: 0.5047, 20: 0.9464, 40: 1.5773, 60: 2.0820, 80: 2.3974,
+  100: 2.7129, 120: 3.0283, 140: 3.3438, 160: 3.5961, 180: 3.7854,
+  200: 4.0378, 220: 4.2270, 240: 4.4794, 250: 4.6056, 500: 7.8863,
+  750: 10.7253, 1000: 13.1228, 1500: 17.0344, 2000: 20.5043, 2500: 23.8481,
+  3000: 27.1288
+};
+
+export const AS_NZS_3500_LOOKUP: Record<number, number> = {
+  1: 0.09, 2: 0.12, 3: 0.14, 4: 0.16, 5: 0.18, 6: 0.20, 7: 0.22,
+  8: 0.24, 9: 0.25, 10: 0.26, 11: 0.28, 12: 0.29, 13: 0.30, 14: 0.31,
+  15: 0.33, 16: 0.34, 17: 0.35, 18: 0.36, 19: 0.37, 20: 0.38, 21: 0.39,
+  22: 0.40, 23: 0.41, 24: 0.42, 25: 0.43, 26: 0.43, 27: 0.44, 28: 0.45,
+  29: 0.46, 30: 0.47, 31: 0.48, 32: 0.49, 33: 0.49, 34: 0.50, 35: 0.51,
+  36: 0.52, 37: 0.52, 38: 0.53, 39: 0.54, 40: 0.55, 41: 0.55, 42: 0.56,
+  43: 0.57, 44: 0.58, 45: 0.58, 46: 0.59, 47: 0.60, 48: 0.60, 49: 0.61,
+  50: 0.62, 51: 0.62, 52: 0.63, 53: 0.64, 54: 0.64, 55: 0.65, 56: 0.65,
+  57: 0.66, 58: 0.67, 59: 0.67, 60: 0.68, 100: 1.20, 150: 1.35, 200: 1.45,
+  250: 1.60, 300: 1.70, 350: 1.85, 400: 2.00, 450: 2.15, 500: 2.35, 550: 2.50,
+  600: 2.60, 650: 2.75, 700: 2.85, 750: 2.95, 800: 3.05, 850: 3.20, 900: 3.30,
+  950: 3.40, 1000: 3.50, 1200: 3.80, 1400: 4.20, 1600: 4.60, 1800: 4.90, 2000: 5.25,
+  2200: 5.50, 2400: 5.75, 2600: 6.00, 2800: 6.35, 3000: 6.70, 3500: 7.25, 4000: 7.75,
+  4500: 8.40, 5000: 9.00
+};
+
+export const DIN_1988_COEFFS: Record<string, { a: number; b: number; c: number }> = {
+  residential: { a: 1.48, b: 0.19, c: 0.94 },
+  hospital: { a: 0.75, b: 0.44, c: 0.18 },
+  hotel: { a: 0.70, b: 0.48, c: 0.13 },
+  school: { a: 0.91, b: 0.31, c: 0.38 },
+  office: { a: 0.91, b: 0.31, c: 0.38 },
+  assisted_living: { a: 1.48, b: 0.19, c: 0.94 },
+  nursing_home: { a: 1.40, b: 0.14, c: 0.92 }
+};
+
+// Floor / Step Lookup (returns key_max <= totalLU)
+export function lookupTableStep(totalLU: number, tableObj: Record<number, number>): number {
+  if (totalLU <= 0) return 0;
+  const keys = Object.keys(tableObj).map(Number).sort((a, b) => a - b);
+  let closestKey = 0;
+  for (const key of keys) {
+    if (key <= totalLU) {
+      closestKey = key;
+    } else {
+      break;
+    }
+  }
+  return closestKey in tableObj ? tableObj[closestKey] : 0;
+}
+
+// Continuous Linear Interpolation between lookup table keys
+export function lookupTableInterpolated(totalLU: number, tableObj: Record<number, number>): number {
+  if (totalLU <= 0) return 0;
+  const keys = Object.keys(tableObj).map(Number).sort((a, b) => a - b);
+  if (totalLU <= keys[0]) return tableObj[keys[0]] * (totalLU / keys[0]);
+  for (let i = 0; i < keys.length - 1; i++) {
+    const k1 = keys[i];
+    const k2 = keys[i + 1];
+    if (totalLU >= k1 && totalLU <= k2) {
+      const v1 = tableObj[k1];
+      const v2 = tableObj[k2];
+      return v1 + ((totalLU - k1) / (k2 - k1)) * (v2 - v1);
+    }
+  }
+  const lastKey = keys[keys.length - 1];
+  const secondLastKey = keys[keys.length - 2];
+  const lastVal = tableObj[lastKey];
+  const secondLastVal = tableObj[secondLastKey];
+  const slope = (lastVal - secondLastVal) / (lastKey - secondLastKey);
+  return lastVal + (totalLU - lastKey) * slope;
+}
+
+export function calcDinFlowRate(totalLU: number, buildingType: string = "residential"): number {
+  if (totalLU <= 0) return 0;
+  if (totalLU <= 0.2) return totalLU;
+  const coeff = DIN_1988_COEFFS[buildingType] || DIN_1988_COEFFS.residential;
+  return coeff.a * Math.pow(totalLU, coeff.b) - coeff.c;
+}
+
+export function getFlowLPS(
+  totalLU: number,
+  standard: StandardPreset,
+  mode: "interpolated" | "step" = "interpolated"
+): number {
   if (totalLU <= 0) return 0;
 
-  if (standard === "abudhabi") {
+  const lookupFn = mode === "step" ? lookupTableStep : lookupTableInterpolated;
+
+  if (standard === "iop_bs") {
+    // BS 8558 & IoP / CIPHE Lookup Table
+    return lookupFn(totalLU, BS_8558_IOP_LOOKUP);
+  } else if (standard === "abudhabi") {
     // Interpolate using ADM Table 6-9
     for (let i = 0; i < ADM_TABLE_6_9.length - 1; i++) {
       const curr = ADM_TABLE_6_9[i];
@@ -446,9 +567,36 @@ function getFlowLPS(totalLU: number, standard: StandardPreset): number {
     // Dubai Building Code / CIBSE Formula: Q = 0.1 * sqrt(sum LU)
     return 0.1 * Math.sqrt(totalLU);
   } else {
-    // IPC/UPC Hunter's Curve approximation
-    const gpm = 0.8 * Math.pow(totalLU, 0.65);
-    return gpm * 0.06309;
+    // IPC Table E103.3(2) Lookup Table
+    return lookupFn(totalLU, IPC_LOOKUP);
+  }
+}
+
+export function convertFlowRate(
+  flowLPS: number,
+  targetUnit: "l-sec" | "l-min" | "m3-h" | "gpm"
+): { val: number; formatted: string } {
+  switch (targetUnit) {
+    case "l-min": {
+      const val = flowLPS * 60;
+      return { val, formatted: `${val.toFixed(2)} L/min` };
+    }
+    case "l-sec": {
+      const val = flowLPS;
+      return { val, formatted: `${val.toFixed(3)} L/s` };
+    }
+    case "m3-h": {
+      const val = flowLPS * 3.6;
+      return { val, formatted: `${val.toFixed(3)} m³/h` };
+    }
+    case "gpm": {
+      const val = flowLPS * 15.850323074;
+      return { val, formatted: `${val.toFixed(2)} GPM` };
+    }
+    default: {
+      const val = flowLPS;
+      return { val, formatted: `${val.toFixed(3)} L/s` };
+    }
   }
 }
 
@@ -1052,6 +1200,8 @@ function LoadingUnitPage() {
         ? "COLD WATER LOADING UNIT B" 
         : standardPreset === "dubai" 
         ? "COLD WATER LOADING UNIT D" 
+        : standardPreset === "iop_bs"
+        ? "COLD WATER LOADING UNIT IoP"
         : "COLD WATER LOADING UNIT I";
       
       const sheet = workbook.addWorksheet(sheetName);
@@ -1346,6 +1496,8 @@ function LoadingUnitPage() {
         ? "MEDIUM FREQUENCY APPLICATION" 
         : standardPreset === "dubai" 
         ? "BUILDING WATER DEMAND (DBC / BS EN 806)" 
+        : standardPreset === "iop_bs"
+        ? "INSTITUTE OF PLUMBING DEMAND (IoP PESDG / BS 6700)"
         : "INTERNATIONAL PLUMBING CODE DEMAND";
       appCell.font = fontCambria11Bold;
       appCell.alignment = { vertical: "middle", horizontal: "center" };
@@ -1661,6 +1813,8 @@ function LoadingUnitPage() {
         ? "MEDIUM FREQUENCY APPLICATION" 
         : standardPreset === "dubai" 
         ? "BUILDING WATER DEMAND (DBC / BS EN 806)" 
+        : standardPreset === "iop_bs"
+        ? "INSTITUTE OF PLUMBING DEMAND (IoP PESDG / BS 6700)"
         : "INTERNATIONAL PLUMBING CODE DEMAND";
 
       const summaryTableRows = [
@@ -1806,7 +1960,10 @@ function LoadingUnitPage() {
                   <Sparkles className="size-3" /> Dubai Building Code Ready
                 </span>
               </div>
-              <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
+              <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
+              </div>
               <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
                 Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
               </p>
@@ -2123,7 +2280,7 @@ function LoadingUnitPage() {
                       </th>
                     ))}
                     <th style={{ width: luColWidths.unitLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Unit value per 1 space">
-                      {standardPreset === "dubai" ? "LU" : "WSFU"}
+                      {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}
                       <div onMouseDown={(e) => handleResizeMouseDown("unitLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
                     <th style={{ width: luColWidths.spaceQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Quantity of spaces per typical floor">
@@ -2135,7 +2292,7 @@ function LoadingUnitPage() {
                       <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
                     <th style={{ width: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
-                      {standardPreset === "dubai" ? "TOTAL LU" : "TOTAL WSFU"}
+                      {standardPreset === "dubai" || standardPreset === "iop_bs" ? "TOTAL LU" : "TOTAL WSFU"}
                       <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
                     <th style={{ width: luColWidths.actions }} rowSpan={2} className="p-2 text-center font-bold">
@@ -2419,11 +2576,11 @@ function LoadingUnitPage() {
                   <div className="grid grid-cols-2 gap-3 font-sans text-xs">
                     <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
                       <span className="font-semibold text-muted-foreground text-[10px] uppercase">Standard Preset</span>
-                      <span className="font-bold text-foreground text-xs">{standardPreset === "dubai" ? "Dubai (DBC)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC"}</span>
+                      <span className="font-bold text-foreground text-xs">{standardPreset === "iop_bs" ? "IoP PESDG / BS 6700" : standardPreset === "dubai" ? "Dubai (DBC)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC"}</span>
                     </div>
                     <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
                       <span className="font-semibold text-muted-foreground text-[10px] uppercase">Total Demand</span>
-                      <strong className="font-bold text-foreground font-mono text-xs">{calculations.totalLU.toFixed(1)} {standardPreset === "dubai" ? "LU" : "WSFU"}</strong>
+                      <strong className="font-bold text-foreground font-mono text-xs">{calculations.totalLU.toFixed(1)} {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}</strong>
                     </div>
                     <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
                       <span className="font-semibold text-muted-foreground text-[10px] uppercase">Peak Flow Rate</span>

@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
@@ -235,7 +236,10 @@ function DuctSizerPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
           <div className="flex flex-col gap-1 select-none">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; DUCT SIZER</span>
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Duct Sizer + Friction Loss</h1>
+            <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Duct Sizer + Friction Loss</h1>
+              <CalculationReviewBar calculatorPath="/duct-sizer" calculatorTitle="Duct Sizer" />
+              </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
               Size round or rectangular ducts for a target friction rate using the Equal Friction Method (SMACNA).
             </p>

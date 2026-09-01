@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -416,7 +417,10 @@ function FixtureUnitPage() {
           <div className="flex justify-between items-start select-none">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; FIXTURE UNIT SIZER</span>
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Fixture Unit Calculator</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Fixture Unit Calculator</h1>
+              <CalculationReviewBar calculatorPath="/plumbing-fixture-unit" calculatorTitle="Plumbing Fixture Unit" />
+              </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Select fixtures, quantity, and apply usage standards to calculate Water Supply Fixture Units (WSFU) and peak demand flow.
               </p>

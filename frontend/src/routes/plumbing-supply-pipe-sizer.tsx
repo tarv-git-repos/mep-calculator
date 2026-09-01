@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -270,7 +271,10 @@ function SupplyPipeSizerPage() {
           <div className="flex justify-between items-start select-none">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; SUPPLY PIPE SIZER</span>
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Water Supply Pipe Sizer</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Water Supply Pipe Sizer</h1>
+              <CalculationReviewBar calculatorPath="/plumbing-supply-pipe-sizer" calculatorTitle="Water Supply Pipe Sizer" />
+              </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Size domestic water supply distribution pipes and calculate residual fixture pressure using the Hazen-Williams equation.
               </p>

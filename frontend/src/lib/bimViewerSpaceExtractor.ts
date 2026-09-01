@@ -25,8 +25,8 @@ export function isMepValidSpaceName(name: string): boolean {
   if (!name || name.trim() === "") return false;
   const n = name.trim().toUpperCase();
 
-  // 1. Filter out gross area boundary codes like "(A) USABLE AREA", "(D) CIRCULATION AREA"
-  if (/^\([A-Z]\)\s*(USABLE|CIRCULATION|GROSS|NET|RENTABLE|TOTAL|SERVICE|BUILDING|PARKING|AREA)/i.test(n)) {
+  // 1. Filter out gross area boundary codes and parenthesized area markers like "(A) USABLE AREA", "(B) BALCONY AREA"
+  if (/^\([A-Z0-9]+\)/i.test(n)) {
     return false;
   }
 
@@ -68,6 +68,123 @@ export function isMepValidSpaceName(name: string): boolean {
 }
 
 /**
+ * Classifies space airflow pressure class (Positive, Negative, Neutral)
+ * based on TARV Revit Addin logic (AutoCreateZonesCommand.cs).
+ */
+export function predictSpacePressureClass(spaceName: string): { pressure: string; classType: "Positive" | "Negative" | "Neutral" } {
+  const name = (spaceName || "").trim();
+  if (!name) return { pressure: "+1", classType: "Positive" };
+
+  const negativeKeywords = [
+    "TOILET", "WASHROOM", "BATHROOM", "WC", "BATH", "RESTROOM",
+    "LAUNDRY", "KITCHEN", "SERVICE KITCHEN", "GARBAGE", "REFUSE",
+    "JANITOR", "CLEANER", "EXTRACT", "EXHAUST", "PANTRY", "SHOWER", "DIRTY"
+  ];
+
+  const neutralKeywords = [
+    "CORRIDOR", "HALLWAY", "PASSAGE", "STAIRS", "STAIRCASE", "SHAFT", "VOID", "LIFT"
+  ];
+
+  const upper = name.toUpperCase();
+
+  for (const kw of negativeKeywords) {
+    if (upper.includes(kw)) {
+      return { pressure: "-1", classType: "Negative" };
+    }
+  }
+
+  for (const kw of neutralKeywords) {
+    if (upper.includes(kw)) {
+      return { pressure: "0", classType: "Neutral" };
+    }
+  }
+
+  return { pressure: "+1", classType: "Positive" };
+}
+
+/**
+ * Automatically groups extracted 3D spaces into HVAC Zones based on Airflow Pressure & Level Adjacency
+ * following the TARV Revit Addin logic (AutoCreateZonesCommand.cs).
+ */
+export function applyAirflowAutoZoning<T extends Extracted3DSpace>(spaces: T[]): T[] {
+  if (!spaces || spaces.length === 0) return [];
+
+  // Group spaces by floor level
+  const spacesByLevel = new Map<string, T[]>();
+  spaces.forEach((sp) => {
+    const lvl = (sp.level || "Ground Floor").trim();
+    if (!spacesByLevel.has(lvl)) spacesByLevel.set(lvl, []);
+    spacesByLevel.get(lvl)!.push(sp);
+  });
+
+  const zonedSpaces: T[] = [];
+
+  spacesByLevel.forEach((levelSpaces, levelName) => {
+    const positiveSpaces: T[] = [];
+    const nonPositiveSpaces: T[] = [];
+
+    levelSpaces.forEach((sp) => {
+      const pressInfo = predictSpacePressureClass(sp.name);
+      if (pressInfo.classType === "Positive") {
+        positiveSpaces.push(sp);
+      } else {
+        nonPositiveSpaces.push(sp);
+      }
+    });
+
+    const usedZoneNames = new Set<string>();
+
+    const getZoneName = (baseName: string) => {
+      const cleanBase = baseName.replace(/\s*(ZONE|\d+)$/i, "").trim();
+      let name = `${cleanBase} Zone`;
+      if (!usedZoneNames.has(name.toUpperCase())) {
+        usedZoneNames.add(name.toUpperCase());
+        return name;
+      }
+      let i = 1;
+      while (true) {
+        let test = `${cleanBase} Zone-${i}`;
+        if (!usedZoneNames.has(test.toUpperCase())) {
+          usedZoneNames.add(test.toUpperCase());
+          return test;
+        }
+        i++;
+      }
+    };
+
+    const posZoneMap = new Map<string, string>();
+    positiveSpaces.forEach((posSp) => {
+      const zName = getZoneName(posSp.name);
+      posZoneMap.set(posSp.id, zName);
+    });
+
+    nonPositiveSpaces.forEach((npSp, idx) => {
+      let targetZone = "";
+      if (positiveSpaces.length > 0) {
+        const targetPos = positiveSpaces[idx % positiveSpaces.length];
+        targetZone = posZoneMap.get(targetPos.id) || `${levelName} Zone`;
+      } else {
+        targetZone = `${levelName} Zone`;
+      }
+      posZoneMap.set(npSp.id, targetZone);
+    });
+
+    levelSpaces.forEach((sp) => {
+      const assignedZone = posZoneMap.get(sp.id) || `${levelName} Zone`;
+      const pressInfo = predictSpacePressureClass(sp.name);
+      zonedSpaces.push({
+        ...sp,
+        zone: assignedZone,
+        pressure: pressInfo.pressure,
+        pressureAutoDetected: true,
+      });
+    });
+  });
+
+  return sortSpacesByFloorAndName(zonedSpaces);
+}
+
+/**
  * Determine logical elevation order for floor levels.
  * Order: Basement -> Ground Floor -> 1st Floor -> 2nd Floor -> ... -> Roof Floor.
  */
@@ -99,53 +216,6 @@ export function getFloorRank(levelName: string): number {
   if (l.includes("ROOF") || l.includes("TERRACE") || l.includes("PENTHOUSE")) return 900;
 
   return 500;
-}
-
-export function getShortLevelCode(levelName: string): string {
-  const l = (levelName || "").trim().toUpperCase();
-  if (l.includes("BASEMENT 3") || l.includes("B3")) return "B3";
-  if (l.includes("BASEMENT 2") || l.includes("B2")) return "B2";
-  if (l.includes("BASEMENT 1") || l.includes("B1") || l.includes("BASEMENT")) return "B1";
-
-  if (l.includes("GROUND") || l.includes("GF") || l === "L0" || l === "LEVEL 0" || l.includes("PLINTH")) return "GF";
-  if (l.includes("MEZZANINE") || l.includes("MEZZ")) return "MEZZ";
-
-  if (l.includes("FIRST") || l.includes("1ST") || l.includes("FF") || l === "L1" || l === "LEVEL 1") return "1F";
-  if (l.includes("SECOND") || l.includes("2ND") || l.includes("SF") || l === "L2" || l === "LEVEL 2") return "2F";
-  if (l.includes("THIRD") || l.includes("3RD") || l.includes("TF") || l === "L3" || l === "LEVEL 3") return "3F";
-  if (l.includes("FOURTH") || l.includes("4TH") || l === "L4" || l === "LEVEL 4") return "4F";
-  if (l.includes("FIFTH") || l.includes("5TH") || l === "L5" || l === "LEVEL 5") return "5F";
-  if (l.includes("SIXTH") || l.includes("6TH") || l === "L6" || l === "LEVEL 6") return "6F";
-
-  const numMatch = l.match(/(?:LEVEL|L|FLOOR)\s*(\d+)/i);
-  if (numMatch && numMatch[1]) {
-    return `${numMatch[1]}F`;
-  }
-
-  if (l.includes("ROOF") || l.includes("TERRACE")) return "RF";
-
-  return "GF";
-}
-
-/**
- * Automatically assign smart HVAC System Zones (AHU-GF, EXH-GF, AHU-1F, EXH-1F, etc.)
- */
-export function autoAssignBimZones<T extends Extracted3DSpace>(spaces: T[]): T[] {
-  return spaces.map((sp) => {
-    // If sp already has a custom zone set (not "Default" or empty), preserve it
-    if (sp.zone && sp.zone.trim() !== "" && sp.zone.trim().toLowerCase() !== "default") {
-      return sp;
-    }
-
-    const shortLevel = getShortLevelCode(sp.level);
-    const isExhaust = sp.pressure === "-1" || sp.pressure === "-2" || /TOILET|BATHROOM|KITCHEN|RESTROOM|WC|GARAGE|EXHAUST|STORE/i.test(sp.name);
-    const autoZoneName = isExhaust ? `EXH-${shortLevel}` : `AHU-${shortLevel}`;
-
-    return {
-      ...sp,
-      zone: autoZoneName,
-    };
-  });
 }
 
 /**
@@ -210,8 +280,7 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
       });
     });
 
-    const sorted = sortSpacesByFloorAndName(spaces);
-    return autoAssignBimZones(sorted);
+    return sortSpacesByFloorAndName(spaces);
   }
 
   return [];
@@ -239,20 +308,36 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
     const relMgr = new RelationshipManager(parser);
     relMgr.extractRelationships();
 
-    // Build space expressId to storey name map
+    // Build space expressId to storey name map using both relAggregates and relContained
     const spaceToStoreyMap = new Map<number, string>();
     const storeyIds = parser.getIds(WEBIFC.IFCBUILDINGSTOREY);
     storeyIds.forEach((sId) => {
       const sLine = parser.getLine(sId);
       const storeyName = String(sLine?.Name?.value || sLine?.LongName?.value || `Level ${sId}`).trim();
-      const rels = (relMgr.relContainedInSpatialStructure?.get ? relMgr.relContainedInSpatialStructure.get(sId) : []) || [];
-      rels.forEach((elemId) => spaceToStoreyMap.set(elemId, storeyName));
+      
+      // 1. Check relAggregates (Storey -> Child Spaces)
+      const aggChildren = relMgr.relAggregates.get(sId) || [];
+      aggChildren.forEach((elemId) => spaceToStoreyMap.set(elemId, storeyName));
     });
 
-    const spaceIds = parser.getIds(WEBIFC.IFCSPACE);
+    // 2. Check relContained (Element/Space -> Storey)
+    const spaceExpressIds = parser.getIds(WEBIFC.IFCSPACE);
+    spaceExpressIds.forEach((spId) => {
+      if (!spaceToStoreyMap.has(spId)) {
+        const parentStoreyId = relMgr.relContained.get(spId);
+        if (parentStoreyId) {
+          const sLine = parser.getLine(parentStoreyId);
+          if (sLine) {
+            const storeyName = String(sLine?.Name?.value || sLine?.LongName?.value || `Level ${parentStoreyId}`).trim();
+            spaceToStoreyMap.set(spId, storeyName);
+          }
+        }
+      }
+    });
+
     const spaces: Extracted3DSpace[] = [];
 
-    spaceIds.forEach((id, idx) => {
+    spaceExpressIds.forEach((id, idx) => {
       const line = parser.getLine(id);
       if (!line) return;
 
@@ -277,10 +362,12 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
         levelName = levelLine ? String(levelLine.Name?.value || levelLine.LongName?.value || "") : "";
       }
       if (!levelName) {
-        if (/^GF/i.test(rawName)) levelName = "Ground Floor";
-        else if (/^FF/i.test(rawName)) levelName = "First Floor";
-        else if (/^SF/i.test(rawName)) levelName = "Second Floor";
-        else if (/^B\d/i.test(rawName)) levelName = "Basement";
+        const uRaw = rawName.toUpperCase();
+        if (uRaw.includes("ROOF") || uRaw.includes("TERRACE") || uRaw.includes("RF")) levelName = "Roof Floor";
+        else if (uRaw.includes("FIRST") || uRaw.includes("1ST") || uRaw.includes("FF") || uRaw.includes("L1")) levelName = "First Floor";
+        else if (uRaw.includes("SECOND") || uRaw.includes("2ND") || uRaw.includes("SF") || uRaw.includes("L2")) levelName = "Second Floor";
+        else if (uRaw.includes("THIRD") || uRaw.includes("3RD") || uRaw.includes("TF") || uRaw.includes("L3")) levelName = "Third Floor";
+        else if (uRaw.includes("BASEMENT") || uRaw.includes("B1") || uRaw.includes("B2")) levelName = "Basement";
         else levelName = "Ground Floor";
       }
 
@@ -306,8 +393,7 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
     });
 
     parser.closeModel();
-    const sorted = sortSpacesByFloorAndName(spaces);
-    return autoAssignBimZones(sorted);
+    return sortSpacesByFloorAndName(spaces);
   } catch (err) {
     console.warn("Dynamic web-ifc space extraction failed, falling back to active viewer:", err);
     return extractSpacesFromActiveViewer();

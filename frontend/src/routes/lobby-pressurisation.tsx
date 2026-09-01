@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -269,7 +270,10 @@ function LobbyPressurisationPage() {
           <div className="flex flex-col gap-1 select-none">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; LOBBY PRESSURISATION</span>
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Lobby Pressurisation/Makeup Fan</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Lobby Pressurisation/Makeup Fan</h1>
+              <CalculationReviewBar calculatorPath="/lobby-pressurisation" calculatorTitle="Lobby Pressurisation" />
+              </div>
               
               {/* Calculation Persistence Bar */}
               <div className="flex flex-wrap items-center gap-2 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-xl border border-border/80 text-xs">

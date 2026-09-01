@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -351,7 +352,10 @@ function BasementSmokeCalcPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
           <div className="flex flex-col gap-1 select-none">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">SMOKE MANAGEMENT &gt; BASEMENT VENTILATION</span>
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Basement Smoke Extract Schedule</h1>
+            <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Basement Smoke Extract Schedule</h1>
+              <CalculationReviewBar calculatorPath="/basement-smoke-calc" calculatorTitle="Basement Smoke Calc" />
+              </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
               Formulate car park ventilating schedule calculations (3, 6, and 10 ACH) and head losses for extract/makeup fan systems.
             </p>

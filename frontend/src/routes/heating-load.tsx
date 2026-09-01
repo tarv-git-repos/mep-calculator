@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
@@ -181,7 +182,10 @@ function HeatingLoadPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
           <div className="flex flex-col gap-1 select-none">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; HEATING LOAD</span>
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Winter Heating Load</h1>
+            <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Winter Heating Load</h1>
+              <CalculationReviewBar calculatorPath="/heating-load" calculatorTitle="Heating Load" />
+              </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
               Calculate building envelope winter heat losses and estimate heating element/boiler capacities.
             </p>

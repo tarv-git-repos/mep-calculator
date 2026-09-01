@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
@@ -115,7 +116,10 @@ function RefrigerantPipeSizingPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
           <div className="flex flex-col gap-1 select-none">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; REFRIGERANT PIPING</span>
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Refrigerant Pipe Sizer</h1>
+            <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Refrigerant Pipe Sizer</h1>
+              <CalculationReviewBar calculatorPath="/refrigerant-pipe-sizing" calculatorTitle="Refrigerant Pipe Sizer" />
+              </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
               Determine copper refrigerant line outer diameters (OD) for suction, liquid, and discharge lines.
             </p>
