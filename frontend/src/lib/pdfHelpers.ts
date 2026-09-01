@@ -136,19 +136,9 @@ export function getSignatureBlockDetails(
   const reviewState = resolveLatestReviewState(projectId, calculatorPath);
   const currentProj = workspaceStore.getState().project;
 
-  // Originated by Date = Date of creation of that project
-  const projectCreationDateRaw = currentProj?.created_at || currentProj?.createdAt || currentProj?.date;
-  let projectCreatedDateStr = "";
-  if (projectCreationDateRaw) {
-    projectCreatedDateStr = formatDateStr(projectCreationDateRaw);
-  }
-  if (!projectCreatedDateStr) {
-    projectCreatedDateStr = formatDateStr(new Date().toISOString());
-  }
-
-  // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = project creation date
+  // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = Current export/calculation date
   const originatedName = getExporterUserName(exporterName);
-  const originatedDate = projectCreatedDateStr;
+  const originatedDate = formatDateStr(new Date().toISOString());
 
   // 2. Reviewed By: Find the LATEST reviewed action
   let reviewerName = "";
