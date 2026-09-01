@@ -130,7 +130,13 @@ export function EditPclSpaceModal({
     const isNoArea = areaNum <= 0;
     const isNoType = !tempSpace.type || tempSpace.type.trim() === "";
     const isMissing = isNoName || isNoArea || isNoType;
-    const isFlagged = isMissing ? true : (tempSpace.flagged ?? false);
+    const wasMissing = !space.name || !space.type || !space.area || Number(space.area) <= 0;
+    let nextFlagged = tempSpace.flagged;
+    if (isMissing) {
+      nextFlagged = true;
+    } else if (wasMissing && !isMissing) {
+      nextFlagged = false;
+    }
 
     const finalized: PclSpace = {
       ...tempSpace,
@@ -141,7 +147,7 @@ export function EditPclSpaceModal({
       dissipation: finalWatts,
       kw: Number(finalKw.toFixed(2)),
       tr: Number(finalTr.toFixed(2)),
-      flagged: isFlagged,
+      flagged: nextFlagged,
     };
 
     onSave(finalized);

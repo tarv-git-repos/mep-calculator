@@ -46,7 +46,7 @@ export const Route = createFileRoute("/preliminary-cooling-load")({
 });
 
 
-export function checkIfPclMissingData(r: PclRow): { isMissing: boolean; reason: string } {
+export function checkIfPclMissingData(r: { name?: string; area?: number | string; type?: string }): { isMissing: boolean; reason: string } {
   const isNoName = !r.name || r.name.trim() === "";
   const isNoArea = r.area === "" || r.area === undefined || r.area === null || parseFloat(String(r.area)) <= 0 || isNaN(parseFloat(String(r.area)));
   const isNoType = !r.type || r.type.trim() === "" || r.type.toLowerCase() === "select" || r.type.toLowerCase().includes("select type");
@@ -71,9 +71,6 @@ export function checkIfPclMissingData(r: PclRow): { isMissing: boolean; reason: 
   }
   if (isNoType) {
     return { isMissing: true, reason: "Missing space type (heat density not assigned)" };
-  }
-  if (r.flagged) {
-    return { isMissing: false, reason: "Flagged for engineering review" };
   }
   return { isMissing: false, reason: "Complied" };
 }
@@ -1455,13 +1452,19 @@ function PreliminaryCoolingLoadPage() {
                 const kw = dissipation / 1000;
                 const tr = kw / 3.517;
 
+                const wasMissing = checkIfPclMissingData(row).isMissing;
                 const check = checkIfPclMissingData({
                   ...row,
                   name: newName,
                   type: nextType,
                   area: row.area,
                 });
-                const flagged = check.isMissing ? true : (row.flagged ?? false);
+                let flagged = row.flagged;
+                if (check.isMissing) {
+                  flagged = true;
+                } else if (wasMissing && !check.isMissing) {
+                  flagged = false;
+                }
 
                 return {
                   ...row,
@@ -1507,11 +1510,17 @@ function PreliminaryCoolingLoadPage() {
               const kw = dissipation / 1000;
               const tr = kw / 3.517;
 
+              const wasMissing = checkIfPclMissingData(row).isMissing;
               const check = checkIfPclMissingData({
                 ...row,
                 area: nextArea,
               });
-              const flagged = check.isMissing ? true : (row.flagged ?? false);
+              let flagged = row.flagged;
+              if (check.isMissing) {
+                flagged = true;
+              } else if (wasMissing && !check.isMissing) {
+                flagged = false;
+              }
 
               return {
                 ...row,
@@ -1548,11 +1557,17 @@ function PreliminaryCoolingLoadPage() {
               const kw = dissipation / 1000;
               const tr = kw / 3.517;
 
+              const wasMissing = checkIfPclMissingData(row).isMissing;
               const check = checkIfPclMissingData({
                 ...row,
                 type: nextType,
               });
-              const flagged = check.isMissing ? true : (row.flagged ?? false);
+              let flagged = row.flagged;
+              if (check.isMissing) {
+                flagged = true;
+              } else if (wasMissing && !check.isMissing) {
+                flagged = false;
+              }
 
               return {
                 ...row,
@@ -1614,7 +1629,7 @@ function PreliminaryCoolingLoadPage() {
         const isFlagged = Boolean(r.flagged || check.isMissing);
         const tooltip = check.isMissing
           ? check.reason
-          : (r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag for review");
+          : (r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag space");
 
         return (
           <button
