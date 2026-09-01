@@ -2072,7 +2072,7 @@ function LoadingUnitPage() {
                         {LU_FIXTURES_META.map(f => (
                           <th key={f.id} className="p-2 text-center w-12 text-[11px] font-bold">{f.short}</th>
                         ))}
-                        <th rowSpan={2} className="p-2 text-center w-16 bg-[#0A7BC7]/5 text-[#0A7BC7] font-bold" title="Unit value per 1 space">
+                        <th rowSpan={2} className="p-2 text-center w-16 text-[#0A7BC7] font-bold" title="Unit value per 1 space">
                           {standardPreset === "dubai" ? "LU" : "WSFU"}
                         </th>
                         <th className="p-1.5 text-center w-16 text-foreground font-bold border-b border-border/40" title="Quantity of spaces per typical floor">
@@ -2081,7 +2081,7 @@ function LoadingUnitPage() {
                         <th className="p-1.5 text-center w-16 text-foreground font-bold border-b border-border/40" title="Number of typical floors">
                           No. of Floors
                         </th>
-                        <th rowSpan={2} className="p-2 text-center w-20 bg-[#0A7BC7]/10 text-[#0A7BC7] font-bold" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
+                        <th rowSpan={2} className="p-2 text-center w-20 text-[#0A7BC7] font-bold" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
                           {standardPreset === "dubai" ? "TOTAL LU" : "TOTAL WSFU"}
                         </th>
                         <th rowSpan={2} className="p-2 text-center w-16 font-bold">
@@ -2090,7 +2090,7 @@ function LoadingUnitPage() {
                       </tr>
                       <tr className="bg-slate-50 dark:bg-slate-900 border-b border-border">
                         {LU_FIXTURES_META.map(f => (
-                          <th key={f.id} className="p-1 px-0.5 text-center font-bold bg-[#0A7BC7]/5">
+                          <th key={f.id} className="p-1 px-0.5 text-center font-bold">
                             <input
                               type="number"
                               step="0.1"
@@ -2294,7 +2294,7 @@ function LoadingUnitPage() {
                                   <span className="text-muted-foreground font-mono text-[11px]">—</span>
                                 )}
                               </td>
-                              <td className="p-2 text-center font-mono font-extrabold text-[#0A7BC7] bg-[#0A7BC7]/10" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
+                              <td className="p-2 text-center font-mono font-extrabold text-[#0A7BC7]" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
                                 {(calculations.spaceTotalsLU[s.id] || 0).toFixed(1)}
                               </td>
                               <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
