@@ -488,6 +488,52 @@ function LoadingUnitPage() {
   const [showSpaceQty, setShowSpaceQty] = useState<boolean>(true);
   const [showFloorsCol, setShowFloorsCol] = useState<boolean>(true);
 
+  // Column Width Resizer State (Matching Ventilation / Busbar UI)
+  const [luColWidths, setLuColWidths] = useState<Record<string, number>>({
+    select: 36,
+    desc: 180,
+    wc: 60,
+    handspray: 60,
+    basin: 60,
+    sink: 60,
+    shower: 60,
+    washer: 60,
+    servicesink: 60,
+    hose_bibb: 60,
+    dishwasher: 60,
+    hose_bibb_1: 60,
+    unitLu: 70,
+    spaceQty: 75,
+    floorsQty: 75,
+    totalLu: 85,
+    actions: 60
+  });
+
+  const [resizingCol, setResizingCol] = useState<string | null>(null);
+  const resizeStartRef = useRef<{ x: number; width: number }>({ x: 0, width: 0 });
+
+  const handleResizeMouseDown = (colKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizingCol(colKey);
+    resizeStartRef.current = { x: e.clientX, width: luColWidths[colKey] || 60 };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - resizeStartRef.current.x;
+      const newWidth = Math.max(36, resizeStartRef.current.width + deltaX);
+      setLuColWidths(prev => ({ ...prev, [colKey]: newWidth }));
+    };
+
+    const handleMouseUp = () => {
+      setResizingCol(null);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
   // Project / Calculation Header Metadata Block (Matching reference submittal sheet)
   const [calcMeta, setCalcMeta] = useState({
     calcNo: "CEC-MED-P539-202",
@@ -2022,72 +2068,80 @@ function LoadingUnitPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-            <div className="xl:col-span-9 lg:col-span-8 min-w-0 flex flex-col gap-6">
-              
-              {/* Fixtures quantities schedule card */}
-              <div className="bg-card border border-border rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-xs min-w-0">
-                
-                {/* Header bar with Floor Section Creator */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">📋 Fixture Schedule (Grouped By Floor)</h3>
-                    {Object.keys(weightOverrides).length > 0 && (
-                      <button
-                        onClick={handleResetWeightsToDefault}
-                        className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full transition-all cursor-pointer"
-                        title="Reset custom weights to standard defaults"
-                      >
-                        ↺ Reset Weights
-                      </button>
-                    )}
-                  </div>
+          {/* Full-width Main Fixtures Schedule Card Container (Matching Ventilation UI) */}
+          <div className="bg-card border border-border rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-xs min-w-0 w-full">
+            
+            {/* Header bar with Floor Section Creator */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">📋 Fixture Schedule (Grouped By Floor)</h3>
+                {Object.keys(weightOverrides).length > 0 && (
+                  <button
+                    onClick={handleResetWeightsToDefault}
+                    className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full transition-all cursor-pointer"
+                    title="Reset custom weights to standard defaults"
+                  >
+                    ↺ Reset Weights
+                  </button>
+                )}
+              </div>
 
-                  <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
-                    <button
-                      onClick={handleAddNewFloorSection}
-                      className="flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                    >
-                      <Plus className="size-3.5" /> Add Floor Section
-                    </button>
-                    <button type="button" onClick={() => setIopSpaces([])} className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1 rounded transition-colors cursor-pointer border-0 bg-transparent">🗑 Clear All</button>
-                  </div>
-                </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+                <button
+                  onClick={handleAddNewFloorSection}
+                  className="flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  <Plus className="size-3.5" /> Add Floor Section
+                </button>
+                <button type="button" onClick={() => setIopSpaces([])} className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1 rounded transition-colors cursor-pointer border-0 bg-transparent">🗑 Clear All</button>
+              </div>
+            </div>
 
-                {/* Table for Adding/Editing spaces */}
-                <div className="overflow-x-auto border border-border rounded-xl w-full custom-scrollbar">
-                  <table className="w-full min-w-[800px] border-collapse text-[11.5px] font-sans select-none">
-                    <thead>
-                      <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
-                        <th rowSpan={2} className="p-2 text-center w-8">
-                          <input
-                            type="checkbox"
-                            checked={allSelected}
-                            onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                            className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
-                          />
-                        </th>
-                        <th rowSpan={2} className="p-2 text-left min-w-[140px]">Description</th>
-                        {LU_FIXTURES_META.map(f => (
-                          <th key={f.id} className="p-2 text-center w-12 text-[11px] font-bold">{f.short}</th>
-                        ))}
-                        <th rowSpan={2} className="p-2 text-center w-16 text-[#0A7BC7] font-bold" title="Unit value per 1 space">
-                          {standardPreset === "dubai" ? "LU" : "WSFU"}
-                        </th>
-                        <th className="p-1.5 text-center w-16 text-foreground font-bold border-b border-border/40" title="Quantity of spaces per typical floor">
-                          Space Qty
-                        </th>
-                        <th className="p-1.5 text-center w-16 text-foreground font-bold border-b border-border/40" title="Number of typical floors">
-                          No. of Floors
-                        </th>
-                        <th rowSpan={2} className="p-2 text-center w-20 text-[#0A7BC7] font-bold" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
-                          {standardPreset === "dubai" ? "TOTAL LU" : "TOTAL WSFU"}
-                        </th>
-                        <th rowSpan={2} className="p-2 text-center w-16 font-bold">
-                          Actions
-                        </th>
-                      </tr>
+            {/* Table with Resizable Columns (Matching Ventilation UI) */}
+            <div className="overflow-x-auto border border-border rounded-xl w-full custom-scrollbar">
+              <table className="w-full border-collapse text-[11.5px] font-sans select-none table-fixed">
+                <thead className="bg-slate-50/80 dark:bg-slate-900/60 sticky top-0 z-10 border-b border-border text-muted-foreground select-none">
+                  <tr className="text-left text-[10.5px] font-bold uppercase tracking-wider">
+                    <th style={{ width: luColWidths.select }} rowSpan={2} className="p-2 text-center relative group">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={(e) => handleToggleSelectAll(e.target.checked)}
+                        className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
+                      />
+                      <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                    </th>
+                    <th style={{ width: luColWidths.desc }} rowSpan={2} className="p-2 text-left relative group">
+                      Description
+                      <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                    </th>
+                    {LU_FIXTURES_META.map(f => (
+                      <th key={f.id} style={{ width: luColWidths[f.id] || 60 }} className="p-2 text-center relative group">
+                        {f.short}
+                        <div onMouseDown={(e) => handleResizeMouseDown(f.id, e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                      </th>
+                    ))}
+                    <th style={{ width: luColWidths.unitLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Unit value per 1 space">
+                      {standardPreset === "dubai" ? "LU" : "WSFU"}
+                      <div onMouseDown={(e) => handleResizeMouseDown("unitLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                    </th>
+                    <th style={{ width: luColWidths.spaceQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Quantity of spaces per typical floor">
+                      Space Qty
+                      <div onMouseDown={(e) => handleResizeMouseDown("spaceQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                    </th>
+                    <th style={{ width: luColWidths.floorsQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Number of typical floors">
+                      No. of Floors
+                      <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                    </th>
+                    <th style={{ width: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
+                      {standardPreset === "dubai" ? "TOTAL LU" : "TOTAL WSFU"}
+                      <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                    </th>
+                    <th style={{ width: luColWidths.actions }} rowSpan={2} className="p-2 text-center font-bold">
+                      Actions
+                    </th>
+                  </tr>
                       <tr className="bg-slate-50 dark:bg-slate-900 border-b border-border">
                         {LU_FIXTURES_META.map(f => (
                           <th key={f.id} className="p-1 px-0.5 text-center font-bold">
@@ -2352,102 +2406,100 @@ function LoadingUnitPage() {
                 </div>
               </div>
 
-            </div>
+              {/* Sizing Results & Recommended Pipe Summary Cards (Matching Ventilation UI) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full pt-2">
+                
+                {/* Sizing Results Card */}
+                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-xs">
+                  <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">📊 Sizing Results</h3>
+                  </div>
 
-            {/* Sizing Results & Recommended Pipe Sidebar */}
-            <div className="xl:col-span-3 lg:col-span-4 flex flex-col gap-3">
-              
-              {/* Sizing Results Card */}
-              <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2 shadow-xs">
-                <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
-                  <div className="w-1 h-3 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground font-sans">📊 Sizing Results</h3>
+                  <div className="grid grid-cols-2 gap-3 font-sans text-xs">
+                    <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
+                      <span className="font-semibold text-muted-foreground text-[10px] uppercase">Standard Preset</span>
+                      <span className="font-bold text-foreground text-xs">{standardPreset === "dubai" ? "Dubai (DBC)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC"}</span>
+                    </div>
+                    <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
+                      <span className="font-semibold text-muted-foreground text-[10px] uppercase">Total Demand</span>
+                      <strong className="font-bold text-foreground font-mono text-xs">{calculations.totalLU.toFixed(1)} {standardPreset === "dubai" ? "LU" : "WSFU"}</strong>
+                    </div>
+                    <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
+                      <span className="font-semibold text-muted-foreground text-[10px] uppercase">Peak Flow Rate</span>
+                      <strong className="font-bold text-[#0A7BC7] font-mono text-xs">{calculations.displayFlow}</strong>
+                    </div>
+                    <div className="flex flex-col p-2 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/50 dark:border-blue-800/40 rounded-xl">
+                      <span className="font-bold text-foreground uppercase tracking-wide text-[9.5px]">Pump Flow (Q)</span>
+                      <strong className="font-extrabold text-[#0A7BC7] text-xs font-mono">{calculations.displaySelectedFlow}</strong>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex flex-col gap-1 font-sans text-xs">
-                  <div className="flex justify-between items-center py-0.5 border-b border-border/30 text-[11px]">
-                    <span className="font-semibold text-muted-foreground">Preset</span>
-                    <span className="font-bold text-foreground text-right text-[10.5px]">{standardPreset === "dubai" ? "Dubai (DBC)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC"}</span>
+                {/* Recommended Pipe Size Card */}
+                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-xs">
+                  <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
+                    <div className="w-1 h-3.5 bg-emerald-500 rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">🚰 Recommended Pipe</h3>
                   </div>
-                  <div className="flex justify-between items-center py-0.5 border-b border-border/30 text-[11px]">
-                    <span className="font-semibold text-muted-foreground">Total Demand</span>
-                    <strong className="font-bold text-foreground font-mono">{calculations.totalLU.toFixed(1)} {standardPreset === "dubai" ? "LU" : "WSFU"}</strong>
+
+                  <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl">
+                    <div className="flex flex-col">
+                      <span className="text-[9.5px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Nominal Size</span>
+                      <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono">DN{calculations.pipeSizing.sizeMM} mm</span>
+                    </div>
+                    <div className="text-right flex flex-col">
+                      <span className="text-[9.5px] font-bold text-muted-foreground uppercase">Capacity Limit</span>
+                      <span className="text-xs font-mono font-bold text-foreground">{calculations.pipeSizing.maxFlowLPS} L/s</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center py-0.5 border-b border-border/30 text-[11px]">
-                    <span className="font-semibold text-muted-foreground">Peak Flow</span>
-                    <strong className="font-bold text-[#0A7BC7] font-mono">{calculations.displayFlow}</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1 px-2 my-0.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/50 dark:border-blue-800/40 rounded-lg text-[10.5px]">
-                    <span className="font-bold text-foreground uppercase tracking-wide text-[9.5px]">Pump Flow (Q)</span>
-                    <strong className="font-extrabold text-[#0A7BC7] text-xs font-mono">{calculations.displaySelectedFlow}</strong>
+
+                  {/* Collapsible / Compact Pipe Schedule Table */}
+                  <details className="group border border-border rounded-xl text-[10px]">
+                    <summary className="p-2 font-semibold text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-between bg-slate-50 dark:bg-slate-900 rounded-xl select-none">
+                      <span>View Pipe Size Table (15–200mm)</span>
+                      <span className="group-open:rotate-180 transition-transform text-[9px]">▼</span>
+                    </summary>
+                    <div className="overflow-x-auto overflow-y-auto max-h-48 p-1 border-t border-border custom-scrollbar">
+                      <table className="w-full border-collapse font-mono text-[9px]">
+                        <thead>
+                          <tr className="text-muted-foreground font-bold border-b border-border text-[9px] bg-slate-100 dark:bg-slate-800">
+                            <th className="p-1 text-center">Pipe (mm)</th>
+                            <th className="p-1 text-center">WSFU</th>
+                            <th className="p-1 text-center">Max L/s</th>
+                            <th className="p-1 text-center">@ 4 fps</th>
+                            <th className="p-1 text-center">@ 5 fps</th>
+                            <th className="p-1 text-center">@ 6 fps</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {PIPE_SIZING_TABLE.map((row) => {
+                            const isMatch = calculations.pipeSizing.sizeMM === row.sizeMM;
+                            return (
+                              <tr key={row.sizeMM} className={`border-b border-border/30 ${isMatch ? "bg-emerald-500/25 font-extrabold text-emerald-800 dark:text-emerald-200" : ""}`}>
+                                <td className="p-1 text-center font-bold">DN{row.sizeMM}</td>
+                                <td className="p-1 text-center font-semibold">{row.wsfuRange}</td>
+                                <td className="p-1 text-center">{row.flowMax}</td>
+                                <td className="p-1 text-center">{row.q4fps.toFixed(2)}</td>
+                                <td className="p-1 text-center">{row.q5fps.toFixed(2)}</td>
+                                <td className="p-1 text-center">{row.q6fps.toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+
+                  <div className="bg-slate-50 dark:bg-slate-900 border border-border rounded-xl p-1.5 flex gap-1.5 text-[9.5px] text-muted-foreground">
+                    <Info className="size-3 shrink-0 text-[#0A7BC7] mt-0.5" />
+                    <span>DBC 2021 &amp; BS EN 806 limits (V &le; 1.5 - 2.0 m/s).</span>
                   </div>
                 </div>
+
               </div>
 
-              {/* Recommended Pipe Size Card */}
-              <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2 shadow-xs">
-                <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
-                  <div className="w-1 h-3 bg-emerald-500 rounded-full"></div>
-                  <h3 className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground font-sans">🚰 Recommended Pipe</h3>
-                </div>
-
-                <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 p-2 rounded-xl">
-                  <div className="flex flex-col">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Nominal Size</span>
-                    <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">DN{calculations.pipeSizing.sizeMM} mm</span>
-                  </div>
-                  <div className="text-right flex flex-col">
-                    <span className="text-[9px] font-bold text-muted-foreground uppercase">Capacity Limit</span>
-                    <span className="text-xs font-mono font-bold text-foreground">{calculations.pipeSizing.maxFlowLPS} L/s</span>
-                  </div>
-                </div>
-
-                {/* Collapsible / Compact Pipe Schedule Table */}
-                <details className="group border border-border rounded-lg text-[10px]">
-                  <summary className="p-1.5 font-semibold text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-between bg-slate-50 dark:bg-slate-900 rounded-lg select-none">
-                    <span>View Pipe Size Table (15–200mm)</span>
-                    <span className="group-open:rotate-180 transition-transform text-[9px]">▼</span>
-                  </summary>
-                  <div className="overflow-x-auto overflow-y-auto max-h-48 p-1 border-t border-border custom-scrollbar">
-                    <table className="w-full border-collapse font-mono text-[9px]">
-                      <thead>
-                        <tr className="text-muted-foreground font-bold border-b border-border text-[9px] bg-slate-100 dark:bg-slate-800">
-                          <th className="p-1 text-center">Pipe (mm)</th>
-                          <th className="p-1 text-center">WSFU</th>
-                          <th className="p-1 text-center">Max L/s</th>
-                          <th className="p-1 text-center">@ 4 fps</th>
-                          <th className="p-1 text-center">@ 5 fps</th>
-                          <th className="p-1 text-center">@ 6 fps</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {PIPE_SIZING_TABLE.map((row) => {
-                          const isMatch = calculations.pipeSizing.sizeMM === row.sizeMM;
-                          return (
-                            <tr key={row.sizeMM} className={`border-b border-border/30 ${isMatch ? "bg-emerald-500/25 font-extrabold text-emerald-800 dark:text-emerald-200" : ""}`}>
-                              <td className="p-1 text-center font-bold">DN{row.sizeMM}</td>
-                              <td className="p-1 text-center font-semibold">{row.wsfuRange}</td>
-                              <td className="p-1 text-center">{row.flowMax}</td>
-                              <td className="p-1 text-center">{row.q4fps.toFixed(2)}</td>
-                              <td className="p-1 text-center">{row.q5fps.toFixed(2)}</td>
-                              <td className="p-1 text-center">{row.q6fps.toFixed(2)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-
-                <div className="bg-slate-50 dark:bg-slate-900 border border-border rounded-lg p-1.5 flex gap-1 text-[9.5px] text-muted-foreground">
-                  <Info className="size-3 shrink-0 text-[#0A7BC7] mt-0.5" />
-                  <span>DBC 2021 &amp; BS EN 806 limits (V &le; 1.5 - 2.0 m/s).</span>
-                </div>
-              </div>
-
             </div>
-
-          </div>
         </div>
       </div>
 
