@@ -72,8 +72,8 @@ export const exportPreliminaryCoolingLoadPDF = async (
     };
 
     const today = meta.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-    const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Preliminary HVAC Project";
-    const clientName = meta.client || activeProj?.client || "Consistent Engineering Consultants";
+    const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Preliminary Cooling Load Estimation";
+    const clientName = meta.client || activeProj?.client || "Prestige Group developers";
 
     const leftMargin = 14;
     const contentWidth = 182; // 210 - 28
@@ -249,13 +249,13 @@ export const exportPreliminaryCoolingLoadPDF = async (
           },
         ],
         [
-          { content: "S.No", styles: { halign: "center", cellWidth: 12 } },
-          { content: "Name of Space", styles: { halign: "left", cellWidth: 42 } },
-          { content: "Area (m²)", styles: { halign: "right", cellWidth: 20 } },
+          { content: "S.No", styles: { halign: "center", cellWidth: 10 } },
+          { content: "Name of Space", styles: { halign: "left", cellWidth: 40 } },
+          { content: "Area (m²)", styles: { halign: "right", cellWidth: 18 } },
           { content: "Type of Space", styles: { halign: "left", cellWidth: 42 } },
-          { content: "Cooling load Density (W/m²)", styles: { halign: "right", cellWidth: 26 } },
-          { content: "Cooling Load (kW)", styles: { halign: "right", cellWidth: 20 } },
-          { content: "Cooling Load (TR)", styles: { halign: "right", cellWidth: 20 } },
+          { content: "Cooling load Density (W/m²)", styles: { halign: "right", cellWidth: 28 } },
+          { content: "Cooling Load (kW)", styles: { halign: "right", cellWidth: 22 } },
+          { content: "Cooling Load (TR)", styles: { halign: "right", cellWidth: 22 } },
         ],
       ],
       body: scheduleBody,

@@ -1323,6 +1323,7 @@ function PreliminaryCoolingLoadPage() {
       client: projectInfo.client,
       projectNo: projectInfo.projectNumber,
       calcNo: projectInfo.calcNumber,
+      date: projectInfo.date,
     });
   };
 
@@ -2127,7 +2128,7 @@ function PreliminaryCoolingLoadPage() {
 
                     {/* 2. Company & Date */}
                     <div className="py-2.5 px-1 flex justify-between items-center text-xs border-b border-border/60">
-                      <span className="font-bold text-foreground">Consistent Engineering Consultants</span>
+                      <span className="font-bold text-foreground">{projectInfo.client || project?.client || "Prestige Group developers"}</span>
                       <span className="text-muted-foreground">Date: {projectInfo.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
                     </div>
 
