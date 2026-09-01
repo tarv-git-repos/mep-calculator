@@ -392,13 +392,9 @@ function PreliminaryCoolingLoadPage() {
   };
 
   // Sync with project changes
-  const isInitialMount = useRef(true);
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    const projId = activeProjectId || project?.id || "default";
+    const projId = activeProjectId || project?.id;
+    if (!projId) return;
     const projKey = `mep_pcl_rows_${projId}`;
     const saved = localStorage.getItem(projKey);
     if (saved !== null) {
@@ -406,16 +402,24 @@ function PreliminaryCoolingLoadPage() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           setRows(parsed);
-          setSelected(new Set());
           return;
         }
       } catch (e) {}
     } else {
-      // Clean slate for new project without existing PCL data
+      // Check legacy pcl_rows only if this project has no dedicated key yet
+      const savedLegacy = localStorage.getItem("pcl_rows");
+      if (savedLegacy !== null) {
+        try {
+          const parsed = JSON.parse(savedLegacy);
+          if (Array.isArray(parsed)) {
+            setRows(parsed);
+            return;
+          }
+        } catch (e) {}
+      }
       setRows([]);
-      setSelected(new Set());
     }
-  }, [activeProjectId, project?.id]);
+  }, [activeProjectId, project?.id, project?.workspace_data]);
 
   // Save to local storage and sync on rows change
   const saveRows = (newRows: PclRow[]) => {
@@ -426,6 +430,12 @@ function PreliminaryCoolingLoadPage() {
       localStorage.setItem("pcl_rows", JSON.stringify(newRows));
       localStorage.setItem("pcl_rowCount", newRows.length.toString());
       localStorage.setItem("pcl_project_info", JSON.stringify(projectInfo));
+      
+      // Save directly to cloud workspace and backend storage
+      if (typeof forceSaveToCloud === "function") {
+        forceSaveToCloud(true);
+      }
+
       // Trigger PlumbingZoneLinker sync
       if (typeof (window as any).PlumbingZoneLinker?.syncFromPCL === "function") {
         (window as any).PlumbingZoneLinker.syncFromPCL();
