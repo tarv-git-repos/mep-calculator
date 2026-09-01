@@ -821,14 +821,12 @@ function ShortCircuitCalculationsPage() {
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; SHORT CIRCUIT CURRENT CALCULATOR</span>
-              <div className="flex items-center gap-3 mt-0.5">
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
-                  <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
-              <CalculationReviewBar calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
-              </div>
+                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} segments</span>
                 </div>
+                <CalculationReviewBar calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 IEC 60909 prospective short-circuit current calculator at the end of a cascading cable run.

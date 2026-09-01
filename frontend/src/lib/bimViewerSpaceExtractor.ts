@@ -174,7 +174,7 @@ export function applyAirflowAutoZoning<T extends Extracted3DSpace>(spaces: T[]):
       const pressInfo = predictSpacePressureClass(sp.name);
       zonedSpaces.push({
         ...sp,
-        zone: assignedZone,
+        zone: (sp.zone && sp.zone.trim() !== "" && sp.zone.trim().toLowerCase() !== "default") ? sp.zone : assignedZone,
         pressure: pressInfo.pressure,
         pressureAutoDetected: true,
       });
@@ -280,7 +280,7 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
       });
     });
 
-    return sortSpacesByFloorAndName(spaces);
+    return applyAirflowAutoZoning(spaces);
   }
 
   return [];
@@ -393,7 +393,7 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
     });
 
     parser.closeModel();
-    return sortSpacesByFloorAndName(spaces);
+    return applyAirflowAutoZoning(spaces);
   } catch (err) {
     console.warn("Dynamic web-ifc space extraction failed, falling back to active viewer:", err);
     return extractSpacesFromActiveViewer();

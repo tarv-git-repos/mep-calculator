@@ -685,13 +685,13 @@ function CentralBatterySizingPage() {
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; CENTRAL BATTERY SIZING</span>
               <div className="flex items-center gap-3 mt-0.5">
+                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
-                  <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Central Battery Sizing</h1>
-              <CalculationReviewBar calculatorPath="/central-battery-sizing" calculatorTitle="Central Battery Sizing" />
-              </div>
+                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Central Battery Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} areas</span>
                 </div>
+                <CalculationReviewBar calculatorPath="/central-battery-sizing" calculatorTitle="Central Battery Sizing" />
+              </div>
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Preliminary Central Battery System capacity sizing based on escape and exit lighting schedule.

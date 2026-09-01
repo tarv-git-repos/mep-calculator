@@ -1219,13 +1219,13 @@ function SprinklerKFactorPage() {
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; SPRINKLER K-FACTOR</span>
               <div className="flex items-center gap-3 mt-0.5">
+                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
-                  <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler K-Factor</h1>
-              <CalculationReviewBar calculatorPath="/plumbing-sprinkler-kfactor" calculatorTitle="Sprinkler K-Factor" />
-              </div>
+                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler K-Factor</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 discharge calculations</span>
                 </div>
+                <CalculationReviewBar calculatorPath="/plumbing-sprinkler-kfactor" calculatorTitle="Sprinkler K-Factor" />
+              </div>
                 <button 
                   onClick={() => setIntelOpen(v => !v)}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${

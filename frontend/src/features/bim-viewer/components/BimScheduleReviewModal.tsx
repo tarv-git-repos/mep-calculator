@@ -28,9 +28,9 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
 
   useEffect(() => {
     const validFiltered = (initialRecords || []).filter((r) => isMepValidSpaceName(r.name));
-    const sorted = sortSpacesByFloorAndName(validFiltered);
-    setRecords(sorted);
-    setSelectedIds(new Set(sorted.map((r) => r.id)));
+    const zoned = applyAirflowAutoZoning(validFiltered);
+    setRecords(zoned);
+    setSelectedIds(new Set(zoned.map((r) => r.id)));
   }, [initialRecords]);
 
   if (!isOpen) return null;

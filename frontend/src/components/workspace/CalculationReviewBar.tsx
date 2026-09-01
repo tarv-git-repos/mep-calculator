@@ -66,22 +66,7 @@ export function CalculationReviewBar({
     const roleUpper = roleVal.toUpperCase();
     const metaUpper = metaRole.toUpperCase();
 
-    // 1. ABSOLUTE GUARD: If account system role is ORG_ADMIN, SUPER_ADMIN, PROJECT_MANAGER, or VIEWER:
-    // They are NOT a Discipline Coordinator and MUST NEVER see Approve/Reject buttons!
-    if (
-      roleUpper === "ORG_ADMIN" || 
-      roleUpper === "SUPER_ADMIN" || 
-      roleUpper === "PROJECT_MANAGER" ||
-      roleUpper === "VIEWER" ||
-      metaUpper === "ORG_ADMIN" ||
-      metaUpper === "SUPER_ADMIN" ||
-      metaUpper === "PROJECT_MANAGER" ||
-      metaUpper === "VIEWER"
-    ) {
-      return "Jr. / Design Engineer";
-    }
-
-    // 2. DISCIPLINE COORDINATOR: ONLY if role or designation is explicitly "Discipline Coordinator"
+    // 1. DISCIPLINE COORDINATOR: ONLY if role or designation is explicitly "Discipline Coordinator"
     const isExplicitCoordinator = 
       roleVal === "Discipline Coordinator" ||
       desVal === "Discipline Coordinator" ||
@@ -92,7 +77,7 @@ export function CalculationReviewBar({
       return "Discipline Coordinator";
     }
 
-    // 3. SR. DESIGN ENGINEER: ONLY if role or designation is explicitly "Sr. Design Engineer" / "Senior Design Engineer"
+    // 2. SR. DESIGN ENGINEER / LEAD / ADMIN
     const isExplicitSenior = 
       roleVal === "Sr. Design Engineer" ||
       desVal === "Sr. Design Engineer" ||
@@ -101,7 +86,13 @@ export function CalculationReviewBar({
       roleVal.toLowerCase().includes("senior") ||
       desVal.toLowerCase().includes("senior") ||
       roleVal.toLowerCase().includes("sr.") ||
-      desVal.toLowerCase().includes("sr.");
+      desVal.toLowerCase().includes("sr.") ||
+      roleUpper === "ORG_ADMIN" ||
+      roleUpper === "SUPER_ADMIN" ||
+      roleUpper === "ADMIN" ||
+      metaUpper === "ORG_ADMIN" ||
+      metaUpper === "SUPER_ADMIN" ||
+      !roleVal; // default admin user
 
     if (isExplicitSenior) {
       return "Sr. Design Engineer";

@@ -609,14 +609,12 @@ function UpsSizingCalculationPage() {
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; UPS SIZING</span>
-              <div className="flex items-center gap-3 mt-0.5">
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
-                  <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">UPS Sizing</h1>
-              <CalculationReviewBar calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing" />
-              </div>
+                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">UPS Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{loadRows.length} items</span>
                 </div>
+                <CalculationReviewBar calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Simplified preliminary electrical capacity sizing based on socket load schedule.

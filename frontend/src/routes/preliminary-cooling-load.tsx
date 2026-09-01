@@ -1693,6 +1693,8 @@ function PreliminaryCoolingLoadPage() {
     );
   };
 
+  const [intelOpen, setIntelOpen] = useState(false);
+
   return (
     <AppShell title="Preliminary Cooling Load" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
@@ -1706,6 +1708,17 @@ function PreliminaryCoolingLoadPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Preliminary Cooling Load</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} spaces</span>
                 </div>
+                <button
+                  onClick={() => setIntelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  Intelligence
+                </button>
                 <CalculationReviewBar
                   projectId={activeProjectId || project?.id || "default"}
                   calculatorPath="/preliminary-cooling-load"
