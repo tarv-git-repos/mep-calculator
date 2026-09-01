@@ -265,16 +265,10 @@ function PreliminaryCoolingLoadPage() {
       const saved = localStorage.getItem(projKey) || localStorage.getItem("pcl_rows");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (e) {}
-    return [
-      { id: "1", name: "G-01 Main Office Lobby", area: 85, type: "Lobby - Residential", density: 180, dissipation: 15300, kw: 15.3, tr: 15.3 / 3.517, floor: "GF" },
-      { id: "2", name: "1F-02 Executive Office Cabin", area: 24, type: "Office - Cabin", density: 120, dissipation: 2880, kw: 2.88, tr: 2.88 / 3.517, floor: "1F" },
-      { id: "3", name: "1F-03 Main Meeting Room", area: 45, type: "Office - Meeting Room", density: 120, dissipation: 5400, kw: 5.4, tr: 5.4 / 3.517, floor: "1F" },
-      { id: "4", name: "B-01 Electrical Room", area: 35, type: "Typ. Electrical Room", density: 100, dissipation: 3500, kw: 3.5, tr: 3.5 / 3.517, floor: "BF" },
-      { id: "5", name: "B-02 Server Room", area: 25, type: "Server Room", density: 300, dissipation: 7500, kw: 7.5, tr: 7.5 / 3.517, floor: "BF" },
-    ];
+    return [];
   });
   const [editingSpace, setEditingSpace] = useState<PclRow | null>(null);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
