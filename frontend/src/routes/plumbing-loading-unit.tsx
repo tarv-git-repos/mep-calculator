@@ -1518,13 +1518,12 @@ function LoadingUnitPage() {
       const activeFixtures = LU_FIXTURES_META;
       const isWsfu = standardPreset === "abudhabi" || standardPreset === "ipc_upc";
       const unitLabel = isWsfu ? "WSFU" : "LU";
-      const currentWeights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
 
       // 2. Main Fixture Schedule Headers
       const headers = [
         "Description",
-        ...activeFixtures.map(f => `${f.name} (${currentWeights[f.id] || f.defaultW})`),
-        `LU / Space`,
+        ...activeFixtures.map(f => `${f.short} (${activeWeights[f.id] ?? 0})`),
+        `${unitLabel} / Space`,
         ...(showSpaceQty ? ["Space Qty"] : []),
         ...(showFloorsCol ? ["No. of Floors"] : []),
         `TOTAL ${unitLabel}`
