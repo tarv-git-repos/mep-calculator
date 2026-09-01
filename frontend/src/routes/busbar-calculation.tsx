@@ -1,6 +1,6 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
-import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -1217,8 +1217,19 @@ function BusbarCalculationPage() {
 
   const exportPdf = () => {
     try {
-      const doc = new jsPDF("landscape");
-      
+      const doc = new jsPDF("l", "mm", "a4");
+      const primaryFill: [number, number, number] = [217, 217, 217];
+
+      const runAutoTable = (options: any) => {
+        if (typeof autoTable === 'function') {
+          autoTable(doc, options);
+        } else if (typeof (autoTable as any)?.default === 'function') {
+          (autoTable as any).default(doc, options);
+        } else if ((doc as any).autoTable) {
+          (doc as any).autoTable(options);
+        }
+      };
+
       if (flatCalculatedSections.length === 0) {
         const startY = addPdfHeader(doc, "Busbar Voltage Drop Calculation Report");
         doc.setFontSize(10);
@@ -1237,13 +1248,15 @@ function BusbarCalculationPage() {
           const xVal = (unitSystem === "ip" ? (rawX * 0.3048) : rawX).toFixed(4);
           const rUnit = unitSystem === "ip" ? "mΩ/ft" : "mΩ/m";
 
-          doc.setFontSize(10);
-          doc.setFont("helvetica", "bold");
-          doc.text(`Panel: ${section.panelName} | Busbar Section: ${section.name}`, 14, headerStartY + 2);
-          
+          // Subheader Info Box
           doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(0, 0, 0);
+          doc.text(`Panel: ${section.panelName} | Busbar Section: ${section.name}`, 14, headerStartY + 3);
+          
+          doc.setFontSize(8.5);
           doc.setFont("helvetica", "normal");
-          doc.text(`Selected / Suggested Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit}) | Voltage: ${section.volts}V | Power Factor: ${section.pf}`, 14, headerStartY + 7);
+          doc.text(`Selected / Suggested Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit}) | Voltage: ${section.volts}V | Power Factor: ${section.pf}`, 14, headerStartY + 8);
 
           const tableData = (section.calcRows || []).map((r, idx) => [
             idx + 1,
@@ -1259,7 +1272,8 @@ function BusbarCalculationPage() {
           ]);
 
           const totalVd = (section.calcRows || []).reduce((sum, row) => sum + (Number(row.vd) || 0), 0);
-          const isExceeded = section.totalCumulativeVd > 2.5;
+          const totalCumVd = (section as any).totalCumulativeVd ?? (section.calcRows?.[section.calcRows.length - 1]?.cumulativeVdPercent ?? 0);
+          const isExceeded = totalCumVd > 2.5;
 
           const footData = [[
             "",
@@ -1270,45 +1284,176 @@ function BusbarCalculationPage() {
             "",
             "",
             totalVd.toFixed(2) + " V",
-            section.totalCumulativeVd.toFixed(3) + "%",
+            Number(totalCumVd).toFixed(3) + "%",
             isExceeded ? "EXCEEDS (FAIL)" : "PASS"
           ]];
 
-          const lenHeader = unitSystem === "ip" ? "Len(ft)" : "Len(m)";
-          autoTable(doc, {
-            head: [["No.", "Description", lenHeader, "Load(kW)", "TCL(kW)", "MD(kW)", "Current(A)", "Vdrop(V)", "Vdrop %", "Cum.%"]],
+          const lenHeader = unitSystem === "ip" ? "Len (ft)" : "Len (m)";
+
+          // Dynamic Column Widths (Printable width: 269mm)
+          // Col 0: No (12mm), Col 1: Description (45mm), Cols 2-9: 8 data columns (26.5mm each)
+          const columnStyles: Record<number, any> = {
+            0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
+            1: { cellWidth: 45, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
+            2: { cellWidth: 26.5, halign: "center" },
+            3: { cellWidth: 26.5, halign: "center" },
+            4: { cellWidth: 26.5, halign: "center" },
+            5: { cellWidth: 26.5, halign: "center" },
+            6: { cellWidth: 26.5, halign: "center" },
+            7: { cellWidth: 26.5, halign: "center" },
+            8: { cellWidth: 26.5, halign: "center" },
+            9: { cellWidth: 26.5, halign: "center" }
+          };
+
+          runAutoTable({
+            head: [["No.", "Description", lenHeader, "Load\n(kW)", "TCL\n(kW)", "MD\n(kW)", "Current\n(A)", "Vdrop\n(V)", "Vdrop\n%", "Cum.\n%"]],
             body: tableData,
             foot: footData,
-            startY: headerStartY + 11,
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
-            footStyles: { fillColor: isExceeded ? [231, 76, 60] : [240, 240, 240], textColor: isExceeded ? 255 : 0, fontStyle: "bold" }
+            startY: headerStartY + 12,
+            theme: "grid",
+            styles: {
+              font: "helvetica",
+              fontSize: 7.5,
+              textColor: [0, 0, 0],
+              halign: "center",
+              valign: "middle",
+              lineColor: [100, 100, 100],
+              lineWidth: 0.1,
+              cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+              minCellHeight: 8.5
+            },
+            headStyles: {
+              fillColor: primaryFill,
+              textColor: [0, 0, 0],
+              fontStyle: "bold",
+              fontSize: 7.5,
+              halign: "center",
+              valign: "middle",
+              lineColor: [100, 100, 100],
+              lineWidth: 0.1,
+              cellPadding: { top: 3.0, bottom: 3.0, left: 1.0, right: 1.0 },
+              minCellHeight: 8.5
+            },
+            bodyStyles: {
+              fontSize: 7.5,
+              textColor: [0, 0, 0],
+              halign: "center",
+              valign: "middle",
+              lineColor: [100, 100, 100],
+              lineWidth: 0.1,
+              cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+              minCellHeight: 8.5
+            },
+            footStyles: {
+              fillColor: isExceeded ? [255, 230, 230] : [240, 240, 240],
+              textColor: isExceeded ? [180, 0, 0] : [0, 0, 0],
+              fontStyle: "bold",
+              fontSize: 7.5,
+              halign: "center",
+              valign: "middle",
+              lineColor: [100, 100, 100],
+              lineWidth: 0.1,
+              minCellHeight: 8.5
+            },
+            columnStyles: columnStyles,
+            margin: { left: 14, right: 14 }
           });
 
           const finalY = (doc as any).lastAutoTable?.finalY || (headerStartY + 35);
           
-          // Draw Summary & Recommendation Box
-          doc.setFillColor(isExceeded ? 253 : 240, isExceeded ? 237 : 248, isExceeded ? 237 : 245);
-          doc.setDrawColor(isExceeded ? 231 : 46, isExceeded ? 76 : 204, isExceeded ? 60 : 113);
-          doc.roundedRect(14, finalY + 4, 269, 14, 2, 2, "FD");
+          // Draw Summary & Recommendation Card (Spanning full 269mm width)
+          doc.setFillColor(isExceeded ? 253 : 245, isExceeded ? 237 : 248, isExceeded ? 237 : 245);
+          doc.setDrawColor(isExceeded ? 231 : 180, isExceeded ? 76 : 180, isExceeded ? 60 : 180);
+          doc.roundedRect(14, finalY + 5, 269, 14, 2, 2, "FD");
 
-          doc.setFontSize(9);
+          doc.setFontSize(8.5);
           doc.setFont("helvetica", "bold");
           doc.setTextColor(isExceeded ? 192 : 39, isExceeded ? 57 : 174, isExceeded ? 43 : 96);
-          doc.text(`SELECTED / SUGGESTED BUSBAR: ${ratingLabel}`, 18, finalY + 9);
+          doc.text(`SELECTED / SUGGESTED BUSBAR: ${ratingLabel}`, 18, finalY + 10);
           
           doc.setFont("helvetica", "normal");
           doc.setTextColor(0, 0, 0);
-          doc.text(`Cumulative Voltage Drop: ${section.totalCumulativeVd.toFixed(3)}% | Status: ${isExceeded ? 'EXCEEDS 2.5% STANDARD LIMIT (Select larger busbar rating)' : 'WITHIN 2.5% STANDARD LIMIT (PASS)'}`, 18, finalY + 14);
+          doc.text(`Cumulative Voltage Drop: ${Number(totalCumVd).toFixed(3)}% | Status: ${isExceeded ? 'EXCEEDS 2.5% STANDARD LIMIT (Select larger busbar rating)' : 'WITHIN 2.5% STANDARD LIMIT (PASS)'}`, 18, finalY + 15);
         });
       }
       
       const sigFinalY = Math.max(((doc as any).lastAutoTable?.finalY || 50) + 24, 75);
-      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "busbar-calculation");
+      
+      // Add Signature Block matching Full Page Width (269mm)
+      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(project?.id || "default", "busbar-calculation", currentUserName);
+
+      runAutoTable({
+        startY: sigFinalY,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        headStyles: {
+          fillColor: [255, 230, 204],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        bodyStyles: {
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        head: [
+          [
+            { content: "" },
+            { content: "Originated by" },
+            { content: "Reviewed by" },
+            { content: "Approved by" }
+          ]
+        ],
+        body: [
+          [
+            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedName, styles: { halign: "center" } },
+            { content: reviewerName, styles: { halign: "center" } },
+            { content: approverName, styles: { halign: "center" } }
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate, styles: { halign: "center" } },
+            { content: reviewerDate, styles: { halign: "center" } },
+            { content: approverDate, styles: { halign: "center" } }
+          ]
+        ],
+        columnStyles: {
+          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
+          1: { cellWidth: 77, halign: "center" },
+          2: { cellWidth: 77, halign: "center" },
+          3: { cellWidth: 77, halign: "center" }
+        }
+      });
+
       const pdfBuffer = doc.output("arraybuffer");
       downloadFile(new Uint8Array(pdfBuffer), "Busbar_Calculation.pdf", "PDF Document", ["pdf"]);
+      toast.success("Busbar calculation PDF exported successfully!");
     } catch (err) {
       console.error("Failed to export PDF:", err);
+      toast.error("Failed to export Busbar calculation PDF.");
     }
   };
 

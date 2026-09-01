@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -827,15 +827,26 @@ function GeneratorSizingPage() {
 
   const exportPdf = () => {
     try {
-      const doc = new jsPDF("landscape");
-      
+      const doc = new jsPDF("l", "mm", "a4");
+      const primaryFill: [number, number, number] = [217, 217, 217];
+
+      const runAutoTable = (options: any) => {
+        if (typeof autoTable === 'function') {
+          autoTable(doc, options);
+        } else if (typeof (autoTable as any)?.default === 'function') {
+          (autoTable as any).default(doc, options);
+        } else if ((doc as any).autoTable) {
+          (doc as any).autoTable(options);
+        }
+      };
+
       const headerStartY = addPdfHeader(doc, "Generator Sizing Calculation Report");
 
-      const sizeHeader = unitSystem === "ip" ? "HP / UNIT" : "kW / UNIT";
-      const totalHeader = unitSystem === "ip" ? "Total Conn (HP)" : "Total Conn (kW)";
-      const aclHeader = unitSystem === "ip" ? "Actual Conn (HP)" : "Actual Conn (kW)";
-      const emHeader = unitSystem === "ip" ? "Emerg (HP)" : "Emerg (kW)";
-      const pfHeader = unitSystem === "ip" ? "Power Fail (HP)" : "Power Fail (kW)";
+      const sizeHeader = unitSystem === "ip" ? "HP /\nUnit" : "kW /\nUnit";
+      const totalHeader = unitSystem === "ip" ? "Total Conn\n(HP)" : "Total Conn\n(kW)";
+      const aclHeader = unitSystem === "ip" ? "Actual Conn\n(HP)" : "Actual Conn\n(kW)";
+      const emHeader = unitSystem === "ip" ? "Emerg\n(HP)" : "Emerg\n(kW)";
+      const pfHeader = unitSystem === "ip" ? "Power Fail\n(HP)" : "Power Fail\n(kW)";
 
       const getSanitizedVal = (val: any): string => {
         if (val === undefined || val === null || val === "undefined" || val === "null") return "";
@@ -874,17 +885,69 @@ function GeneratorSizingPage() {
         ];
       });
 
-      autoTable(doc, {
-        head: [["Sr. No.", "Description", "Unit", sizeHeader, "Starter Types", "Start Cur (A)", totalHeader, "Standby", aclHeader, emHeader, pfHeader, "Remarks"]],
+      // Dynamic Column Widths (Printable width: 269mm)
+      // Col 0: Sr. No (12mm), Col 1: Description (45mm), Col 11: Remarks (28mm)
+      // Remaining 9 numerical cols (269 - 12 - 45 - 28) / 9 = 20.44mm each
+      const columnStyles: Record<number, any> = {
+        0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
+        1: { cellWidth: 45, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
+        2: { cellWidth: 20.44, halign: "center" },
+        3: { cellWidth: 20.44, halign: "center" },
+        4: { cellWidth: 20.44, halign: "center" },
+        5: { cellWidth: 20.44, halign: "center" },
+        6: { cellWidth: 20.44, halign: "center" },
+        7: { cellWidth: 20.44, halign: "center" },
+        8: { cellWidth: 20.44, halign: "center" },
+        9: { cellWidth: 20.44, halign: "center" },
+        10: { cellWidth: 20.44, halign: "center" },
+        11: { cellWidth: 28, halign: "center" }
+      };
+
+      runAutoTable({
+        head: [["Sr. No.", "Description", "Unit", sizeHeader, "Starter\nTypes", "Start Cur\n(A)", totalHeader, "Standby", aclHeader, emHeader, pfHeader, "Remarks"]],
         body: tableData,
         startY: headerStartY + 4,
-        styles: { fontSize: 7, cellPadding: 1.5 },
-        headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 7.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+          minCellHeight: 8.5
+        },
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 7.5,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.0, right: 1.0 },
+          minCellHeight: 8.5
+        },
+        bodyStyles: {
+          fontSize: 7.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+          minCellHeight: 8.5
+        },
+        columnStyles: columnStyles,
+        margin: { left: 14, right: 14 }
       });
 
       const finalY1 = (doc as any).lastAutoTable?.finalY || (headerStartY + 30);
 
-      // Summary Table matching Excel Export
+      // Summary Table matching Excel Export (Spanning full 269mm width)
       const pfVal = Number(pf) || 0.8;
       const lfVal = Number(lf) || 0.9;
       const dgTypeStr = "Standby DG";
@@ -900,36 +963,129 @@ function GeneratorSizingPage() {
         ["Calculated DG Set Size in kVA", Math.max(calc.calcSizeAcl, calc.calcSizeEm).toFixed(2), "-"],
       ];
 
-      autoTable(doc, {
+      runAutoTable({
         head: summaryHead,
         body: summaryBody,
         startY: finalY1 + 6,
-        styles: { fontSize: 7.5, cellPadding: 1.5 },
-        headStyles: { fillColor: [52, 73, 94], textColor: 255, fontStyle: "bold" },
-        columnStyles: {
-          0: { cellWidth: 100, fontStyle: "bold" },
-          1: { cellWidth: 50, halign: "center" },
-          2: { cellWidth: 50, halign: "center" },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.0,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 2.0, right: 2.0 },
+          minCellHeight: 8.5
         },
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.0,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 2.0, right: 2.0 },
+          minCellHeight: 8.5
+        },
+        columnStyles: {
+          0: { cellWidth: 149, fontStyle: "bold", halign: "left", cellPadding: { left: 3.5, right: 2.0, top: 3.0, bottom: 3.0 } },
+          1: { cellWidth: 60, halign: "center" },
+          2: { cellWidth: 60, halign: "center" },
+        },
+        margin: { left: 14, right: 14 }
       });
 
       const finalY2 = (doc as any).lastAutoTable?.finalY || (finalY1 + 45);
 
-      // Yellow Callout Box for Selected Size
+      // Yellow Callout Box for Selected Size (Spanning full 269mm width)
       doc.setFillColor(254, 240, 138); // Yellow-200
       doc.setDrawColor(234, 179, 8); // Yellow-600
-      doc.rect(14, finalY2 + 4, 200, 10, "FD");
-      doc.setFontSize(9);
+      doc.roundedRect(14, finalY2 + 5, 269, 12, 2, 2, "FD");
+      doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(161, 98, 7);
-      doc.text(`SELECTED SIZE OF DG SET: ${calc.selectedSize} kVA`, 18, finalY2 + 10.5);
+      doc.text(`SELECTED SIZE OF DG SET: ${calc.selectedSize} kVA`, 18, finalY2 + 12.5);
 
-      addPdfSignatureBlock(doc, finalY2 + 20, currentUserName, project?.id || "default", "generator-sizing");
+      // Add Signature Block matching Full Page Width (269mm)
+      const sigFinalY = finalY2 + 23;
+      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(project?.id || "default", "generator-sizing", currentUserName);
+
+      runAutoTable({
+        startY: sigFinalY,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        headStyles: {
+          fillColor: [255, 230, 204],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        bodyStyles: {
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        head: [
+          [
+            { content: "" },
+            { content: "Originated by" },
+            { content: "Reviewed by" },
+            { content: "Approved by" }
+          ]
+        ],
+        body: [
+          [
+            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedName, styles: { halign: "center" } },
+            { content: reviewerName, styles: { halign: "center" } },
+            { content: approverName, styles: { halign: "center" } }
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate, styles: { halign: "center" } },
+            { content: reviewerDate, styles: { halign: "center" } },
+            { content: approverDate, styles: { halign: "center" } }
+          ]
+        ],
+        columnStyles: {
+          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
+          1: { cellWidth: 77, halign: "center" },
+          2: { cellWidth: 77, halign: "center" },
+          3: { cellWidth: 77, halign: "center" }
+        }
+      });
 
       const pdfBuffer = doc.output("arraybuffer");
       downloadFile(new Uint8Array(pdfBuffer), "Generator_Sizing_Calculation.pdf", "PDF Document", ["pdf"]);
+      toast.success("Generator sizing PDF exported successfully!");
     } catch (err) {
       console.error("Failed to generate PDF:", err);
+      toast.error("Failed to export Generator sizing PDF.");
     }
   };
 

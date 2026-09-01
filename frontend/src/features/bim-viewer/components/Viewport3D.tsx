@@ -102,6 +102,33 @@ const fragments = components.get(OBC.FragmentsManager);
 const casters = components.get(OBC.Raycasters);
 casters.get(world);
 
+// Configure camera zoom speed (base 1.0, Shift + Scroll 2.0)
+const baseDollySpeed = 1.0;
+const shiftDollySpeed = 2.0;
+
+if (world.camera?.controls) {
+    world.camera.controls.dollySpeed = baseDollySpeed;
+}
+
+window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Shift' && world.camera?.controls) {
+        world.camera.controls.dollySpeed = shiftDollySpeed;
+    }
+});
+
+window.addEventListener('keyup', (e: KeyboardEvent) => {
+    if (e.key === 'Shift' && world.camera?.controls) {
+        world.camera.controls.dollySpeed = baseDollySpeed;
+    }
+});
+
+ui.viewport.addEventListener('wheel', (e: WheelEvent) => {
+    if (e.shiftKey && world.camera?.controls) {
+        const delta = e.deltaY < 0 ? 1.5 : -1.5;
+        world.camera.controls.dolly(delta, true);
+    }
+}, { passive: true });
+
 ui.viewport.addEventListener('dblclick', () => ui.btnClip.classList.contains('active') && ui.selectLevel.value === '' && floorPlanManager.createClipPlane());
 window.addEventListener('keydown', e => e.code === 'Delete' && floorPlanManager.deleteClipPlane());
 
@@ -1555,6 +1582,16 @@ ui.viewport.addEventListener('drop', (e: DragEvent) => {
         };
     }, []);
 
+    const handleFullscreenToggle = () => {
+        const container = document.getElementById('bim-viewer-container') || viewportRef.current?.parentElement || viewportRef.current;
+        if (!container) return;
+        if (!document.fullscreenElement) {
+            container.requestFullscreen().catch((err) => console.warn("Fullscreen request failed:", err));
+        } else {
+            document.exitFullscreen().catch((err) => console.warn("Exit fullscreen failed:", err));
+        }
+    };
+
     const cb = (window as any)._toolbarCallbacks || {};
 
     return (
@@ -1573,6 +1610,7 @@ ui.viewport.addEventListener('drop', (e: DragEvent) => {
                 onLevelChange={cb.onLevelChange}
                 onExportSchedule={cb.onExportSchedule}
                 onRemoveModel={cb.onRemoveModel}
+                onFullscreenToggle={handleFullscreenToggle}
             />
         </div>
     );

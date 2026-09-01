@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -744,73 +744,223 @@ function CableTraySizingPage() {
   };
 
   const exportPdf = () => {
-    const doc = new jsPDF("landscape");
-    let currentY = addPdfHeader(doc, "Cable Tray Sizing");
+    try {
+      const doc = new jsPDF("l", "mm", "a4");
+      const primaryFill: [number, number, number] = [217, 217, 217];
 
-    trays.forEach((tray, i) => {
-      let subTotal1 = 0;
-      let hasValidCables = false;
-      const tableData = tray.cables.map((c, idx) => {
-        const baseOd = c.cores && c.size ? cableDatabase[c.cores]?.[c.size] || NaN : NaN;
-        const od = c.customOd !== undefined && c.customOd !== "" ? Number(c.customOd) : baseOd;
-        const qtyNum = typeof c.qty === "number" ? c.qty : 0;
-        const sumOd = !isNaN(od) && qtyNum > 0 ? od * qtyNum : NaN;
-        if (!isNaN(sumOd) && qtyNum > 0) {
-          subTotal1 += sumOd;
-          hasValidCables = true;
+      const runAutoTable = (options: any) => {
+        if (typeof autoTable === 'function') {
+          autoTable(doc, options);
+        } else if (typeof (autoTable as any)?.default === 'function') {
+          (autoTable as any).default(doc, options);
+        } else if ((doc as any).autoTable) {
+          (doc as any).autoTable(options);
         }
-        return [
-          idx + 1, c.type, c.cores, c.size, c.qty.toString(), 
-          isNaN(od) ? "-" : od.toFixed(1),
-          isNaN(sumOd) ? "-" : sumOd.toFixed(1)
-        ];
-      });
+      };
 
-      const spacingFactor = Number(tray.spacingFactor ?? 1);
-      const spacingWidth = subTotal1 * spacingFactor;
-      const subTotal2 = subTotal1 + spacingWidth;
-      const sparePercentage = Number(tray.spareCapacity ?? 20);
-      const spareWidth = subTotal2 * (sparePercentage / 100);
-      const totalWidth = subTotal2 + spareWidth;
-      const traySize = hasValidCables ? getCableTraySize(totalWidth) : 'N/A';
+      let currentY = addPdfHeader(doc, "Cable Tray Containment Sizing Report");
 
-      if (i > 0 && currentY > 150) {
-         doc.addPage();
-         currentY = addPdfHeader(doc, "Cable Tray Sizing");
+      if (trays.length === 0) {
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text("No cable trays configured for calculation.", 14, currentY + 6);
+      } else {
+        trays.forEach((tray, i) => {
+          let subTotal1 = 0;
+          let hasValidCables = false;
+          const tableData = tray.cables.map((c, idx) => {
+            const baseOd = c.cores && c.size ? cableDatabase[c.cores]?.[c.size] || NaN : NaN;
+            const od = c.customOd !== undefined && c.customOd !== "" ? Number(c.customOd) : baseOd;
+            const qtyNum = typeof c.qty === "number" ? c.qty : 0;
+            const sumOd = !isNaN(od) && qtyNum > 0 ? od * qtyNum : NaN;
+            if (!isNaN(sumOd) && qtyNum > 0) {
+              subTotal1 += sumOd;
+              hasValidCables = true;
+            }
+            return [
+              idx + 1,
+              c.type || "XLPE/SWA/PVC",
+              c.cores || "-",
+              c.size ? `${c.size} mm²` : "-",
+              qtyNum.toString(),
+              isNaN(od) ? "-" : od.toFixed(1),
+              isNaN(sumOd) ? "-" : sumOd.toFixed(1)
+            ];
+          });
+
+          const spacingFactor = Number(tray.spacingFactor ?? 1);
+          const spacingWidth = subTotal1 * spacingFactor;
+          const subTotal2 = subTotal1 + spacingWidth;
+          const sparePercentage = Number(tray.spareCapacity ?? 20);
+          const spareWidth = subTotal2 * (sparePercentage / 100);
+          const totalWidth = subTotal2 + spareWidth;
+          const rawTraySize = hasValidCables ? getCableTraySize(totalWidth) : 'N/A';
+          const formattedTraySize = formatTraySize(rawTraySize, unitSystem === "si");
+
+          if (i > 0) {
+            doc.addPage();
+            currentY = addPdfHeader(doc, "Cable Tray Containment Sizing Report");
+          }
+
+          // Tray Section Subheader Label
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(0, 0, 0);
+          doc.text(`Containment Run: ${tray.name}`, 14, currentY + 4);
+
+          // Dynamic Column Widths (Printable width: 269mm)
+          // Col 0: No (15mm), Col 1: Cable Type (54mm)
+          // Remaining 5 columns (269 - 15 - 54) / 5 = 40.0mm each
+          const columnStyles: Record<number, any> = {
+            0: { cellWidth: 15, halign: "center", fontStyle: "bold" },
+            1: { cellWidth: 54, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
+            2: { cellWidth: 40, halign: "center" },
+            3: { cellWidth: 40, halign: "center" },
+            4: { cellWidth: 40, halign: "center" },
+            5: { cellWidth: 40, halign: "center" },
+            6: { cellWidth: 40, halign: "center" }
+          };
+
+          runAutoTable({
+            head: [["No.", "Cable Type", "Cores", "Size (mm²)", "Qty", "O.D. (mm)", "Sum O.D. (mm)"]],
+            body: tableData,
+            startY: currentY + 8,
+            theme: "grid",
+            styles: {
+              font: "helvetica",
+              fontSize: 8.0,
+              textColor: [0, 0, 0],
+              halign: "center",
+              valign: "middle",
+              lineColor: [100, 100, 100],
+              lineWidth: 0.1,
+              cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+              minCellHeight: 8.5
+            },
+            headStyles: {
+              fillColor: primaryFill,
+              textColor: [0, 0, 0],
+              fontStyle: "bold",
+              fontSize: 8.0,
+              halign: "center",
+              valign: "middle",
+              lineColor: [100, 100, 100],
+              lineWidth: 0.1,
+              cellPadding: { top: 3.0, bottom: 3.0, left: 1.0, right: 1.0 },
+              minCellHeight: 8.5
+            },
+            bodyStyles: {
+              fontSize: 8.0,
+              textColor: [0, 0, 0],
+              halign: "center",
+              valign: "middle",
+              lineColor: [100, 100, 100],
+              lineWidth: 0.1,
+              cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+              minCellHeight: 8.5
+            },
+            columnStyles: columnStyles,
+            margin: { left: 14, right: 14 }
+          });
+
+          const tableFinalY = (doc as any).lastAutoTable?.finalY || (currentY + 35);
+
+          // Summary Card for Cable Tray Sizing (Spanning full 269mm width)
+          doc.setFillColor(245, 247, 250);
+          doc.setDrawColor(180, 180, 180);
+          doc.roundedRect(14, tableFinalY + 5, 269, 14, 2, 2, "FD");
+
+          doc.setFontSize(9);
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(0, 0, 0);
+          doc.text(`Calculated Cable Tray Size: ${formattedTraySize}`, 18, tableFinalY + 10.5);
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8.5);
+          doc.text(`Required Width: ${hasValidCables ? Math.round(totalWidth) + ' mm' : '-'} | Spare Capacity: ${sparePercentage}% | Spacing Factor: ${spacingFactor}`, 18, tableFinalY + 15.5);
+
+          currentY = tableFinalY + 22;
+        });
       }
 
-      doc.setFontSize(12);
-      doc.setFont("helvetica", "bold");
-      doc.text(tray.name, 14, currentY + 5);
+      const sigFinalY = Math.max(currentY + 4, 75);
 
-      autoTable(doc, {
-        head: [["No.", "Cable Type", "Cores", "Size (mm²)", "Qty", "O.D.(mm)", "Sum O.D.(mm)"]],
-        body: tableData,
-        startY: currentY + 10,
-        styles: { fontSize: 9 },
-        margin: { bottom: 20 }
+      // Add Signature Block matching Full Page Width (269mm)
+      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(project?.id || "default", "cable-tray-sizing", currentUserName);
+
+      runAutoTable({
+        startY: sigFinalY,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        headStyles: {
+          fillColor: [255, 230, 204],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        bodyStyles: {
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        head: [
+          [
+            { content: "" },
+            { content: "Originated by" },
+            { content: "Reviewed by" },
+            { content: "Approved by" }
+          ]
+        ],
+        body: [
+          [
+            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedName, styles: { halign: "center" } },
+            { content: reviewerName, styles: { halign: "center" } },
+            { content: approverName, styles: { halign: "center" } }
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate, styles: { halign: "center" } },
+            { content: reviewerDate, styles: { halign: "center" } },
+            { content: approverDate, styles: { halign: "center" } }
+          ]
+        ],
+        columnStyles: {
+          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
+          1: { cellWidth: 77, halign: "center" },
+          2: { cellWidth: 77, halign: "center" },
+          3: { cellWidth: 77, halign: "center" }
+        }
       });
 
-      currentY = (doc as any).lastAutoTable.finalY;
-      
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.text(`Required Width: ${hasValidCables ? Math.round(totalWidth) + ' mm' : '-'}`, 14, currentY + 7);
-      doc.text(`Cable Tray Size: ${traySize}`, 100, currentY + 7);
-      
-      currentY += 15;
-    });
-
-    if (trays.length === 0) {
-       doc.setFontSize(10);
-       doc.setFont("helvetica", "normal");
-       doc.text("No trays to export.", 14, currentY + 10);
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), "Cable_Tray_Sizing.pdf", "PDF Document", ["pdf"]);
+      toast.success("Cable tray sizing PDF exported successfully!");
+    } catch (err) {
+      console.error("Failed to export PDF:", err);
+      toast.error("Failed to export Cable tray sizing PDF.");
     }
-
-    const sigFinalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 15 : currentY + 10;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "cable-tray-sizing");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), "Cable_Tray_Sizing.pdf", "PDF Document", ["pdf"]);
   };
 
   let globalRowIndex = 0;

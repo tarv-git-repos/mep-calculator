@@ -630,6 +630,7 @@ function LoadingUnitPage() {
   const [standardPreset, setStandardPreset] = useState<StandardPreset>("dubai");
   const [selectedCategory, setSelectedCategory] = useState<string>("med");
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
+  const [intelOpen, setIntelOpen] = useState(false);
   const [iopSpaces, setIopSpaces] = useState<LUSpace[]>([]);
   const [floorSections, setFloorSections] = useState<string[]>(["6th FLOOR"]);
   const [activeFloor, setActiveFloor] = useState<string>("6th FLOOR");
@@ -1700,7 +1701,7 @@ function LoadingUnitPage() {
     }
   };
 
-  // PDF Export Function
+  // PDF Export Function (Matching Ventilation PDF Format & Corporate Standards)
   const handleExportPDF = async () => {
     try {
       const jsPDFModule = await import('jspdf');
@@ -1708,14 +1709,15 @@ function LoadingUnitPage() {
       const autoTableModule = await import('jspdf-autotable');
       const autoTable = autoTableModule.default || autoTableModule;
 
+      // A4 Landscape Mode (Width: 297mm, Content Width: 269mm)
       const doc = new jsPDF("l", "mm", "a4");
 
       const activeProj: any = workspaceStore.getState()?.project || project || {};
       const projectNo = activeProj.code || activeProj.project_number || activeProj.projectNumber || calcMeta.projectNo || 'P539';
       const calcNo = activeProj.calcNo || activeProj.calc_number || calcMeta.calcNo || `CEC-MED-${projectNo}-202 Rev. No:1`;
 
-      // 1. Add PDF Header
-      let startY = addPdfHeader(doc, "Loading Unit & Pipe Sizing Calculation", {
+      // 1. Add Title & Metadata Header Box (Matching Ventilation PDF Header exactly)
+      let startY = addPdfHeader(doc, "Loading Unit & Pipe Sizing Calculation Report", {
         calcNo,
         projectNo,
         projectName: activeProj.name || activeProj.project_name || calcMeta.projectName || '',
@@ -1728,14 +1730,46 @@ function LoadingUnitPage() {
       const isWsfu = standardPreset === "abudhabi" || standardPreset === "ipc_upc";
       const unitLabel = isWsfu ? "WSFU" : "LU";
 
-      // 2. Main Fixture Schedule Headers
-      const headers = [
-        "Description",
-        ...activeFixtures.map(f => `${f.short} (${activeWeights[f.id] ?? 0})`),
-        `${unitLabel} / Space`,
-        ...(showSpaceQty ? ["Space Qty"] : []),
-        ...(showFloorsCol ? ["No. of Floors"] : []),
-        `TOTAL ${unitLabel}`
+      const FIXTURE_LABELS: Record<string, string> = {
+        wc: "W/C",
+        handspray: "Hand Spray",
+        basin: "Wash Basin",
+        sink: "Sink Kitchen",
+        shower: "Shower",
+        washer: "Washing M/c",
+        servicesink: "Service Sink",
+        hose_bibb: "Hose Bibb",
+        dishwasher: "Dishwasher",
+        hose_bibb_1: "Bib Tap"
+      };
+
+      // 2. Main Fixture Schedule Headers (3-Tier Multi-Level Headers with separate Weight Value Row)
+      const primaryFill: [number, number, number] = [217, 217, 217];
+      const summaryColSpan = 1 + (showSpaceQty ? 1 : 0) + (showFloorsCol ? 1 : 0) + 1;
+      const totalHeaderCols = 1 + activeFixtures.length + summaryColSpan;
+
+      const multiLevelHeaders = [
+        [
+          { content: "Description", rowSpan: 3, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", valign: "middle", halign: "center" } },
+          { content: "Sanitary Fixture Quantities", colSpan: activeFixtures.length, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } },
+          { content: "Loading Unit Summary", colSpan: summaryColSpan, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }
+        ],
+        [
+          ...activeFixtures.map(f => {
+            const label = FIXTURE_LABELS[f.id] || f.short || f.id.toUpperCase();
+            return { content: label, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } };
+          }),
+          { content: `${unitLabel} /\nSpace`, rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } },
+          ...(showSpaceQty ? [{ content: "Space\nQty", rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }] : []),
+          ...(showFloorsCol ? [{ content: "No. of\nFloors", rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }] : []),
+          { content: `TOTAL\n${unitLabel}`, rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }
+        ],
+        [
+          ...activeFixtures.map(f => {
+            const weight = activeWeights[f.id] ?? 0;
+            return { content: `${weight}`, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } };
+          })
+        ]
       ];
 
       // 3. Main Fixture Schedule Rows (Grouped by Floor)
@@ -1745,13 +1779,17 @@ function LoadingUnitPage() {
         const floorItems = iopSpaces.filter(s => (s.floor || "6th FLOOR") === fl);
         if (floorItems.length === 0) return;
 
+        // Floor Section Header Row
         tableRows.push([
-          { content: `${fl.toUpperCase()}`, colSpan: headers.length, styles: { fillColor: [242, 220, 219], fontStyle: "bold", halign: "center" } }
+          { content: `${fl.toUpperCase()}`, colSpan: totalHeaderCols, styles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" } }
         ]);
+
+        let floorTotalLU = 0;
 
         floorItems.forEach((item: LUSpace) => {
           const unitLU = calculations.spaceUnitLU[item.id] || 0;
           const totalLu = calculations.spaceTotalsLU[item.id] || 0;
+          floorTotalLU += totalLu;
 
           const rowData = [
             item.desc || "Space",
@@ -1763,12 +1801,19 @@ function LoadingUnitPage() {
           ];
           tableRows.push(rowData);
         });
+
+        // Floor Subtotal Row
+        const floorSubtotalRow = [
+          { content: `TOTAL (${fl.toUpperCase()})`, colSpan: totalHeaderCols - 1, styles: { fontStyle: "bold", halign: "right", fillColor: [245, 245, 245], textColor: [0, 0, 0] } },
+          { content: `${floorTotalLU.toFixed(1)} ${unitLabel}`, styles: { fontStyle: "bold", halign: "center", fillColor: [245, 245, 245], textColor: [0, 0, 0] } }
+        ];
+        tableRows.push(floorSubtotalRow);
       });
 
       // Total Building LU Summary Row
       tableRows.push([
-        { content: "TOTAL BUILDING LOADING UNITS", colSpan: headers.length - 1, styles: { fontStyle: "bold", halign: "right" } },
-        { content: `${calculations.totalLU.toFixed(1)} ${unitLabel}`, styles: { fontStyle: "bold", textColor: [180, 0, 0], halign: "center" } }
+        { content: "TOTAL BUILDING LOADING UNITS", colSpan: totalHeaderCols - 1, styles: { fontStyle: "bold", halign: "right", fillColor: [235, 235, 235], textColor: [0, 0, 0] } },
+        { content: `${calculations.totalLU.toFixed(1)} ${unitLabel}`, styles: { fontStyle: "bold", textColor: [180, 0, 0], halign: "center", fillColor: [235, 235, 235] } }
       ]);
 
       const runAutoTable = (options: any) => {
@@ -1779,36 +1824,63 @@ function LoadingUnitPage() {
         }
       };
 
+      // Dynamic Uniform Column Width Calculation for A4 Landscape (Printable width: 269mm)
+      const descWidth = 38;
+      const numDataCols = activeFixtures.length + summaryColSpan;
+      const dataColWidth = Number(((269 - descWidth) / numDataCols).toFixed(2));
+
+      const tableColumnStyles: Record<number, any> = {
+        0: { halign: "left", fontStyle: "bold", cellWidth: descWidth, cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } }
+      };
+
+      for (let i = 1; i <= numDataCols; i++) {
+        tableColumnStyles[i] = { cellWidth: dataColWidth, halign: "center" };
+      }
+
       runAutoTable({
-        startY: startY + 4,
-        head: [headers],
+        startY: startY + 2,
+        head: multiLevelHeaders,
         body: tableRows,
         theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 7.0,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+          minCellHeight: 8.5
+        },
         headStyles: {
-          fillColor: [239, 236, 225],
+          fillColor: primaryFill,
           textColor: [0, 0, 0],
           fontStyle: "bold",
-          fontSize: 7.5,
+          fontSize: 7.0,
           halign: "center",
-          valign: "middle"
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.0, right: 1.0 },
+          minCellHeight: 8.5
         },
         bodyStyles: {
-          fontSize: 7.5,
+          fontSize: 7.0,
           halign: "center",
-          valign: "middle"
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+          minCellHeight: 8.5
         },
-        columnStyles: {
-          0: { halign: "left", fontStyle: "bold", cellWidth: 32 }
-        },
-        styles: {
-          cellPadding: 1.8
-        },
+        columnStyles: tableColumnStyles,
         margin: { left: 14, right: 14 }
       });
 
       let finalY = (doc as any).lastAutoTable?.finalY || startY + 50;
 
-      // 4. Building Water Demand Table (Matching Excel Sheet Format Exactly)
+      // 4. Building Water Demand Table (Matching Excel & Ventilation PDF Format)
       const appTitle = standardPreset === "abudhabi" 
         ? "MEDIUM FREQUENCY APPLICATION" 
         : standardPreset === "dubai" 
@@ -1818,15 +1890,15 @@ function LoadingUnitPage() {
         : "INTERNATIONAL PLUMBING CODE DEMAND";
 
       const summaryTableRows = [
-        [{ content: appTitle, colSpan: 2, styles: { fontStyle: "bold", halign: "center", fillColor: [242, 242, 242] } }],
+        [{ content: appTitle, colSpan: 2, styles: { fontStyle: "bold", halign: "center", fillColor: [217, 217, 217], textColor: [0, 0, 0] } }],
         ["No of Booster Pump", "1W+1A+1S"],
         [`Total Water Supply Fixture (${unitLabel})`, `${calculations.totalLU.toFixed(1)}`],
         ["Flow due to loading unit (l/s)", `${calculations.flowLPS.toFixed(3)}`],
         ["Total Water demand considered (l/s)", `${calculations.selectedFlowLPS.toFixed(1)}`],
-        ["Diversity (if any)", ""],
+        ["Diversity (if any)", "-"],
         [
-          { content: "Selected Water Flow Rate (Q) L/s", styles: { fontStyle: "bold", fillColor: [253, 235, 218], halign: "center" } },
-          { content: `${calculations.selectedFlowLPS.toFixed(1)}`, styles: { fontStyle: "bold", fillColor: [253, 235, 218], halign: "center" } }
+          { content: "Selected Water Flow Rate (Q) L/s", styles: { fontStyle: "bold", fillColor: [253, 235, 218], textColor: [0, 0, 0], halign: "center" } },
+          { content: `${calculations.selectedFlowLPS.toFixed(1)}`, styles: { fontStyle: "bold", fillColor: [253, 235, 218], textColor: [0, 0, 0], halign: "center" } }
         ]
       ];
 
@@ -1834,21 +1906,34 @@ function LoadingUnitPage() {
         startY: finalY + 6,
         body: summaryTableRows,
         theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 3.5, right: 3.5 },
+          minCellHeight: 9.0
+        },
         bodyStyles: {
           fontSize: 8.5,
-          valign: "middle"
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 3.5, right: 3.5 },
+          minCellHeight: 9.0
         },
         columnStyles: {
-          0: { fontStyle: "normal", cellWidth: 95, halign: "left" },
-          1: { fontStyle: "normal", cellWidth: 65, halign: "center" }
+          0: { fontStyle: "normal", cellWidth: 169, halign: "left", cellPadding: { left: 4.0, top: 3.5, bottom: 3.5, right: 2.0 } },
+          1: { fontStyle: "normal", cellWidth: 100, halign: "center" }
         },
-        styles: { cellPadding: 2 },
-        margin: { left: 14 }
+        margin: { left: 14, right: 14 }
       });
 
       finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
 
-      // 5. Signature Block Table (Matching Excel Sheet Format: Name, Signature, Date)
+      // 5. Signature Block Table (Matching Ventilation PDF Format & Full Page Width)
       let currentUserName = "";
       if (typeof window !== "undefined") {
         try {
@@ -1860,43 +1945,74 @@ function LoadingUnitPage() {
 
       const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails((project as any)?.id || "default", "/plumbing-loading-unit", currentUserName);
 
-      const sigHeader = [["", "Originated by", "Reviewed by", "Approved by"]];
-      const sigBody = [
-        ["Name:", originatedName || "System Admin", reviewerName || "", approverName || ""],
-        ["Signature:", "", "", ""],
-        ["Date:", originatedDate || formatDateStr(new Date().toISOString()), reviewerDate || "", approverDate || ""]
-      ];
-
       runAutoTable({
-        startY: finalY + 8,
-        head: sigHeader,
-        body: sigBody,
+        startY: finalY + 6,
+        margin: { left: 14, right: 14 },
         theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
         headStyles: {
-          fillColor: [253, 235, 218],
+          fillColor: [255, 230, 204],
           textColor: [0, 0, 0],
           fontStyle: "bold",
-          fontSize: 9,
           halign: "center",
-          valign: "middle"
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
         },
         bodyStyles: {
           fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
           valign: "middle",
-          halign: "center"
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
         },
+        head: [
+          [
+            { content: "" },
+            { content: "Originated by" },
+            { content: "Reviewed by" },
+            { content: "Approved by" }
+          ]
+        ],
+        body: [
+          [
+            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedName, styles: { halign: "center" } },
+            { content: reviewerName, styles: { halign: "center" } },
+            { content: approverName, styles: { halign: "center" } }
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate, styles: { halign: "center" } },
+            { content: reviewerDate, styles: { halign: "center" } },
+            { content: approverDate, styles: { halign: "center" } }
+          ]
+        ],
         columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 30, halign: "left" },
-          1: { cellWidth: 70 },
-          2: { cellWidth: 70 },
-          3: { cellWidth: 70 }
-        },
-        styles: { cellPadding: 2.5 },
-        margin: { left: 14 }
+          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
+          1: { cellWidth: 77, halign: "center" },
+          2: { cellWidth: 77, halign: "center" },
+          3: { cellWidth: 77, halign: "center" }
+        }
       });
 
       doc.save(`Loading_Unit_Calculation_${projectNo}.pdf`);
-      toast.success("PDF report generated successfully!");
+      toast.success("PDF report exported successfully!");
 
     } catch (err: any) {
       console.error("PDF export error:", err);
@@ -1947,7 +2063,7 @@ function LoadingUnitPage() {
   const allSelected = selectedIds.length === iopSpaces.length && iopSpaces.length > 0;
 
   return (
-    <AppShell title="Loading Unit Calculator" hideSubHeader={true}>
+    <AppShell title="Loading Unit Calculator" onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6 animate-in fade-in-50 duration-200">
           
@@ -1962,7 +2078,18 @@ function LoadingUnitPage() {
               </div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
-              <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
+                <button 
+                  onClick={() => setIntelOpen((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  Intelligence
+                </button>
+                <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
               </div>
               <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
                 Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.

@@ -335,6 +335,35 @@ import { useAuth } from "@/contexts/AuthContext";
 
 let globalLicenseCache: LicenseStatusInfo | null = null;
 
+const MEP_CALC_ROUTES = new Set([
+  // HVAC
+  "/ventilation", "/preliminary-cooling-load", "/fresh-air-cooling-load",
+  "/heating-load", "/chw-pump-head", "/chw-pipe-sizer", "/duct-sizer",
+  "/diffuser-selector", "/refrigerant-pipe-sizing", "/condensate-drain-calc",
+  "/condensate-drain", "/staircase-pressurization", "/lobby-pressurisation",
+  "/smoke-extract-fan", "/basement-smoke-calc", "/psychrometric",
+
+  // Electrical
+  "/cable-voltage-drop", "/busbar-voltage-drop", "/busbar-calculation",
+  "/conductor-sizing", "/transformer-sizing", "/generator-sizing",
+  "/ups-sizing-calculation", "/capacitor-bank-sizing", "/circuit-breaker-sizing",
+  "/short-circuit-calculations", "/cable-tray-sizing", "/lighting-lux-calculation",
+  "/lpd-calculation", "/central-battery-sizing", "/project-load-schedule",
+
+  // Plumbing
+  "/plumbing-water-demand", "/plumbing-tank-sizing", "/plumbing-pump-sizing",
+  "/plumbing-booster-pump", "/plumbing-pressure-vessel", "/plumbing-fixture-unit",
+  "/plumbing-loading-unit", "/plumbing-supply-pipe-sizer", "/plumbing-drainage",
+  "/plumbing-drainage-pipe-sizer", "/plumbing-sump-pump", "/plumbing-sewage-pump",
+  "/plumbing-storm-water", "/plumbing-gas-tank", "/plumbing-hazen-williams",
+
+  // Fire Fighting
+  "/plumbing-fire-water-demand", "/plumbing-fire-tank-capacity",
+  "/plumbing-fire-tank-duration", "/plumbing-fire-pump-duty",
+  "/plumbing-sprinkler-density", "/plumbing-sprinkler-kfactor",
+  "/plumbing-fm200"
+]);
+
 export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader, breadcrumb, spaceCount }: {
   children: ReactNode;
   title: string;
@@ -373,6 +402,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(globalLicenseCache);
   const [showPioneerModal, setShowPioneerModal] = useState(false);
   const [defaultIntelOpen, setDefaultIntelOpen] = useState(false);
+
+  const isMepCalcRoute = useMemo(() => MEP_CALC_ROUTES.has(pathname), [pathname]);
+  const effectiveOnIntelClick = onIntelClick || (isMepCalcRoute ? () => setDefaultIntelOpen(v => !v) : undefined);
+  const effectiveIntelOpen = onIntelClick ? (intelOpen ?? false) : defaultIntelOpen;
 
   useEffect(() => {
     // Background prefetch heavy 3D BIM Viewer libraries & WebAssembly engine during idle time
@@ -2502,79 +2535,40 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                       </span>
                     )}
                   </h1>
+                  {effectiveOnIntelClick && (
+                    <button 
+                      onClick={effectiveOnIntelClick}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
+                        effectiveIntelOpen
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                      }`}
+                    >
+                      <Sparkles className="size-3.5" />
+                      {intelLabel || "Intelligence"}
+                    </button>
+                  )}
                   {(() => {
-                    const MEP_CALC_ROUTES = new Set([
-                      // HVAC
-                      "/ventilation", "/preliminary-cooling-load", "/fresh-air-cooling-load",
-                      "/heating-load", "/chw-pump-head", "/chw-pipe-sizer", "/duct-sizer",
-                      "/diffuser-selector", "/refrigerant-pipe-sizing", "/condensate-drain-calc",
-                      "/condensate-drain", "/staircase-pressurization", "/lobby-pressurisation",
-                      "/smoke-extract-fan", "/basement-smoke-calc", "/psychrometric",
-
-                      // Electrical
-                      "/cable-voltage-drop", "/busbar-voltage-drop", "/busbar-calculation",
-                      "/conductor-sizing", "/transformer-sizing", "/generator-sizing",
-                      "/ups-sizing-calculation", "/capacitor-bank-sizing", "/circuit-breaker-sizing",
-                      "/short-circuit-calculations", "/cable-tray-sizing", "/lighting-lux-calculation",
-                      "/lpd-calculation", "/central-battery-sizing", "/project-load-schedule",
-
-                      // Plumbing
-                      "/plumbing-water-demand", "/plumbing-tank-sizing", "/plumbing-pump-sizing",
-                      "/plumbing-booster-pump", "/plumbing-pressure-vessel", "/plumbing-fixture-unit",
-                      "/plumbing-loading-unit", "/plumbing-supply-pipe-sizer", "/plumbing-drainage",
-                      "/plumbing-drainage-pipe-sizer", "/plumbing-sump-pump", "/plumbing-sewage-pump",
-                      "/plumbing-storm-water", "/plumbing-gas-tank", "/plumbing-hazen-williams",
-
-                      // Fire Fighting
-                      "/plumbing-fire-water-demand", "/plumbing-fire-tank-capacity",
-                      "/plumbing-fire-tank-duration", "/plumbing-fire-pump-duty",
-                      "/plumbing-sprinkler-density", "/plumbing-sprinkler-kfactor",
-                      "/plumbing-fm200"
+                    const NON_CALC_TITLES = new Set([
+                      "Dashboard", "Projects", "Project", "Reports", "Report",
+                      "Settings", "Teams", "Team", "BIM Viewer", "Admin",
+                      "Notifications", "Company Hierarchy", "3D BIM Viewer",
+                      "Sanity Check Tool", "Zone Overview", "Equipment"
                     ]);
+                    if (NON_CALC_TITLES.has(title) || pathname === "/dashboard" || pathname === "/") {
+                      return null;
+                    }
 
-                    const isMepCalcRoute = MEP_CALC_ROUTES.has(pathname);
-                    const effectiveOnIntelClick = onIntelClick || (isMepCalcRoute ? () => setDefaultIntelOpen(v => !v) : undefined);
-                    const effectiveIntelOpen = onIntelClick ? (intelOpen ?? false) : defaultIntelOpen;
-
-                    return (
-                      <>
-                        {effectiveOnIntelClick && (
-                          <button 
-                            onClick={effectiveOnIntelClick}
-                            className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
-                              effectiveIntelOpen
-                                ? "bg-primary text-primary-foreground border-primary"
-                                : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
-                            }`}
-                          >
-                            <Sparkles className="size-3.5" />
-                            {intelLabel || "Intelligence"}
-                          </button>
-                        )}
-                        {(() => {
-                          const NON_CALC_TITLES = new Set([
-                            "Dashboard", "Projects", "Project", "Reports", "Report",
-                            "Settings", "Teams", "Team", "BIM Viewer", "Admin",
-                            "Notifications", "Company Hierarchy", "3D BIM Viewer",
-                            "Sanity Check Tool", "Zone Overview", "Equipment"
-                          ]);
-                          if (NON_CALC_TITLES.has(title) || pathname === "/dashboard" || pathname === "/") {
-                            return null;
-                          }
-
-                          if (isMepCalcRoute) {
-                            return (
-                              <CalculationReviewBar
-                                projectId={activeProjectId || "default"}
-                                calculatorPath={pathname}
-                                calculatorTitle={title || "Calculation"}
-                              />
-                            );
-                          }
-                          return null;
-                        })()}
-                      </>
-                    );
+                    if (isMepCalcRoute) {
+                      return (
+                        <CalculationReviewBar
+                          projectId={activeProjectId || "default"}
+                          calculatorPath={pathname}
+                          calculatorTitle={title || "Calculation"}
+                        />
+                      );
+                    }
+                    return null;
                   })()}
                 </div>
                 {subtitle && <span className="text-[12px] text-muted-foreground font-medium leading-snug mt-1 block">{subtitle}</span>}
