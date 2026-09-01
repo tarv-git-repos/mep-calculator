@@ -229,25 +229,20 @@ export const exportPreliminaryCoolingLoadPDF = async (
       { content: totalTr.toFixed(2), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
     ]);
 
-    // 6. COOLING LOAD SCHEDULE Table
+    // 6. COOLING LOAD SCHEDULE Banner (Draws on Page 1 above the table)
+    const scheduleBannerY = statsEndY + 3;
+    doc.setFillColor(6, 69, 111); // Deep Navy #06456F
+    doc.rect(leftMargin, scheduleBannerY, contentWidth, 6, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "bold");
+    doc.text("COOLING LOAD SCHEDULE", leftMargin + 3, scheduleBannerY + 4.2);
+
+    // 7. Schedule Table (Only Column Headers repeat on page breaks)
     callAutoTable(doc, {
-      startY: statsEndY + 3,
-      margin: { left: leftMargin, right: leftMargin },
+      startY: scheduleBannerY + 6,
+      margin: { top: 14, left: leftMargin, right: leftMargin },
       head: [
-        [
-          {
-            content: "COOLING LOAD SCHEDULE",
-            colSpan: 7,
-            styles: {
-              fillColor: [6, 69, 111], // Deep Navy #06456F
-              textColor: [255, 255, 255],
-              fontStyle: "bold",
-              fontSize: 9,
-              halign: "left",
-              cellPadding: 2,
-            },
-          },
-        ],
         [
           { content: "S.No", styles: { halign: "center", cellWidth: 10 } },
           { content: "Name of Space", styles: { halign: "left", cellWidth: 40 } },
