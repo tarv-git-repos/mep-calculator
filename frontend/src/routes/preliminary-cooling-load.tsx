@@ -1040,13 +1040,14 @@ function PreliminaryCoolingLoadPage() {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Cooling Load");
 
-    // Colors matching demo Preliminary Cooling Load report
-    const COLOR_TITLE_BG = "F58220";      // Main Title Banner Orange
-    const COLOR_SECTION_BG = "C35200";    // Section Stats & Schedule Header Dark Orange
-    const COLOR_TABLE_HEADER = "F58220";  // Table Column Header Orange
-    const COLOR_FLOOR_BG = "FED7AA";      // Floor banner light peach
-    const COLOR_TOTAL_BG = "FED7AA";      // Total row light peach
+    // Colors matching Ventilation Excel report
+    const COLOR_TITLE_BG = "0A7BC7";      // Vibrant Primary Blue
+    const COLOR_SECTION_BG = "06456F";    // Deep Navy Blue for Section Headers
+    const COLOR_TABLE_HEADER = "0A7BC7";  // Primary Blue for Table Columns Header
+    const COLOR_FLOOR_BG = "DCEFFB";      // Soft Blue for Floor Banners
+    const COLOR_TOTAL_BG = "DCEFFB";      // Soft Blue for TOTAL Row
     const COLOR_TEXT_WHITE = "FFFFFF";
+    const COLOR_NAVY_TEXT = "06456F";
 
     // Column widths
     sheet.getColumn(1).width = 8;   // S.No
@@ -1169,7 +1170,7 @@ function PreliminaryCoolingLoadPage() {
       const floorHeaderRow = sheet.addRow([`Floor: ${floor}`]);
       sheet.mergeCells(`A${floorHeaderRow.number}:G${floorHeaderRow.number}`);
       const fCell = floorHeaderRow.getCell(1);
-      fCell.font = { name: "Segoe UI", size: 10.5, bold: true, color: { argb: "9A3412" } };
+      fCell.font = { name: "Segoe UI", size: 10.5, bold: true, color: { argb: COLOR_NAVY_TEXT } };
       fCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_FLOOR_BG } };
       fCell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
       floorHeaderRow.height = 20;
@@ -1238,13 +1239,13 @@ function PreliminaryCoolingLoadPage() {
     totalRow.getCell(7).numFmt = "0.00";
 
     totalRow.eachCell((cell) => {
-      cell.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: "000000" } };
+      cell.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: COLOR_NAVY_TEXT } };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR_TOTAL_BG } };
       cell.border = {
-        top: { style: "thin", color: { argb: "C35200" } },
-        bottom: { style: "double", color: { argb: "C35200" } },
-        left: { style: "thin", color: { argb: "C35200" } },
-        right: { style: "thin", color: { argb: "C35200" } }
+        top: { style: "thin", color: { argb: COLOR_SECTION_BG } },
+        bottom: { style: "double", color: { argb: COLOR_SECTION_BG } },
+        left: { style: "thin", color: { argb: COLOR_SECTION_BG } },
+        right: { style: "thin", color: { argb: COLOR_SECTION_BG } }
       };
     });
 
