@@ -1,19 +1,17 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
+import { exportSprinklerKFactorPDF, type SprinklerExportRow } from "@/lib/exportSprinklerKFactorPDF";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
-import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import ExcelJS from "exceljs";
 import {
   Plus, Download, Upload, Filter, Trash2, Edit3, Copy, X, Sparkles,
   AlertTriangle, CheckCircle2, Info, FileText, Printer, FileSpreadsheet,
   ArrowUpDown, ChevronRight, ChevronDown, RefreshCw, Play, Settings, Search,
   HelpCircle, Share2, Clipboard, Undo, Redo,
-  Activity, Droplet
+  Activity, Droplet, Flag, MessageSquare, Check, Eye
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
@@ -26,6 +24,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/plumbing-sprinkler-kfactor")({
   head: () => ({
@@ -47,6 +46,8 @@ interface SprinklerRow {
   coverage: number;
   hazard: string;
   notes?: string;
+  flagged?: boolean;
+  flagReason?: string;
 }
 
 const STANDARD_K_FACTORS = [2.8, 4.2, 5.6, 8.0, 11.2, 14.0, 16.8, 19.6, 22.4, 25.2, 28.0];
@@ -245,8 +246,14 @@ function SprinklerKFactorPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [hazardFilter, setHazardFilter] = useState("All");
   const [kFilter, setKFilter] = useState("All");
-  const [editingRow, setEditingRow] = useState<SprinklerRow | null>(null);
-  const [activeRowId, setActiveRowId] = useState<string | undefined>(undefined);
+  const [flagFilterOnly, setFlagFilterOnly] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditData, setBulkEditData] = useState<{
+    hazard?: string;
+    kFactor?: number;
+    solveFor?: "Q" | "P";
+    pressure?: number;
+  }>({});
 
   // History Stack (Local Undo/Redo)
   const [undoStack, setUndoStack] = useState<string[]>([]);
@@ -265,6 +272,7 @@ function SprinklerKFactorPage() {
     const parsed = JSON.parse(previous);
     setRows(parsed);
     if (project?.id) localStorage.setItem(`mep_sprinklers_${project.id}`, previous);
+    toast.info("Undo performed");
   };
 
   const handleRedo = () => {
@@ -275,6 +283,7 @@ function SprinklerKFactorPage() {
     const parsed = JSON.parse(next);
     setRows(parsed);
     if (project?.id) localStorage.setItem(`mep_sprinklers_${project.id}`, next);
+    toast.info("Redo performed");
   };
 
   // Load data when active project changes
@@ -394,10 +403,30 @@ function SprinklerKFactorPage() {
         handleRedo();
       }
 
+      // Add Row: Ctrl + N / Insert
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "n") || e.key === "Insert") {
+        if (tab === "schedule") {
+          e.preventDefault();
+          addSprinkler();
+        }
+      }
+
+      // Duplicate: Ctrl + D
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d" && tab === "schedule" && selected.size > 0) {
+        e.preventDefault();
+        duplicateSelected();
+      }
+
       // Delete / Backspace key
       if ((e.key === "Delete" || e.key === "Backspace") && tab === "schedule" && selected.size > 0) {
         e.preventDefault();
         confirmDeleteSelected();
+      }
+
+      // Print / PDF: Ctrl + P
+      if (isCmdOrCtrl && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        exportPdf();
       }
 
       // Escape key
@@ -412,6 +441,7 @@ function SprinklerKFactorPage() {
         e.preventDefault();
         const toCopy = rows.filter(r => selected.has(r.id));
         localStorage.setItem("mep_clipboard_sprinklers", JSON.stringify(toCopy));
+        toast.info(`${toCopy.length} sprinkler(s) copied to clipboard`);
       }
 
       // Clipboard: Cut (Ctrl + X)
@@ -422,6 +452,7 @@ function SprinklerKFactorPage() {
         pushToUndo(rows);
         setRows(prev => prev.filter(r => !selected.has(r.id)));
         setSelected(new Set());
+        toast.info(`${toCopy.length} sprinkler(s) cut to clipboard`);
       }
 
       // Clipboard: Paste (Ctrl + V)
@@ -438,6 +469,7 @@ function SprinklerKFactorPage() {
             }));
             pushToUndo(rows);
             setRows(prev => [...prev, ...pasted]);
+            toast.success(`${pasted.length} sprinkler(s) pasted`);
           }
         } catch (err) {
           console.error("Paste failed:", err);
@@ -460,7 +492,7 @@ function SprinklerKFactorPage() {
         val: parseFloat(flow.toFixed(2)),
         unit: isSI ? "L/min" : "GPM",
         label: "Discharge Flow (Q)",
-        formula: `Q = K \u00d7 \u221aP = ${kFactorNum} \u00d7 \u221a${knownValNum} = ${flow.toFixed(2)} ${isSI ? "L/min" : "GPM"}`,
+        formula: `Q = K × √P = ${kFactorNum} × √${knownValNum} = ${flow.toFixed(2)} ${isSI ? "L/min" : "GPM"}`,
         pressure: knownValNum
       };
     } else {
@@ -469,7 +501,7 @@ function SprinklerKFactorPage() {
         val: parseFloat(press.toFixed(2)),
         unit: isSI ? "bar" : "psi",
         label: "Required Pressure (P)",
-        formula: `P = (Q / K)\u00b2 = (${knownValNum} / ${kFactorNum || 1})\u00b2 = ${press.toFixed(2)} ${isSI ? "bar" : "psi"}`,
+        formula: `P = (Q / K)² = (${knownValNum} / ${kFactorNum || 1})² = ${press.toFixed(2)} ${isSI ? "bar" : "psi"}`,
         pressure: press
       };
     }
@@ -578,6 +610,23 @@ function SprinklerKFactorPage() {
     };
   }, [rows]);
 
+  // Flag toggle helper
+  const toggleFlag = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    pushToUndo(rows);
+    setRows(prev =>
+      prev.map(r => {
+        if (r.id !== id) return r;
+        const nextFlag = !r.flagged;
+        return {
+          ...r,
+          flagged: nextFlag,
+          flagReason: nextFlag ? (r.flagReason || "Requires engineering review") : undefined
+        };
+      })
+    );
+  };
+
   // Grid editing helpers
   const updateRow = (id: string, field: keyof SprinklerRow, val: any) => {
     pushToUndo(rows);
@@ -606,6 +655,7 @@ function SprinklerKFactorPage() {
       notes: ""
     };
     setRows(prev => [...prev, newSprink]);
+    toast.success("New sprinkler added");
   };
 
   const duplicateSelected = () => {
@@ -622,6 +672,7 @@ function SprinklerKFactorPage() {
       }
     });
     setRows(prev => [...prev, ...duplicated]);
+    toast.success(`Duplicated ${duplicated.length} sprinkler(s)`);
   };
 
   const confirmDeleteSelected = async () => {
@@ -630,7 +681,28 @@ function SprinklerKFactorPage() {
       pushToUndo(rows);
       setRows(prev => prev.filter(r => !selected.has(r.id)));
       setSelected(new Set());
+      toast.success("Selected sprinklers deleted");
     }
+  };
+
+  // Bulk Edit Handler
+  const handleBulkEditSave = () => {
+    if (selected.size === 0) return;
+    pushToUndo(rows);
+    setRows(prev =>
+      prev.map(r => {
+        if (!selected.has(r.id)) return r;
+        let next = { ...r };
+        if (bulkEditData.hazard) next.hazard = bulkEditData.hazard;
+        if (bulkEditData.kFactor !== undefined) next.kFactor = bulkEditData.kFactor;
+        if (bulkEditData.solveFor) next.solveFor = bulkEditData.solveFor;
+        if (bulkEditData.pressure !== undefined) next.pressure = bulkEditData.pressure;
+        return computeRowOutputs(next);
+      })
+    );
+    setBulkEditOpen(false);
+    setBulkEditData({});
+    toast.success(`Updated ${selected.size} selected sprinklers`);
   };
 
   // Grid context menu builder
@@ -639,10 +711,9 @@ function SprinklerKFactorPage() {
     const targetIds = selected.has(row.id) ? Array.from(selected) : [row.id];
 
     return (
-      <ContextMenuContent className="w-48">
+      <ContextMenuContent className="w-52">
         <ContextMenuItem
           onClick={() => {
-            // Focus label cell or toggle
             setSelected(new Set([row.id]));
           }}
           className="flex items-center gap-2 cursor-pointer text-foreground"
@@ -664,11 +735,30 @@ function SprinklerKFactorPage() {
               }
             });
             setRows(prev => [...prev, ...dupList]);
+            toast.success(`Duplicated ${dupList.length} sprinkler(s)`);
           }}
           className="flex items-center gap-2 cursor-pointer text-foreground"
         >
           <Copy className="size-3.5 text-muted-foreground" />
           <span>Duplicate</span>
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => {
+            pushToUndo(rows);
+            setRows(prev =>
+              prev.map(item => {
+                if (targetIds.includes(item.id)) {
+                  const nextF = !item.flagged;
+                  return { ...item, flagged: nextF, flagReason: nextF ? "Flagged via menu" : undefined };
+                }
+                return item;
+              })
+            );
+          }}
+          className="flex items-center gap-2 cursor-pointer text-foreground"
+        >
+          <Flag className="size-3.5 text-red-500" />
+          <span>{row.flagged ? "Unflag Item(s)" : "Flag for Review"}</span>
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
@@ -678,6 +768,7 @@ function SprinklerKFactorPage() {
               pushToUndo(rows);
               setRows(prev => prev.filter(r => !targetIds.includes(r.id)));
               setSelected(new Set());
+              toast.success("Deleted");
             }
           }}
           className="flex items-center gap-2 text-destructive cursor-pointer focus:bg-destructive/10 focus:text-destructive font-medium"
@@ -696,141 +787,337 @@ function SprinklerKFactorPage() {
     fileInputRef.current?.click();
   };
 
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const data = evt.target?.result;
-        if (!data) return;
-        const workbook = XLSX.read(data, { type: "binary" });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(sheet) as any[];
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const sheet = workbook.worksheets[0];
+      if (!sheet) throw new Error("No worksheet found");
 
-        const imported: SprinklerRow[] = json.map((row, idx) => {
-          const k = parseFloat(row["K-Factor"] || row["kFactor"] || row["K"] || 5.6) || 5.6;
-          const haz = row["Hazard"] || row["hazard"] || "Ordinary Hazard Gp 1";
-          const cov = parseFloat(row["Coverage"] || row["coverage"] || row["Area"] || 130) || 130;
-          const press = parseFloat(row["Pressure"] || row["pressure"] || row["P"] || 15) || 15;
-          const fl = parseFloat(row["Flow"] || row["flow"] || row["Q"] || 21.69) || 21.69;
-          const solve = row["Solve For"] || row["solveFor"] || "Q";
+      const imported: SprinklerRow[] = [];
+      sheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= 1) return; // Skip headers
+        const label = String(row.getCell(2).value || `Sprinkler ${rowNumber - 1}`);
+        const k = parseFloat(String(row.getCell(3).value)) || 5.6;
+        const solve = String(row.getCell(4).value).toLowerCase().includes("p") ? "P" : "Q";
+        const press = parseFloat(String(row.getCell(5).value)) || 15.0;
+        const fl = parseFloat(String(row.getCell(6).value)) || 21.69;
+        const cov = parseFloat(String(row.getCell(7).value)) || 130;
+        const haz = String(row.getCell(8).value || "Ordinary Hazard Gp 1");
 
-          let newRow: SprinklerRow = {
-            id: `sprink_imp_${Date.now()}_${idx}_${Math.floor(Math.random() * 1000)}`,
-            label: row["Label"] || row["label"] || row["Location"] || `Imported Sprinkler ${idx + 1}`,
-            kFactor: k,
-            solveFor: solve === "Pressure" || solve === "P" ? "P" : "Q",
-            pressure: press,
-            flow: fl,
-            coverage: cov,
-            hazard: haz,
-            notes: row["Notes"] || row["notes"] || "",
-          };
-          newRow = computeRowOutputs(newRow);
-          return newRow;
-        });
+        let newRow: SprinklerRow = {
+          id: `sprink_imp_${Date.now()}_${rowNumber}_${Math.floor(Math.random() * 1000)}`,
+          label,
+          kFactor: k,
+          solveFor: solve,
+          pressure: press,
+          flow: fl,
+          coverage: cov,
+          hazard: haz,
+          notes: ""
+        };
+        newRow = computeRowOutputs(newRow);
+        imported.push(newRow);
+      });
 
+      if (imported.length > 0) {
         pushToUndo(rows);
         setRows(prev => [...prev, ...imported]);
-      } catch (err) {
-        alert("Failed to parse file. Make sure it has valid Excel/CSV headings.");
+        toast.success(`Imported ${imported.length} sprinklers from Excel`);
       }
-    };
-    reader.readAsBinaryString(file);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to parse Excel file. Please ensure standard structure.");
+    }
     e.target.value = "";
   };
 
-  const exportExcel = () => {
-    const data = rows.map((r, idx) => ({
-      "S.No": idx + 1,
-      "Label / Location": r.label,
-      "K-Factor (GPM/vpsi)": r.kFactor,
-      "Solve For": r.solveFor === "Q" ? "Flow (Q)" : "Pressure (P)",
-      "Operating Pressure (psi)": r.pressure.toFixed(2),
-      "Flow Rate (GPM)": r.flow.toFixed(2),
-      "Coverage Area (sq ft)": r.coverage,
-      "Hazard Classification": r.hazard,
-      "Notes": r.notes || ""
-    }));
+  // Standardized Excel Export matching Ventilation / Preliminary theme
+  const exportExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = currentUserName;
+    workbook.created = new Date();
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Sprinkler Schedule");
-    const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    downloadFile(new Uint8Array(xlsxBuffer), `Sprinkler_KFactor_Report_${project.code}.xlsx`, "Excel Document", ["xlsx"]);
+    const sheet = workbook.addWorksheet("Sprinkler Schedule", {
+      views: [{ showGridLines: true }]
+    });
+
+    const isSI = unitSystem === "si";
+    const pressUnit = isSI ? "bar" : "psi";
+    const flowUnit = isSI ? "L/min" : "GPM";
+    const areaUnit = isSI ? "m²" : "ft²";
+
+    // Set Column Widths (Cols 1 to 8)
+    sheet.columns = [
+      { width: 8 },  // A: Sr. No.
+      { width: 34 }, // B: Label / Location
+      { width: 16 }, // C: K-Factor
+      { width: 16 }, // D: Sizing Target
+      { width: 22 }, // E: Pressure
+      { width: 22 }, // F: Flow
+      { width: 22 }, // G: Coverage Area
+      { width: 28 }, // H: Hazard Classification
+    ];
+
+    const thinBorder = {
+      top: { style: "thin" as const, color: { argb: "FF000000" } },
+      bottom: { style: "thin" as const, color: { argb: "FF000000" } },
+      left: { style: "thin" as const, color: { argb: "FF000000" } },
+      right: { style: "thin" as const, color: { argb: "FF000000" } }
+    };
+
+    const grayFill = {
+      type: "pattern" as const,
+      pattern: "solid" as const,
+      fgColor: { argb: "FFD9D9D9" }
+    };
+
+    const blueFill = {
+      type: "pattern" as const,
+      pattern: "solid" as const,
+      fgColor: { argb: "FFDAE9F8" }
+    };
+
+    // Row 2: Title
+    const titleRow = sheet.getRow(2);
+    titleRow.height = 24;
+    titleRow.getCell(1).value = "NFPA 13 Sprinkler K-Factor & Hydraulic Calculation";
+    titleRow.getCell(1).font = { name: "Arial", size: 14, bold: true };
+
+    // Rows 4-6: Metadata Box
+    const metaRows = [
+      { label1: "Calculation No.:", val1: project?.code || "CALC-FP-SKF01", label2: "Date:", val2: new Date().toISOString().split("T")[0] },
+      { label1: "Project No.:", val1: project?.code || "MEP-FP-2026", label2: "Client:", val2: project?.client || "Prestige Group developers" },
+      { label1: "Project Name:", val1: project?.name || "Sprinkler Hydraulic Calculation", label2: "End User:", val2: "Consistent Engineering Consultants" }
+    ];
+
+    metaRows.forEach((item, idx) => {
+      const rNum = 4 + idx;
+      const r = sheet.getRow(rNum);
+      r.height = 22;
+
+      sheet.mergeCells(`A${rNum}:D${rNum}`);
+      sheet.mergeCells(`E${rNum}:H${rNum}`);
+
+      for (let c = 1; c <= 8; c++) {
+        const cell = r.getCell(c);
+        cell.font = { name: "Arial", size: 10, bold: true };
+        cell.alignment = { vertical: "middle" };
+        cell.border = thinBorder;
+      }
+
+      r.getCell(1).value = `${item.label1}   ${item.val1}`;
+      r.getCell(5).value = `${item.label2}   ${item.val2}`;
+    });
+
+    // Row 8-11: Summary Stats Box
+    const r8 = sheet.getRow(8);
+    r8.height = 22;
+    sheet.mergeCells("A8:H8");
+    for (let c = 1; c <= 8; c++) {
+      const cell = r8.getCell(c);
+      cell.value = "FIRE FIGHTING DESIGN SUMMARY STATS";
+      cell.fill = grayFill;
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      cell.border = thinBorder;
+    }
+
+    const statsData = [
+      { l1: "Total Sprinklers:", v1: rows.length, l2: "Total Demand Flow:", v2: `${aggregateMetrics.totalFlow.toFixed(2)} ${flowUnit}`, blue2: true },
+      { l1: "Total System Demand:", v1: `${aggregateMetrics.systemDemand.toFixed(2)} ${flowUnit}`, l2: "Max Operating Pressure:", v2: `${aggregateMetrics.maxPressure.toFixed(2)} ${pressUnit}`, blue2: true },
+      { l1: "Hose Stream Allowance:", v1: `${aggregateMetrics.hoseAllowance} ${flowUnit}`, l2: "Design Standard:", v2: "NFPA 13 Standard", blue2: false },
+    ];
+
+    statsData.forEach((item, idx) => {
+      const rNum = 9 + idx;
+      const r = sheet.getRow(rNum);
+      r.height = 20;
+
+      sheet.mergeCells(`A${rNum}:B${rNum}`);
+      sheet.mergeCells(`D${rNum}:F${rNum}`);
+
+      for (let c = 1; c <= 8; c++) {
+        const cell = r.getCell(c);
+        cell.font = { name: "Arial", size: 10, bold: true };
+        cell.alignment = { vertical: "middle" };
+        cell.border = thinBorder;
+      }
+
+      r.getCell(1).value = item.l1;
+      r.getCell(3).value = item.v1;
+      r.getCell(3).alignment = { horizontal: "right", vertical: "middle" };
+
+      r.getCell(4).value = item.l2;
+      r.getCell(7).value = item.v2;
+      r.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
+      if (item.blue2) {
+        r.getCell(7).fill = blueFill;
+        r.getCell(8).fill = blueFill;
+      }
+      sheet.mergeCells(`G${rNum}:H${rNum}`);
+    });
+
+    // Row 13: Section Title
+    const r13 = sheet.getRow(13);
+    r13.height = 22;
+    sheet.mergeCells("A13:H13");
+    for (let c = 1; c <= 8; c++) {
+      const cell = r13.getCell(c);
+      cell.value = "SPRINKLER DESIGN SCHEDULE";
+      cell.fill = grayFill;
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      cell.border = thinBorder;
+    }
+
+    // Row 14: Column Headers
+    const headers = [
+      "Sr. No.",
+      "Label / Location",
+      "K-Factor",
+      "Sizing Target",
+      `Operating Pressure\n(${pressUnit})`,
+      `Flow Rate\n(${flowUnit})`,
+      `Coverage Area\n(${areaUnit})`,
+      "Hazard Classification"
+    ];
+
+    const r14 = sheet.getRow(14);
+    r14.height = 36;
+    headers.forEach((h, idx) => {
+      const cell = r14.getCell(idx + 1);
+      cell.value = h;
+      cell.fill = (idx === 4 || idx === 5) ? blueFill : grayFill;
+      cell.font = { name: "Arial", size: 10, bold: true };
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cell.border = thinBorder;
+    });
+
+    // Data Rows
+    let currentRow = 15;
+    rows.forEach((r, idx) => {
+      const row = sheet.getRow(currentRow);
+      row.height = 20;
+
+      row.getCell(1).value = idx + 1;
+      row.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
+
+      row.getCell(2).value = r.label;
+      row.getCell(2).alignment = { horizontal: "left", vertical: "middle" };
+
+      row.getCell(3).value = r.kFactor;
+      row.getCell(3).alignment = { horizontal: "center", vertical: "middle" };
+      row.getCell(3).numFmt = "0.0";
+
+      row.getCell(4).value = r.solveFor === "Q" ? "Flow (Q)" : "Pressure (P)";
+      row.getCell(4).alignment = { horizontal: "center", vertical: "middle" };
+
+      row.getCell(5).value = r.pressure;
+      row.getCell(5).alignment = { horizontal: "right", vertical: "middle" };
+      row.getCell(5).numFmt = "0.00";
+      row.getCell(5).fill = blueFill;
+
+      row.getCell(6).value = r.flow;
+      row.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
+      row.getCell(6).numFmt = "0.00";
+      row.getCell(6).fill = blueFill;
+
+      row.getCell(7).value = r.coverage;
+      row.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
+      row.getCell(7).numFmt = "0.0";
+
+      row.getCell(8).value = r.hazard;
+      row.getCell(8).alignment = { horizontal: "left", vertical: "middle" };
+
+      for (let c = 1; c <= 8; c++) {
+        row.getCell(c).font = { name: "Arial", size: 10 };
+        row.getCell(c).border = thinBorder;
+      }
+      currentRow++;
+    });
+
+    // Total Row
+    const totRow = sheet.getRow(currentRow);
+    totRow.height = 22;
+    sheet.mergeCells(`A${currentRow}:D${currentRow}`);
+    totRow.getCell(1).value = "TOTAL / SYSTEM DEMAND:";
+    totRow.getCell(1).font = { name: "Arial", size: 10, bold: true };
+    totRow.getCell(1).alignment = { horizontal: "right", vertical: "middle" };
+    totRow.getCell(1).fill = grayFill;
+
+    totRow.getCell(5).value = aggregateMetrics.maxPressure;
+    totRow.getCell(5).font = { name: "Arial", size: 10, bold: true };
+    totRow.getCell(5).alignment = { horizontal: "right", vertical: "middle" };
+    totRow.getCell(5).numFmt = "0.00";
+    totRow.getCell(5).fill = blueFill;
+
+    totRow.getCell(6).value = aggregateMetrics.totalFlow;
+    totRow.getCell(6).font = { name: "Arial", size: 10, bold: true };
+    totRow.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
+    totRow.getCell(6).numFmt = "0.00";
+    totRow.getCell(6).fill = blueFill;
+
+    sheet.mergeCells(`G${currentRow}:H${currentRow}`);
+    totRow.getCell(7).value = `Demand: ${aggregateMetrics.systemDemand.toFixed(1)} ${flowUnit}`;
+    totRow.getCell(7).font = { name: "Arial", size: 10, bold: true };
+    totRow.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
+    totRow.getCell(7).fill = grayFill;
+
+    for (let c = 1; c <= 8; c++) {
+      totRow.getCell(c).border = thinBorder;
+    }
+    currentRow += 2;
+
+    // 3-Tier Signature Block
+    addExcelSignatureBlock(sheet, currentRow, currentUserName, project?.id || "default", "/plumbing-sprinkler-kfactor", 8);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    downloadFile(new Uint8Array(buffer), `${(project?.name || "Sprinkler_K_Factor").replace(/\s+/g, "_")}_report.xlsx`, "Excel Document", ["xlsx"]);
+    toast.success("Sprinkler K-Factor Excel report exported successfully!");
   };
 
   const exportPdf = () => {
-    const doc = new jsPDF();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.setTextColor(220, 76, 52); // Orange-Red fire theme color
-    doc.text("Sprinkler K-Factor & Water Demand Report", 14, 20);
+    const exportRows: SprinklerExportRow[] = rows.map(r => ({
+      id: r.id,
+      label: r.label,
+      kFactor: r.kFactor,
+      solveFor: r.solveFor,
+      pressure: r.pressure,
+      flow: r.flow,
+      coverage: r.coverage,
+      hazard: r.hazard,
+      notes: r.notes,
+      flagged: r.flagged,
+      flagReason: r.flagReason
+    }));
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(80, 80, 80);
-    doc.text(`Project Name: ${project.name}`, 14, 28);
-    doc.text(`Project Number: ${project.code}`, 14, 34);
-    doc.text(`Client Reference: ${project.client}`, 14, 40);
-
-    // Summary Metrics Cards
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(20, 20, 20);
-    doc.text("Design Water Demand Summary:", 14, 50);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Total Sprinkler Flow Rate: ${aggregateMetrics.totalFlow.toFixed(2)} GPM`, 14, 57);
-    doc.text(`Max Sprinkler Operating Pressure: ${aggregateMetrics.maxPressure.toFixed(2)} psi`, 14, 63);
-    doc.text(`Hose Stream Allowance (NFPA 13): ${aggregateMetrics.hoseAllowance} GPM`, 14, 69);
-    doc.text(`Total System Water Demand: ${aggregateMetrics.systemDemand.toFixed(2)} GPM`, 14, 75);
-
-    const tableData = rows.map((r, idx) => [
-      idx + 1,
-      r.label,
-      `K-${r.kFactor.toFixed(1)}`,
-      r.solveFor === "Q" ? "Flow (Q)" : "Pressure (P)",
-      r.pressure.toFixed(1),
-      r.flow.toFixed(2),
-      r.coverage.toString(),
-      r.hazard,
-      r.pressure < 7 ? "Low Press Violation" : "Complied"
-    ]);
-
-    autoTable(doc, {
-      startY: 83,
-      head: [["S.No", "Location / Label", "K-Factor", "Sizing Mode", "Pressure (psi)", "Flow (GPM)", "Coverage (ft²)", "Hazard Class", "Status"]],
-      body: tableData,
-      theme: "striped",
-      styles: { fontSize: 8.5 },
-      headStyles: { fillColor: [220, 76, 52], halign: "left" }
+    exportSprinklerKFactorPDF(exportRows, {
+      projectName: project?.name,
+      client: project?.client,
+      projectNo: project?.code,
+      date: project?.date,
+      unitSystem: unitSystem
     });
-
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "plumbing-sprinkler-kfactor");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
   };
 
   // AI intelligence optimizations
   const warningsList = useMemo(() => {
     const list: { id: string; type: "critical" | "warning"; title: string; desc: string; fixable: boolean; action?: () => void }[] = [];
     rows.forEach((r, idx) => {
-      if (r.pressure < 7) {
+      if (r.pressure < (unitSystem === "si" ? 0.48 : 7.0)) {
         list.push({
           id: `w_press_${r.id}`,
           type: "critical",
           title: `Low Pressure on ${r.label}`,
-          desc: `Calculated pressure is ${r.pressure.toFixed(2)} psi, which is below the NFPA 13 minimum 7.0 psi.`,
+          desc: `Calculated pressure is ${r.pressure.toFixed(2)} ${unitSystem === "si" ? "bar" : "psi"}, which is below the NFPA 13 minimum ${unitSystem === "si" ? "0.48 bar" : "7.0 psi"}.`,
           fixable: true,
           action: () => {
             pushToUndo(rows);
-            setRows(prev => prev.map(item => item.id === r.id ? computeRowOutputs({ ...item, pressure: 7.0, solveFor: "Q" }) : item));
+            setRows(prev => prev.map(item => item.id === r.id ? computeRowOutputs({ ...item, pressure: (unitSystem === "si" ? 0.48 : 7.0), solveFor: "Q" }) : item));
           }
         });
       }
@@ -838,18 +1125,19 @@ function SprinklerKFactorPage() {
       let limit = 130;
       if (r.hazard.startsWith("Light")) limit = 225;
       else if (r.hazard.startsWith("Extra")) limit = 100;
-      if (r.coverage > limit) {
+      const actualLimit = unitSystem === "si" ? parseFloat((limit / 10.7639).toFixed(1)) : limit;
+      if (r.coverage > actualLimit) {
         list.push({
           id: `w_cov_${r.id}`,
           type: "warning",
           title: `Over-coverage on ${r.label}`,
-          desc: `Coverage area is ${r.coverage} ft², exceeding the standard limit of ${limit} ft² for ${r.hazard}.`,
+          desc: `Coverage area is ${r.coverage} ${unitSystem === "si" ? "m²" : "ft²"}, exceeding the standard limit of ${actualLimit} ${unitSystem === "si" ? "m²" : "ft²"} for ${r.hazard}.`,
           fixable: false
         });
       }
 
       // Check if high pressure can be optimized by K-factor resize
-      if (r.pressure > 35 && r.kFactor < 11.2) {
+      if (r.pressure > (unitSystem === "si" ? 2.41 : 35.0) && r.kFactor < (unitSystem === "si" ? 160 : 11.2)) {
         const nextKIdx = STANDARD_K_FACTORS.indexOf(r.kFactor) + 1;
         const nextK = STANDARD_K_FACTORS[nextKIdx] || r.kFactor;
         const newP = Math.pow(r.flow / nextK, 2);
@@ -857,7 +1145,7 @@ function SprinklerKFactorPage() {
           id: `w_opt_${r.id}`,
           type: "warning",
           title: `Optimize K-Factor on ${r.label}`,
-          desc: `Required pressure is high (${r.pressure.toFixed(1)} psi). Changing K-${r.kFactor} to K-${nextK} reduces required pressure to ${newP.toFixed(1)} psi.`,
+          desc: `Required pressure is high (${r.pressure.toFixed(1)} ${unitSystem === "si" ? "bar" : "psi"}). Changing K-${r.kFactor} to K-${nextK} reduces required pressure to ${newP.toFixed(1)}.`,
           fixable: true,
           action: () => {
             pushToUndo(rows);
@@ -867,25 +1155,26 @@ function SprinklerKFactorPage() {
       }
     });
     return list;
-  }, [rows]);
+  }, [rows, unitSystem]);
 
   const handleFixAllPressures = () => {
     pushToUndo(rows);
     setRows(prev =>
       prev.map(r => {
-        if (r.pressure < 7) {
-          return computeRowOutputs({ ...r, pressure: 7.0, solveFor: "Q" });
+        if (r.pressure < (unitSystem === "si" ? 0.48 : 7.0)) {
+          return computeRowOutputs({ ...r, pressure: (unitSystem === "si" ? 0.48 : 7.0), solveFor: "Q" });
         }
         return r;
       })
     );
+    toast.success("Fixed all low pressure violations");
   };
 
   const handleOptimizeAllKFactors = () => {
     pushToUndo(rows);
     setRows(prev =>
       prev.map(r => {
-        if (r.pressure > 35 && r.kFactor < 11.2) {
+        if (r.pressure > (unitSystem === "si" ? 2.41 : 35.0) && r.kFactor < (unitSystem === "si" ? 160 : 11.2)) {
           const nextKIdx = STANDARD_K_FACTORS.indexOf(r.kFactor) + 1;
           const nextK = STANDARD_K_FACTORS[nextKIdx] || r.kFactor;
           return computeRowOutputs({ ...r, kFactor: nextK, solveFor: "P" });
@@ -893,6 +1182,7 @@ function SprinklerKFactorPage() {
         return r;
       })
     );
+    toast.success("Optimized high pressure K-factors");
   };
 
   // Filter rows for grid display
@@ -902,9 +1192,12 @@ function SprinklerKFactorPage() {
                           (r.notes || "").toLowerCase().includes(searchQuery.toLowerCase());
       const matchHazard = hazardFilter === "All" || r.hazard === hazardFilter;
       const matchK = kFilter === "All" || r.kFactor === parseFloat(kFilter);
-      return matchSearch && matchHazard && matchK;
+      const matchFlag = !flagFilterOnly || r.flagged;
+      return matchSearch && matchHazard && matchK && matchFlag;
     });
-  }, [rows, searchQuery, hazardFilter, kFilter]);
+  }, [rows, searchQuery, hazardFilter, kFilter, flagFilterOnly]);
+
+  const flaggedCount = useMemo(() => rows.filter(r => r.flagged).length, [rows]);
 
   // Inline inputs
   interface InlineInputProps {
@@ -957,15 +1250,36 @@ function SprinklerKFactorPage() {
   // Define Columns
   const columns = useMemo<Column<SprinklerRow>[]>(() => [
     {
+      key: "flag",
+      header: "",
+      width: 40,
+      render: (row) => (
+        <button
+          onClick={(e) => toggleFlag(row.id, e)}
+          title={row.flagged ? `Flagged: ${row.flagReason || "Requires attention"}` : "Flag for review"}
+          className="p-1 rounded hover:bg-muted/50 transition-colors cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "text-red-500 fill-red-500" : "text-muted-foreground/30 hover:text-red-400"}`} />
+        </button>
+      )
+    },
+    {
       key: "label",
       header: "Sprinkler Label / Location",
       width: 200,
       render: (row) => (
-        <InlineInput
-          value={row.label}
-          onCommit={(val) => updateRow(row.id, "label", val)}
-          className="text-[13px]"
-        />
+        <div className="flex items-center gap-1.5 w-full">
+          <InlineInput
+            value={row.label}
+            onCommit={(val) => updateRow(row.id, "label", val)}
+            className="text-[13px] font-medium"
+          />
+          {row.notes && (
+            <span title={row.notes} className="text-muted-foreground hover:text-foreground cursor-help shrink-0">
+              <MessageSquare className="size-3 text-primary/70" />
+            </span>
+          )}
+        </div>
       )
     },
     {
@@ -1042,7 +1356,7 @@ function SprinklerKFactorPage() {
       render: (row) => {
         const isCalculated = row.solveFor === "P";
         return isCalculated ? (
-          <span className="font-mono text-muted-foreground/70 font-semibold px-2">{row.pressure.toFixed(2)}</span>
+          <span className="font-mono text-primary font-bold px-2">{row.pressure.toFixed(2)}</span>
         ) : (
           <InlineInput
             type="number"
@@ -1062,7 +1376,7 @@ function SprinklerKFactorPage() {
       render: (row) => {
         const isCalculated = row.solveFor === "Q";
         return isCalculated ? (
-          <span className="font-mono text-muted-foreground/70 font-semibold px-2">{row.flow.toFixed(1)}</span>
+          <span className="font-mono text-primary font-bold px-2">{row.flow.toFixed(1)}</span>
         ) : (
           <InlineInput
             type="number"
@@ -1119,7 +1433,7 @@ function SprinklerKFactorPage() {
 
         if (isLowPressure) {
           return (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-destructive/10 text-destructive border border-destructive/20 uppercase tracking-wide">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-destructive/10 text-destructive border border-destructive/20 uppercase tracking-wide">
               <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0 mr-1.5" />
               Low Press
             </span>
@@ -1127,14 +1441,14 @@ function SprinklerKFactorPage() {
         }
         if (isOverCoverage) {
           return (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-warning/15 text-warning border border-warning/20 uppercase tracking-wide">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-warning/15 text-warning border border-warning/20 uppercase tracking-wide">
               <span className="w-1.5 h-1.5 rounded-full bg-warning shrink-0 mr-1.5" />
               Over Area
             </span>
           );
         }
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-success/10 text-success border border-success/20 uppercase tracking-wide">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-success/10 text-success border border-success/20 uppercase tracking-wide">
             <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0 mr-1.5" />
             Complied
           </span>
@@ -1218,14 +1532,14 @@ function SprinklerKFactorPage() {
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-6">
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; SPRINKLER K-FACTOR</span>
-              <div className="flex items-center gap-3 mt-0.5">
-                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler K-Factor</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 discharge calculations</span>
+                  <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 discharge & water demand calculations</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/plumbing-sprinkler-kfactor" calculatorTitle="Sprinkler K-Factor" />
-              </div>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground">
+                  {rows.length} heads
+                </span>
                 <button 
                   onClick={() => setIntelOpen(v => !v)}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
@@ -1237,6 +1551,7 @@ function SprinklerKFactorPage() {
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
+                <CalculationReviewBar calculatorPath="/plumbing-sprinkler-kfactor" calculatorTitle="Sprinkler K-Factor" />
               </div>
             </div>
             
@@ -1315,7 +1630,7 @@ function SprinklerKFactorPage() {
                     <div>
                       <h4 className="text-[13.5px] font-bold text-foreground">Sprinkler Sizing Equation</h4>
                       <p className="text-[12.5px] text-muted-foreground mt-1 leading-relaxed">
-                        {"Calculate discharge flow rate based on nozzle pressure and standard K-factor coefficient ($Q = K\\sqrt{P}$), or determine required operating pressure to deliver target fire load."}
+                        Calculate discharge flow rate based on nozzle pressure and standard K-factor coefficient ($Q = K\sqrt{P}$), or determine required operating pressure to deliver target fire load.
                       </p>
                     </div>
                   </div>
@@ -1411,8 +1726,6 @@ function SprinklerKFactorPage() {
                           />
                         )}
                       </div>
-                      
-
                     </div>
                   </div>
 
@@ -1436,8 +1749,6 @@ function SprinklerKFactorPage() {
                           {solverSolveFor === "Q" ? (unitSystem === "si" ? "bar" : "psi") : (unitSystem === "si" ? "L/min" : "GPM")}
                         </div>
                       </div>
-                      
-
 
                       <p className="text-[11px] text-muted-foreground leading-normal mt-1.5">
                         {solverSolveFor === "Q" 
@@ -1501,7 +1812,7 @@ function SprinklerKFactorPage() {
                     <div className="w-full relative select-none mt-2">
                       <svg viewBox={`0 0 ${chartSvg.W} ${chartSvg.H}`} className="w-full h-auto block font-sans">
                         {/* Title & axes labels */}
-                        <text x={chartSvg.PL + chartSvg.CW / 2} y="15" textAnchor="middle" fontSize="9.5" fontWeight="700" fill="var(--muted)">Q = K \u00d7 \u221aP</text>
+                        <text x={chartSvg.PL + chartSvg.CW / 2} y="15" textAnchor="middle" fontSize="9.5" fontWeight="700" fill="var(--muted)">Q = K × √P</text>
                         <text x={chartSvg.PL + chartSvg.CW / 2} y={chartSvg.H - 5} textAnchor="middle" fontSize="9" fill="var(--muted)">{`Pressure P (${unitSystem === "si" ? "bar" : "psi"})`}</text>
                         <text transform="rotate(-90)" x={-(chartSvg.PT + chartSvg.CH / 2)} y="13" textAnchor="middle" fontSize="9" fill="var(--muted)">{`Flow Q (${unitSystem === "si" ? "L/min" : "GPM"})`}</text>
 
@@ -1606,7 +1917,7 @@ function SprinklerKFactorPage() {
                             strokeWidth="1" 
                           />
 
-                          {/* Orifice Label Overlay (Water Jet symbol) */}
+                          {/* Orifice Label Overlay */}
                           <path d="M 45 92 Q 50 82 55 92" fill="none" stroke="#60a5fa" strokeWidth="1.5" opacity="0.7" />
 
                           {/* Metal plug seat */}
@@ -1617,7 +1928,6 @@ function SprinklerKFactorPage() {
                             const activeRating = BULB_RATINGS.find(b => b.color === selectedBulbColor) || BULB_RATINGS[1];
                             return (
                               <g>
-                                {/* Glass Bulb body */}
                                 <rect 
                                   x="46" 
                                   y="38" 
@@ -1628,7 +1938,6 @@ function SprinklerKFactorPage() {
                                   stroke="#3f3f46" 
                                   strokeWidth="1" 
                                 />
-                                {/* Glass shine overlay */}
                                 <rect 
                                   x="47.5" 
                                   y="41" 
@@ -1638,7 +1947,6 @@ function SprinklerKFactorPage() {
                                   fill="#ffffff" 
                                   opacity="0.65" 
                                 />
-                                {/* Small bulb liquid bubble */}
                                 <circle 
                                   cx="50" 
                                   cy="74" 
@@ -1698,7 +2006,6 @@ function SprinklerKFactorPage() {
                                 : "border-border hover:bg-surface-2 bg-background"
                             }`}
                           >
-                            {/* Visual representation of the bulb capsule */}
                             <div 
                               className="w-2.5 h-5 rounded-full border border-black/10 relative overflow-hidden" 
                               style={{ backgroundColor: rating.hex }}
@@ -1782,7 +2089,7 @@ function SprinklerKFactorPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4">
+                <div className="flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* Search */}
                     <div className="relative">
@@ -1791,7 +2098,7 @@ function SprinklerKFactorPage() {
                         placeholder="Search sprinklers..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-8 w-56 pl-8 pr-7 border border-border focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl text-[12.5px] bg-background outline-none transition-all"
+                        className="h-8 w-48 pl-8 pr-7 border border-border focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl text-[12.5px] bg-background outline-none transition-all"
                       />
                       {searchQuery && (
                         <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -1825,9 +2132,45 @@ function SprinklerKFactorPage() {
                         <option key={k} value={k}>K-{k.toFixed(1)}</option>
                       ))}
                     </select>
+
+                    {/* Flagged Filter Toggle */}
+                    <button
+                      onClick={() => setFlagFilterOnly(v => !v)}
+                      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border transition-all cursor-pointer ${
+                        flagFilterOnly
+                          ? "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400 font-bold"
+                          : "border-border bg-background hover:bg-surface-2 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <Flag className="size-3.5 text-red-500" />
+                      Flagged {flaggedCount > 0 && <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-red-500 text-white font-bold">{flaggedCount}</span>}
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {selected.size > 0 && (
+                      <button
+                        onClick={() => setBulkEditOpen(true)}
+                        className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary cursor-pointer transition-all shadow-xs"
+                      >
+                        <Edit3 className="size-3.5" /> Bulk Edit ({selected.size})
+                      </button>
+                    )}
+
+                    <button
+                      onClick={exportExcel}
+                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
+                    >
+                      <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
+                    </button>
+
+                    <button
+                      onClick={exportPdf}
+                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
+                    >
+                      <FileText className="size-3.5 text-destructive" /> Export PDF
+                    </button>
+
                     <button
                       onClick={handleImportClick}
                       className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
@@ -1862,7 +2205,7 @@ function SprinklerKFactorPage() {
                   ) : (
                     <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
                       <HelpCircle className="size-8 text-muted-foreground/50" />
-                      <span className="text-[13px]">No sprinklers found in schedule. Click 'Add Sprinkler' to begin.</span>
+                      <span className="text-[13px]">No sprinklers match the current filter.</span>
                     </div>
                   )}
 
@@ -1872,6 +2215,12 @@ function SprinklerKFactorPage() {
                       <span className="text-[12px] font-bold border-r border-border pr-3 text-foreground">
                         {selected.size} selected
                       </span>
+                      <button
+                        onClick={() => setBulkEditOpen(true)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-muted rounded-full text-[12px] font-semibold transition-all cursor-pointer text-primary"
+                      >
+                        <Edit3 className="size-3.5" /> Bulk Edit
+                      </button>
                       <button
                         onClick={duplicateSelected}
                         className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-muted rounded-full text-[12px] font-semibold transition-all cursor-pointer text-foreground"
@@ -1899,8 +2248,10 @@ function SprinklerKFactorPage() {
                   <div>
                     Showing <span className="text-foreground font-bold tabular">{filteredRows.length}</span> of {rows.length} sprinklers
                   </div>
-                  <div className="text-muted-foreground italic text-[11px]">
-                    Right-click row for context menu operations
+                  <div className="flex items-center gap-4 text-muted-foreground tabular">
+                    <span>Total Flow: <span className="font-mono text-primary font-bold">{aggregateMetrics.totalFlow.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}</span></span>
+                    <span>Max Pressure: <span className="font-mono text-foreground font-bold">{aggregateMetrics.maxPressure.toFixed(1)} {unitSystem === "si" ? "bar" : "psi"}</span></span>
+                    <span>System Demand: <span className="font-mono text-red-500 font-bold">{aggregateMetrics.systemDemand.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}</span></span>
                   </div>
                 </div>
               </div>
@@ -1918,13 +2269,19 @@ function SprinklerKFactorPage() {
                   <div className="flex items-center gap-2 no-print print:hidden">
                     <button
                       onClick={exportPdf}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer shadow-xs"
                     >
                       <FileText className="size-3.5 text-destructive" /> Export PDF
                     </button>
                     <button
+                      onClick={exportExcel}
+                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer shadow-xs"
+                    >
+                      <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
+                    </button>
+                    <button
                       onClick={() => window.print()}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer shadow-xs"
                     >
                       <Printer className="size-3.5 text-muted-foreground" /> Print Report
                     </button>
@@ -2163,8 +2520,8 @@ function SprinklerKFactorPage() {
                     NFPA 13 formulas calculate standard discharge:
                   </p>
                   <ul className="text-[11px] text-muted-foreground mt-2 list-disc pl-4 flex flex-col gap-1 font-mono">
-                    <li>Flow: Q = K \u00d7 \u221aP</li>
-                    <li>Pressure: P = (Q / K)\u00b2</li>
+                    <li>Flow: Q = K × √P</li>
+                    <li>Pressure: P = (Q / K)²</li>
                   </ul>
                 </div>
 
@@ -2233,6 +2590,81 @@ function SprinklerKFactorPage() {
           )}
         </div>
       </div>
+
+      {/* Bulk Edit Modal */}
+      {bulkEditOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-background border border-border rounded-3xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Edit3 className="size-4 text-primary" />
+                <h3 className="text-[15px] font-bold text-foreground">Bulk Edit ({selected.size} Sprinklers)</h3>
+              </div>
+              <button onClick={() => setBulkEditOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 text-[13px]">
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">Hazard Classification</label>
+                <select
+                  value={bulkEditData.hazard || ""}
+                  onChange={(e) => setBulkEditData(prev => ({ ...prev, hazard: e.target.value || undefined }))}
+                  className="w-full h-10 px-3 border border-border rounded-xl bg-surface-2 text-foreground font-medium outline-none"
+                >
+                  <option value="">(Keep Existing)</option>
+                  <option value="Light Hazard">Light Hazard</option>
+                  <option value="Ordinary Hazard Gp 1">Ordinary Gp 1</option>
+                  <option value="Ordinary Hazard Gp 2">Ordinary Gp 2</option>
+                  <option value="Extra Hazard Gp 1">Extra Gp 1</option>
+                  <option value="Extra Hazard Gp 2">Extra Gp 2</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">K-Factor</label>
+                <select
+                  value={bulkEditData.kFactor !== undefined ? String(bulkEditData.kFactor) : ""}
+                  onChange={(e) => setBulkEditData(prev => ({ ...prev, kFactor: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                  className="w-full h-10 px-3 border border-border rounded-xl bg-surface-2 text-foreground font-medium outline-none"
+                >
+                  <option value="">(Keep Existing)</option>
+                  {STANDARD_K_FACTORS.map(k => (
+                    <option key={k} value={k}>K-{k.toFixed(1)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">Operating Pressure ({unitSystem === "si" ? "bar" : "psi"})</label>
+                <input
+                  type="number"
+                  placeholder="(Keep Existing)"
+                  value={bulkEditData.pressure !== undefined ? bulkEditData.pressure : ""}
+                  onChange={(e) => setBulkEditData(prev => ({ ...prev, pressure: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                  className="w-full h-10 px-3 border border-border rounded-xl bg-surface-2 text-foreground font-medium outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border mt-2">
+              <button
+                onClick={() => setBulkEditOpen(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-border hover:bg-surface-2 text-muted-foreground cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkEditSave}
+                className="px-4 py-2 text-xs font-bold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer shadow-xs"
+              >
+                Apply Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

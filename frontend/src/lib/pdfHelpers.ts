@@ -167,6 +167,11 @@ export function getSignatureBlockDetails(
     reviewerDate = formatDateStr(reviewState.reviewedAt);
   }
 
+  if (!reviewerName && (currentProj as any)?.reviewedBy) {
+    reviewerName = (currentProj as any).reviewedBy;
+    reviewerDate = formatDateStr((currentProj as any).reviewedAt || new Date().toISOString());
+  }
+
   // 3. Approved By: Find the LATEST approved action
   let approverName = "";
   let approverDate = "";
@@ -182,6 +187,11 @@ export function getSignatureBlockDetails(
   if (!approverName && reviewState?.status === "APPROVED" && reviewState?.approvedBy) {
     approverName = reviewState.approvedBy;
     approverDate = formatDateStr(reviewState.approvedAt);
+  }
+
+  if (!approverName && (currentProj as any)?.approvedBy) {
+    approverName = (currentProj as any).approvedBy;
+    approverDate = formatDateStr((currentProj as any).approvedAt || new Date().toISOString());
   }
 
   return {
