@@ -73,6 +73,18 @@ export default defineConfig({
       external: ['xlsx', 'jspdf', 'file-saver', 'jspdf-autotable', 'exceljs', 'iobuffer', 'dompurify', 'pako', '@tauri-apps/plugin-dialog', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process', '@tauri-apps/api'],
     },
     optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+        '@tanstack/react-router',
+        '@tanstack/react-query',
+        'lucide-react',
+        'clsx',
+        'tailwind-merge'
+      ],
       exclude: ['@tanstack/react-start', 'node:async_hooks', 'async_hooks', '@thatopen/components', '@thatopen/components-front', '@thatopen/fragments', 'web-ifc'],
     },
   },
