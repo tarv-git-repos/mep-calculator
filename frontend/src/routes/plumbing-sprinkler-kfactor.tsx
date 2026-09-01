@@ -69,7 +69,7 @@ function getKFactorDetail(k: number | "", isSI: boolean): KFactorDetail {
   if (ipK <= 3.0) {
     return {
       orifice: isSI ? "9.5 mm" : '3/8"',
-      thread: isSI ? "15 mm (1/2\" NPT)" : '1/2" NPT',
+      thread: isSI ? '15 mm (1/2" NPT)' : '1/2" NPT',
       desc: "Residential / Small Orifice",
       sizeRatio: 0.35
     };
@@ -77,7 +77,7 @@ function getKFactorDetail(k: number | "", isSI: boolean): KFactorDetail {
   if (ipK <= 4.8) {
     return {
       orifice: isSI ? "11.0 mm" : '7/16"',
-      thread: isSI ? "15 mm (1/2\" NPT)" : '1/2" NPT',
+      thread: isSI ? '15 mm (1/2" NPT)' : '1/2" NPT',
       desc: "Residential / Light Hazard",
       sizeRatio: 0.45
     };
@@ -85,7 +85,7 @@ function getKFactorDetail(k: number | "", isSI: boolean): KFactorDetail {
   if (ipK <= 6.0) {
     return {
       orifice: isSI ? "12.7 mm" : '1/2"',
-      thread: isSI ? "15 mm (1/2\" NPT)" : '1/2" NPT',
+      thread: isSI ? '15 mm (1/2" NPT)' : '1/2" NPT',
       desc: "Standard Spray Sprinkler",
       sizeRatio: 0.55
     };
@@ -93,7 +93,7 @@ function getKFactorDetail(k: number | "", isSI: boolean): KFactorDetail {
   if (ipK <= 9.0) {
     return {
       orifice: isSI ? "13.5 mm" : '17/32"',
-      thread: isSI ? "20 mm (3/4\" NPT)" : '3/4" NPT',
+      thread: isSI ? '20 mm (3/4" NPT)' : '3/4" NPT',
       desc: "Large Orifice / Extra Hazard",
       sizeRatio: 0.65
     };
@@ -101,7 +101,7 @@ function getKFactorDetail(k: number | "", isSI: boolean): KFactorDetail {
   if (ipK <= 12.0) {
     return {
       orifice: isSI ? "15.9 mm" : '5/8"',
-      thread: isSI ? "20 mm (3/4\" NPT)" : '3/4" NPT',
+      thread: isSI ? '20 mm (3/4" NPT)' : '3/4" NPT',
       desc: "ESFR / Storage Sprinkler",
       sizeRatio: 0.75
     };
@@ -109,14 +109,14 @@ function getKFactorDetail(k: number | "", isSI: boolean): KFactorDetail {
   if (ipK <= 15.0) {
     return {
       orifice: isSI ? "19.0 mm" : '3/4"',
-      thread: isSI ? "20 mm (3/4\" NPT)" : '3/4" NPT',
+      thread: isSI ? '20 mm (3/4" NPT)' : '3/4" NPT',
       desc: "ESFR / High Flow Storage",
       sizeRatio: 0.85
     };
   }
   return {
     orifice: isSI ? "20.0 - 25.4 mm" : '25/32" to 1.0"',
-    thread: isSI ? "20 - 25 mm (3/4\" or 1\" NPT)" : '3/4" or 1" NPT',
+    thread: isSI ? '20 - 25 mm (3/4" or 1" NPT)' : '3/4" or 1" NPT',
     desc: "Ultra Large Orifice / ESFR Deluge",
     sizeRatio: 0.95
   };
@@ -133,7 +133,7 @@ interface BulbRating {
 }
 
 const BULB_RATINGS: BulbRating[] = [
-  { color: "orange", tempF: "135°F", tempC: "57°C", classification: "Ordinary", hex: "#f97316", bgHex: "bg-[#0A7BC7]/10", textHex: "text-[#0A7BC7]" },
+  { color: "orange", tempF: "135°F", tempC: "57°C", classification: "Ordinary", hex: "#f97316", bgHex: "bg-orange-500/10", textHex: "text-orange-500" },
   { color: "red", tempF: "155°F", tempC: "68°C", classification: "Ordinary", hex: "#ef4444", bgHex: "bg-red-500/10", textHex: "text-red-500" },
   { color: "yellow", tempF: "175°F", tempC: "79°C", classification: "Intermediate", hex: "#eab308", bgHex: "bg-yellow-500/10", textHex: "text-yellow-500" },
   { color: "green", tempF: "200°F", tempC: "93°C", classification: "Intermediate", hex: "#22c55e", bgHex: "bg-green-500/10", textHex: "text-green-500" },
@@ -215,7 +215,7 @@ function SprinklerKFactorPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project } = useWorkspace();
   const confirm = useConfirm();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
@@ -556,7 +556,7 @@ function SprinklerKFactorPage() {
   const aggregateMetrics = useMemo(() => {
     let totalFlow = 0;
     let maxPressure = 0;
-    let maxDens = 0.15; // default density trigger
+    let maxDens = 0.15;
 
     rows.forEach(r => {
       totalFlow += r.flow || 0;
@@ -634,7 +634,6 @@ function SprinklerKFactorPage() {
       prev.map(row => {
         if (row.id !== id) return row;
         let updated = { ...row, [field]: val };
-        // Recalculate
         updated = computeRowOutputs(updated);
         return updated;
       })
@@ -707,7 +706,6 @@ function SprinklerKFactorPage() {
 
   // Grid context menu builder
   const renderSprinklerContextMenu = (row: SprinklerRow) => {
-    const isMulti = selected.size > 1;
     const targetIds = selected.has(row.id) ? Array.from(selected) : [row.id];
 
     return (
@@ -799,7 +797,7 @@ function SprinklerKFactorPage() {
 
       const imported: SprinklerRow[] = [];
       sheet.eachRow((row, rowNumber) => {
-        if (rowNumber <= 1) return; // Skip headers
+        if (rowNumber <= 1) return;
         const label = String(row.getCell(2).value || `Sprinkler ${rowNumber - 1}`);
         const k = parseFloat(String(row.getCell(3).value)) || 5.6;
         const solve = String(row.getCell(4).value).toLowerCase().includes("p") ? "P" : "Q";
@@ -1630,7 +1628,7 @@ function SprinklerKFactorPage() {
                     <div>
                       <h4 className="text-[13.5px] font-bold text-foreground">Sprinkler Sizing Equation</h4>
                       <p className="text-[12.5px] text-muted-foreground mt-1 leading-relaxed">
-                        Calculate discharge flow rate based on nozzle pressure and standard K-factor coefficient ($Q = K\sqrt{P}$), or determine required operating pressure to deliver target fire load.
+                        Calculate discharge flow rate based on nozzle pressure and standard K-factor coefficient (Q = K × √P), or determine required operating pressure to deliver target fire load.
                       </p>
                     </div>
                   </div>
