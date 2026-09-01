@@ -2515,9 +2515,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     </button>
                   )}
                   {(() => {
+                    const NON_CALC_TITLES = new Set([
+                      "Dashboard", "Projects", "Project", "Reports", "Report",
+                      "Settings", "Teams", "Team", "BIM Viewer", "Admin",
+                      "Notifications", "Company Hierarchy", "3D BIM Viewer",
+                      "Sanity Check Tool", "Zone Overview", "Equipment"
+                    ]);
+                    if (NON_CALC_TITLES.has(title) || pathname === "/dashboard" || pathname === "/") {
+                      return null;
+                    }
+
                     const MEP_CALC_ROUTES = new Set([
                       // HVAC
-                      "/", "/ventilation", "/preliminary-cooling-load", "/fresh-air-cooling-load",
+                      "/ventilation", "/preliminary-cooling-load", "/fresh-air-cooling-load",
                       "/heating-load", "/chw-pump-head", "/chw-pipe-sizer", "/duct-sizer",
                       "/diffuser-selector", "/refrigerant-pipe-sizing", "/condensate-drain-calc",
                       "/condensate-drain", "/staircase-pressurization", "/lobby-pressurisation",
