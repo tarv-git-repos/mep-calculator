@@ -1502,10 +1502,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   };
 
   useEffect(() => {
+    setHoveredGroup(null);
+  }, [pathname]);
+
+  useEffect(() => {
     if (!hoveredGroup) return;
     const handleOutsideClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (!target.closest('.fixed') && !target.closest('.nav-group-btn')) {
+      if (!target.closest('[data-mega-menu="true"]') && !target.closest('.nav-group-btn')) {
         setHoveredGroup(null);
       }
     };
@@ -2580,6 +2584,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       {/* FLOATING FLYOUT MEGA-MENU */}
       {hoveredGroup && (
         <div
+          data-mega-menu="true"
           onClick={() => setHoveredGroup(null)}
           className="fixed z-[9999] bg-white/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md border border-border dark:border-[#2d2d30] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12),0_1px_3px_rgba(0,0,0,0.03)] p-4.5 transition-all duration-150 animate-in fade-in slide-in-from-left-3 max-h-[calc(100vh-100px)] overflow-y-auto custom-scrollbar"
           style={{
@@ -2628,6 +2633,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                           label={c.label}
                           active={!!c.to && isLinkActive(c.to)}
                           showDot={true}
+                          onClick={() => setHoveredGroup(null)}
                         />
                       ))}
                     </div>
@@ -2754,6 +2760,7 @@ function NavLink({
   active,
   indent,
   showDot,
+  onClick,
 }: {
   to?: string;
   icon?: any;
@@ -2761,6 +2768,7 @@ function NavLink({
   active?: boolean;
   indent?: boolean;
   showDot?: boolean;
+  onClick?: () => void;
 }) {
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -2784,6 +2792,7 @@ function NavLink({
   );
 
   const handleClick = useCallback(async (e: React.MouseEvent) => {
+    if (onClick) onClick();
     if (!to) return;
     const isFromProjectsPage = pathname === "/projects";
     const isToProjectsPage = to === "/projects" || to.startsWith("/projects");
