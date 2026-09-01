@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download } from "lucide-react";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -2136,25 +2136,26 @@ function LoadingUnitPage() {
                     {Object.keys(floorsGrouped).map(floor => (
                       <tbody key={floor} className="border-b border-border/80">
                         
-                        {/* Floor Section Header */}
-                        <tr className="bg-slate-200 dark:bg-slate-800 border-b border-border text-foreground font-bold text-[11.5px]">
-                          <td colSpan={LU_FIXTURES_META.length + 7} className="p-2 px-3 text-center">
+                        {/* Floor Section Header (Matching Ventilation UI) */}
+                        <tr className="bg-slate-100/80 dark:bg-slate-900/60 border-y border-border/70 text-foreground font-bold text-[12px] group select-none">
+                          <td colSpan={LU_FIXTURES_META.length + 7} className="py-2 px-3 text-left">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
-                                <Building2 className="size-4 text-[#0A7BC7]" />
-                                <span className="text-muted-foreground uppercase text-[10.5px]">Floor Section:</span>
+                                <ChevronDown className="size-3.5 text-[#0A7BC7] shrink-0" />
                                 <input
                                   type="text"
                                   value={floor}
                                   onChange={(e) => handleRenameFloorGroup(floor, e.target.value)}
-                                  className="bg-white dark:bg-slate-950 border border-border rounded px-2.5 py-0.5 font-extrabold text-[#0A7BC7] outline-none focus:ring-1 focus:ring-[#0A7BC7] text-xs uppercase"
+                                  className="bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-extrabold text-[#0A7BC7] text-xs uppercase"
                                   placeholder="Floor Name"
                                 />
-                                <span className="text-[10px] font-semibold text-muted-foreground">({floorsGrouped[floor].length} space types)</span>
+                                <span className="text-[10px] text-muted-foreground font-normal">({floorsGrouped[floor].length} space types)</span>
+                                <span className="text-[10px] text-muted-foreground/60 font-normal hidden sm:inline">(Right-click or press Delete to remove)</span>
                               </div>
 
                               <div className="flex items-center gap-2">
                                 <button
+                                  type="button"
                                   onClick={() => handleDeleteFloorGroup(floor)}
                                   className="text-red-500 hover:text-red-700 text-[10.5px] font-semibold hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-0.5 rounded cursor-pointer border-0 bg-transparent transition-colors"
                                 >
