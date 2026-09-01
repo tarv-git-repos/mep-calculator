@@ -247,7 +247,7 @@ async function readUsers(forceRefresh = false) {
         const u = dbMap.get(locId) || dbMap.get(locEmail) || {};
         const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
         const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
-        const orgId = u.organization_id || loc.organization_id || u.features?.organization_id || loc.features?.organization_id || null;
+        const orgId = u.organization_id || u.features?.organization_id || loc.organization_id || loc.features?.organization_id || null;
         const comp = u.company || u.organization || loc.company || loc.organization || u.features?.company || loc.features?.company || u.features?.organization || loc.features?.organization || '';
 
         return {
@@ -361,38 +361,42 @@ async function readUsers(forceRefresh = false) {
 }
 
 async function writeUsers(users) {
-  saveLocalUsers(users);
-  invalidateUserCache();
   try {
     const safeUsers = users.map(u => {
       const { privacyPolicyAccepted, company, designation, profile_photo, settings, ...user } = u;
-      const expDate = user.subscription_expires || user.features?.subscription_expires || null;
-      const orgId = user.organization_id || user.features?.organization_id || null;
-      const comp = company || user.organization || user.features?.company || user.features?.organization || '';
-      const effRole = user.role || user.features?.role || 'Jr. Design Engineer';
+      const expDate = u.subscription_expires || u.features?.subscription_expires || null;
+      const orgId = u.organization_id || u.features?.organization_id || null;
+      const comp = company || u.company || u.organization || u.features?.company || u.features?.organization || '';
+      const effRole = u.role || u.features?.role || 'Jr. Design Engineer';
       const features = {
-        ...(user.features || {}),
+        ...(u.features || {}),
         organization_id: orgId,
         company: comp,
         organization: comp,
         role: effRole,
-        designation: designation || user.features?.designation || '',
-        profile_photo: profile_photo !== undefined ? profile_photo : (user.features?.profile_photo || ''),
-        settings: settings || user.features?.settings || {},
+        designation: designation || u.features?.designation || '',
+        profile_photo: profile_photo !== undefined ? profile_photo : (u.features?.profile_photo || ''),
+        settings: settings || u.features?.settings || {},
         subscription_expires: expDate
       };
       if (u.active_hwid !== undefined) {
         features.active_hwid = u.active_hwid;
       }
       return {
-        ...user,
+        ...u,
         role: effRole,
         organization_id: orgId,
+        company: comp,
+        organization: comp,
         active_hwid: u.active_hwid || null,
         subscription_expires: expDate,
         features
       };
     });
+    saveLocalUsers(safeUsers);
+    usersCache = safeUsers;
+    usersCacheTime = Date.now();
+
     const { error } = await supabase.from('custom_users').upsert(safeUsers);
     if (error) {
       for (const su of safeUsers) {

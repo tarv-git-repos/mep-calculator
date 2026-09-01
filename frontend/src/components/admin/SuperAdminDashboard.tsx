@@ -686,12 +686,11 @@ export function SuperAdminDashboard() {
       }
       const orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}');
       const targetUser = profiles.find(p => p.id === profileId || (p.email && p.email.toLowerCase() === String(profileId).toLowerCase()));
-      if (targetUser?.email) {
-        if (!orgId) {
-          orgOverrides[targetUser.email.toLowerCase()] = 'No Organization';
-        } else {
-          orgOverrides[targetUser.email.toLowerCase()] = orgId;
-        }
+      if (targetUser) {
+        const valToStore = orgId || 'No Organization';
+        if (targetUser.email) orgOverrides[targetUser.email.toLowerCase()] = valToStore;
+        if (targetUser.id) orgOverrides[String(targetUser.id).toLowerCase()] = valToStore;
+        orgOverrides[String(profileId).toLowerCase()] = valToStore;
         localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgOverrides));
       }
     } catch (e) {}

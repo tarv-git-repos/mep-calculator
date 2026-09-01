@@ -192,7 +192,13 @@ export const api = {
       let orgMap: Record<string, string> = {};
       try { orgMap = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
       if (updates.organization_id !== undefined) {
-        orgMap[emailOrId] = updates.organization_id || '';
+        const valToStore = updates.organization_id || 'No Organization';
+        orgMap[emailOrId] = valToStore;
+        const matchingUser = users.find((u: any) => String(u.id || '').toLowerCase() === emailOrId || String(u.email || '').toLowerCase() === emailOrId);
+        if (matchingUser) {
+          if (matchingUser.email) orgMap[String(matchingUser.email).toLowerCase()] = valToStore;
+          if (matchingUser.id) orgMap[String(matchingUser.id).toLowerCase()] = valToStore;
+        }
         localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgMap));
       }
 
