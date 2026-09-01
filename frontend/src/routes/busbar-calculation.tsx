@@ -1656,7 +1656,7 @@ function BusbarCalculationPage() {
                           </div>
 
                           <div className="overflow-auto max-h-[500px]">
-                            <table className="table-fixed text-[12px] border-collapse whitespace-nowrap" style={{ width: Math.max(950, totalBusbarTableWidth) }}>
+                            <table className="table-fixed text-[12px] border-collapse whitespace-nowrap w-full" style={{ width: "100%", minWidth: `${Math.max(950, totalBusbarTableWidth)}px` }}>
                               <thead className="bg-header-bg sticky top-0 z-10 border-b border-border text-muted-foreground font-semibold select-none">
                                 <tr className="text-left">
                                   <th style={{ width: busbarColWidths.select }} className="px-1 py-2 text-center relative group">

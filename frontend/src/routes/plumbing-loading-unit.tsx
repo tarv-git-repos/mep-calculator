@@ -1772,10 +1772,10 @@ function LoadingUnitPage() {
                   }}
                   className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[240px]"
                 >
-                  <option value="iop_bs">🇬🇧 IoP PESDG Table 15 / BS EN 806 (LU)</option>
-                  <option value="ipc_upc">🌐 International Plumbing Code - IPC Table E103.3(2) (WSFU)</option>
-                  <option value="dubai">🇦🇪 Dubai Standard (DBC 2021 / BS EN 806)</option>
-                  <option value="abudhabi">🇦🇪 Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
+                  <option value="iop_bs">IoP PESDG Table 15 / BS EN 806 (LU)</option>
+                  <option value="ipc_upc">International Plumbing Code - IPC Table E103.3(2) (WSFU)</option>
+                  <option value="dubai">Dubai Standard (DBC 2021 / BS EN 806)</option>
+                  <option value="abudhabi">Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
                 </select>
               </div>
 
