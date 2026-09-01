@@ -956,7 +956,8 @@ const loadIfcFile = async (file: File) => {
             if (!storey) return;
 
             const index = storeys.indexOf(storey);
-            const cutElevation = (index < storeys.length - 1) ? storeys[index + 1].elevation : storey.elevation + 4000;
+            const nextElevation = (index < storeys.length - 1) ? storeys[index + 1].elevation : storey.elevation + 4000;
+            const cutElevation = Math.max(nextElevation + 1500, storey.elevation + 3500);
             const currentVerticalAxis = (Math.abs(world.camera.three.up.z) > 0.5) ? 'z' : 'y';
             const worldHeight = getWorldHeight(cutElevation);
             const worldCutPoint = currentVerticalAxis === 'y' ? new THREE.Vector3(0, worldHeight, 0) : new THREE.Vector3(0, 0, worldHeight);

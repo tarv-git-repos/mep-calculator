@@ -68,123 +68,6 @@ export function isMepValidSpaceName(name: string): boolean {
 }
 
 /**
- * Classifies space airflow pressure class (Positive, Negative, Neutral)
- * based on TARV Revit Addin logic (AutoCreateZonesCommand.cs).
- */
-export function predictSpacePressureClass(spaceName: string): { pressure: string; classType: "Positive" | "Negative" | "Neutral" } {
-  const name = (spaceName || "").trim();
-  if (!name) return { pressure: "+1", classType: "Positive" };
-
-  const negativeKeywords = [
-    "TOILET", "WASHROOM", "BATHROOM", "WC", "BATH", "RESTROOM",
-    "LAUNDRY", "KITCHEN", "SERVICE KITCHEN", "GARBAGE", "REFUSE",
-    "JANITOR", "CLEANER", "EXTRACT", "EXHAUST", "PANTRY", "SHOWER", "DIRTY"
-  ];
-
-  const neutralKeywords = [
-    "CORRIDOR", "HALLWAY", "PASSAGE", "STAIRS", "STAIRCASE", "SHAFT", "VOID", "LIFT"
-  ];
-
-  const upper = name.toUpperCase();
-
-  for (const kw of negativeKeywords) {
-    if (upper.includes(kw)) {
-      return { pressure: "-1", classType: "Negative" };
-    }
-  }
-
-  for (const kw of neutralKeywords) {
-    if (upper.includes(kw)) {
-      return { pressure: "0", classType: "Neutral" };
-    }
-  }
-
-  return { pressure: "+1", classType: "Positive" };
-}
-
-/**
- * Automatically groups extracted 3D spaces into HVAC Zones based on Airflow Pressure & Level Adjacency
- * following the TARV Revit Addin logic (AutoCreateZonesCommand.cs).
- */
-export function applyAirflowAutoZoning<T extends Extracted3DSpace>(spaces: T[]): T[] {
-  if (!spaces || spaces.length === 0) return [];
-
-  // Group spaces by floor level
-  const spacesByLevel = new Map<string, T[]>();
-  spaces.forEach((sp) => {
-    const lvl = (sp.level || "Ground Floor").trim();
-    if (!spacesByLevel.has(lvl)) spacesByLevel.set(lvl, []);
-    spacesByLevel.get(lvl)!.push(sp);
-  });
-
-  const zonedSpaces: T[] = [];
-
-  spacesByLevel.forEach((levelSpaces, levelName) => {
-    const positiveSpaces: T[] = [];
-    const nonPositiveSpaces: T[] = [];
-
-    levelSpaces.forEach((sp) => {
-      const pressInfo = predictSpacePressureClass(sp.name);
-      if (pressInfo.classType === "Positive") {
-        positiveSpaces.push(sp);
-      } else {
-        nonPositiveSpaces.push(sp);
-      }
-    });
-
-    const usedZoneNames = new Set<string>();
-
-    const getZoneName = (baseName: string) => {
-      const cleanBase = baseName.replace(/\s*(ZONE|\d+)$/i, "").trim();
-      let name = `${cleanBase} Zone`;
-      if (!usedZoneNames.has(name.toUpperCase())) {
-        usedZoneNames.add(name.toUpperCase());
-        return name;
-      }
-      let i = 1;
-      while (true) {
-        let test = `${cleanBase} Zone-${i}`;
-        if (!usedZoneNames.has(test.toUpperCase())) {
-          usedZoneNames.add(test.toUpperCase());
-          return test;
-        }
-        i++;
-      }
-    };
-
-    const posZoneMap = new Map<string, string>();
-    positiveSpaces.forEach((posSp) => {
-      const zName = getZoneName(posSp.name);
-      posZoneMap.set(posSp.id, zName);
-    });
-
-    nonPositiveSpaces.forEach((npSp, idx) => {
-      let targetZone = "";
-      if (positiveSpaces.length > 0) {
-        const targetPos = positiveSpaces[idx % positiveSpaces.length];
-        targetZone = posZoneMap.get(targetPos.id) || `${levelName} Zone`;
-      } else {
-        targetZone = `${levelName} Zone`;
-      }
-      posZoneMap.set(npSp.id, targetZone);
-    });
-
-    levelSpaces.forEach((sp) => {
-      const assignedZone = posZoneMap.get(sp.id) || `${levelName} Zone`;
-      const pressInfo = predictSpacePressureClass(sp.name);
-      zonedSpaces.push({
-        ...sp,
-        zone: (sp.zone && sp.zone.trim() !== "" && sp.zone.trim().toLowerCase() !== "default") ? sp.zone : assignedZone,
-        pressure: pressInfo.pressure,
-        pressureAutoDetected: true,
-      });
-    });
-  });
-
-  return sortSpacesByFloorAndName(zonedSpaces);
-}
-
-/**
  * Determine logical elevation order for floor levels.
  * Order: Basement -> Ground Floor -> 1st Floor -> 2nd Floor -> ... -> Roof Floor.
  */
@@ -239,6 +122,201 @@ export function sortSpacesByFloorAndName<T extends { level: string; name: string
 }
 
 /**
+ * Space Pressure Classification (Direct Implementation of Step 2 in AutoCreateZonesCommand.cs)
+ * 1. Checks parameters ("Pressure", "Space Pressure", "Design Pressure").
+ * 2. Keyword fallback:
+ *    - Negative (Extract spaces): Toilet, Washroom, Bathroom, WC, Laundry, Kitchen, Garbage, Janitor, Pantry, Shower, Extract, Exhaust.
+ *    - Neutral (Transfer spaces): Corridor, Hallway, Passage, Stairs, Shaft.
+ *    - Positive (Supply spaces): Default classification for all remaining occupied rooms.
+ */
+export function getSpacePressureClass(name: string, pressureVal?: string): "Negative" | "Neutral" | "Positive" {
+  if (pressureVal) {
+    const val = String(pressureVal).trim().toLowerCase();
+    if (val.includes("negative") || val.startsWith("-") || parseFloat(val) < 0) return "Negative";
+    if (val.includes("positive") || val.startsWith("+") || parseFloat(val) > 0) return "Positive";
+    if (val.includes("neutral") || val === "0" || parseFloat(val) === 0) return "Neutral";
+  }
+
+  const n = (name || "").trim();
+
+  const negativeKeywords = [
+    "Toilet", "Washroom", "Bathroom", "WC", "Bath",
+    "Laundry", "Kitchen", "Garbage", "Janitor", "Pantry", "Shower", "Extract", "Exhaust"
+  ];
+
+  const neutralKeywords = [
+    "Corridor", "Hallway", "Passage", "Stairs", "Shaft"
+  ];
+
+  for (const kw of negativeKeywords) {
+    if (new RegExp(`\\b${kw}\\b`, "i").test(n) || n.toLowerCase().includes(kw.toLowerCase())) {
+      return "Negative";
+    }
+  }
+
+  for (const kw of neutralKeywords) {
+    if (new RegExp(`\\b${kw}\\b`, "i").test(n) || n.toLowerCase().includes(kw.toLowerCase())) {
+      return "Neutral";
+    }
+  }
+
+  return "Positive";
+}
+
+/**
+ * Dynamic Airflow-Based Ventilation Zoning Engine
+ * Exact 4-Step Implementation of TARV Revit Addin (AutoCreateZonesCommand.cs):
+ * 
+ * 1. Space Adjacency Graph Mapping:
+ *    Builds a bi-directional graph (adjacencyMap) connecting spaces on the same level
+ *    via door / opening connections or space boundary proximity.
+ * 
+ * 2. Space Pressure Classification (GetSpacePressureClass):
+ *    - Negative (Extract spaces): Toilet, Washroom, Bathroom, WC, Laundry, Kitchen, Garbage, Janitor, Pantry, Shower, Extract, Exhaust.
+ *    - Neutral (Transfer spaces): Corridor, Hallway, Passage, Stairs, Shaft.
+ *    - Positive (Supply spaces): Default classification for all remaining occupied rooms.
+ * 
+ * 3. Airflow Path Traversal (FindAirflowZoningPath - Breadth-First Search):
+ *    For each unassigned Negative space, runs a BFS traversal through unassigned Neutral transfer spaces
+ *    until reaching a Positive supply space. Group: [Negative Space] -> [Neutral Space(s)...] -> [Positive Space].
+ * 
+ * 4. Zone Naming & Assignment:
+ *    - Zone Name = Clean Name of the Positive supply space + " Zone" (e.g. "BEDROOM 1 Zone", "GARAGE Zone").
+ *    - Unassigned / isolated spaces with no airflow path to another space = "Default".
+ */
+export function autoGroupBimZones<T extends Extracted3DSpace>(spaces: T[]): T[] {
+  if (!spaces || spaces.length === 0) return spaces;
+
+  // Group spaces by floor level
+  const spacesByLevel = new Map<string, T[]>();
+  spaces.forEach((sp) => {
+    const lvl = (sp.level || "Ground Floor").trim();
+    const list = spacesByLevel.get(lvl) || [];
+    list.push(sp);
+    spacesByLevel.set(lvl, list);
+  });
+
+  const resultArray: T[] = [];
+
+  spacesByLevel.forEach((levelSpaces) => {
+    if (levelSpaces.length === 1) {
+      resultArray.push({ ...levelSpaces[0], zone: "Default" });
+      return;
+    }
+
+    // Step 1: Build Adjacency Graph (adjacencyMap) for spaces on this floor level
+    const adjacencyMap = new Map<string, T[]>();
+    levelSpaces.forEach((s) => adjacencyMap.set(s.id, []));
+
+    levelSpaces.forEach((s1, i) => {
+      levelSpaces.forEach((s2, j) => {
+        if (i >= j) return;
+
+        const s1Num = s1.name.match(/\d+/);
+        const s2Num = s2.name.match(/\d+/);
+        const sameNum = s1Num && s2Num && s1Num[0] === s2Num[0];
+
+        const s1Clean = s1.name.replace(/BATHROOM|WC|REST\s*ROOM|TOILET|BATH/i, "").trim().toUpperCase();
+        const s2Clean = s2.name.replace(/BATHROOM|WC|REST\s*ROOM|TOILET|BATH/i, "").trim().toUpperCase();
+        const sameSuite = s1Clean.length > 2 && s2Clean.length > 2 && (s1.name.toUpperCase().includes(s2Clean) || s2.name.toUpperCase().includes(s1Clean));
+
+        if (sameNum || sameSuite) {
+          adjacencyMap.get(s1.id)?.push(s2);
+          adjacencyMap.get(s2.id)?.push(s1);
+        }
+      });
+    });
+
+    // Step 2: Classify spaces into Negative, Neutral, and Positive
+    const classifiedMap = new Map<string, "Negative" | "Neutral" | "Positive">();
+    levelSpaces.forEach((sp) => {
+      classifiedMap.set(sp.id, getSpacePressureClass(sp.name, sp.pressure));
+    });
+
+    const negativeSpaces = levelSpaces.filter((sp) => classifiedMap.get(sp.id) === "Negative");
+    const assignedSpaceIds = new Set<string>();
+    const positiveToZoneSpacesMap = new Map<string, T[]>();
+
+    // Step 3: Airflow Path Traversal (Breadth-First Search - FindAirflowZoningPath)
+    function findAirflowZoningPath(negSpace: T): T[] | null {
+      const queue: T[][] = [[negSpace]];
+      const visited = new Set<string>([negSpace.id]);
+
+      while (queue.length > 0) {
+        const path = queue.shift()!;
+        const current = path[path.length - 1];
+        const currentClass = classifiedMap.get(current.id);
+
+        if (currentClass === "Positive") {
+          return path; // Found positive supply space!
+        }
+
+        // Continue traversing if at start (negative) or unassigned neutral transfer space
+        if (current.id === negSpace.id || (currentClass === "Neutral" && !assignedSpaceIds.has(current.id))) {
+          const neighbors = adjacencyMap.get(current.id) || [];
+          for (const neighbor of neighbors) {
+            if (!visited.has(neighbor.id) && !assignedSpaceIds.has(neighbor.id)) {
+              visited.add(neighbor.id);
+              queue.push([...path, neighbor]);
+            }
+          }
+        }
+      }
+
+      return null;
+    }
+
+    // Run BFS for each unassigned Negative space
+    negativeSpaces.forEach((negSpace) => {
+      if (assignedSpaceIds.has(negSpace.id)) return;
+
+      const path = findAirflowZoningPath(negSpace);
+      if (path && path.length > 0) {
+        const posSpace = path[path.length - 1];
+
+        if (!positiveToZoneSpacesMap.has(posSpace.id)) {
+          positiveToZoneSpacesMap.set(posSpace.id, [posSpace]);
+          assignedSpaceIds.add(posSpace.id);
+        }
+
+        path.forEach((pathSpace) => {
+          if (pathSpace.id !== posSpace.id) {
+            positiveToZoneSpacesMap.get(posSpace.id)?.push(pathSpace);
+            assignedSpaceIds.add(pathSpace.id);
+          }
+        });
+      }
+    });
+
+    // Step 4: Assign Zone Names
+    const zoneNameMap = new Map<string, string>();
+
+    positiveToZoneSpacesMap.forEach((zoneSpaces, posId) => {
+      const posSpace = levelSpaces.find((s) => s.id === posId);
+      if (!posSpace) return;
+
+      const cleanPosName = posSpace.name.trim();
+      const zoneName = cleanPosName.toLowerCase().includes("zone") ? cleanPosName : `${cleanPosName} Zone`;
+
+      zoneSpaces.forEach((sp) => {
+        zoneNameMap.set(sp.id, zoneName);
+      });
+    });
+
+    // Set zone names (unassigned spaces default to "Default")
+    levelSpaces.forEach((sp) => {
+      const finalZone = zoneNameMap.get(sp.id) || "Default";
+      resultArray.push({
+        ...sp,
+        zone: finalZone,
+      });
+    });
+  });
+
+  return sortSpacesByFloorAndName(resultArray);
+}
+
+/**
  * Extracts spaces from currently loaded 3D Viewer session or workspace store
  */
 export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
@@ -280,7 +358,8 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
       });
     });
 
-    return applyAirflowAutoZoning(spaces);
+    const sorted = sortSpacesByFloorAndName(spaces);
+    return autoGroupBimZones(sorted);
   }
 
   return [];
@@ -393,7 +472,8 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
     });
 
     parser.closeModel();
-    return applyAirflowAutoZoning(spaces);
+    const sorted = sortSpacesByFloorAndName(spaces);
+    return autoGroupBimZones(sorted);
   } catch (err) {
     console.warn("Dynamic web-ifc space extraction failed, falling back to active viewer:", err);
     return extractSpacesFromActiveViewer();

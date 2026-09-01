@@ -3,7 +3,7 @@ import { X, Sparkles, Table } from "lucide-react";
 import { toast } from "sonner";
 import { workspaceStore } from "@/lib/workspace-store";
 import { predictSpacePressure } from "@/lib/ai-occupancy";
-import { Extracted3DSpace, sortSpacesByFloorAndName, isMepValidSpaceName, applyAirflowAutoZoning } from "@/lib/bimViewerSpaceExtractor";
+import { Extracted3DSpace, sortSpacesByFloorAndName, isMepValidSpaceName } from "@/lib/bimViewerSpaceExtractor";
 
 interface BimScheduleReviewModalProps {
   isOpen: boolean;
@@ -28,19 +28,12 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
 
   useEffect(() => {
     const validFiltered = (initialRecords || []).filter((r) => isMepValidSpaceName(r.name));
-    const zoned = applyAirflowAutoZoning(validFiltered);
-    setRecords(zoned);
-    setSelectedIds(new Set(zoned.map((r) => r.id)));
+    const sorted = sortSpacesByFloorAndName(validFiltered);
+    setRecords(sorted);
+    setSelectedIds(new Set(sorted.map((r) => r.id)));
   }, [initialRecords]);
 
   if (!isOpen) return null;
-
-  const handleAutoZone = () => {
-    if (records.length === 0) return;
-    const zoned = applyAirflowAutoZoning(records);
-    setRecords(zoned);
-    toast.success("⚡ Airflow HVAC Zones created automatically based on space pressure & level grouping!");
-  };
 
   const toggleSelect = (id: string, shiftKey: boolean, ctrlKey: boolean) => {
     const idx = records.findIndex((r) => r.id === id);
@@ -217,16 +210,8 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
               className="bg-[#18181b] border border-[#3f3f46] rounded px-2 py-1 w-16 text-white outline-none focus:border-blue-500"
             />
             <button
-              onClick={handleAutoZone}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1 rounded transition-all shadow flex items-center gap-1.5 cursor-pointer ml-auto"
-              title="Automatically group spaces into HVAC zones based on Airflow Pressure & Level grouping (TARV Revit Addin)"
-            >
-              <Sparkles className="size-3.5" />
-              Auto-Create Zones
-            </button>
-            <button
               onClick={handleBulkApply}
-              className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-1 rounded transition-colors shadow cursor-pointer"
+              className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-1 rounded transition-colors ml-auto shadow cursor-pointer"
             >
               Apply Bulk
             </button>
