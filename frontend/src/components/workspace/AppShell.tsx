@@ -2515,13 +2515,35 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     </button>
                   )}
                   {(() => {
-                    const nonCalcPaths = [
-                      "/dashboard", "/projects", "/bim-viewer", "/reports", "/report",
-                      "/teams", "/team", "/admin", "/settings", "/privacy", "/login",
-                      "/calculators", "/reset-password", "/notifications", "/company-hierarchy",
-                      "/3d-view", "/sanity-check-tool"
-                    ];
-                    if (!nonCalcPaths.includes(pathname) && Boolean(title)) {
+                    const MEP_CALC_ROUTES = new Set([
+                      // HVAC
+                      "/", "/ventilation", "/preliminary-cooling-load", "/fresh-air-cooling-load",
+                      "/heating-load", "/chw-pump-head", "/chw-pipe-sizer", "/duct-sizer",
+                      "/diffuser-selector", "/refrigerant-pipe-sizing", "/condensate-drain-calc",
+                      "/condensate-drain", "/staircase-pressurization", "/lobby-pressurisation",
+                      "/smoke-extract-fan", "/basement-smoke-calc", "/psychrometric",
+
+                      // Electrical
+                      "/cable-voltage-drop", "/busbar-voltage-drop", "/busbar-calculation",
+                      "/conductor-sizing", "/transformer-sizing", "/generator-sizing",
+                      "/ups-sizing-calculation", "/capacitor-bank-sizing", "/circuit-breaker-sizing",
+                      "/short-circuit-calculations", "/cable-tray-sizing", "/lighting-lux-calculation",
+                      "/lpd-calculation", "/central-battery-sizing", "/project-load-schedule",
+
+                      // Plumbing
+                      "/plumbing-water-demand", "/plumbing-tank-sizing", "/plumbing-pump-sizing",
+                      "/plumbing-booster-pump", "/plumbing-pressure-vessel", "/plumbing-fixture-unit",
+                      "/plumbing-loading-unit", "/plumbing-supply-pipe-sizer", "/plumbing-drainage",
+                      "/plumbing-drainage-pipe-sizer", "/plumbing-sump-pump", "/plumbing-sewage-pump",
+                      "/plumbing-storm-water", "/plumbing-gas-tank", "/plumbing-hazen-williams",
+
+                      // Fire Fighting
+                      "/plumbing-fire-water-demand", "/plumbing-fire-tank-capacity",
+                      "/plumbing-fire-tank-duration", "/plumbing-fire-pump-duty",
+                      "/plumbing-sprinkler-density", "/plumbing-sprinkler-kfactor",
+                      "/plumbing-fm200"
+                    ]);
+                    if (MEP_CALC_ROUTES.has(pathname)) {
                       return (
                         <CalculationReviewBar
                           projectId={activeProjectId || "default"}
