@@ -61,6 +61,9 @@ interface PclRow {
 }
 
 const INFER_MAP: [string, string][] = [
+  ["bhk", "Apartment - Dwelling Unit"],
+  ["studio", "Apartment - Dwelling Unit"],
+  ["flat", "Apartment - Dwelling Unit"],
   ["apartment", "Apartment - Dwelling Unit"],
   ["dwelling", "Apartment - Dwelling Unit"],
   ["bedroom", "Apartment - Dwelling Unit"],
@@ -94,9 +97,29 @@ const INFER_MAP: [string, string][] = [
   ["restroom", "Toilet - Public"],
   ["server", "Server Room"],
   ["cctv", "CCTV Room"],
+  ["security", "CCTV Room"],
+  ["fcc", "FCC Room"],
+  ["fire control", "FCC Room"],
   ["idf", "Typ. IDF Room"],
+  ["tel.", "Typ. IDF Room"],
+  ["telecom", "Typ. IDF Room"],
   ["electrical", "Typ. Electrical Room"],
   ["elec", "Typ. Electrical Room"],
+  ["ele.", "Typ. Electrical Room"],
+  ["substation", "LV Room"],
+  ["lv room", "LV Room"],
+  ["transformer", "LV Room"],
+  ["ets", "ETS Pump Room"],
+  ["pump", "ETS Pump Room"],
+  ["water mt", "MTR Room"],
+  ["thermal tank", "ETS Room"],
+  ["domestic pump", "ETS Pump Room"],
+  ["chilled water", "Chilled Water Pump Room"],
+  ["fire pump", "Fire Pump Room"],
+  ["garbage", "Garbage Room"],
+  ["trash", "Garbage Room"],
+  ["waste", "Garbage Room"],
+  ["refuse", "Garbage Room"],
   ["storage", "Storage - Dry"],
   ["store", "Storage - Dry"],
   ["caf", "Café"],
@@ -1339,13 +1362,12 @@ function PreliminaryCoolingLoadPage() {
           className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
           title={
             (() => {
-              if (r.flagged) return "Unflag space";
               const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
-              const isNoType = !r.type || r.type.trim() === "";
-              if (isNoArea && isNoType) return "Missing space area and type";
+              const isNoType = !r.type || r.type.trim() === "" || r.type.toLowerCase() === "select" || r.type.toLowerCase().includes("select type");
+              if (isNoArea && isNoType) return "Missing space area and space type";
               if (isNoArea) return "Missing space area";
-              if (isNoType) return "Missing space type";
-              return "Flag space";
+              if (isNoType) return "Missing space type (heat density not assigned)";
+              return r.flagged ? "Unflag space" : "Flag space";
             })()
           }
         >
@@ -1534,15 +1556,6 @@ function PreliminaryCoolingLoadPage() {
                   Printable Report
                 </button>
               </div>
-
-              <div className="flex items-center gap-1.5">
-                <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber })}>
-                  <FileText className="size-3.5" /> Export PDF
-                </TBtn>
-                <TBtn onClick={handleExportExcel}>
-                  <FileSpreadsheet className="size-3.5" /> Export Excel
-                </TBtn>
-              </div>
             </div>
 
             {/* Active Tab View */}
@@ -1688,9 +1701,27 @@ function PreliminaryCoolingLoadPage() {
                       </Popover>
                       
                       <div className="ml-auto flex items-center gap-1">
+                        <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
                         <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber })}><FileText className="size-3.5" /> Export PDF</TBtn>
                         <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
-                        <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
+                        {rows.length > 0 && (
+                          <TBtn
+                            onClick={async () => {
+                              if (await confirm(`Are you sure you want to clear all ${rows.length} spaces? This will reset the preliminary cooling load schedule.`, {
+                                title: "Clear All Spaces",
+                                confirmText: "Clear All",
+                                hideCancel: false,
+                              })) {
+                                saveRows([]);
+                                setSelected(new Set());
+                              }
+                            }}
+                            className="text-destructive hover:bg-destructive/10"
+                            title="Clear all spaces"
+                          >
+                            <Trash2 className="size-3.5" /> Clear All
+                          </TBtn>
+                        )}
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
 
