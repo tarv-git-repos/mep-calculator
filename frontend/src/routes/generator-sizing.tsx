@@ -93,7 +93,7 @@ export function getGenRowValidation(r?: Partial<GenRow>) {
   }
 
   const isAutoFlagged = warnings.length > 0;
-  const isFlagged = Boolean(r.flagged || isAutoFlagged);
+  const isFlagged = r.flagged !== undefined ? Boolean(r.flagged) : isAutoFlagged;
   return { isAutoFlagged, isFlagged, warnings };
 }
 

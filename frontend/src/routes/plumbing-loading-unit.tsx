@@ -53,9 +53,9 @@ export function getLUSpaceValidation(s?: Partial<LUSpace>) {
     if (!hasFixtures) warnings.push("No fixtures specified for this space");
   }
 
-  const isManualFlagged = Boolean(s.flagged);
   const isAutoFlagged = warnings.length > 0;
-  const isFlagged = isManualFlagged || isAutoFlagged;
+  const isManualFlagged = s.flagged === true;
+  const isFlagged = s.flagged !== undefined ? Boolean(s.flagged) : isAutoFlagged;
 
   return { isFlagged, isManualFlagged, isAutoFlagged, warnings };
 }
