@@ -12,7 +12,8 @@ import { TBtn } from "@/components/workspace/Button";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
-import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare } from "lucide-react";
+import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -59,7 +60,40 @@ interface BusbarRow {
   length: number | "";
   loadKw: number | "";
   div: number | "";
+  flagged?: boolean;
   comments?: TaskComment[];
+}
+
+export function getBusbarRowValidation(r?: Partial<BusbarRow>, vdPercent: number = 0) {
+  const warnings: string[] = [];
+  if (!r) return { isAutoFlagged: false, isFlagged: false, warnings: [] };
+
+  const descEmpty = !r.desc || String(r.desc).trim() === "";
+  const lenEmpty = r.length === "" || r.length === undefined || r.length === null || Number(r.length) === 0;
+  const loadEmpty = r.loadKw === "" || r.loadKw === undefined || r.loadKw === null || Number(r.loadKw) === 0;
+
+  // Don't auto-flag brand new completely blank rows
+  const isCompletelyEmpty = descEmpty && lenEmpty && loadEmpty;
+
+  if (!isCompletelyEmpty) {
+    if (descEmpty) {
+      warnings.push("description");
+    }
+    if (r.length === "" || r.length === undefined || r.length === null || isNaN(Number(r.length)) || Number(r.length) <= 0) {
+      warnings.push("length (0 or missing)");
+    }
+    if (r.loadKw === "" || r.loadKw === undefined || r.loadKw === null || isNaN(Number(r.loadKw)) || Number(r.loadKw) <= 0) {
+      warnings.push("load (kW)");
+    }
+  }
+
+  if (Number(vdPercent) > 2.5) {
+    warnings.push("exceeds 2.5% V.drop");
+  }
+
+  const isAutoFlagged = warnings.length > 0;
+  const isFlagged = Boolean(r.flagged || isAutoFlagged);
+  return { isAutoFlagged, isFlagged, warnings };
 }
 
 interface BusbarSection {
@@ -144,6 +178,24 @@ function BusbarCalculationPage() {
 
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterVd, setFilterVd] = useState<"all" | "within" | "exceeds">("all");
+  const [filterLoad, setFilterLoad] = useState<"all" | "high" | "low">("all");
+  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
+  const [sortBy, setSortBy] = useState<"none" | "desc" | "load" | "vd">("none");
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterVd !== "all") count++;
+    if (filterLoad !== "all") count++;
+    return count;
+  }, [filterVd, filterLoad]);
+
+  const handleResetFilters = () => {
+    setFilterVd("all");
+    setFilterLoad("all");
+  };
+
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
     window.addEventListener("click", handleClickOutside);
@@ -152,9 +204,63 @@ function BusbarCalculationPage() {
 
   const [customBusbars, setCustomBusbars] = useState<Record<string, { r: number; x: number; label: string }>>({});
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
+
+  const [busbarColWidths, setBusbarColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_grid_busbar_cols");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      select: 32,
+      no: 36,
+      desc: 220,
+      len: 90,
+      loadKw: 90,
+      tclKw: 90,
+      div: 70,
+      mdKw: 90,
+      curA: 90,
+      vdV: 90,
+      vdPct: 90,
+      actions: 60,
+    };
+  });
+
+  const totalBusbarTableWidth = useMemo(() => {
+    return Object.values(busbarColWidths).reduce((a, b) => a + b, 0);
+  }, [busbarColWidths]);
+
+  const handleResizeMouseDown = (key: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = busbarColWidths[key] || 80;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = Math.max(40, startWidth + deltaX);
+      setBusbarColWidths(prev => {
+        const next = { ...prev, [key]: newWidth };
+        try { localStorage.setItem("mep_grid_busbar_cols", JSON.stringify(next)); } catch(err) {}
+        return next;
+      });
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
 
   const [undoStack, setUndoStack] = useState<any[][]>([]);
   const [redoStack, setRedoStack] = useState<any[][]>([]);
@@ -779,6 +885,39 @@ function BusbarCalculationPage() {
     return calculatedPanels.flatMap(p => p.calcSections.map(s => ({ ...s, panelName: p.name })));
   }, [calculatedPanels]);
 
+  const flagStats = useMemo(() => {
+    let totalCount = 0;
+    let flaggedCount = 0;
+    calculatedPanels.forEach(p => {
+      p.calcSections.forEach(s => {
+        s.calcRows.forEach(r => {
+          totalCount++;
+          const { isFlagged } = getBusbarRowValidation(r, r.vdPercent);
+          if (isFlagged) flaggedCount++;
+        });
+      });
+    });
+    return { totalCount, flaggedCount };
+  }, [calculatedPanels]);
+
+  const toggleFlagRows = (targetRowId: string, currentFlagged: boolean) => {
+    pushToUndo(panels);
+    const targetIds = selectedRows.has(targetRowId) && selectedRows.size > 1
+      ? Array.from(selectedRows)
+      : [targetRowId];
+    
+    const nextState = !currentFlagged;
+    setPanels(prev => prev.map(p => ({
+      ...p,
+      sections: p.sections.map(s => ({
+        ...s,
+        rows: s.rows.map(r => targetIds.includes(r.id) ? { ...r, flagged: nextState } : r)
+      }))
+    })));
+
+    toast.info(nextState ? `Flagged ${targetIds.length} tap off(s) for review` : `Unflagged ${targetIds.length} tap off(s)`);
+  };
+
   const exportExcel = async () => {
     const workbook = new ExcelJS.Workbook();
 
@@ -1221,45 +1360,184 @@ function BusbarCalculationPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  const actions = (
-    <>
-      <label className="cursor-pointer inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2">
-        <Upload className="size-3.5" /> Import Ratings
-        <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
-      </label>
-      <TBtn onClick={exportPdf}><Download className="size-3.5" /> PDF</TBtn>
-      <TBtn onClick={clearAll}><Trash2 className="size-3.5" /> Clear All</TBtn>
-      <TBtn primary onClick={addPanel}><Plus className="size-3.5" /> Add LV Panel</TBtn>
-    </>
-  );
-
   return (
-    <AppShell title="Busbar Calculation" subtitle="Calculate voltage drop over multiple busbars and panels" actions={actions}>
+    <AppShell title="Busbar Calculation" subtitle="Calculate voltage drop over multiple busbars and panels">
       <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
-        {/* Sizer Section Header with Unit Switcher */}
-        <div className="flex items-center justify-between px-4 h-9 border-b border-border bg-background shrink-0 select-none">
-          <div className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Sizer Workspace
+        {/* Sizer Section Header with Search, Filters, View, Flag Filter & Module Actions */}
+        <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-x-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter tap offs..."
+                className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
+              />
+            </div>
+
+            {/* Filters Icon Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                    activeFiltersCount > 0
+                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                  }`}
+                >
+                  <Filter className="size-3.5 shrink-0" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                    Filter
+                  </span>
+                  {activeFiltersCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                      {activeFiltersCount}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <span className="text-xs font-bold text-foreground">Filter Tap Offs</span>
+                  {activeFiltersCount > 0 && (
+                    <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
+                      Reset All
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Voltage Drop</span>
+                  <select
+                    value={filterVd}
+                    onChange={(e) => setFilterVd(e.target.value as any)}
+                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                  >
+                    <option value="all">All V.Drop Status</option>
+                    <option value="within">Within Limit (≤ 2.5%)</option>
+                    <option value="exceeds">Exceeds Limit (&gt; 2.5%)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Range</span>
+                  <select
+                    value={filterLoad}
+                    onChange={(e) => setFilterLoad(e.target.value as any)}
+                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                  >
+                    <option value="all">All Loads</option>
+                    <option value="high">High Load (&gt; 100 kW)</option>
+                    <option value="low">Low Load (≤ 100 kW)</option>
+                  </select>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* View Icon Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                    sortBy !== "none" || rowDensity === "compact"
+                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                  }`}
+                >
+                  <SlidersHorizontal className="size-3.5 shrink-0" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                    View / Sort
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                  View Options
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
+                  <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                    <button
+                      onClick={() => setRowDensity("default")}
+                      className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                        rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      Default
+                    </button>
+                    <button
+                      onClick={() => setRowDensity("compact")}
+                      className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                        rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      Compact
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                  >
+                    <option value="none">Original Order</option>
+                    <option value="desc">Description (A-Z)</option>
+                    <option value="load">Load kW (High to Low)</option>
+                    <option value="vd">V.Drop % (High to Low)</option>
+                  </select>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
-          <div className="flex rounded border border-border p-0.5 bg-surface-2 shrink-0 my-1 mr-3">
+
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+            {/* Flag KPI Filter */}
             <button
-              onClick={() => handleUnitToggle("si")}
-              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded transition-all cursor-pointer ${
-                unitSystem === "si" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              onClick={() => setShowFlaggedOnly(prev => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border transition-all cursor-pointer ${
+                showFlaggedOnly
+                  ? "bg-red-500/10 text-red-600 border-red-500/30 dark:bg-red-500/20 dark:text-red-400"
+                  : "bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:bg-surface-3"
               }`}
+              title={showFlaggedOnly ? "Show all rows" : "Show flagged rows only"}
             >
-              SI
+              <Flag className={`size-3.5 ${flagStats.flaggedCount > 0 ? "fill-red-500 text-red-500" : ""}`} />
+              <span>{flagStats.flaggedCount} Flagged</span>
+              {showFlaggedOnly && <span className="text-[9px] bg-red-500 text-white px-1.5 rounded-full font-bold uppercase">Active</span>}
             </button>
+
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all">
+              <Upload className="size-3.5" /> Import Ratings
+              <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
+            </label>
+
             <button
-              onClick={() => handleUnitToggle("ip")}
-              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded transition-all cursor-pointer ${
-                unitSystem === "ip" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
+              onClick={exportPdf}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
             >
-              IP
+              <Download className="size-3.5" /> PDF
+            </button>
+
+            <button
+              onClick={clearAll}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 hover:text-red-500 transition-all cursor-pointer"
+            >
+              <Trash2 className="size-3.5" /> Clear All
+            </button>
+
+            <button
+              onClick={addPanel}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="size-3.5" /> Add LV Panel
             </button>
           </div>
         </div>
@@ -1378,10 +1656,10 @@ function BusbarCalculationPage() {
                           </div>
 
                           <div className="overflow-auto max-h-[500px]">
-                            <table className="w-full text-[12px] border-collapse whitespace-nowrap">
-                              <thead className="bg-header-bg sticky top-0 z-10 border-b border-border text-muted-foreground font-semibold">
+                            <table className="table-fixed text-[12px] border-collapse whitespace-nowrap" style={{ width: Math.max(950, totalBusbarTableWidth) }}>
+                              <thead className="bg-header-bg sticky top-0 z-10 border-b border-border text-muted-foreground font-semibold select-none">
                                 <tr className="text-left">
-                                  <th className="px-1 py-2 border-r border-border text-center w-6">
+                                  <th style={{ width: busbarColWidths.select }} className="px-1 py-2 text-center relative group">
                                     <input 
                                       type="checkbox" 
                                       className="cursor-pointer"
@@ -1395,29 +1673,87 @@ function BusbarCalculationPage() {
                                         setSelectedRows(newSet);
                                       }}
                                     />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                                   </th>
-                                  <th className="px-1 py-2 border-r border-border text-center w-6 text-[11px]">No.</th>
-                                  <th className="px-2 py-2 border-r border-border w-32">Description</th>
-                                  <th className="px-2 py-2 border-r border-border w-20 text-center">Len ({unitSystem === "ip" ? "ft" : "m"})</th>
-                                  <th className="px-2 py-2 border-r border-border w-20 text-center">Load (kW)</th>
-                                  <th className="px-2 py-2 border-r border-border w-20 text-center bg-surface-2 text-foreground">TCL (kW)</th>
-                                  <th className="px-2 py-2 border-r border-border w-16 text-center">Div</th>
-                                  <th className="px-2 py-2 border-r border-border w-20 text-center bg-surface-2 text-foreground">MD (kW)</th>
-                                  <th className="px-2 py-2 border-r border-border w-20 text-center bg-surface-2 text-foreground">Cur. (A)</th>
-                                  <th className="px-2 py-2 border-r border-border w-16 text-center text-primary">Vd (V)</th>
-                                  <th className="px-2 py-2 border-r border-border w-20 text-center text-primary">Vd %</th>
-                                  <th className="px-2 py-2 text-center w-10">✕</th>
+                                  <th style={{ width: busbarColWidths.no }} className="px-1 py-2 text-center text-[11px] relative group">
+                                    No.
+                                    <div onMouseDown={(e) => handleResizeMouseDown("no", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.desc }} className="px-2 py-2 relative group">
+                                    Description
+                                    <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.len }} className="px-2 py-2 text-center relative group">
+                                    Len ({unitSystem === "ip" ? "ft" : "m"})
+                                    <div onMouseDown={(e) => handleResizeMouseDown("len", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.loadKw }} className="px-2 py-2 text-center relative group">
+                                    Load (kW)
+                                    <div onMouseDown={(e) => handleResizeMouseDown("loadKw", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.tclKw }} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
+                                    TCL (kW)
+                                    <div onMouseDown={(e) => handleResizeMouseDown("tclKw", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.div }} className="px-2 py-2 text-center relative group">
+                                    Div
+                                    <div onMouseDown={(e) => handleResizeMouseDown("div", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.mdKw }} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
+                                    MD (kW)
+                                    <div onMouseDown={(e) => handleResizeMouseDown("mdKw", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.curA }} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
+                                    Cur. (A)
+                                    <div onMouseDown={(e) => handleResizeMouseDown("curA", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.vdV }} className="px-2 py-2 text-center text-primary relative group">
+                                    Vd (V)
+                                    <div onMouseDown={(e) => handleResizeMouseDown("vdV", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.vdPct }} className="px-2 py-2 text-center text-primary relative group">
+                                    Vd %
+                                    <div onMouseDown={(e) => handleResizeMouseDown("vdPct", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                  </th>
+                                  <th style={{ width: busbarColWidths.actions }} className="px-2 py-2 text-center text-[11px]">
+                                    Actions
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-border">
-                                {section.calcRows.length === 0 ? (
-                                  <tr>
-                                    <td colSpan={16} className="text-center py-10 text-muted-foreground italic">
-                                      No tap offs added to {section.name}.
-                                    </td>
-                                  </tr>
-                                ) : (
-                                  section.calcRows.map((r, idx) => {
+                                {(() => {
+                                  const displayRows = section.calcRows.filter(r => {
+                                    if (searchQuery.trim()) {
+                                      const q = searchQuery.toLowerCase();
+                                      if (!(r.desc || "").toLowerCase().includes(q)) return false;
+                                    }
+                                    if (showFlaggedOnly && !getBusbarRowValidation(r, r.vdPercent).isFlagged) return false;
+                                    if (filterVd === "within" && r.vdPercent > 2.5) return false;
+                                    if (filterVd === "exceeds" && r.vdPercent <= 2.5) return false;
+                                    if (filterLoad === "high" && (Number(r.loadKw) || 0) <= 100) return false;
+                                    if (filterLoad === "low" && (Number(r.loadKw) || 0) > 100) return false;
+                                    return true;
+                                  });
+
+                                  if (sortBy === "desc") {
+                                    displayRows.sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
+                                  } else if (sortBy === "load") {
+                                    displayRows.sort((a, b) => (Number(b.loadKw) || 0) - (Number(a.loadKw) || 0));
+                                  } else if (sortBy === "vd") {
+                                    displayRows.sort((a, b) => (Number(b.vdPercent) || 0) - (Number(a.vdPercent) || 0));
+                                  }
+
+                                  if (displayRows.length === 0) {
+                                    return (
+                                      <tr>
+                                        <td colSpan={16} className="text-center py-10 text-muted-foreground italic">
+                                          {showFlaggedOnly ? `No flagged tap offs found in ${section.name}.` : `No tap offs added to ${section.name}.`}
+                                        </td>
+                                      </tr>
+                                    );
+                                  }
+
+                                  return displayRows.map((r, idx) => {
                                       const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>, colIndex: number) => {
                                         const target = e.target as HTMLInputElement;
                                         if (["ArrowUp", "ArrowDown", "Enter"].includes(e.key)) {
@@ -1447,8 +1783,8 @@ function BusbarCalculationPage() {
                                             if (e.key === "ArrowRight") nextCol++;
                                             const nextEl = document.querySelector(`[data-pan="${pIdx}"][data-sec="${sIdx}"][data-row="${idx}"][data-col="${nextCol}"]`) as HTMLElement;
                                             if (nextEl) {
-                                               nextEl.focus();
-                                               if (nextEl instanceof HTMLInputElement) nextEl.select();
+                                              nextEl.focus();
+                                              if (nextEl instanceof HTMLInputElement) nextEl.select();
                                             }
                                           }
                                         }
@@ -1458,7 +1794,7 @@ function BusbarCalculationPage() {
                                     <tr 
                                       key={r.id} 
                                       data-row-id={r.id}
-                                      className={`transition-all duration-200 cursor-pointer ${
+                                      className={`transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-6 text-[11px]" : ""} ${
                                         editingRow?.row.id === r.id
                                           ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                                           : editingRow !== null
@@ -1491,97 +1827,97 @@ function BusbarCalculationPage() {
                                         });
                                       }}
                                     >
-                                      <td className="p-0 border-r border-border text-center w-6">
-                                          <div className="flex items-center justify-center h-full w-full">
+                                        <td style={{ width: busbarColWidths.select, minWidth: busbarColWidths.select, maxWidth: busbarColWidths.select }} className="p-0 text-center">
+                                           <div className="flex items-center justify-center h-full w-full">
+                                             <input 
+                                               type="checkbox" 
+                                               className="cursor-pointer"
+                                               checked={selectedRows.has(r.id)}
+                                               onChange={() => {}}
+                                               onClick={(e) => {
+                                                 e.stopPropagation();
+                                                 toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                               }}
+                                             />
+                                           </div>
+                                         </td>
+                                         <td style={{ width: busbarColWidths.no, minWidth: busbarColWidths.no, maxWidth: busbarColWidths.no }} className="text-center text-muted-foreground font-medium px-0.5 text-[11.5px]">{idx + 1}</td>
+                                         <td style={{ width: busbarColWidths.desc, minWidth: busbarColWidths.desc, maxWidth: busbarColWidths.desc }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                          <div className="flex items-center gap-1.5 w-full px-1">
+                                            {r.comments && r.comments.length > 0 && (
+                                              <span 
+                                                className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
+                                                title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setCommentTarget({
+                                                    id: r.id,
+                                                    name: r.desc || r.from || `Tap Off ${r.ref || r.id}`,
+                                                    type: 'space',
+                                                    panelId: panel.id,
+                                                    sectionId: section.id
+                                                  });
+                                                  setAssignCommentOpen(true);
+                                                }}
+                                              >
+                                                <MessageSquare className="size-3.5" />
+                                              </span>
+                                            )}
                                             <input 
-                                              type="checkbox" 
-                                              className="cursor-pointer"
-                                              checked={selectedRows.has(r.id)}
-                                              onChange={() => {}}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                              }}
+                                              data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
+                                              onKeyDown={(e) => handleKeyDown(e, 0)} 
+                                              onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                              type="text" 
+                                              className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white flex-1" 
+                                              value={r.desc} 
+                                              onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} 
                                             />
                                           </div>
                                         </td>
-                                        <td className="text-center text-muted-foreground font-medium border-r border-border w-6 px-0.5 text-[11.5px]">{idx + 1}</td>
-                                        <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                         <div className="flex items-center gap-1.5 w-full px-1">
-                                           {r.comments && r.comments.length > 0 && (
-                                             <span 
-                                               className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
-                                               title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
-                                               onClick={(e) => {
-                                                 e.stopPropagation();
-                                                 setCommentTarget({
-                                                   id: r.id,
-                                                   name: r.desc || r.from || `Tap Off ${r.ref || r.id}`,
-                                                   type: 'space',
-                                                   panelId: panel.id,
-                                                   sectionId: section.id
-                                                 });
-                                                 setAssignCommentOpen(true);
-                                               }}
-                                             >
-                                               <MessageSquare className="size-3.5" />
-                                             </span>
-                                           )}
-                                           <input 
-                                             data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
-                                             onKeyDown={(e) => handleKeyDown(e, 0)} 
-                                             onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                             type="text" 
-                                             className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white flex-1" 
-                                             value={r.desc} 
-                                             onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} 
-                                           />
-                                         </div>
-                                       </td>
-                                       <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                         <input 
-                                           data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} 
-                                           onKeyDown={(e) => handleKeyDown(e, 1)} 
-                                           onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                           type="number" step="0.1" 
-                                           className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
-                                           value={r.length} 
-                                           onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
-                                         />
-                                       </td>
-                                       <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                         <input 
-                                           data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} 
-                                           onKeyDown={(e) => handleKeyDown(e, 2)} 
-                                           onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                           type="number" step="0.1" 
-                                           className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
-                                           value={r.loadKw} 
-                                           onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
-                                         />
-                                       </td>
-                                       
-                                       <td className="px-2 py-1 text-center font-bold bg-surface-2 border-r border-border text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.tcl.toFixed(2)}</td>
-                                       
-                                       <td className="p-0 border-r border-border" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                         <input 
-                                           data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} 
-                                           onKeyDown={(e) => handleKeyDown(e, 3)} 
-                                           onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                           type="number" step="0.01" max="1" 
-                                           className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
-                                           value={r.div} 
-                                           onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
-                                         />
-                                       </td>
-                                       
-                                       <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.md.toFixed(2)}</td>
-                                       <td className="px-2 py-1 text-center font-semibold bg-surface-2 border-r border-border font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.current.toFixed(2)}</td>
-                                       <td className="px-2 py-1 text-center text-primary font-medium border-r border-border font-mono cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vd.toFixed(2)}</td>
-                                       <td className={`px-2 py-1 text-center border-r border-border font-mono font-medium cursor-pointer ${r.vdPercent > 2.5 ? "text-destructive bg-destructive/5" : "text-primary"}`} onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vdPercent.toFixed(3)}%</td>
-                                       
-                                       <td className="text-center p-0">
-                                         <div className="flex items-center justify-center gap-1">
+                                        <td style={{ width: busbarColWidths.len, minWidth: busbarColWidths.len, maxWidth: busbarColWidths.len }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                          <input 
+                                            data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} 
+                                            onKeyDown={(e) => handleKeyDown(e, 1)} 
+                                            onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                            type="number" step="0.1" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            value={r.length} 
+                                            onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                          />
+                                        </td>
+                                        <td style={{ width: busbarColWidths.loadKw, minWidth: busbarColWidths.loadKw, maxWidth: busbarColWidths.loadKw }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                          <input 
+                                            data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} 
+                                            onKeyDown={(e) => handleKeyDown(e, 2)} 
+                                            onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                            type="number" step="0.1" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            value={r.loadKw} 
+                                            onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                          />
+                                        </td>
+                                        
+                                        <td style={{ width: busbarColWidths.tclKw, minWidth: busbarColWidths.tclKw, maxWidth: busbarColWidths.tclKw }} className="px-2 py-1 text-center font-bold bg-surface-2 text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.tcl.toFixed(2)}</td>
+                                        
+                                        <td style={{ width: busbarColWidths.div, minWidth: busbarColWidths.div, maxWidth: busbarColWidths.div }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                          <input 
+                                            data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} 
+                                            onKeyDown={(e) => handleKeyDown(e, 3)} 
+                                            onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                            type="number" step="0.01" max="1" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            value={r.div} 
+                                            onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                          />
+                                        </td>
+                                        
+                                        <td style={{ width: busbarColWidths.mdKw, minWidth: busbarColWidths.mdKw, maxWidth: busbarColWidths.mdKw }} className="px-2 py-1 text-center font-semibold bg-surface-2 font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.md.toFixed(2)}</td>
+                                        <td style={{ width: busbarColWidths.curA, minWidth: busbarColWidths.curA, maxWidth: busbarColWidths.curA }} className="px-2 py-1 text-center font-semibold bg-surface-2 font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.current.toFixed(2)}</td>
+                                        <td style={{ width: busbarColWidths.vdV, minWidth: busbarColWidths.vdV, maxWidth: busbarColWidths.vdV }} className="px-2 py-1 text-center text-primary font-medium font-mono cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vd.toFixed(2)}</td>
+                                        <td style={{ width: busbarColWidths.vdPct, minWidth: busbarColWidths.vdPct, maxWidth: busbarColWidths.vdPct }} className={`px-2 py-1 text-center font-mono font-medium cursor-pointer ${r.vdPercent > 2.5 ? "text-destructive bg-destructive/5" : "text-primary"}`} onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vdPercent.toFixed(3)}%</td>
+                                        
+                                        <td style={{ width: busbarColWidths.actions, minWidth: busbarColWidths.actions, maxWidth: busbarColWidths.actions }} className="text-center p-0">
+                                         <div className="flex items-center justify-center gap-1 px-1">
                                            <button 
                                              onClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }} 
                                              className="text-primary/70 hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors"
@@ -1589,21 +1925,39 @@ function BusbarCalculationPage() {
                                            >
                                              <Info className="size-3.5" />
                                            </button>
-                                           <button 
-                                             onClick={() => removeRow(panel.id, section.id, r.id)} 
-                                             className="text-destructive/70 hover:text-destructive p-1 rounded hover:bg-destructive/10 transition-colors"
-                                             title="Remove Tap Off"
-                                           >
-                                             <Trash2 className="size-3.5" />
-                                           </button>
+                                           {(() => {
+                                             const { isAutoFlagged, isFlagged, warnings } = getBusbarRowValidation(r, r.vdPercent);
+                                             const tooltipText = isFlagged
+                                               ? warnings.length > 0
+                                                 ? `Flagged for review. Warning(s): ${warnings.join(", ")}`
+                                                 : "Flagged for manual review"
+                                               : "Flag tap off for review";
+
+                                             return (
+                                               <button 
+                                                 onClick={(e) => {
+                                                   e.stopPropagation();
+                                                   toggleFlagRows(r.id, isFlagged);
+                                                 }} 
+                                                 className={`p-1 rounded transition-colors cursor-pointer ${
+                                                   isFlagged
+                                                     ? "bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400 hover:bg-red-500/20"
+                                                     : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                                                 }`}
+                                                 title={tooltipText}
+                                               >
+                                                 <Flag className={`size-3.5 ${isFlagged ? "fill-red-500 text-red-500" : ""}`} />
+                                               </button>
+                                             );
+                                           })()}
                                          </div>
                                        </td>
-                                    </tr>
-                                  );
-                                  })
-                                )}
+                                     </tr>
+                                    );
+                                  });
+                                })()}
                               </tbody>
-                            </table>
+                              </table>
                           </div>
                         </div>
                       );
@@ -1670,6 +2024,19 @@ function BusbarCalculationPage() {
             className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400"
           >
             <MessageSquare className="size-3.5" /> Add comment
+          </button>
+          <button
+            onClick={() => {
+              let isCurrentlyFlagged = false;
+              panels.forEach(p => p.sections.forEach(s => s.rows.forEach(r => {
+                if (r.id === contextMenu.rowId) isCurrentlyFlagged = Boolean(r.flagged);
+              })));
+              toggleFlagRows(contextMenu.rowId, isCurrentlyFlagged);
+              setContextMenu(null);
+            }}
+            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-red-600 dark:text-red-400"
+          >
+            <Flag className="size-3.5" /> Flag / Unflag Row(s)
           </button>
           <div className="my-1 border-t border-border/60"></div>
           <button

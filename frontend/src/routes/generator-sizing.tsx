@@ -7,7 +7,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Download, FileSpreadsheet, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles } from "lucide-react";
+import { Download, FileSpreadsheet, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag } from "lucide-react";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
@@ -64,7 +65,36 @@ interface GenRow {
   powerFail: number | string;
   remark: string;
   excludeEmergency?: boolean;
+  flagged?: boolean;
   comments?: TaskComment[];
+}
+
+export function getGenRowValidation(r?: Partial<GenRow>) {
+  const warnings: string[] = [];
+  if (!r) return { isAutoFlagged: false, isFlagged: false, warnings: [] };
+
+  const descEmpty = !r.desc || String(r.desc).trim() === "";
+  const unitEmpty = r.unit === "" || r.unit === undefined || r.unit === null || Number(r.unit) === 0;
+  const kwEmpty = r.kwPerUnit === "" || r.kwPerUnit === undefined || r.kwPerUnit === null || Number(r.kwPerUnit) === 0;
+
+  // Don't auto-flag brand new completely blank rows
+  const isCompletelyEmpty = descEmpty && unitEmpty && kwEmpty;
+
+  if (!isCompletelyEmpty) {
+    if (descEmpty) {
+      warnings.push("description");
+    }
+    if (r.unit === "" || r.unit === undefined || r.unit === null || isNaN(Number(r.unit)) || Number(r.unit) <= 0) {
+      warnings.push("unit count (0 or missing)");
+    }
+    if (r.kwPerUnit === "" || r.kwPerUnit === undefined || r.kwPerUnit === null || isNaN(Number(r.kwPerUnit)) || Number(r.kwPerUnit) <= 0) {
+      warnings.push("kW/unit (0 or missing)");
+    }
+  }
+
+  const isAutoFlagged = warnings.length > 0;
+  const isFlagged = Boolean(r.flagged || isAutoFlagged);
+  return { isAutoFlagged, isFlagged, warnings };
 }
 
 const STARTER_MULTIPLIERS: Record<StarterType, number> = {
@@ -92,6 +122,25 @@ function GeneratorSizingPage() {
   const [projects, setProjects] = useState<Record<string, GenRow[]>>({ "Default Project": [] });
   const [currentProject, setCurrentProject] = useState<string>("Default Project");
   const [isLoaded, setIsLoaded] = useState(false);
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStarter, setFilterStarter] = useState<string>("all");
+  const [filterEmergency, setFilterEmergency] = useState<string>("all");
+  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
+  const [sortBy, setSortBy] = useState<"none" | "desc" | "kw">("none");
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterStarter !== "all") count++;
+    if (filterEmergency !== "all") count++;
+    return count;
+  }, [filterStarter, filterEmergency]);
+
+  const handleResetFilters = () => {
+    setFilterStarter("all");
+    setFilterEmergency("all");
+  };
 
   const {
     rows,
@@ -122,6 +171,31 @@ function GeneratorSizingPage() {
     onPrint: () => exportPdf(),
     onExportPdf: () => exportPdf(),
   });
+
+  const flagStats = useMemo(() => {
+    let totalCount = 0;
+    let flaggedCount = 0;
+    (rows || []).forEach((r) => {
+      totalCount++;
+      const { isFlagged } = getGenRowValidation(r);
+      if (isFlagged) flaggedCount++;
+    });
+    return { totalCount, flaggedCount };
+  }, [rows]);
+
+  const toggleFlagRows = (targetRowId: string, currentFlagged: boolean) => {
+    const targetIds = selectedRows.has(targetRowId) && selectedRows.size > 1
+      ? Array.from(selectedRows)
+      : [targetRowId];
+    
+    const nextState = !currentFlagged;
+    const newRows = (rows || []).map((r) =>
+      targetIds.includes(r.id) ? { ...r, flagged: nextState } : r
+    );
+    pushState(newRows);
+
+    toast.info(nextState ? `Flagged ${targetIds.length} load(s) for review` : `Unflagged ${targetIds.length} load(s)`);
+  };
 
   useGridNavigation({ gridId: "generator-grid" });
 
@@ -878,6 +952,37 @@ function GeneratorSizingPage() {
     }
   };
 
+  const displayRows = useMemo(() => {
+    let result = rows || [];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(r => (r.desc || "").toLowerCase().includes(q) || (r.remark || "").toLowerCase().includes(q));
+    }
+
+    if (showFlaggedOnly) {
+      result = result.filter(r => getGenRowValidation(r).isFlagged);
+    }
+
+    if (filterStarter !== "all") {
+      result = result.filter(r => r.starter === filterStarter);
+    }
+
+    if (filterEmergency === "emergency") {
+      result = result.filter(r => !r.excludeEmergency);
+    } else if (filterEmergency === "excluded") {
+      result = result.filter(r => r.excludeEmergency);
+    }
+
+    if (sortBy === "desc") {
+      result = [...result].sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
+    } else if (sortBy === "kw") {
+      result = [...result].sort((a, b) => (Number(b.kwPerUnit) || 0) - (Number(a.kwPerUnit) || 0));
+    }
+
+    return result;
+  }, [rows, searchQuery, showFlaggedOnly, filterStarter, filterEmergency, sortBy]);
+
   return (
     <AppShell
       title="Generator Sizing"
@@ -903,33 +1008,49 @@ function GeneratorSizingPage() {
             </button>
           </div>
 
-          {activeTab === "report" && (
-            <div className="flex-1 p-6 overflow-y-auto">
-              <div className="max-w-3xl mx-auto bg-surface-1 border border-border rounded-lg p-6 shadow-sm">
-                <h2 className="text-lg font-semibold mb-4">Calculator Reports</h2>
-                <p className="text-[13.5px] text-muted-foreground mb-6">
-                  Export your finalized generator sizing calculations. Make sure you have completed
-                  all manual overrides and configuration before exporting.
-                </p>
+          {activeTab === "summary" && (
+            <div className="flex-1 overflow-auto p-6 space-y-6">
+              {/* Summary View Content */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-surface-2/40 border border-border p-4 rounded-xl shadow-sm">
+                  <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Total ACL</h3>
+                  <p className="text-2xl font-black text-foreground mt-1">{calc.totalAcl.toFixed(2)} kW</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">Sum of all connected loads</p>
+                </div>
+                <div className="bg-surface-2/40 border border-border p-4 rounded-xl shadow-sm">
+                  <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Total Emergency Load</h3>
+                  <p className="text-2xl font-black text-primary mt-1">{calc.totalEmergency.toFixed(2)} kW</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">Sum of non-excluded emergency loads</p>
+                </div>
+                <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl shadow-sm">
+                  <h3 className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">Recommended DG Set</h3>
+                  <p className="text-2xl font-black text-amber-700 dark:text-amber-400 mt-1">{calc.selectedSize} kVA</p>
+                  <p className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-1">Based on highest load requirement</p>
+                </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-4">
+              {/* Reports Export Cards */}
+              <div className="border border-border rounded-xl p-5 bg-surface-1">
+                <h2 className="text-sm font-bold text-foreground mb-4">Export Calculation Reports</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="border border-border rounded-lg p-4 bg-background flex flex-col items-start gap-3">
-                    <div className="size-10 rounded-full bg-green-500/10 text-green-600 flex items-center justify-center">
-                      <Download className="size-5" />
+                    <div className="size-10 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
+                      <FileSpreadsheet className="size-5" />
                     </div>
                     <div>
                       <h3 className="font-semibold text-[14px]">Excel Spreadsheet</h3>
                       <p className="text-[12.5px] text-muted-foreground mt-1">
-                        Export raw calculation rows to an XLSX file.
+                        Download full project model with calculation sheets.
                       </p>
                     </div>
                     <TBtn primary onClick={exportExcel} className="mt-2 w-full justify-center">
+                      Export Excel
                     </TBtn>
                   </div>
 
                   <div className="border border-border rounded-lg p-4 bg-background flex flex-col items-start gap-3">
                     <div className="size-10 rounded-full bg-red-500/10 text-red-600 flex items-center justify-center">
-                      <Download className="size-5" />
+                      <FileText className="size-5" />
                     </div>
                     <div>
                       <h3 className="font-semibold text-[14px]">PDF Document</h3>
@@ -949,47 +1070,154 @@ function GeneratorSizingPage() {
           {activeTab === "equipment" && (
             <div className="flex flex-col h-full overflow-hidden">
               {/* Filter & Action Toolbar */}
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 min-h-[48px] h-auto border-b border-border bg-background shrink-0 select-none gap-y-3 overflow-x-auto">
-                <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
+              <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-x-auto">
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     <input
-                      placeholder="Search..."
-                      className="h-7 w-56 pl-8 pr-2 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded text-[12.5px] outline-none transition-colors"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Filter loads..."
+                      className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
                     />
                   </div>
-                  <TBtn>
-                    <Filter className="size-3.5" /> Filters
-                  </TBtn>
-                  <TBtn>
-                    <SlidersHorizontal className="size-3.5" /> View
-                  </TBtn>
-                  <div className="w-px h-4 bg-border mx-1" />
-                  <div className="flex rounded border border-border p-0.5 bg-surface-2 shrink-0">
-                    <button
-                      onClick={() => handleUnitToggle("si")}
-                      className={`px-3 py-1 text-[11px] font-semibold rounded transition-all cursor-pointer ${
-                        unitSystem === "si"
-                          ? "bg-background shadow-sm text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      SI
-                    </button>
-                    <button
-                      onClick={() => handleUnitToggle("ip")}
-                      className={`px-3 py-1 text-[11px] font-semibold rounded transition-all cursor-pointer ${
-                        unitSystem === "ip"
-                          ? "bg-background shadow-sm text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      IP
-                    </button>
-                  </div>
+
+                  {/* Filters Icon Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                          activeFiltersCount > 0
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                        }`}
+                      >
+                        <Filter className="size-3.5 shrink-0" />
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                          Filter
+                        </span>
+                        {activeFiltersCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                            {activeFiltersCount}
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-xs font-bold text-foreground">Filter Loads</span>
+                        {activeFiltersCount > 0 && (
+                          <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
+                            Reset All
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Starter Type</span>
+                        <select
+                          value={filterStarter}
+                          onChange={(e) => setFilterStarter(e.target.value)}
+                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="all">All Starter Types</option>
+                          <option value="DOL">DOL</option>
+                          <option value="SD">Star Delta</option>
+                          <option value="Soft Starter">Soft Starter</option>
+                          <option value="VFD">VFD</option>
+                          <option value="None">None</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Emergency Status</span>
+                        <select
+                          value={filterEmergency}
+                          onChange={(e) => setFilterEmergency(e.target.value)}
+                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="all">All Loads</option>
+                          <option value="emergency">Emergency Included</option>
+                          <option value="excluded">Emergency Excluded</option>
+                        </select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* View Icon Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                          sortBy !== "none" || rowDensity === "compact"
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                        }`}
+                      >
+                        <SlidersHorizontal className="size-3.5 shrink-0" />
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                          View / Sort
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                      <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                        View Options
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
+                        <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                          <button
+                            onClick={() => setRowDensity("default")}
+                            className={`flex-1 py-1 text-[11px] font-semibold rounded-full transition-all ${
+                              rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                            }`}
+                          >
+                            Default
+                          </button>
+                          <button
+                            onClick={() => setRowDensity("compact")}
+                            className={`flex-1 py-1 text-[11px] font-semibold rounded-full transition-all ${
+                              rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                            }`}
+                          >
+                            Compact
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value as any)}
+                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="none">Original Order</option>
+                          <option value="desc">Description (A-Z)</option>
+                          <option value="kw">Load kW (High to Low)</option>
+                        </select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+                  <button
+                    onClick={() => setShowFlaggedOnly(prev => !prev)}
+                    className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border transition-all cursor-pointer ${
+                      showFlaggedOnly
+                        ? "bg-red-500/10 text-red-600 border-red-500/30 dark:bg-red-500/20 dark:text-red-400"
+                        : "bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:bg-surface-3"
+                    }`}
+                    title={showFlaggedOnly ? "Show all rows" : "Show flagged rows only"}
+                  >
+                    <Flag className={`size-3.5 ${flagStats.flaggedCount > 0 ? "fill-red-500 text-red-500" : ""}`} />
+                    <span>{flagStats.flaggedCount} Flagged</span>
+                    {showFlaggedOnly && <span className="text-[9px] bg-red-500 text-white px-1.5 rounded-full font-bold uppercase">Active</span>}
+                  </button>
+
                   <ImportExcelBtn
                     columnMapping={{
                       "Description": "desc",
@@ -1004,9 +1232,19 @@ function GeneratorSizingPage() {
                     onImport={handleImportExcelRows}
                   />
 
-                  <TBtn primary onClick={addRow}>
+                  <button
+                    onClick={exportPdf}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
+                  >
+                    <Download className="size-3.5" /> PDF
+                  </button>
+
+                  <button
+                    onClick={addRow}
+                    className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+                  >
                     <Plus className="size-3.5" /> New Row
-                  </TBtn>
+                  </button>
                 </div>
               </div>
 
@@ -1088,27 +1326,30 @@ function GeneratorSizingPage() {
                             <th className="px-3 py-2 border-r border-border w-48 text-center">
                               Remarks
                             </th>
+                            <th className="px-2 py-2 text-center w-12 text-[11px]">
+                              Actions
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {rows.length === 0 ? (
+                          {displayRows.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={13}
+                                colSpan={14}
                                 className="text-center py-10 text-muted-foreground italic"
                               >
-                                No loads added. Click "+ Add Load" to begin.
+                                {showFlaggedOnly ? "No flagged loads found." : "No loads added. Click \"+ Add Load\" to begin."}
                               </td>
                             </tr>
                           ) : (
-                            rows.map((r, rowIndex) => {
+                            displayRows.map((r, rowIndex) => {
                               const rKw = Number(r.kwPerUnit) || 0;
                               const rSb = Number(r.standby) || 0;
                               const rUnit = Number(r.unit) || 0;
                               const rMult = Number(r.multiplier) || 0;
 
                               const startCur = rKw * 1.739 * rMult;
-                              const totalKw = rUnit * rKw;
+                          const totalKw = rUnit * rKw;
                               const actualKw = totalKw - rSb;
 
                               return (
@@ -1116,7 +1357,7 @@ function GeneratorSizingPage() {
                                   <ContextMenuTrigger asChild>
                                     <tr
                                       key={r.id}
-                                      className={`hover:bg-surface-2 transition-colors cursor-pointer ${selectedRows.has(r.id) ? "bg-primary/5" : ""} ${draggedRowIndex === rowIndex ? "opacity-50" : ""}`}
+                                      className={`hover:bg-surface-2 transition-colors cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11.5px]" : "h-9 text-[12.5px]"} ${selectedRows.has(r.id) ? "bg-primary/5" : ""} ${draggedRowIndex === rowIndex ? "opacity-50" : ""}`}
                                       draggable
                                       onDragStart={(e) => handleDragStart(e, rowIndex)}
                                       onDragOver={(e) => handleDragOver(e, rowIndex)}
@@ -1319,9 +1560,50 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "remark", e.target.value)}
                                         />
                                       </td>
+                                      <td className="p-0 text-center">
+                                        <div className="flex items-center justify-center h-full w-full px-1">
+                                          {(() => {
+                                            const { isAutoFlagged, isFlagged, warnings } = getGenRowValidation(r);
+                                            const tooltipText = isFlagged
+                                              ? warnings.length > 0
+                                                ? `Flagged for review. Warning(s): ${warnings.join(", ")}`
+                                                : "Flagged for manual review"
+                                              : "Flag load for review";
+
+                                            return (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  toggleFlagRows(r.id, isFlagged);
+                                                }}
+                                                className={`p-1 rounded transition-colors cursor-pointer ${
+                                                  isFlagged
+                                                    ? "bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400 hover:bg-red-500/20"
+                                                    : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                                                }`}
+                                                title={tooltipText}
+                                              >
+                                                <Flag className={`size-3.5 ${isFlagged ? "fill-red-500 text-red-500" : ""}`} />
+                                              </button>
+                                            );
+                                          })()}
+                                        </div>
+                                      </td>
                                     </tr>
                                   </ContextMenuTrigger>
                                   <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-xl p-1 text-[13px] text-popover-foreground z-[999]">
+                                    <ContextMenuItem
+                                      onClick={() => {
+                                        const { isFlagged } = getGenRowValidation(r);
+                                        toggleFlagRows(r.id, isFlagged);
+                                      }}
+                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                    >
+                                      <Flag className={`size-3.5 ${getGenRowValidation(r).isFlagged ? "text-red-500 fill-red-500" : "text-muted-foreground"}`} />
+                                      <span>{getGenRowValidation(r).isFlagged ? "Unflag Selected Row(s)" : "Flag Selected Row(s)"}</span>
+                                    </ContextMenuItem>
+                                    <ContextMenuSeparator />
+
                                     <ContextMenuItem
                                       onClick={() => {
                                         const el = document.querySelector(`input[data-row="${rowIndex}"][data-col="0"]`) as HTMLInputElement;

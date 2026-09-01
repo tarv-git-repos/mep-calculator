@@ -7,7 +7,8 @@ import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
 import jsPDF from "jspdf";
@@ -85,6 +86,21 @@ function CableTraySizingPage() {
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
+  const [sortBy, setSortBy] = useState<"none" | "name" | "width">("none");
+  const [filterSpare, setFilterSpare] = useState<"all" | "standard" | "custom">("all");
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterSpare !== "all") count++;
+    return count;
+  }, [filterSpare]);
+
+  const handleResetFilters = () => {
+    setFilterSpare("all");
+  };
+
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -797,63 +813,182 @@ function CableTraySizingPage() {
     downloadFile(new Uint8Array(pdfBuffer), "Cable_Tray_Sizing.pdf", "PDF Document", ["pdf"]);
   };
 
-  const actions = (
-    <>
-      <div className="relative w-64 mr-2 hidden md:block">
-        <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search cables or trays..."
-          className="flex h-8 w-full rounded-md border border-input bg-background pl-9 pr-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
-      <input type="file" ref={fileInputRef} onChange={handleImportCatalog} className="hidden" accept=".xlsx, .xls, .csv" />
-      <TBtn onClick={() => fileInputRef.current?.click()}><Upload className="size-3.5" /> Import Catalog</TBtn>
-      <TBtn onClick={resetCatalog}><RefreshCcw className="size-3.5" /> Reset</TBtn>
-      <TBtn onClick={exportPdf}><Download className="size-3.5" /> PDF</TBtn>
-      <TBtn primary onClick={addTray}><Plus className="size-3.5" /> Add Tray</TBtn>
-    </>
-  );
-
   let globalRowIndex = 0;
 
   return (
-    <AppShell title="Cable Tray Sizing" subtitle="Calculate cable tray containment sizes" actions={actions}>
+    <AppShell title="Cable Tray Sizing" subtitle="Calculate cable tray containment sizes">
       <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
-        {/* Sizer Section Header with Unit Switcher */}
-        <div className="sticky top-0 z-30 flex items-center justify-between px-4 h-9 border-b border-border bg-background/95 backdrop-blur-md shrink-0 select-none shadow-2xs">
-          <div className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Sizer Workspace
+        {/* Workspace Header Toolbar Strip */}
+        <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-card shrink-0 select-none gap-2 shadow-xs">
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter cables or trays..."
+                className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
+              />
+            </div>
+
+            {/* Filters Icon Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                    activeFiltersCount > 0
+                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                  }`}
+                >
+                  <Filter className="size-3.5 shrink-0" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                    Filter
+                  </span>
+                  {activeFiltersCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                      {activeFiltersCount}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <span className="text-xs font-bold text-foreground">Filter Trays</span>
+                  {activeFiltersCount > 0 && (
+                    <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
+                      Reset All
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Spare Capacity</span>
+                  <select
+                    value={filterSpare}
+                    onChange={(e) => setFilterSpare(e.target.value as any)}
+                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                  >
+                    <option value="all">All Spare Capacities</option>
+                    <option value="standard">Standard (20%)</option>
+                    <option value="custom">Custom (&ne; 20%)</option>
+                  </select>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* View Icon Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                    sortBy !== "none" || rowDensity === "compact"
+                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                  }`}
+                >
+                  <SlidersHorizontal className="size-3.5 shrink-0" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                    View / Sort
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                  View Options
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
+                  <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                    <button
+                      onClick={() => setRowDensity("default")}
+                      className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                        rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      Default
+                    </button>
+                    <button
+                      onClick={() => setRowDensity("compact")}
+                      className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                        rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      Compact
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                  >
+                    <option value="none">Original Order</option>
+                    <option value="name">Tray Name (A-Z)</option>
+                    <option value="width">Total Width (High to Low)</option>
+                  </select>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
-          <div className="flex rounded border border-border p-0.5 bg-surface-2 shrink-0 my-1 mr-3">
+
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+            <input type="file" ref={fileInputRef} onChange={handleImportCatalog} className="hidden" accept=".xlsx, .xls, .csv" />
+            
             <button
-              onClick={() => setUnitSystem("si")}
-              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded transition-all cursor-pointer ${
-                unitSystem === "si" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
             >
-              SI
+              <Upload className="size-3.5" /> Import Catalog
             </button>
+
             <button
-              onClick={() => setUnitSystem("ip")}
-              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded transition-all cursor-pointer ${
-                unitSystem === "ip" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
+              onClick={resetCatalog}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
             >
-              IP
+              <RefreshCcw className="size-3.5" /> Reset
+            </button>
+
+            <button
+              onClick={exportPdf}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
+            >
+              <Download className="size-3.5" /> PDF
+            </button>
+
+            <button
+              onClick={addTray}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+            >
+              <Plus className="size-3.5" /> Add Tray
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto flex flex-col p-4 gap-6 bg-surface-1/50">
         
-        {trays.map((tray, trayIndex) => {
-          const sq = searchQuery.toLowerCase();
+        {(() => {
+          let displayTrays = [...trays];
+
+          if (filterSpare === "standard") {
+            displayTrays = displayTrays.filter(t => Number(t.spareCapacity ?? 20) === 20);
+          } else if (filterSpare === "custom") {
+            displayTrays = displayTrays.filter(t => Number(t.spareCapacity ?? 20) !== 20);
+          }
+
+          if (sortBy === "name") {
+            displayTrays.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+          }
+
+          return displayTrays.map((tray, trayIndex) => {
+            const sq = searchQuery.toLowerCase();
           const filteredCables = tray.cables.filter(c => 
             (c.type || '').toLowerCase().includes(sq) || 
             (c.cores || '').toLowerCase().includes(sq) || 
@@ -1306,13 +1441,14 @@ function CableTraySizingPage() {
 
             </div>
           );
-        })}
+        });
+        })()}
         
         {trays.length === 0 && (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground border-2 border-dashed border-border rounded-xl p-10">
             <Trash2 className="size-10 mb-4 opacity-20" />
             <p className="text-lg font-medium">No cable trays found.</p>
-            <p className="text-sm">Click "Add Tray" in the top bar to get started.</p>
+            <p className="text-sm">Click "+ Add Tray" in the toolbar to get started.</p>
           </div>
         )}
       </div>

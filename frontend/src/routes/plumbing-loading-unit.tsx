@@ -4,7 +4,8 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag } from "lucide-react";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { addPdfHeader, addPdfSignatureBlock, getSignatureBlockDetails } from "@/lib/pdfHelpers";
@@ -22,7 +23,7 @@ export const Route = createFileRoute("/plumbing-loading-unit")({
   component: LoadingUnitPage,
 });
 
-export type StandardPreset = "dubai" | "abudhabi" | "ipc_upc";
+export type StandardPreset = "iop_bs" | "dubai" | "abudhabi" | "ipc_upc";
 
 interface LUSpace {
   id: number;
@@ -36,12 +37,40 @@ interface LUSpace {
   flagged?: boolean;
 }
 
+export function getLUSpaceValidation(s?: Partial<LUSpace>) {
+  const warnings: string[] = [];
+  if (!s) return { isFlagged: false, warnings: [] };
+
+  const descEmpty = !s.desc || s.desc.trim() === "";
+  const hasFixtures = s.fixtures && Object.values(s.fixtures).some(v => Number(v) > 0);
+  const qtyZero = !s.qty || Number(s.qty) <= 0;
+
+  const isCompletelyEmpty = descEmpty && !hasFixtures && qtyZero;
+
+  if (!isCompletelyEmpty) {
+    if (descEmpty) warnings.push("Space description is empty");
+    if (qtyZero) warnings.push("Space quantity must be at least 1");
+    if (!hasFixtures) warnings.push("No fixtures specified for this space");
+  }
+
+  const isManualFlagged = Boolean(s.flagged);
+  const isAutoFlagged = warnings.length > 0;
+  const isFlagged = isManualFlagged || isAutoFlagged;
+
+  return { isFlagged, isManualFlagged, isAutoFlagged, warnings };
+}
+
 export interface StandardCategoryOption {
   id: string;
   label: string;
 }
 
 export const STANDARD_CATEGORIES: Record<StandardPreset, StandardCategoryOption[]> = {
+  iop_bs: [
+    { id: "med", label: "Medium Frequency of Use (Commercial / Offices / Hotels)" },
+    { id: "low", label: "Low Frequency of Use (Dwellings / Low Demand)" },
+    { id: "high", label: "High Frequency of Use (Public Washrooms / Assembly / Sports)" }
+  ],
   dubai: [
     { id: "med", label: "Medium Demand (Commercial / Offices / Hotels)" },
     { id: "low", label: "Low Demand (Dwellings / Private Residential)" },
@@ -53,15 +82,16 @@ export const STANDARD_CATEGORIES: Record<StandardPreset, StandardCategoryOption[
     { id: "high", label: "High / Public Demand (Assembly / Public)" }
   ],
   ipc_upc: [
-    { id: "ipc_total", label: "Total WSFU (IPC / UPC)" },
-    { id: "ipc_cold", label: "Cold Water WSFU (IPC / UPC)" },
-    { id: "ipc_hot", label: "Hot Water WSFU (IPC / UPC)" },
-    { id: "low", label: "Private / Residential (Low Demand)" },
-    { id: "high", label: "Public / Assembly (High Demand)" }
+    { id: "ipc_total", label: "Total WSFU (IPC Table E103.3(2))" },
+    { id: "ipc_cold", label: "Cold Water WSFU (IPC Table E103.3(2))" },
+    { id: "ipc_hot", label: "Hot Water WSFU (IPC Table E103.3(2))" },
+    { id: "low", label: "Private / Residential WSFU" },
+    { id: "high", label: "Public / Assembly WSFU" }
   ]
 };
 
 export const DEFAULT_CATEGORY_FOR_PRESET: Record<StandardPreset, string> = {
+  iop_bs: "med",
   dubai: "med",
   abudhabi: "med",
   ipc_upc: "ipc_total"
@@ -71,6 +101,63 @@ export const STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY: Record<
   StandardPreset,
   Record<string, Record<string, number>>
 > = {
+  // 🇬🇧 IoP PESDG Table 15 / BS EN 806 (Loading Units - LU)
+  iop_bs: {
+    low: {
+      wc: 1.0,           // WC Suite 6L cistern (Low=1)
+      wc_tank: 1.0,
+      wc_valve: 15.0,
+      handspray: 1.0,    // Hand Spray (Low=1)
+      basin: 1.0,        // Basin 15mm / 2x8mm (Low=1)
+      sink: 2.0,         // Sink 15mm sep/mix (Low=2)
+      shower: 2.0,       // Shower 15mm head (Low=2)
+      washer: 2.0,       // Clothes washing m/c (Low=2)
+      servicesink: 1.0,  // Slop hopper / Bucket sink (Low=1)
+      hose_bibb: 1.5,
+      dishwasher: 2.0,   // Dishwasher dom (Low=2)
+      hose_bibb_1: 1.0,
+      bath: 4.0,         // Bath 15mm (Low=4)
+      bidet: 1.0,        // Bidet (Low=1)
+      urinal: 1.0,       // Urinal (Low=1)
+      bibtap: 1.5,
+    },
+    med: {
+      wc: 2.0,           // WC Suite 6L cistern (Med=2)
+      wc_tank: 2.0,
+      wc_valve: 28.0,
+      handspray: 1.0,    // Hand Spray (Med=1)
+      basin: 2.0,        // Basin 15mm sep taps (Med=2)
+      sink: 5.0,         // Sink 15mm sep/mix (Med=5)
+      shower: 3.0,       // Shower 15mm head (Med=3)
+      washer: 3.0,       // Clothes washing m/c (Med=3)
+      servicesink: 3.0,  // Slop hopper cistern only (Med=3)
+      hose_bibb: 2.5,
+      dishwasher: 2.0,   // Dishwasher dom (Med=2)
+      hose_bibb_1: 1.0,
+      bath: 8.0,         // Bath 15mm sep/mix (Med=8)
+      bidet: 1.0,        // Bidet (Med=1)
+      urinal: 1.0,       // Urinal single bowl/stall (Med=1)
+      bibtap: 2.5,
+    },
+    high: {
+      wc: 5.0,           // WC Suite 6L cistern (High=5)
+      wc_tank: 5.0,
+      wc_valve: 28.0,
+      handspray: 2.0,    // Hand Spray (High=2)
+      basin: 4.0,        // Basin 15mm sep taps (High=4)
+      sink: 10.0,        // Sink 15mm sep/mix (High=10)
+      shower: 6.0,       // Shower 15mm head (High=6)
+      washer: 4.0,       // Clothes washing m/c (High=4)
+      servicesink: 5.0,  // Slop hopper cistern/taps (High=5)
+      hose_bibb: 5.0,
+      dishwasher: 4.0,   // Dishwasher dom (High=4)
+      hose_bibb_1: 2.5,
+      bath: 16.0,        // Bath 15mm sep/mix (High=16)
+      bidet: 2.0,        // Bidet (High=2)
+      urinal: 2.0,       // Urinal (High=2)
+      bibtap: 5.0,
+    }
+  },
   // 🇦🇪 Dubai Standard (DBC 2021 / BS EN 806-3 / CIBSE Guide G)
   dubai: {
     low: {
@@ -173,38 +260,42 @@ export const STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY: Record<
       bibtap: 3.0,
     }
   },
-  // 🌐 International IPC / UPC Standard
+  // 🌐 International IPC / UPC Standard (IPC Table E103.3(2))
   ipc_upc: {
     ipc_total: {
-      wc: 2.5,
-      wc_tank: 2.5,
-      wc_valve: 5.0,
+      wc: 2.2,          // Water closet (Private Flush tank: 2.2 / Public: 5.0 / Flushometer: 10.0)
+      wc_tank: 2.2,
+      wc_valve: 10.0,
       handspray: 1.0,
-      basin: 1.0,
-      sink: 1.5,
-      shower: 2.0,
-      washer: 3.0,
-      servicesink: 3.0,
+      basin: 0.7,       // Lavatory (Private: 0.7 / Public: 2.0)
+      sink: 1.4,        // Kitchen sink (Private: 1.4 / Public: 4.0)
+      shower: 1.4,      // Shower head (Private: 1.4 / Public: 4.0)
+      washer: 1.4,      // Washing machine (Private: 1.4 / Public: 3.0)
+      servicesink: 3.0, // Service sink (3.0)
       hose_bibb: 2.5,
-      dishwasher: 1.5,
+      dishwasher: 1.4,  // Dishwashing machine (1.4)
       hose_bibb_1: 1.0,
-      bath: 2.0,
+      bath: 1.4,        // Bathtub (Private: 1.4 / Public: 4.0)
+      bidet: 2.0,       // Bidet (2.0)
+      urinal: 5.0,      // Urinal (1/2" flushometer: 5.0 / 1" flushometer: 10.0)
       bibtap: 2.5,
     },
     ipc_cold: {
-      wc: 2.5,
-      wc_tank: 2.5,
-      wc_valve: 5.0,
+      wc: 2.2,
+      wc_tank: 2.2,
+      wc_valve: 10.0,
       handspray: 1.0,
-      basin: 0.75,
-      sink: 1.0,
-      shower: 1.5,
-      washer: 2.25,
-      servicesink: 2.25,
+      basin: 0.5,       // Lavatory (Cold: 0.5 Private / 1.5 Public)
+      sink: 1.0,        // Kitchen sink (Cold: 1.0 Private / 3.0 Public)
+      shower: 1.0,      // Shower head (Cold: 1.0 Private / 3.0 Public)
+      washer: 1.0,      // Washing machine (Cold: 1.0 Private / 2.25 Public)
+      servicesink: 2.25,// Service sink (Cold: 2.25)
       hose_bibb: 2.5,
-      dishwasher: 0.0,
+      dishwasher: 0.0,  // Dishwashing machine (Cold: 0.0)
       hose_bibb_1: 1.0,
-      bath: 1.5,
+      bath: 1.0,        // Bathtub (Cold: 1.0 Private / 3.0 Public)
+      bidet: 1.5,       // Bidet (Cold: 1.5)
+      urinal: 5.0,      // Urinal (Cold: 5.0)
       bibtap: 2.5,
     },
     ipc_hot: {
@@ -212,27 +303,29 @@ export const STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY: Record<
       wc_tank: 0.0,
       wc_valve: 0.0,
       handspray: 0.0,
-      basin: 0.75,
-      sink: 1.0,
-      shower: 1.5,
-      washer: 2.25,
-      servicesink: 2.25,
+      basin: 0.5,       // Lavatory (Hot: 0.5 Private / 1.5 Public)
+      sink: 1.0,        // Kitchen sink (Hot: 1.0 Private / 3.0 Public)
+      shower: 1.0,      // Shower head (Hot: 1.0 Private / 3.0 Public)
+      washer: 1.0,      // Washing machine (Hot: 1.0 Private / 2.25 Public)
+      servicesink: 2.25,// Service sink (Hot: 2.25)
       hose_bibb: 0.0,
-      dishwasher: 1.5,
+      dishwasher: 1.4,  // Dishwashing machine (Hot: 1.4)
       hose_bibb_1: 0.0,
-      bath: 1.5,
+      bath: 1.0,        // Bathtub (Hot: 1.0 Private / 3.0 Public)
+      bidet: 1.5,       // Bidet (Hot: 1.5)
+      urinal: 0.0,
       bibtap: 0.0,
     },
     low: {
-      wc: 2.5,
-      wc_tank: 2.5,
-      wc_valve: 3.5,
+      wc: 2.2,
+      wc_tank: 2.2,
+      wc_valve: 6.0,
       handspray: 1.0,
-      basin: 0.75,
-      sink: 1.5,
-      shower: 1.5,
-      washer: 2.0,
-      servicesink: 2.0,
+      basin: 0.7,
+      sink: 1.4,
+      shower: 1.4,
+      washer: 1.4,
+      servicesink: 3.0,
       hose_bibb: 2.5,
       dishwasher: 1.4,
       hose_bibb_1: 1.0,
@@ -245,20 +338,21 @@ export const STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY: Record<
       wc_valve: 10.0,
       handspray: 2.0,
       basin: 2.0,
-      sink: 3.0,
+      sink: 4.0,
       shower: 4.0,
-      washer: 4.0,
+      washer: 3.0,
       servicesink: 3.0,
       hose_bibb: 3.0,
       dishwasher: 3.0,
       hose_bibb_1: 2.0,
-      bath: 3.0,
+      bath: 4.0,
       bibtap: 3.0,
     }
   }
 };
 
 export const STANDARD_FIXTURE_WEIGHTS: Record<StandardPreset, Record<string, number>> = {
+  iop_bs: STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY.iop_bs.med,
   dubai: STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY.dubai.med,
   abudhabi: STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY.abudhabi.med,
   ipc_upc: STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY.ipc_upc.ipc_total,
@@ -411,6 +505,42 @@ function LoadingUnitPage() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' } | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+  const [filterFloor, setFilterFloor] = useState<string>("all");
+  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
+  const [sortBy, setSortBy] = useState<"none" | "desc" | "lu">("none");
+
+  const flagStats = useMemo(() => {
+    let totalCount = 0;
+    let flaggedCount = 0;
+    (iopSpaces || []).forEach((s) => {
+      totalCount++;
+      if (getLUSpaceValidation(s).isFlagged) flaggedCount++;
+    });
+    return { totalCount, flaggedCount };
+  }, [iopSpaces]);
+
+  const toggleFlagSpace = (targetId: number, currentFlagged: boolean) => {
+    const targetIds = selectedIds.includes(targetId) && selectedIds.length > 1
+      ? selectedIds
+      : [targetId];
+    
+    const nextState = !currentFlagged;
+    setIopSpaces(prev => prev.map(s => targetIds.includes(s.id) ? { ...s, flagged: nextState } : s));
+    toast.info(nextState ? `Flagged ${targetIds.length} space(s)` : `Unflagged ${targetIds.length} space(s)`);
+  };
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterFloor !== "all") count++;
+    return count;
+  }, [filterFloor]);
+
+  const handleResetFilters = () => {
+    setFilterFloor("all");
+  };
 
   // Form states
   const [newDesc, setNewDesc] = useState("");
@@ -705,7 +835,21 @@ function LoadingUnitPage() {
     toast.info(`Deleted ${count} space(s)`);
   };
 
-  // Handlers
+  const handleAddSpace = () => {
+    const targetFloor = activeFloor || floorSections[0] || "6th FLOOR";
+    const nextId = Date.now();
+    setIopSpaces(prev => [...prev, {
+      id: nextId,
+      desc: "New Space",
+      floor: targetFloor,
+      qty: 1,
+      floorQty: 1,
+      std: selectedCategory || "med",
+      fixtures: { wc: 1, basin: 1 }
+    }]);
+    toast.success("Added new space");
+  };
+
   const handleAddSpaceToFloor = (floorTarget: string) => {
     if (!newDesc.trim()) {
       toast.error("Please enter a space description (e.g. 1 BHK)");
@@ -1552,17 +1696,43 @@ function LoadingUnitPage() {
 
   // Group by floor for listing
   const floorsGrouped = useMemo(() => {
+    let filtered = iopSpaces || [];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(s => (s.desc || "").toLowerCase().includes(q) || (s.floor || "").toLowerCase().includes(q));
+    }
+
+    if (showFlaggedOnly) {
+      filtered = filtered.filter(s => getLUSpaceValidation(s).isFlagged);
+    }
+
+    if (filterFloor !== "all") {
+      filtered = filtered.filter(s => (s.floor || "6th FLOOR") === filterFloor);
+    }
+
+    if (sortBy === "desc") {
+      filtered = [...filtered].sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
+    } else if (sortBy === "lu") {
+      filtered = [...filtered].sort((a, b) => {
+        const currentWeights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
+        const luA = Object.entries(a.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
+        const luB = Object.entries(b.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
+        return luB - luA;
+      });
+    }
+
     const grouped: Record<string, LUSpace[]> = {};
     floorSections.forEach(fl => {
       grouped[fl] = [];
     });
-    iopSpaces.forEach(s => {
+    filtered.forEach(s => {
       const fl = s.floor || "6th FLOOR";
       if (!grouped[fl]) grouped[fl] = [];
       grouped[fl].push(s);
     });
     return grouped;
-  }, [iopSpaces, floorSections]);
+  }, [iopSpaces, floorSections, searchQuery, showFlaggedOnly, filterFloor, sortBy, standardPreset]);
 
   const allSelected = selectedIds.length === iopSpaces.length && iopSpaces.length > 0;
 
@@ -1585,20 +1755,6 @@ function LoadingUnitPage() {
                 Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
               </p>
             </div>
-            <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-start md:justify-end mt-1 md:mt-0">
-              <button
-                onClick={handleExportPDF}
-                className="flex items-center gap-1.5 bg-[#3178c6] hover:bg-[#2762a4] text-white rounded-xl px-3.5 py-2 text-[12px] sm:text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-xs"
-              >
-                📄 Export PDF
-              </button>
-              <button
-                onClick={handleExportExcel}
-                className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3.5 py-2 text-[12px] sm:text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-xs"
-              >
-                📊 Export Excel
-              </button>
-            </div>
           </div>
 
           {/* Standard & Unit System Selector Header */}
@@ -1614,11 +1770,12 @@ function LoadingUnitPage() {
                     setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset]);
                     setWeightOverrides({});
                   }}
-                  className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[220px]"
+                  className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[240px]"
                 >
-                  <option value="dubai">🇦🇪 Dubai Standard (DBC 2021 / BS EN 806 / CIBSE)</option>
+                  <option value="iop_bs">🇬🇧 IoP PESDG Table 15 / BS EN 806 (LU)</option>
+                  <option value="ipc_upc">🌐 International Plumbing Code - IPC Table E103.3(2) (WSFU)</option>
+                  <option value="dubai">🇦🇪 Dubai Standard (DBC 2021 / BS EN 806)</option>
                   <option value="abudhabi">🇦🇪 Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
-                  <option value="ipc_upc">🌐 International IPC / UPC (WSFU)</option>
                 </select>
               </div>
 
@@ -1637,6 +1794,157 @@ function LoadingUnitPage() {
                   ))}
                 </select>
               </div>
+            </div>
+          </div>
+
+          {/* Workspace Header Toolbar Strip */}
+          <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border border-border bg-card rounded-2xl shrink-0 select-none gap-2 shadow-xs">
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter spaces..."
+                  className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
+                />
+              </div>
+
+              {/* Filters Icon Popover */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                      activeFiltersCount > 0
+                        ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                        : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                    }`}
+                  >
+                    <Filter className="size-3.5 shrink-0" />
+                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                      Filter
+                    </span>
+                    {activeFiltersCount > 0 && (
+                      <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                        {activeFiltersCount}
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                    <span className="text-xs font-bold text-foreground">Filter Spaces</span>
+                    {activeFiltersCount > 0 && (
+                      <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
+                        Reset All
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor Section</span>
+                    <select
+                      value={filterFloor}
+                      onChange={(e) => setFilterFloor(e.target.value)}
+                      className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                    >
+                      <option value="all">All Floor Sections</option>
+                      {floorSections.map(fl => (
+                        <option key={fl} value={fl}>{fl}</option>
+                      ))}
+                    </select>
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {/* View Icon Popover */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                      sortBy !== "none" || rowDensity === "compact"
+                        ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                        : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                    }`}
+                  >
+                    <SlidersHorizontal className="size-3.5 shrink-0" />
+                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                      View / Sort
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                  <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                    View Options
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
+                    <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                      <button
+                        onClick={() => setRowDensity("default")}
+                        className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                          rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        Default
+                      </button>
+                      <button
+                        onClick={() => setRowDensity("compact")}
+                        className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                          rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        Compact
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as any)}
+                      className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                    >
+                      <option value="none">Original Order</option>
+                      <option value="desc">Description (A-Z)</option>
+                      <option value="lu">Total LU (High to Low)</option>
+                    </select>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+              {/* Flag KPI Filter */}
+              <button
+                onClick={() => setShowFlaggedOnly(prev => !prev)}
+                className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border transition-all cursor-pointer ${
+                  showFlaggedOnly
+                    ? "bg-red-500/10 text-red-600 border-red-500/30 dark:bg-red-500/20 dark:text-red-400"
+                    : "bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:bg-surface-3"
+                }`}
+                title={showFlaggedOnly ? "Show all rows" : "Show flagged rows only"}
+              >
+                <Flag className={`size-3.5 ${flagStats.flaggedCount > 0 ? "fill-red-500 text-red-500" : ""}`} />
+                <span>{flagStats.flaggedCount} Flagged</span>
+                {showFlaggedOnly && <span className="text-[9px] bg-red-500 text-white px-1.5 rounded-full font-bold uppercase">Active</span>}
+              </button>
+
+              <button
+                onClick={handleExportPDF}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
+              >
+                <Download className="size-3.5" /> PDF
+              </button>
+
+              <button
+                onClick={handleAddSpace}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+              >
+                <Plus className="size-3.5" /> Add Space
+              </button>
             </div>
           </div>
 
@@ -1777,13 +2085,15 @@ function LoadingUnitPage() {
                               type="number"
                               step="0.1"
                               min="0"
+                              max="50"
                               value={activeWeights[f.id] ?? ""}
                               onChange={(e) => {
-                                const val = e.target.value !== "" ? Number(e.target.value) : 0;
+                                const raw = e.target.value !== "" ? Number(e.target.value) : 0;
+                                const val = Math.min(50, Math.max(0, raw));
                                 setWeightOverrides(prev => ({ ...prev, [f.id]: val }));
                               }}
                               className="w-12 text-center bg-white dark:bg-slate-950 border border-blue-300 dark:border-blue-700 rounded text-[#0A7BC7] font-extrabold text-[11.5px] py-0.5 outline-none focus:ring-2 focus:ring-[#0A7BC7]"
-                              title={`Edit loading unit weight for ${f.short} (Click to change)`}
+                              title={`Edit loading unit weight for ${f.short} (Standard default: ${STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY[standardPreset]?.[selectedCategory]?.[f.id] ?? ""})`}
                             />
                           </th>
                         ))}
@@ -1891,7 +2201,7 @@ function LoadingUnitPage() {
                                 setEditingSpace({ space: s, floor });
                               }}
                               onContextMenu={(e) => handleContextMenu(e, s.id)}
-                              className={`transition-all duration-200 cursor-pointer ${
+                              className={`transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-6 text-[11px]" : ""} ${
                                 isEditing
                                   ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                                   : isModalOpen

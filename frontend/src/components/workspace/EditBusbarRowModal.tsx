@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { X, Info, CheckCircle, AlertTriangle, Zap, Calculator, Sliders, Layers } from "lucide-react";
+import { X, Info, CheckCircle, AlertTriangle, Zap, Calculator, Sliders, Layers, Flag } from "lucide-react";
 
 export interface LoadItem {
   desc: string;
@@ -21,6 +21,7 @@ export interface EditBusbarRowModalProps {
     ratingId?: string;
     r?: number;
     x?: number;
+    flagged?: boolean;
   };
   loadList?: LoadItem[];
   rowIndex?: number;
@@ -50,6 +51,7 @@ export function EditBusbarRowModal({
   const [volts, setVolts] = useState<number | "">(row.volts ?? 415);
   const [pf, setPf] = useState<number | "">(row.pf ?? 0.8);
   const [ratingId, setRatingId] = useState<string>(row.ratingId || (ratingOptions[0]?.id || "2500_rt"));
+  const [flagged, setFlagged] = useState<boolean>(Boolean(row.flagged));
   
   // Show preview panel by default so user sees TCL & MD calculation live
   const [showPreview, setShowPreview] = useState(true);
@@ -165,6 +167,7 @@ export function EditBusbarRowModal({
       volts,
       pf,
       ratingId,
+      flagged,
     });
     onClose();
   };
@@ -198,6 +201,19 @@ export function EditBusbarRowModal({
           </div>
           
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setFlagged(prev => !prev)}
+              className={`flex items-center gap-1.5 h-9.5 px-3.5 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${
+                flagged
+                  ? "bg-red-500/10 text-red-600 border-red-500/30 hover:bg-red-500/20"
+                  : "bg-white/50 dark:bg-white/5 border-black/10 dark:border-white/10 text-neutral-700 dark:text-neutral-300 hover:bg-white/80 dark:hover:bg-white/10"
+              }`}
+              title={flagged ? "Unflag tap off" : "Flag tap off for review"}
+            >
+              <Flag className={`size-3.5 ${flagged ? "fill-red-500 text-red-500" : ""}`} />
+              <span>{flagged ? "Flagged" : "Flag"}</span>
+            </button>
             <button
               onClick={() => setShowPreview((prev) => !prev)}
               className={`flex items-center gap-1.5 h-9.5 px-4 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${

@@ -222,6 +222,79 @@ function SprinklerKFactorPage() {
   const [intelOpen, setIntelOpen] = useState(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
 
+  // Quick Solver State
+  const [solverK, setSolverK] = useState<number | "">(5.6);
+  const [solverSolveFor, setSolverSolveFor] = useState<"Q" | "P">("Q");
+  const [solverKnownVal, setSolverKnownVal] = useState<number | "">(30.0);
+  const [isCustomK, setIsCustomK] = useState(false);
+  const [selectedBulbColor, setSelectedBulbColor] = useState<string>("red");
+
+  // Grid/Schedule State
+  const [rows, setRows] = useState<SprinklerRow[]>(() => {
+    try {
+      const stored = project?.id ? localStorage.getItem(`mep_sprinklers_${project.id}`) : null;
+      return stored ? JSON.parse(stored) : DEFAULT_ROWS;
+    } catch {
+      return DEFAULT_ROWS;
+    }
+  });
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [hazardFilter, setHazardFilter] = useState("All");
+  const [kFilter, setKFilter] = useState("All");
+  const [editingRow, setEditingRow] = useState<SprinklerRow | null>(null);
+  const [activeRowId, setActiveRowId] = useState<string | undefined>(undefined);
+
+  // History Stack (Local Undo/Redo)
+  const [undoStack, setUndoStack] = useState<string[]>([]);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
+
+  const pushToUndo = (newRows: SprinklerRow[]) => {
+    setUndoStack(prev => [...prev.slice(-49), JSON.stringify(rows)]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [...prev, JSON.stringify(rows)]);
+    const parsed = JSON.parse(previous);
+    setRows(parsed);
+    if (project?.id) localStorage.setItem(`mep_sprinklers_${project.id}`, previous);
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => [...prev, JSON.stringify(rows)]);
+    const parsed = JSON.parse(next);
+    setRows(parsed);
+    if (project?.id) localStorage.setItem(`mep_sprinklers_${project.id}`, next);
+  };
+
+  // Load data when active project changes
+  useEffect(() => {
+    if (project?.id) {
+      const stored = localStorage.getItem(`mep_sprinklers_${project.id}`);
+      if (stored) {
+        try {
+          setRows(JSON.parse(stored));
+        } catch {
+          setRows(DEFAULT_ROWS);
+        }
+      } else {
+        setRows(DEFAULT_ROWS);
+      }
+      setUndoStack([]);
+      setRedoStack([]);
+      setLoadedProjectId(project.id);
+    }
+  }, [project?.id]);
+
   const handleUnitToggle = (newSystem: "si" | "ip") => {
     if (newSystem === unitSystem) return;
     setUnitSystem(newSystem);
@@ -276,77 +349,6 @@ function SprinklerKFactorPage() {
         }
       });
     }
-  };
-
-  // Quick Solver State
-  const [solverK, setSolverK] = useState<number | "">(5.6);
-  const [solverSolveFor, setSolverSolveFor] = useState<"Q" | "P">("Q");
-  const [solverKnownVal, setSolverKnownVal] = useState<number | "">(30.0);
-  const [isCustomK, setIsCustomK] = useState(false);
-  const [selectedBulbColor, setSelectedBulbColor] = useState<string>("red");
-
-  // Grid/Schedule State
-  const [rows, setRows] = useState<SprinklerRow[]>(() => {
-    try {
-      const stored = localStorage.getItem(`mep_sprinklers_${project.id}`);
-      return stored ? JSON.parse(stored) : DEFAULT_ROWS;
-    } catch {
-      return DEFAULT_ROWS;
-    }
-  });
-
-  // Load data when active project changes
-  useEffect(() => {
-    if (project?.id) {
-      const stored = localStorage.getItem(`mep_sprinklers_${project.id}`);
-      if (stored) {
-        try {
-          setRows(JSON.parse(stored));
-        } catch {
-          setRows(DEFAULT_ROWS);
-        }
-      } else {
-        setRows(DEFAULT_ROWS);
-      }
-      setUndoStack([]);
-      setRedoStack([]);
-      setLoadedProjectId(project.id);
-    }
-  }, [project?.id]);
-
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [hazardFilter, setHazardFilter] = useState("All");
-  const [kFilter, setKFilter] = useState("All");
-
-  // History Stack (Local Undo/Redo)
-  const [undoStack, setUndoStack] = useState<string[]>([]);
-  const [redoStack, setRedoStack] = useState<string[]>([]);
-
-  const pushToUndo = (newRows: SprinklerRow[]) => {
-    setUndoStack(prev => [...prev.slice(-49), JSON.stringify(rows)]);
-    setRedoStack([]);
-  };
-
-  const handleUndo = () => {
-    if (undoStack.length === 0) return;
-    const previous = undoStack[undoStack.length - 1];
-    setUndoStack(prev => prev.slice(0, -1));
-    setRedoStack(prev => [...prev, JSON.stringify(rows)]);
-    const parsed = JSON.parse(previous);
-    setRows(parsed);
-    localStorage.setItem(`mep_sprinklers_${project.id}`, previous);
-  };
-
-  const handleRedo = () => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    setRedoStack(prev => prev.slice(0, -1));
-    setUndoStack(prev => [...prev, JSON.stringify(rows)]);
-    const parsed = JSON.parse(next);
-    setRows(parsed);
-    localStorage.setItem(`mep_sprinklers_${project.id}`, next);
   };
 
   // Sync to localstorage
