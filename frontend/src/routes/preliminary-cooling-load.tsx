@@ -32,6 +32,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
+import { exportPreliminaryCoolingLoadPDF } from "@/lib/exportPreliminaryCoolingLoadPDF";
 
 
 export const Route = createFileRoute("/preliminary-cooling-load")({
@@ -1016,96 +1017,12 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const handlePrintPDF = () => {
-    const doc = new jsPDF("p", "pt", "a4");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("PRELIMINARY COOLING LOAD REPORT", 40, 50);
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${projectInfo.date} | Consultant: ${projectInfo.consultant} | Standard: ASHRAE`, 40, 68);
-
-    doc.setDrawColor(10, 123, 199);
-    doc.line(40, 75, 550, 75);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(0);
-    doc.text("1. Project & Sizing Details", 40, 95);
-
-    const projectData = [
-      ["Project Name", projectInfo.projectName, "Project Number", projectInfo.projectNumber],
-      ["Consultant", projectInfo.consultant, "Client", projectInfo.client],
-      ["Revision", projectInfo.revision, "Calculation Ref", projectInfo.calcNumber],
-    ];
-
-    autoTable(doc, {
-      startY: 105,
-      head: [],
-      body: projectData,
-      theme: "plain",
-      styles: { fontSize: 9.5, cellPadding: 4 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 90 },
-        1: { cellWidth: 170 },
-        2: { fontStyle: "bold", cellWidth: 90 },
-        3: { cellWidth: 170 },
-      },
+    exportPreliminaryCoolingLoadPDF(rows, {
+      projectName: projectInfo.projectName,
+      client: projectInfo.client,
+      projectNo: projectInfo.projectNumber,
+      calcNo: projectInfo.calcNumber,
     });
-
-    doc.setFont("helvetica", "bold");
-    doc.text("2. Room Sizing Schedule", 40, (doc as any).lastAutoTable.finalY + 25);
-
-    const grouped: Record<string, PclRow[]> = {};
-    rows.forEach(row => {
-      if (!grouped[row.floor]) grouped[row.floor] = [];
-      grouped[row.floor].push(row);
-    });
-
-    const loadHead = [["S.No", "Space Name", "Area (m²)", "Space Type", "Density (W/m²)", "kW", "TR"]];
-    const loadBody: any[] = [];
-    let sNo = 1;
-
-    Object.keys(grouped).sort().forEach(floor => {
-      loadBody.push([{ content: `📍 Floor: ${floor}`, colSpan: 7, styles: { fillColor: [220, 239, 251], textColor: [6, 69, 111], fontStyle: "bold" } }]);
-      grouped[floor].forEach(r => {
-        loadBody.push([
-          sNo++,
-          r.name,
-          r.area,
-          r.type,
-          r.density,
-          r.kw.toFixed(2),
-          r.tr.toFixed(2)
-        ]);
-      });
-    });
-
-    loadBody.push([
-      { content: "TOTAL", colSpan: 2, styles: { fillColor: [220, 239, 251], textColor: [6, 69, 111], fontStyle: "bold" } },
-      { content: calculatedData.totalArea.toFixed(1), styles: { fillColor: [220, 239, 251], textColor: [6, 69, 111], fontStyle: "bold" } },
-      { content: "", styles: { fillColor: [220, 239, 251] } },
-      { content: calculatedData.avgDensity.toFixed(1), styles: { fillColor: [220, 239, 251], textColor: [6, 69, 111], fontStyle: "bold" } },
-      { content: calculatedData.totalKw.toFixed(2), styles: { fillColor: [220, 239, 251], textColor: [6, 69, 111], fontStyle: "bold" } },
-      { content: calculatedData.totalTr.toFixed(2), styles: { fillColor: [220, 239, 251], textColor: [6, 69, 111], fontStyle: "bold" } }
-    ]);
-
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 35,
-      head: loadHead,
-      body: loadBody,
-      theme: "grid",
-      styles: { fontSize: 8.5, cellPadding: 4 },
-      headStyles: { fillColor: [10, 123, 199] },
-    });
-
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "preliminary-cooling-load");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
   };
 
   // Bulk Edit Callback
@@ -1528,6 +1445,15 @@ function PreliminaryCoolingLoadPage() {
                   Printable Report
                 </button>
               </div>
+
+              <div className="flex items-center gap-1.5">
+                <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber })}>
+                  <FileText className="size-3.5" /> Export PDF
+                </TBtn>
+                <TBtn onClick={handleExportExcel}>
+                  <FileSpreadsheet className="size-3.5" /> Export Excel
+                </TBtn>
+              </div>
             </div>
 
             {/* Active Tab View */}
@@ -1673,6 +1599,8 @@ function PreliminaryCoolingLoadPage() {
                       </Popover>
                       
                       <div className="ml-auto flex items-center gap-1">
+                        <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber })}><FileText className="size-3.5" /> Export PDF</TBtn>
+                        <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                         <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
@@ -1777,8 +1705,9 @@ function PreliminaryCoolingLoadPage() {
                 /* Printable Report tab view */
                 <div className="flex-1 flex flex-col min-h-0">
                   {/* Fixed Toolbar at the top */}
-                  <div className="relative flex items-center justify-end gap-3 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
-                    <TBtn onClick={handlePrintPDF} primary><Printer className="size-3.5" /> Print / Export PDF</TBtn>
+                  <div className="relative flex items-center justify-end gap-2 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
+                    <TBtn onClick={handlePrintPDF} primary><FileText className="size-3.5" /> Export PDF</TBtn>
+                    <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                   </div>
                   
                   {/* Scrollable Report Content */}
