@@ -2045,111 +2045,116 @@ function PreliminaryCoolingLoadPage() {
                     </div>
                   )}
 
-                  <div className="border border-slate-300 dark:border-slate-800 rounded-xl p-8 max-w-4xl mx-auto shadow-sm print:border-none print:shadow-none print:p-0">
+                  <div className="border border-slate-300 dark:border-slate-800 rounded-xl p-8 max-w-4xl mx-auto shadow-sm print:border-none print:shadow-none print:p-0 bg-white dark:bg-slate-900">
                     
-                    {/* Report Header */}
-                    <div className="border-b-2 border-slate-800 pb-5 mb-6 flex justify-between items-start font-sans">
-                      <div>
-                        <h1 className="text-xl font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">PRELIMINARY COOLING LOAD REPORT</h1>
-                        <p className="text-[12px] text-muted-foreground font-mono mt-1 font-sans">Preliminary Cooling Load and Heat Density analysis grouped by floor level</p>
+                    {/* 1. Title Banner */}
+                    <div className="bg-[#0A7BC7] text-white py-3 px-4 rounded-t-lg text-center font-bold text-base tracking-wide uppercase">
+                      PRELIMINARY COOLING LOAD REPORT
+                    </div>
+
+                    {/* 2. Company & Date */}
+                    <div className="py-2.5 px-1 flex justify-between items-center text-xs border-b border-border/60">
+                      <span className="font-bold text-foreground">Consistent Engineering Consultants</span>
+                      <span className="text-muted-foreground">Date: {projectInfo.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
+                    </div>
+
+                    {/* 3. Project Summary Stats */}
+                    <div className="mt-4 rounded-lg overflow-hidden border border-border/80 text-xs">
+                      <div className="bg-[#06456F] text-white px-3 py-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
+                        📊 PROJECT SUMMARY STATS
                       </div>
-                      <div className="text-right">
-                        <span className="text-[13px] font-bold text-primary font-mono block">MEP CALCULATION SUITE</span>
-                        <span className="text-[11px] text-muted-foreground block mt-0.5 font-sans">Date: {projectInfo.date}</span>
+                      <div className="grid grid-cols-2 divide-x divide-border/60 p-2 bg-slate-50/50 dark:bg-slate-800/30">
+                        <div className="space-y-1.5 pr-3">
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Spaces:</span>
+                            <span className="font-bold font-mono">{rows.length}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Floor Area:</span>
+                            <span className="font-bold font-mono">{calculatedData.totalArea.toFixed(1)} m²</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Cooling Load:</span>
+                            <span className="font-bold font-mono text-primary">{calculatedData.totalKw.toFixed(2)} kW</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 pl-3">
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Load (TR):</span>
+                            <span className="font-bold font-mono text-pink-600">{calculatedData.totalTr.toFixed(2)} TR</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Load (TR):</span>
+                            <span className="font-bold font-mono text-pink-600">{calculatedData.totalTr.toFixed(2)} TR</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Average Load Density:</span>
+                            <span className="font-bold font-mono">{calculatedData.avgDensity.toFixed(1)} W/m²</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* 1. Project Info */}
-                    <div className="mb-6 font-sans">
-                      <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 pb-1 mb-3">1. Project Details</h3>
-                      <div className="grid grid-cols-2 gap-4 text-xs font-sans">
-                        <div>
-                          <span className="text-muted-foreground block">Project Name:</span>
-                          <span className="font-semibold">{projectInfo.projectName}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Project Number:</span>
-                          <span className="font-semibold">{projectInfo.projectNumber}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Consultant / Engineer:</span>
-                          <span className="font-semibold">{projectInfo.consultant}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Client Name:</span>
-                          <span className="font-semibold">{projectInfo.client}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground block">Calculation Notes:</span>
-                          <span className="italic text-muted-foreground block mt-0.5">{projectInfo.notes}</span>
-                        </div>
+                    {/* 4. Cooling Load Schedule Table */}
+                    <div className="mt-5 rounded-lg overflow-hidden border border-border/80">
+                      <div className="bg-[#06456F] text-white px-3 py-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
+                        ⚙️ COOLING LOAD SCHEDULE
                       </div>
-                    </div>
-
-                    {/* 2. Connected load table grouped by floor */}
-                    <div className="mb-6 page-break font-sans">
-                      <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 pb-1 mb-3">2. Sizing Details</h3>
                       
                       {(() => {
                         const grouped: Record<string, PclRow[]> = {};
                         rows.forEach(row => {
-                          if (!grouped[row.floor]) grouped[row.floor] = [];
-                          grouped[row.floor].push(row);
+                          const fl = row.floor || "General";
+                          if (!grouped[fl]) grouped[fl] = [];
+                          grouped[fl].push(row);
                         });
 
                         let sNo = 1;
 
                         return (
-                          <table className="w-full text-left text-[11px] border border-collapse border-slate-200 font-sans">
+                          <table className="w-full text-left text-[11px] border-collapse font-sans">
                             <thead>
-                              <tr className="bg-slate-100 font-bold text-slate-800 border-b border-slate-200">
-                                <th className="p-2 border-r border-slate-200">S.No</th>
-                                <th className="p-2 border-r border-slate-200">Space Name</th>
-                                <th className="p-2 text-right border-r border-slate-200">Area (m²)</th>
-                                <th className="p-2 border-r border-slate-200">Space Type</th>
-                                <th className="p-2 text-right border-r border-slate-200">Density (W/m²)</th>
-                                <th className="p-2 text-right border-r border-slate-200">kW</th>
-                                <th className="p-2 text-right">TR</th>
+                              <tr className="bg-[#0A7BC7] font-bold text-white text-center">
+                                <th className="p-2 border-r border-white/20 w-10">S.No</th>
+                                <th className="p-2 border-r border-white/20 text-left">Name of Space</th>
+                                <th className="p-2 border-r border-white/20 text-right w-20">Area (m²)</th>
+                                <th className="p-2 border-r border-white/20 text-left">Type of Space</th>
+                                <th className="p-2 border-r border-white/20 text-right w-36">Cooling load Density (W/m²)</th>
+                                <th className="p-2 border-r border-white/20 text-right w-28">Cooling Load (kW)</th>
+                                <th className="p-2 text-right w-24">Cooling Load (TR)</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200 font-mono">
+                            <tbody className="divide-y divide-border/60">
                               {Object.keys(grouped).sort().map(floor => (
-                                <tr key={floor}>
-                                  <td colSpan={7} className="p-0">
-                                    <table className="w-full border-collapse">
-                                      <tbody>
-                                        <tr className="bg-slate-50 font-bold text-slate-700 border-b border-slate-200">
-                                          <td colSpan={7} className="p-2 font-sans">📍 Floor: {floor}</td>
-                                        </tr>
-                                        {grouped[floor].map(r => (
-                                          <tr key={r.id}>
-                                            <td className="p-2 border-r border-slate-200 w-12">{sNo++}</td>
-                                            <td className="p-2 border-r border-slate-200 font-sans">{r.name}</td>
-                                            <td className="p-2 text-right border-r border-slate-200 w-16">{r.area}</td>
-                                            <td className="p-2 border-r border-slate-200 font-sans">{r.type}</td>
-                                            <td className="p-2 text-right border-r border-slate-200 w-24">{r.density}</td>
-                                            <td className="p-2 text-right border-r border-slate-200 w-24 font-bold">{r.kw.toFixed(2)}</td>
-                                            <td className="p-2 text-right w-20 font-bold text-primary">{r.tr.toFixed(2)}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
+                                <React.Fragment key={floor}>
+                                  <tr className="bg-[#DCEFFB] dark:bg-blue-950/40 font-bold text-[#06456F] dark:text-blue-300">
+                                    <td colSpan={7} className="p-2 font-sans">Floor: {floor}</td>
+                                  </tr>
+                                  {grouped[floor].map(r => (
+                                    <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                      <td className="p-2 text-center border-r border-border/40 text-muted-foreground">{sNo++}</td>
+                                      <td className="p-2 border-r border-border/40 font-medium">{r.name}</td>
+                                      <td className="p-2 text-right border-r border-border/40 font-mono">{(typeof r.area === 'number' ? r.area : (parseFloat(String(r.area)) || 0)).toFixed(1)}</td>
+                                      <td className="p-2 border-r border-border/40 text-muted-foreground">{r.type || "Unassigned"}</td>
+                                      <td className="p-2 text-right border-r border-border/40 font-mono">{(r.density || 120).toFixed(1)}</td>
+                                      <td className="p-2 text-right border-r border-border/40 font-mono font-semibold">{r.kw.toFixed(2)}</td>
+                                      <td className="p-2 text-right font-mono font-bold text-pink-600 dark:text-pink-400">{r.tr.toFixed(2)}</td>
+                                    </tr>
+                                  ))}
+                                </React.Fragment>
                               ))}
-                              <tr className="bg-blue-50 font-bold text-blue-950">
-                                <td colSpan={2} className="p-2 border-r border-slate-200 font-sans">TOTAL</td>
-                                <td className="p-2 text-right border-r border-slate-200">{calculatedData.totalArea.toFixed(1)}</td>
-                                <td className="p-2 border-r border-slate-200 font-sans"></td>
-                                <td className="p-2 text-right border-r border-slate-200">{calculatedData.avgDensity.toFixed(1)}</td>
-                                <td className="p-2 text-right border-r border-slate-200">{calculatedData.totalKw.toFixed(2)}</td>
-                                <td className="p-2 text-right text-primary">{calculatedData.totalTr.toFixed(2)}</td>
+                              <tr className="bg-[#DCEFFB] dark:bg-blue-950/60 font-bold text-[#06456F] dark:text-blue-200 border-t-2 border-[#06456F]">
+                                <td colSpan={2} className="p-2 border-r border-border/40 font-sans">TOTAL</td>
+                                <td className="p-2 text-right border-r border-border/40 font-mono">{calculatedData.totalArea.toFixed(1)}</td>
+                                <td className="p-2 border-r border-border/40"></td>
+                                <td className="p-2 text-right border-r border-border/40 font-mono">{calculatedData.avgDensity.toFixed(1)}</td>
+                                <td className="p-2 text-right border-r border-border/40 font-mono">{calculatedData.totalKw.toFixed(2)}</td>
+                                <td className="p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculatedData.totalTr.toFixed(2)}</td>
                               </tr>
                             </tbody>
                           </table>
                         );
                       })()}
-
                     </div>
 
                     {/* Engineering sign off footer */}
