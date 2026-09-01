@@ -2496,10 +2496,8 @@ function LoadingUnitPage() {
                     <span>DBC 2021 &amp; BS EN 806 limits (V &le; 1.5 - 2.0 m/s).</span>
                   </div>
                 </div>
-
               </div>
 
-            </div>
         </div>
       </div>
 
