@@ -8,7 +8,7 @@ import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info, FileText } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
@@ -1112,9 +1112,9 @@ function CableTraySizingPage() {
 
             <button
               onClick={exportPdf}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
             >
-              <Download className="size-3.5" /> PDF
+              <FileText className="size-3.5" /> Export PDF
             </button>
 
             <button

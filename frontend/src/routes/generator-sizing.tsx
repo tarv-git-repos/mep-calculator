@@ -1152,7 +1152,7 @@ function GeneratorSizingPage() {
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Sections Navigation (Tabs) */}
-          <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center">
+          <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between">
             <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
               <button
                 type="button"
@@ -1177,6 +1177,15 @@ function GeneratorSizingPage() {
                 Sizing &amp; Report
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={exportPdf}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+            >
+              <FileText className="size-3.5" />
+              Export PDF
+            </button>
           </div>
 
           {activeTab === "report" && (
@@ -1203,22 +1212,7 @@ function GeneratorSizingPage() {
               {/* Reports Export Cards */}
               <div className="border border-border rounded-xl p-5 bg-surface-1">
                 <h2 className="text-sm font-bold text-foreground mb-4">Export Calculation Reports</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="border border-border rounded-lg p-4 bg-background flex flex-col items-start gap-3">
-                    <div className="size-10 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                      <FileSpreadsheet className="size-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-[14px]">Excel Spreadsheet</h3>
-                      <p className="text-[12.5px] text-muted-foreground mt-1">
-                        Download full project model with calculation sheets.
-                      </p>
-                    </div>
-                    <TBtn primary onClick={exportExcel} className="mt-2 w-full justify-center">
-                      Export Excel
-                    </TBtn>
-                  </div>
-
+                <div className="grid grid-cols-1 gap-4 max-w-md">
                   <div className="border border-border rounded-lg p-4 bg-background flex flex-col items-start gap-3">
                     <div className="size-10 rounded-full bg-red-500/10 text-red-600 flex items-center justify-center">
                       <FileText className="size-5" />
@@ -1405,9 +1399,9 @@ function GeneratorSizingPage() {
 
                   <button
                     onClick={exportPdf}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
                   >
-                    <Download className="size-3.5" /> PDF
+                    <FileText className="size-3.5" /> Export PDF
                   </button>
 
                   <button

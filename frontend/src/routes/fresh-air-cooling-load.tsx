@@ -1012,10 +1012,10 @@ function FreshAirCoolingLoadPage() {
                   <button
                     type="button"
                     onClick={handlePrintPDF}
-                    className="px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1.5 cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
                   >
-                    <Printer className="size-3.5" />
-                    <span>Print PDF</span>
+                    <FileText className="size-3.5" />
+                    <span>Export PDF</span>
                   </button>
                 </div>
               </div>

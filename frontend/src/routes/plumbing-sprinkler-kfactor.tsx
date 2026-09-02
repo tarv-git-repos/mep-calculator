@@ -2776,12 +2776,12 @@ function SprinklerKFactorPage() {
 
         {/* Intelligence Side Drawer */}
         <div
-          className={`shrink-0 bg-background overflow-hidden transition-[width] duration-300 ease-out select-none no-print print:hidden ${
-            intelOpen ? "w-[380px] border-l border-border" : "w-0"
+          className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-out select-none no-print print:hidden ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
           }`}
         >
           {intelOpen && (
-            <div className="w-[380px] h-full flex flex-col min-h-0 bg-background font-sans">
+            <div className="w-[360px] h-full flex flex-col min-h-0 bg-background font-sans">
               {/* Header */}
               <div className="flex items-center justify-between p-4 border-b border-border bg-header-bg shrink-0">
                 <div className="flex items-center gap-2">

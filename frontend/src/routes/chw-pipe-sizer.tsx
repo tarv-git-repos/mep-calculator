@@ -939,7 +939,12 @@ function ChwPipeSizerPage() {
                 <div className="flex-1 flex flex-col min-h-0">
                   {/* Fixed Toolbar at the top */}
                   <div className="relative flex items-center justify-end gap-3 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
-                    <TBtn onClick={handlePrintPDF} primary><Printer className="size-3.5" /> Print / Export PDF</TBtn>
+                    <button
+                      onClick={handlePrintPDF}
+                      className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+                    >
+                      <FileText className="size-3.5" /> Export PDF
+                    </button>
                   </div>
                   
                   {/* Scrollable Report Content */}

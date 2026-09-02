@@ -1696,9 +1696,9 @@ function BusbarCalculationPage() {
 
             <button
               onClick={exportPdf}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
             >
-              <Download className="size-3.5" /> PDF
+              <FileText className="size-3.5" /> Export PDF
             </button>
 
             <button

@@ -8,7 +8,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Download, Plus, X, ChevronDown, ChevronUp, Zap, Activity } from "lucide-react";
+import { Download, Plus, X, ChevronDown, ChevronUp, Zap, Activity, FileText } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
@@ -408,7 +408,12 @@ function CapacitorBankSizingPage() {
         }}
         onImport={handleImportExcelRows}
       />
-      <TBtn onClick={exportPdf}><Download className="size-3.5" /> PDF</TBtn>
+      <button
+        onClick={exportPdf}
+        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+      >
+        <FileText className="size-3.5" /> Export PDF
+      </button>
     </>
   );
 

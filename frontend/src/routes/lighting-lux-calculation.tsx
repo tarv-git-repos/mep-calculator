@@ -1046,7 +1046,7 @@ function LightingLuxCalculationPage() {
           </button>
           <button
             onClick={exportPdf}
-            className="flex items-center gap-1.5 bg-rose-600/10 text-rose-600 dark:text-rose-400 hover:bg-rose-600/20 border border-rose-600/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
           >
             <FileText className="size-3.5" /> Export PDF
           </button>

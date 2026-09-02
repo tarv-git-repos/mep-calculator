@@ -2637,14 +2637,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             )}
           </div>
         </div>
-        {effectiveIntelOpen && (
+        {effectiveIntelOpen && !onIntelClick && (
           <UniversalIntelligenceDrawer
             title={title}
             pathname={pathname}
-            onClose={() => {
-              if (onIntelClick) onIntelClick();
-              else setDefaultIntelOpen(false);
-            }}
+            onClose={() => setDefaultIntelOpen(false)}
           />
         )}
       </main>
