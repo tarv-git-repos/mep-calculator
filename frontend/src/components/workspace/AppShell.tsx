@@ -1463,11 +1463,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       try {
         if (project?.id) savePageInputs(project.id, pathname);
       } catch (err) {}
-
-      const calcTitle = getCalculatorTitleFromPath(pathname);
-      if (calcTitle) {
-        logCalculatorUpdate(calcTitle, `Changes occurred in ${calcTitle}`);
-      }
     };
     
     document.addEventListener("input", handleUserEdit, true);

@@ -29,11 +29,11 @@ const ACTIVITY_LOGS_FILE = path.join(DATA_DIR, 'activity_logs.json');
 if (!fs.existsSync(ACTIVITY_LOGS_FILE)) fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify([]), 'utf8');
 
 function readActivityLogs() {
-  return [];
+  try { return JSON.parse(fs.readFileSync(ACTIVITY_LOGS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
 }
 
 function writeActivityLogs(logs) {
-  try { fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8'); } catch (e) {}
 }
 
 const ORG_SETTINGS_FILE = path.join(DATA_DIR, 'org_settings.json');
@@ -149,8 +149,25 @@ function encodeOrgStatus(existingStatusStr, newMaxConcurrent, newLicenseKey) {
 }
 
 function logActivity(user, action_type, details) {
-  // Activity logging disabled
-  return;
+  if (!user) return;
+  const logs = readActivityLogs();
+
+  let formattedDetails = details;
+  if (typeof details === 'object' && details !== null) {
+    formattedDetails = details.message || details.summary || JSON.stringify(details);
+  }
+
+  logs.unshift({
+    id: `log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+    created_at: new Date().toISOString(),
+    user_id: user.id || 'system',
+    email: user.email || 'system',
+    name: user.name || user.email || 'User',
+    action_type,
+    details: formattedDetails
+  });
+  if (logs.length > 2000) logs.length = 2000;
+  writeActivityLogs(logs);
 }
 
 dotenv.config({ path: path.join(__dirname, '.env') });

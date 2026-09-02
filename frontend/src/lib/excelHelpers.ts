@@ -52,7 +52,89 @@ export function addExcelSignatureBlock(
   const sigStartRow = startRow;
   worksheet.getRow(sigStartRow).height = 24;
 
-  if (totalColumns === 7) {
+  if (totalColumns === 10) {
+    // 10-column layout spanning Columns A through J
+    worksheet.mergeCells(`B${sigStartRow}:D${sigStartRow}`);
+    worksheet.getCell(`B${sigStartRow}`).value = "Originated by";
+    worksheet.getCell(`B${sigStartRow}`).font = boldFont;
+    worksheet.getCell(`B${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    worksheet.mergeCells(`E${sigStartRow}:G${sigStartRow}`);
+    worksheet.getCell(`E${sigStartRow}`).value = "Reviewed by";
+    worksheet.getCell(`E${sigStartRow}`).font = boldFont;
+    worksheet.getCell(`E${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    worksheet.mergeCells(`H${sigStartRow}:J${sigStartRow}`);
+    worksheet.getCell(`H${sigStartRow}`).value = "Approved by";
+    worksheet.getCell(`H${sigStartRow}`).font = boldFont;
+    worksheet.getCell(`H${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    for (let c = 1; c <= 10; c++) {
+      const cell = worksheet.getCell(sigStartRow, c);
+      cell.fill = peachFill;
+      const leftStyle = c === 1 ? "medium" : "thin";
+      const rightStyle = (c === 1 || c === 4 || c === 7 || c === 10) ? "medium" : "thin";
+      setCellBorder(cell, "medium", "thin", leftStyle, rightStyle);
+    }
+
+    // Name Row
+    const nameRow = sigStartRow + 1;
+    worksheet.getRow(nameRow).height = 24;
+    worksheet.getCell(`A${nameRow}`).value = "Name:";
+    worksheet.getCell(`A${nameRow}`).font = boldFont;
+    worksheet.getCell(`A${nameRow}`).alignment = { horizontal: "right", vertical: "middle" };
+
+    worksheet.mergeCells(`B${nameRow}:D${nameRow}`);
+    worksheet.getCell(`B${nameRow}`).value = originatedName;
+    worksheet.getCell(`B${nameRow}`).font = baseFont;
+    worksheet.getCell(`B${nameRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    worksheet.mergeCells(`E${nameRow}:G${nameRow}`);
+    worksheet.getCell(`E${nameRow}`).value = reviewerName;
+    worksheet.getCell(`E${nameRow}`).font = baseFont;
+    worksheet.getCell(`E${nameRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    worksheet.mergeCells(`H${nameRow}:J${nameRow}`);
+    worksheet.getCell(`H${nameRow}`).value = approverName;
+    worksheet.getCell(`H${nameRow}`).font = baseFont;
+    worksheet.getCell(`H${nameRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    for (let c = 1; c <= 10; c++) {
+      const cell = worksheet.getCell(nameRow, c);
+      const leftStyle = c === 1 ? "medium" : "thin";
+      const rightStyle = (c === 1 || c === 4 || c === 7 || c === 10) ? "medium" : "thin";
+      setCellBorder(cell, "thin", "thin", leftStyle, rightStyle);
+    }
+
+    // Date Row
+    const dateRow = sigStartRow + 2;
+    worksheet.getRow(dateRow).height = 24;
+    worksheet.getCell(`A${dateRow}`).value = "Date:";
+    worksheet.getCell(`A${dateRow}`).font = boldFont;
+    worksheet.getCell(`A${dateRow}`).alignment = { horizontal: "right", vertical: "middle" };
+
+    worksheet.mergeCells(`B${dateRow}:D${dateRow}`);
+    worksheet.getCell(`B${dateRow}`).value = originatedDate;
+    worksheet.getCell(`B${dateRow}`).font = baseFont;
+    worksheet.getCell(`B${dateRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    worksheet.mergeCells(`E${dateRow}:G${dateRow}`);
+    worksheet.getCell(`E${dateRow}`).value = reviewerDate;
+    worksheet.getCell(`E${dateRow}`).font = baseFont;
+    worksheet.getCell(`E${dateRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    worksheet.mergeCells(`H${dateRow}:J${dateRow}`);
+    worksheet.getCell(`H${dateRow}`).value = approverDate;
+    worksheet.getCell(`H${dateRow}`).font = baseFont;
+    worksheet.getCell(`H${dateRow}`).alignment = { horizontal: "center", vertical: "middle" };
+
+    for (let c = 1; c <= 10; c++) {
+      const cell = worksheet.getCell(dateRow, c);
+      const leftStyle = c === 1 ? "medium" : "thin";
+      const rightStyle = (c === 1 || c === 4 || c === 7 || c === 10) ? "medium" : "thin";
+      setCellBorder(cell, "thin", "medium", leftStyle, rightStyle);
+    }
+  } else if (totalColumns === 7) {
     // 7-column layout spanning Columns A through G
     worksheet.mergeCells(`B${sigStartRow}:C${sigStartRow}`);
     worksheet.getCell(`B${sigStartRow}`).value = "Originated by";

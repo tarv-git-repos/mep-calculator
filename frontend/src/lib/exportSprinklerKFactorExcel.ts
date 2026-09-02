@@ -228,11 +228,11 @@ export const exportSprinklerKFactorExcel = async (
 
     r.getCell(1).value = item.l1;
     r.getCell(4).value = item.v1;
-    r.getCell(4).alignment = { horizontal: "right", vertical: "middle" };
+    r.getCell(4).alignment = { horizontal: "center", vertical: "middle" };
 
     r.getCell(5).value = item.l2;
     r.getCell(8).value = item.v2;
-    r.getCell(8).alignment = { horizontal: "right", vertical: "middle" };
+    r.getCell(8).alignment = { horizontal: "center", vertical: "middle" };
     if (item.isBlue2) {
       r.getCell(8).fill = blueFill;
       r.getCell(9).fill = blueFill;
@@ -323,49 +323,49 @@ export const exportSprinklerKFactorExcel = async (
       const row = sheet.getRow(currentRow);
       row.height = 22;
 
-      // Sr. No.
+      // Sr. No. (Col A) - Centered
       row.getCell(1).value = overallIndex++;
       row.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
 
-      // Floor
+      // Floor (Col B) - Centered
       row.getCell(2).value = floorName;
       row.getCell(2).alignment = { horizontal: "center", vertical: "middle" };
 
-      // Label
+      // Label (Col C) - Left
       row.getCell(3).value = r.label;
       row.getCell(3).alignment = { horizontal: "left", vertical: "middle" };
 
-      // K-Factor
+      // K-Factor (Col D) - Centered
       row.getCell(4).value = r.kFactor;
       row.getCell(4).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(4).numFmt = "0.0";
 
-      // Target
+      // Target (Col E) - Centered
       row.getCell(5).value = r.solveFor === "Q" ? "Flow (Q)" : "Pressure (P)";
       row.getCell(5).alignment = { horizontal: "center", vertical: "middle" };
 
-      // Pressure (Col F)
+      // Pressure (Col F) - CENTERED
       row.getCell(6).value = r.pressure;
-      row.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
+      row.getCell(6).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(6).numFmt = "0.00";
       row.getCell(6).fill = blueFill;
 
-      // Flow (Col G)
+      // Flow (Col G) - CENTERED
       row.getCell(7).value = r.flow;
-      row.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
+      row.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(7).numFmt = "0.00";
       row.getCell(7).fill = blueFill;
 
-      // Coverage Area (Col H)
+      // Coverage Area (Col H) - CENTERED
       row.getCell(8).value = r.coverage;
-      row.getCell(8).alignment = { horizontal: "right", vertical: "middle" };
+      row.getCell(8).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(8).numFmt = "0.0";
 
-      // Hazard
+      // Hazard (Col I) - Left
       row.getCell(9).value = r.hazard;
       row.getCell(9).alignment = { horizontal: "left", vertical: "middle" };
 
-      // Compliance Status
+      // Compliance Status (Col J) - Centered
       const minP = isSI ? 0.48 : 7.0;
       const isCompliant = r.pressure >= minP;
       row.getCell(10).value = isCompliant ? "• COMPLIED" : "⚠️ LOW PRESSURE";
@@ -394,24 +394,24 @@ export const exportSprinklerKFactorExcel = async (
   totRow.getCell(1).alignment = { horizontal: "right", vertical: "middle" };
   totRow.getCell(1).fill = grayFill;
 
-  // Max Operating Pressure
+  // Max Operating Pressure (Col F) - Centered
   totRow.getCell(6).value = maxPressure;
   totRow.getCell(6).font = boldFont;
-  totRow.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
+  totRow.getCell(6).alignment = { horizontal: "center", vertical: "middle" };
   totRow.getCell(6).numFmt = "0.00";
   totRow.getCell(6).fill = blueFill;
 
-  // Total Demand Flow
+  // Total Demand Flow (Col G) - Centered
   totRow.getCell(7).value = totalFlow;
   totRow.getCell(7).font = boldFont;
-  totRow.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
+  totRow.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
   totRow.getCell(7).numFmt = "0.00";
   totRow.getCell(7).fill = blueFill;
 
-  // Total Coverage
+  // Total Coverage (Col H) - Centered
   totRow.getCell(8).value = totalCoverage;
   totRow.getCell(8).font = boldFont;
-  totRow.getCell(8).alignment = { horizontal: "right", vertical: "middle" };
+  totRow.getCell(8).alignment = { horizontal: "center", vertical: "middle" };
   totRow.getCell(8).numFmt = "0.0";
   totRow.getCell(8).fill = grayFill;
 
@@ -428,44 +428,7 @@ export const exportSprinklerKFactorExcel = async (
 
   currentRow += 2;
 
-  // Hydraulic Formulas Guidance Box
-  const formHeader = sheet.getRow(currentRow);
-  formHeader.height = 22;
-  sheet.mergeCells(`A${currentRow}:J${currentRow}`);
-  for (let c = 1; c <= 10; c++) {
-    const cell = formHeader.getCell(c);
-    cell.value = "HYDRAULIC FORMULAS & DESIGN CRITERIA (NFPA 13)";
-    cell.fill = grayFill;
-    cell.font = boldFont;
-    cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
-    setCellBorder(cell, "medium", "thin", c === 1 ? "medium" : "thin", c === 10 ? "medium" : "thin");
-  }
-  currentRow++;
-
-  const formulaRows = [
-    { text: "• Flow Discharge Formula: Q = K × √P (where Q = Flow in GPM/LPM, K = Discharge Coefficient, P = Pressure in PSI/bar)" },
-    { text: "• Required Node Pressure: P = (Q / K)²" },
-    { text: "• NFPA 13 Minimum Operating Pressure: 7.0 psi (0.48 bar) for standard spray sprinklers" },
-    { text: "• Light Hazard Max Area: 225 ft² (20.9 m²) | Ordinary Hazard Max Area: 130 ft² (12.1 m²) | Extra Hazard Max Area: 100 ft² (9.3 m²)" }
-  ];
-
-  formulaRows.forEach((fr, idx) => {
-    const r = sheet.getRow(currentRow);
-    r.height = 20;
-    sheet.mergeCells(`A${currentRow}:J${currentRow}`);
-    for (let c = 1; c <= 10; c++) {
-      const cell = r.getCell(c);
-      cell.value = fr.text;
-      cell.font = { name: "Arial", size: 9.5 };
-      cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
-      setCellBorder(cell, "thin", idx === formulaRows.length - 1 ? "medium" : "thin", c === 1 ? "medium" : "thin", c === 10 ? "medium" : "thin");
-    }
-    currentRow++;
-  });
-
-  currentRow += 2;
-
-  // 3-Tier Digital Review Signatures Block
+  // 3-Tier Digital Review Signatures Block spanning Columns A to J (totalColumns = 10)
   addExcelSignatureBlock(
     sheet,
     currentRow,

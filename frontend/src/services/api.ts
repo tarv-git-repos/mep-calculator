@@ -247,13 +247,23 @@ export const api = {
     return { success: true };
   },
 
-  // ACTIVITY LOGS (DISABLED)
-  async logActivity(_action_type?: string, _details?: any) {
-    return { success: true, disabled: true };
+  // ACTIVITY LOGS
+  async logActivity(action_type: string, details?: any) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/activity/log`, { action_type, details });
+      return data;
+    } catch (e) {
+      return { success: false };
+    }
   },
   
   async getAdminActivityLogs() {
-    return [];
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/activity-logs`);
+      return data.success ? data.logs : [];
+    } catch (e) {
+      return [];
+    }
   },
 
   // TEAMS
@@ -602,8 +612,15 @@ export const api = {
       return { success: false, message: e.response?.data?.message || e.message };
     }
   },
-  async getOrgActivityLogs(_orgId?: string) {
-    return [];
+  async getOrgActivityLogs(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/activity-logs?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/activity-logs`;
+      const { data } = await axios.get(url);
+      return data.success ? data.logs : [];
+    } catch (e) {
+      console.error('Error fetching org activity logs:', e);
+      return [];
+    }
   },
 
   // ================= ANNOUNCEMENTS ENDPOINTS ================= //

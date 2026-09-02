@@ -167,9 +167,108 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
   }
 ];
 
+const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): HierarchyUser[] => {
+  const rootName = adminName || "David Vance";
+  const rootEmail = adminEmail || "david.vance@mep-calc.com";
+  const rootId = "usr-102";
+
+  return [
+    {
+      id: rootId,
+      name: rootName,
+      email: rootEmail,
+      designation: "Director of MEP Engineering",
+      department: "Management",
+      role: "ORG_ADMIN",
+      parentId: null,
+      avatarColor: "bg-blue-600",
+      status: "active"
+    },
+    {
+      id: "usr-104",
+      name: "Vikram Kadam",
+      email: "vikram.kadam@mep-calc.com",
+      designation: "Lead HVAC Principal PM",
+      department: "HVAC",
+      role: "PROJECT_MANAGER",
+      parentId: rootId,
+      avatarColor: "bg-emerald-600",
+      status: "active"
+    },
+    {
+      id: "usr-105",
+      name: "Sarah Jenkins",
+      email: "sarah.jenkins@mep-calc.com",
+      designation: "Lead Electrical PM",
+      department: "Electrical",
+      role: "PROJECT_MANAGER",
+      parentId: rootId,
+      avatarColor: "bg-amber-600",
+      status: "active"
+    },
+    {
+      id: "usr-106",
+      name: "Marcus Brody",
+      email: "marcus.brody@mep-calc.com",
+      designation: "Lead Plumbing & Fire Protection PM",
+      department: "Plumbing",
+      role: "PROJECT_MANAGER",
+      parentId: rootId,
+      avatarColor: "bg-teal-600",
+      status: "active"
+    },
+    {
+      id: "usr-107",
+      name: "Rahul Sharma",
+      email: "rahul.sharma@mep-calc.com",
+      designation: "Senior HVAC Mechanical Engineer",
+      department: "HVAC",
+      role: "ENGINEER",
+      parentId: "usr-104",
+      avatarColor: "bg-cyan-600",
+      status: "active"
+    },
+    {
+      id: "usr-108",
+      name: "Priya Nair",
+      email: "priya.nair@mep-calc.com",
+      designation: "Senior Electrical Systems Engineer",
+      department: "Electrical",
+      role: "ENGINEER",
+      parentId: "usr-105",
+      avatarColor: "bg-rose-600",
+      status: "active"
+    },
+    {
+      id: "usr-109",
+      name: "Tariq Al-Mansoor",
+      email: "tariq.mansoor@mep-calc.com",
+      designation: "Fire Suppression Systems Specialist",
+      department: "Fire Fighting",
+      role: "ENGINEER",
+      parentId: "usr-106",
+      avatarColor: "bg-orange-600",
+      status: "active"
+    },
+    {
+      id: "usr-112",
+      name: "Kevin Chen",
+      email: "kevin.chen@mep-calc.com",
+      designation: "Junior Plumbing & Hydraulics Engineer",
+      department: "Plumbing",
+      role: "USER",
+      parentId: "usr-106",
+      avatarColor: "bg-slate-600",
+      status: "active"
+    }
+  ];
+};
+
 function CompanyHierarchyPage() {
   const { profile, userData } = useAuth();
   const currentRole = userData?.role || profile?.role || "SUPER_ADMIN";
+  const currentUserName = userData?.name || profile?.name || "David Vance";
+  const currentUserEmail = userData?.email || profile?.email || "david.vance@mep-calc.com";
   
   // Access check: Visible only to SUPER_ADMIN and ORG_ADMIN
   const isAuthorized = ["SUPER_ADMIN", "ORG_ADMIN"].includes(currentRole);
@@ -211,9 +310,33 @@ function CompanyHierarchyPage() {
     }
   };
 
+  const handleCreateOrgHierarchy = () => {
+    const template = DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail);
+    if (currentRole === "ORG_ADMIN") {
+      // For ORG_ADMIN, replace or set the hierarchy structure with the Org Admin at the top
+      saveHierarchy(template);
+      toast.success("Organization hierarchy created successfully!");
+    } else {
+      saveHierarchy(DEFAULT_HIERARCHY);
+      toast.success("Company hierarchy created successfully!");
+    }
+  };
+
   const handleResetDefault = () => {
-    saveHierarchy(DEFAULT_HIERARCHY);
-    toast.success("Hierarchy reset to default organization structure!");
+    if (currentRole === "ORG_ADMIN") {
+      saveHierarchy(DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail));
+      toast.success("Hierarchy reset to default organization structure!");
+    } else {
+      saveHierarchy(DEFAULT_HIERARCHY);
+      toast.success("Hierarchy reset to default company structure!");
+    }
+  };
+
+  const handleClearAllHierarchy = () => {
+    if (confirm("Are you sure you want to delete the entire hierarchy? You can create a new hierarchy anytime.")) {
+      saveHierarchy([]);
+      toast.success("All hierarchy data has been deleted.");
+    }
   };
 
   // Toggle Collapse
@@ -231,9 +354,9 @@ function CompanyHierarchyPage() {
     setFormName("");
     setFormEmail("");
     setFormDesignation("");
-    setFormDepartment("HVAC");
-    setFormRole("ENGINEER");
-    setFormParentId(presetParentId !== undefined ? presetParentId : (members[0]?.id || null));
+    setFormDepartment(currentRole === "ORG_ADMIN" && members.length === 0 ? "Management" : "HVAC");
+    setFormRole(currentRole === "ORG_ADMIN" && members.length === 0 ? "ORG_ADMIN" : "ENGINEER");
+    setFormParentId(presetParentId !== undefined ? presetParentId : (visibleMembers[0]?.id || null));
     setEditingMember(null);
     setIsAddModalOpen(true);
   };
@@ -288,7 +411,7 @@ function CompanyHierarchyPage() {
         id: `usr-${Date.now()}`,
         name: formName.trim(),
         email: formEmail.trim(),
-        designation: formDesignation.trim() || "MEP Engineer",
+        designation: formDesignation.trim() || (formRole === "ORG_ADMIN" ? "Director of MEP Engineering" : "MEP Engineer"),
         department: formDepartment,
         role: formRole,
         parentId: formParentId,
@@ -322,14 +445,19 @@ function CompanyHierarchyPage() {
   };
 
   const visibleMembers = useMemo(() => {
+    if (members.length === 0) return [];
     if (currentRole === "SUPER_ADMIN") return members;
 
     // For ORG_ADMIN: Find their node based on email
-    const emailToMatch = userData?.email || profile?.email;
-    let currentUserNode = members.find(m => m.email === emailToMatch);
+    const emailToMatch = (userData?.email || profile?.email || "").toLowerCase().trim();
+    let currentUserNode = members.find(m => m.email?.toLowerCase().trim() === emailToMatch);
     if (!currentUserNode) {
-      // Fallback for dummy data if emails don't match
+      // Fallback: look for ORG_ADMIN node
       currentUserNode = members.find(m => m.role === "ORG_ADMIN");
+    }
+    if (!currentUserNode) {
+      // Fallback: look for top root node
+      currentUserNode = members.find(m => m.parentId === null);
     }
 
     if (!currentUserNode) return [];
@@ -361,7 +489,7 @@ function CompanyHierarchyPage() {
     });
   }, [visibleMembers, searchQuery, selectedDept]);
 
-  // Root members (parentId is null or parent doesn't exist)
+  // Root members (parentId is null or parent doesn't exist in visible set)
   const rootMembers = useMemo(() => {
     const ids = new Set(visibleMembers.map((m) => m.id));
     return visibleMembers.filter((m) => !m.parentId || !ids.has(m.parentId));
@@ -377,6 +505,15 @@ function CompanyHierarchyPage() {
       }
     });
     return map;
+  }, [visibleMembers]);
+
+  // KPI Metrics scoped to visible members
+  const kpiTotalMembers = visibleMembers.length;
+  const kpiLeaders = visibleMembers.filter((m) => ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(m.role)).length;
+  const kpiStaff = visibleMembers.filter((m) => ["ENGINEER", "USER", "VIEWER"].includes(m.role)).length;
+  const kpiDepartments = useMemo(() => {
+    if (visibleMembers.length === 0) return 0;
+    return new Set(visibleMembers.map((m) => m.department)).size;
   }, [visibleMembers]);
 
   if (!isAuthorized) {
@@ -402,15 +539,33 @@ function CompanyHierarchyPage() {
   return (
     <AppShell 
       title="Company Hierarchy" 
-      subtitle="Super Admin & Organization Hierarchy Builder"
+      subtitle={currentRole === "ORG_ADMIN" ? "Organization Admin & Team Hierarchy Builder" : "Super Admin & Organization Hierarchy Builder"}
       actions={
         <div className="flex items-center gap-2">
+          {visibleMembers.length === 0 ? (
+            <button
+              onClick={handleCreateOrgHierarchy}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer animate-pulse"
+            >
+              <Sparkles className="size-3.5" /> Create Hierarchy
+            </button>
+          ) : (
+            <button
+              onClick={handleCreateOrgHierarchy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 text-xs font-bold transition-all cursor-pointer"
+              title="Generate / re-apply standard hierarchy structure"
+            >
+              <Sparkles className="size-3.5" /> Create Hierarchy
+            </button>
+          )}
+
           <button
             onClick={() => handleOpenAddModal(null)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs cursor-pointer"
           >
             <UserPlus className="size-3.5" /> Add Member
           </button>
+
           <button
             onClick={() => {
               saveHierarchy([...members]);
@@ -433,7 +588,7 @@ function CompanyHierarchyPage() {
             </div>
             <div>
               <span className="text-xs font-semibold text-muted-foreground">Total Members</span>
-              <div className="text-xl font-extrabold text-foreground">{members.length} Users</div>
+              <div className="text-xl font-extrabold text-foreground">{kpiTotalMembers} Users</div>
             </div>
           </div>
 
@@ -444,7 +599,7 @@ function CompanyHierarchyPage() {
             <div>
               <span className="text-xs font-semibold text-muted-foreground">Admins & PMs</span>
               <div className="text-xl font-extrabold text-foreground">
-                {members.filter((m) => ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(m.role)).length} Leaders
+                {kpiLeaders} Leaders
               </div>
             </div>
           </div>
@@ -456,7 +611,7 @@ function CompanyHierarchyPage() {
             <div>
               <span className="text-xs font-semibold text-muted-foreground">Engineers & Staff</span>
               <div className="text-xl font-extrabold text-foreground">
-                {members.filter((m) => ["ENGINEER", "USER", "VIEWER"].includes(m.role)).length} Staff
+                {kpiStaff} Staff
               </div>
             </div>
           </div>
@@ -467,7 +622,7 @@ function CompanyHierarchyPage() {
             </div>
             <div>
               <span className="text-xs font-semibold text-muted-foreground">Departments</span>
-              <div className="text-xl font-extrabold text-foreground">6 Disciplines</div>
+              <div className="text-xl font-extrabold text-foreground">{kpiDepartments} Disciplines</div>
             </div>
           </div>
         </div>
@@ -501,7 +656,7 @@ function CompanyHierarchyPage() {
             </select>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
             <div className="flex bg-surface-2 p-1 rounded-full border border-border/80">
               <button
                 onClick={() => setViewMode("tree")}
@@ -526,141 +681,223 @@ function CompanyHierarchyPage() {
             </div>
 
             <button
+              onClick={handleCreateOrgHierarchy}
+              className="px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-full transition-all cursor-pointer flex items-center gap-1"
+              title="Create new hierarchy structure"
+            >
+              <Sparkles className="size-3.5" /> Create Hierarchy
+            </button>
+
+            <button
               onClick={handleResetDefault}
               className="px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground border border-border rounded-full hover:bg-surface-2 transition-all cursor-pointer"
-              title="Reset to default mock hierarchy"
+              title="Reset to default organization structure"
             >
               <RefreshCw className="size-3.5 inline mr-1" /> Reset
             </button>
+
+            {visibleMembers.length > 0 && (
+              <button
+                onClick={handleClearAllHierarchy}
+                className="px-3 py-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:bg-rose-500/10 rounded-full transition-all cursor-pointer"
+                title="Clear all hierarchy data"
+              >
+                <Trash2 className="size-3.5 inline mr-1" /> Clear All
+              </button>
+            )}
           </div>
         </div>
 
-        {/* VIEW MODE 1: VISUAL TREE HIERARCHY */}
-        {viewMode === "tree" && (
-          <div className="bg-card border border-border rounded-3xl p-6 shadow-sm overflow-x-auto custom-scrollbar min-h-[500px]">
-            <div className="flex flex-col items-center min-w-[750px] space-y-6">
-              {rootMembers.length === 0 ? (
-                <div className="p-12 text-center text-muted-foreground text-sm">
-                  No hierarchy members found matching query.
-                </div>
-              ) : (
-                rootMembers.map((root) => (
-                  <TreeNode
-                    key={root.id}
-                    member={root}
-                    reportsMap={reportsMap}
-                    collapsedNodes={collapsedNodes}
-                    onToggleCollapse={toggleCollapse}
-                    onAddReport={handleOpenAddModal}
-                    onEdit={handleOpenEditModal}
-                    onDelete={handleDeleteMember}
-                    allMembers={members}
-                  />
-                ))
-              )}
+        {/* EMPTY STATE COMPONENT WHEN NO HIERARCHY MEMBERS EXIST */}
+        {visibleMembers.length === 0 ? (
+          <div className="bg-card border border-border rounded-3xl p-8 sm:p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-5 min-h-[460px]">
+            <div className="size-20 rounded-3xl bg-gradient-to-tr from-blue-600/20 to-indigo-600/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-inner border border-blue-500/20">
+              <Network className="size-10" />
+            </div>
+            
+            <div className="max-w-md space-y-2">
+              <h3 className="text-xl font-extrabold text-foreground">No Hierarchy Configured</h3>
+              <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                {currentRole === "ORG_ADMIN" 
+                  ? "As an Organization Admin, you can initialize a complete pre-built MEP engineering team structure or build your custom organization chart from scratch."
+                  : "No hierarchy members are currently registered. You can initialize a default hierarchy or add members manually."
+                }
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+              <button
+                onClick={handleCreateOrgHierarchy}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-md hover:shadow-lg transition-all cursor-pointer"
+              >
+                <Sparkles className="size-4" /> Create Organization Hierarchy
+              </button>
+              
+              <button
+                onClick={() => handleOpenAddModal(null)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-surface-2 border border-border hover:bg-surface-3 text-foreground font-bold text-xs transition-all cursor-pointer"
+              >
+                <UserPlus className="size-4 text-primary" /> Add Root Member (Custom)
+              </button>
+            </div>
+
+            <div className="pt-4 border-t border-border/60 text-[11px] text-muted-foreground flex items-center gap-2">
+              <Shield className="size-3.5 text-blue-500" />
+              <span>Standard template includes Lead PMs (HVAC, Electrical, Plumbing) & Senior Engineering Staff</span>
             </div>
           </div>
-        )}
-
-        {/* VIEW MODE 2: TABULAR GRID */}
-        {viewMode === "table" && (
-          <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-surface-2 text-muted-foreground font-bold uppercase text-[10px] tracking-wider border-b border-border">
-                  <tr>
-                    <th className="py-3 px-4">Member Name & Email</th>
-                    <th className="py-3 px-4">Designation</th>
-                    <th className="py-3 px-4">Department</th>
-                    <th className="py-3 px-4">Role Tier</th>
-                    <th className="py-3 px-4">Reporting Manager</th>
-                    <th className="py-3 px-4 text-center">Direct Reports</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {filteredMembers.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-muted-foreground italic">
-                        No team members found matching search query.
-                      </td>
-                    </tr>
+        ) : (
+          <>
+            {/* VIEW MODE 1: VISUAL TREE HIERARCHY */}
+            {viewMode === "tree" && (
+              <div className="bg-card border border-border rounded-3xl p-6 shadow-sm overflow-x-auto custom-scrollbar min-h-[500px]">
+                <div className="flex flex-col items-center min-w-[750px] space-y-6">
+                  {rootMembers.length === 0 ? (
+                    <div className="p-12 text-center text-muted-foreground text-sm space-y-3">
+                      <p>No hierarchy members found matching query.</p>
+                      {(searchQuery || selectedDept !== "ALL") && (
+                        <button
+                          onClick={() => {
+                            setSearchQuery("");
+                            setSelectedDept("ALL");
+                          }}
+                          className="px-4 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold rounded-full transition-all cursor-pointer"
+                        >
+                          Clear Search & Filters
+                        </button>
+                      )}
+                    </div>
                   ) : (
-                    filteredMembers.map((m) => {
-                      const manager = members.find((p) => p.id === m.parentId);
-                      const directReportsCount = (reportsMap.get(m.id) || []).length;
-                      return (
-                        <tr key={m.id} className="hover:bg-surface-2/60 transition-colors">
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3">
-                              <div className={`size-8 rounded-full ${m.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs`}>
-                                {m.name.charAt(0)}
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="font-bold text-foreground">{m.name}</span>
-                                <span className="text-[10px] text-muted-foreground">{m.email}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 font-medium text-foreground">{m.designation}</td>
-                          <td className="py-3 px-4">
-                            <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-primary/10 text-primary border border-primary/20">
-                              {m.department}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <RoleBadge role={m.role} />
-                          </td>
-                          <td className="py-3 px-4 text-muted-foreground">
-                            {manager ? (
-                              <div className="flex items-center gap-1.5 font-medium text-foreground">
-                                <User className="size-3.5 text-muted-foreground" />
-                                {manager.name}
-                              </div>
-                            ) : (
-                              <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[10.5px]">Top Leader</span>
+                    rootMembers.map((root) => (
+                      <TreeNode
+                        key={root.id}
+                        member={root}
+                        reportsMap={reportsMap}
+                        collapsedNodes={collapsedNodes}
+                        onToggleCollapse={toggleCollapse}
+                        onAddReport={handleOpenAddModal}
+                        onEdit={handleOpenEditModal}
+                        onDelete={handleDeleteMember}
+                        allMembers={members}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* VIEW MODE 2: TABULAR GRID */}
+            {viewMode === "table" && (
+              <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-surface-2 text-muted-foreground font-bold uppercase text-[10px] tracking-wider border-b border-border">
+                      <tr>
+                        <th className="py-3 px-4">Member Name & Email</th>
+                        <th className="py-3 px-4">Designation</th>
+                        <th className="py-3 px-4">Department</th>
+                        <th className="py-3 px-4">Role Tier</th>
+                        <th className="py-3 px-4">Reporting Manager</th>
+                        <th className="py-3 px-4 text-center">Direct Reports</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {filteredMembers.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-muted-foreground italic space-y-2">
+                            <p>No team members found matching search query.</p>
+                            {(searchQuery || selectedDept !== "ALL") && (
+                              <button
+                                onClick={() => {
+                                  setSearchQuery("");
+                                  setSelectedDept("ALL");
+                                }}
+                                className="px-3.5 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold rounded-full transition-all cursor-pointer mt-2 inline-block"
+                              >
+                                Clear Filters
+                              </button>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-center">
-                            <span className="px-2 py-0.5 bg-surface-2 rounded-full font-bold text-[11px] text-foreground">
-                              {directReportsCount}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => handleOpenAddModal(m.id)}
-                                className="p-1.5 hover:bg-primary/10 text-primary rounded-lg transition-all cursor-pointer"
-                                title="Add Direct Report"
-                              >
-                                <UserPlus className="size-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleOpenEditModal(m)}
-                                className="p-1.5 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-lg transition-all cursor-pointer"
-                                title="Edit Role & Reporting"
-                              >
-                                <Edit3 className="size-3.5" />
-                              </button>
-                              {m.parentId && (
-                                <button
-                                  onClick={() => handleDeleteMember(m.id, m.name)}
-                                  className="p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
-                                  title="Remove Member"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                      ) : (
+                        filteredMembers.map((m) => {
+                          const manager = members.find((p) => p.id === m.parentId);
+                          const directReportsCount = (reportsMap.get(m.id) || []).length;
+                          return (
+                            <tr key={m.id} className="hover:bg-surface-2/60 transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-3">
+                                  <div className={`size-8 rounded-full ${m.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs`}>
+                                    {m.name.charAt(0)}
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-foreground">{m.name}</span>
+                                    <span className="text-[10px] text-muted-foreground">{m.email}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 font-medium text-foreground">{m.designation}</td>
+                              <td className="py-3 px-4">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-primary/10 text-primary border border-primary/20">
+                                  {m.department}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4">
+                                <RoleBadge role={m.role} />
+                              </td>
+                              <td className="py-3 px-4 text-muted-foreground">
+                                {manager ? (
+                                  <div className="flex items-center gap-1.5 font-medium text-foreground">
+                                    <User className="size-3.5 text-muted-foreground" />
+                                    {manager.name}
+                                  </div>
+                                ) : (
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[10.5px]">Top Leader</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="px-2 py-0.5 bg-surface-2 rounded-full font-bold text-[11px] text-foreground">
+                                  {directReportsCount}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => handleOpenAddModal(m.id)}
+                                    className="p-1.5 hover:bg-primary/10 text-primary rounded-lg transition-all cursor-pointer"
+                                    title="Add Direct Report"
+                                  >
+                                    <UserPlus className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenEditModal(m)}
+                                    className="p-1.5 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-lg transition-all cursor-pointer"
+                                    title="Edit Role & Reporting"
+                                  >
+                                    <Edit3 className="size-3.5" />
+                                  </button>
+                                  {m.parentId && (
+                                    <button
+                                      onClick={() => handleDeleteMember(m.id, m.name)}
+                                      className="p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
+                                      title="Remove Member"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -750,7 +987,7 @@ function CompanyHierarchyPage() {
                     onChange={(e) => setFormRole(e.target.value as any)}
                     className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium cursor-pointer"
                   >
-                    <option value="SUPER_ADMIN">Super Admin (CEO)</option>
+                    {currentRole === "SUPER_ADMIN" && <option value="SUPER_ADMIN">Super Admin (CEO)</option>}
                     <option value="ORG_ADMIN">Org Admin (Director)</option>
                     <option value="PROJECT_MANAGER">Project Manager (PM)</option>
                     <option value="ENGINEER">Senior Engineer</option>
@@ -767,7 +1004,7 @@ function CompanyHierarchyPage() {
                     className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium cursor-pointer"
                   >
                     <option value="">No Manager (Top Leader)</option>
-                    {members
+                    {(currentRole === "ORG_ADMIN" ? visibleMembers : members)
                       .filter((m) => !editingMember || m.id !== editingMember.id)
                       .map((m) => (
                         <option key={m.id} value={m.id}>
