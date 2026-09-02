@@ -1615,23 +1615,20 @@ function SprinklerKFactorPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-6">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; SPRINKLER K-FACTOR</span>
-              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler K-Factor</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 discharge & water demand calculations</span>
+                  <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} heads</span>
                 </div>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground">
-                  {rows.length} heads
-                </span>
                 <button 
                   onClick={() => setIntelOpen(v => !v)}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                     intelOpen
                       ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                   }`}
                 >
                   <Sparkles className="size-3.5" />
@@ -1644,6 +1641,9 @@ function SprinklerKFactorPage() {
                   onReviewStateChange={setCalcReviewState}
                 />
               </div>
+              <p className="text-[13px] text-muted-foreground mt-0.5">
+                NFPA 13 sprinkler discharge, operating pressure, and water demand calculation schedule.
+              </p>
             </div>
             
             {/* Actions / Export buttons on the right */}
@@ -1673,7 +1673,7 @@ function SprinklerKFactorPage() {
           
 
           {/* White card container for Tabs & Data Grid */}
-          <div className={`rounded-3xl flex-1 flex flex-col min-h-[450px] overflow-hidden mx-6 mb-6 transition-all duration-300 ${
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
@@ -1718,9 +1718,8 @@ function SprinklerKFactorPage() {
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {/* Quick Solver Tab */}
               {tab === "solver" && (
-                <div className="flex-1 min-h-0 overflow-y-auto">
-                  <div className="flex flex-col md:flex-row h-full divide-y md:divide-y-0 divide-border">
-                    <div className="flex-1 min-w-0 p-6 flex flex-col gap-6" style={{ zoom: 1.1 }}>
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 flex justify-center">
+                  <div className="w-full max-w-4xl flex flex-col gap-6">
                     {/* Overview box */}
                     <div className="flex gap-3.5 p-4 bg-background border border-border rounded-3xl shadow-xs transition-all hover:border-primary/30">
                     <Info className="size-4.5 text-primary mt-0.5 shrink-0" />
@@ -2274,7 +2273,6 @@ function SprinklerKFactorPage() {
                   </div>
                   <div className="flex items-center gap-1 no-print print:hidden">
                     <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export PDF</TBtn>
-                    <TBtn onClick={exportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                     <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print Report</TBtn>
                   </div>
                 </div>
