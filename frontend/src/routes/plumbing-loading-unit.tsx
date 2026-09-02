@@ -799,19 +799,63 @@ function LoadingUnitPage() {
     }
   }, [project?.id, loadedProjectId, unitSystem, standardPreset, selectedCategory, weightOverrides, calcMeta, iopSpaces, floorSections]);
 
-  // Keyboard Shortcuts for Delete
+  // Keyboard Shortcuts (Ctrl+A, Esc, Ctrl+D, Ctrl+S, Delete)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (selectedIds.length === 0) return;
-      if (["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) return;
-      if (e.key === "Delete" || e.key === "Backspace") {
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName);
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Esc key: Close modals or deselect rows
+      if (e.key === "Escape") {
+        if (editingSpace || assignCommentOpen || contextMenu) {
+          setEditingSpace(null);
+          setAssignCommentOpen(false);
+          setContextMenu(null);
+        } else {
+          setSelectedIds([]);
+        }
+        return;
+      }
+
+      // 2. Ctrl+S / Cmd+S: Save calculation
+      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        handleBulkDelete();
+        handleSaveCurrent();
+        return;
+      }
+
+      // 3. Ctrl+A / Cmd+A: Select All spaces (when not inside a text field)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        if (!isInput && iopSpaces.length > 0) {
+          e.preventDefault();
+          setSelectedIds(iopSpaces.map(s => s.id));
+        }
+        return;
+      }
+
+      // 4. Ctrl+D / Cmd+D: Duplicate selected space(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (!isInput && selectedIds.length > 0) {
+          e.preventDefault();
+          handleBulkDuplicate();
+        }
+        return;
+      }
+
+      // 5. Delete / Backspace: Delete selected space(s)
+      if (!isInput && (e.key === "Delete" || e.key === "Backspace")) {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleBulkDelete();
+        }
+        return;
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, iopSpaces]);
+  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu]);
 
   // Click Outside to Close Context Menu
   useEffect(() => {

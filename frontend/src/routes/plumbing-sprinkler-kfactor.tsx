@@ -2255,7 +2255,7 @@ function SprinklerKFactorPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4 flex-wrap">
+                <div className="relative flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* Search */}
                     <div className="relative">
@@ -2314,15 +2314,6 @@ function SprinklerKFactorPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {selected.size > 0 && (
-                      <button
-                        onClick={() => setBulkEditOpen(true)}
-                        className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary cursor-pointer transition-all shadow-xs"
-                      >
-                        <Edit3 className="size-3.5" /> Bulk Edit ({selected.size})
-                      </button>
-                    )}
-
                     <button
                       onClick={exportExcel}
                       className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
@@ -2355,6 +2346,30 @@ function SprinklerKFactorPage() {
                       <Plus className="size-4" /> Add Sprinkler
                     </TBtn>
                   </div>
+
+                  {/* Bulk actions bar overlay matching Ventilation and Preliminary */}
+                  {selected.size > 0 && (
+                    <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                      <span className="font-semibold">{selected.size} selected</span>
+                      <span className="text-primary/30">·</span>
+                      <BulkBtn icon={Edit3} onClick={() => setBulkEditOpen(true)}>Bulk edit</BulkBtn>
+                      <BulkBtn icon={Flag} onClick={() => {
+                        pushToUndo(rows);
+                        const targetIds = Array.from(selected);
+                        const anyUnflagged = targetIds.some(id => !rows.find(r => r.id === id)?.flagged);
+                        setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: anyUnflagged, flagReason: anyUnflagged ? "Bulk Flagged" : undefined } : r));
+                        toast.success(anyUnflagged ? `Flagged ${targetIds.length} sprinklers` : `Unflagged ${targetIds.length} sprinklers`);
+                      }}>Flag / Unflag</BulkBtn>
+                      <BulkBtn icon={Copy} onClick={duplicateSelected}>Duplicate</BulkBtn>
+                      <BulkBtn icon={Trash2} onClick={confirmDeleteSelected}>Delete</BulkBtn>
+                      <button
+                        onClick={() => setSelected(new Set())}
+                        className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                      >
+                        <X className="size-3" /> Clear
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* DataGrid Area */}
@@ -2381,51 +2396,6 @@ function SprinklerKFactorPage() {
                     <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
                       <HelpCircle className="size-8 text-muted-foreground/50" />
                       <span className="text-[13px]">No sprinklers match the current filter.</span>
-                    </div>
-                  )}
-
-                  {/* Floating Bulk Actions Bar */}
-                  {selected.size > 0 && (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground border border-border rounded-full py-2 px-4 shadow-xl z-50 flex items-center gap-2 animate-in slide-in-from-bottom-3 duration-200">
-                      <span className="text-[12px] font-bold border-r border-border pr-3 text-foreground">
-                        {selected.size} selected
-                      </span>
-                      <button
-                        onClick={() => setBulkEditOpen(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-primary/10 rounded-full text-[12px] font-semibold transition-all cursor-pointer text-primary"
-                      >
-                        <Edit3 className="size-3.5" /> Bulk Edit
-                      </button>
-                      <button
-                        onClick={() => {
-                          pushToUndo(rows);
-                          const targetIds = Array.from(selected);
-                          const allFlagged = targetIds.every(id => rows.find(r => r.id === id)?.flagged);
-                          setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: !allFlagged, flagReason: !allFlagged ? "Bulk Flagged" : undefined } : r));
-                          toast.success(!allFlagged ? `Flagged ${targetIds.length} sprinklers` : `Unflagged ${targetIds.length} sprinklers`);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-red-500/10 rounded-full text-[12px] font-semibold transition-all cursor-pointer text-red-600 dark:text-red-400"
-                      >
-                        <Flag className="size-3.5" /> Flag / Unflag
-                      </button>
-                      <button
-                        onClick={duplicateSelected}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-muted rounded-full text-[12px] font-semibold transition-all cursor-pointer text-foreground"
-                      >
-                        <Copy className="size-3.5 text-muted-foreground" /> Duplicate
-                      </button>
-                      <button
-                        onClick={confirmDeleteSelected}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-destructive/10 rounded-full text-[12px] font-bold text-destructive transition-all cursor-pointer"
-                      >
-                        <Trash2 className="size-3.5" /> Delete
-                      </button>
-                      <button
-                        onClick={() => setSelected(new Set())}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-muted rounded-full text-[12px] font-semibold text-muted-foreground transition-all cursor-pointer"
-                      >
-                        <X className="size-3.5" /> Clear
-                      </button>
                     </div>
                   )}
                 </div>
@@ -2676,7 +2646,6 @@ function SprinklerKFactorPage() {
               </div>
             )}
           </div>
-          </div>
         </div>
 
         {/* Intelligence Side Drawer */}
@@ -2866,5 +2835,25 @@ function SprinklerKFactorPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+interface BulkBtnProps {
+  icon: React.ElementType;
+  onClick: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}
+
+function BulkBtn({ icon: Icon, onClick, children, disabled }: BulkBtnProps) {
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors text-[#06456F] hover:bg-primary/10 dark:text-[#0A7BC7] dark:hover:bg-primary/20 border border-transparent hover:border-primary/20 active:bg-primary/20 dark:active:bg-primary/30 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+    >
+      <Icon className="size-3 shrink-0" />
+      {children}
+    </button>
   );
 }
