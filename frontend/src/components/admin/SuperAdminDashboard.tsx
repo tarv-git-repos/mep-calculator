@@ -353,10 +353,20 @@ export function SuperAdminDashboard() {
     if (!newOrgName || !newOrgName.trim()) return toast.error("Organization name is required");
     setIsAddingOrg(true);
     try {
-      const autoKey = generate25CharKey(newOrgName.trim());
-      const res = await api.createOrganization({ name: newOrgName.trim(), subscription_plan: newOrgPlan, max_users: newOrgUsers, license_key: autoKey });
+      const isTrial = newOrgPlan === 'FREE_TRIAL';
+      const autoKey = isTrial ? 'TRIAL-FREE' : generate25CharKey(newOrgName.trim());
+      const res = await api.createOrganization({ 
+        name: newOrgName.trim(), 
+        subscription_plan: newOrgPlan, 
+        max_users: newOrgUsers, 
+        license_key: autoKey 
+      });
       if (res && res.success) {
-        toast.success(`Organization created with License Key: ${autoKey}`);
+        if (isTrial) {
+          toast.success(`Organization created under FREE_TRIAL! License key will form automatically when upgraded to PRO/ENTERPRISE plan.`);
+        } else {
+          toast.success(`Organization created with 25-char License Key: ${autoKey}`);
+        }
         setShowAddOrg(false);
         setNewOrgName('');
         await fetchOrganizations();
@@ -1434,9 +1444,38 @@ export function SuperAdminDashboard() {
                                 ? 'Consistent Engineering Consultants'
                                 : selectedOrgForManagement.name}
                             </h2>
-                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 uppercase tracking-wider">
-                              {selectedOrgForManagement.subscription_plan || "PRO PLAN"}
-                            </span>
+                            <select
+                              value={selectedOrgForManagement.subscription_plan || 'PRO'}
+                              onChange={async (e) => {
+                                const newPlan = e.target.value;
+                                let newKey = selectedOrgForManagement.license_key;
+                                if (newPlan !== 'FREE_TRIAL' && (!newKey || newKey === 'TRIAL-FREE' || newKey === 'MEP-LIC-ORG-PRO' || newKey.length < 25)) {
+                                  newKey = generate25CharKey(selectedOrgForManagement.name);
+                                }
+                                try {
+                                  await api.updateOrganization({
+                                    orgId: selectedOrgForManagement.id,
+                                    subscription_plan: newPlan,
+                                    license_key: newKey
+                                  });
+                                  setSelectedOrgForManagement((prev: any) => ({ ...prev, subscription_plan: newPlan, license_key: newKey }));
+                                  setOrganizations(prev => prev.map(o => o.id === selectedOrgForManagement.id ? { ...o, subscription_plan: newPlan, license_key: newKey } : o));
+                                  if (newPlan !== 'FREE_TRIAL') {
+                                    toast.success(`Plan updated to ${newPlan}! 25-char License Key generated: ${newKey}`);
+                                  } else {
+                                    toast.info(`Organization plan updated to FREE_TRIAL`);
+                                  }
+                                } catch (err) {
+                                  toast.error("Failed to update organization plan");
+                                }
+                              }}
+                              className="text-xs font-extrabold px-2.5 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 outline-none cursor-pointer uppercase tracking-wider"
+                              title="Change Organization Subscription Plan"
+                            >
+                              <option value="FREE_TRIAL">🎁 FREE_TRIAL (7-Day Trial)</option>
+                              <option value="PRO">⭐ PRO PLAN</option>
+                              <option value="ENTERPRISE">🚀 ENTERPRISE PLAN</option>
+                            </select>
                           </div>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                             Manage members, assign existing users, change member roles, or delete users for this organization.
@@ -1532,14 +1571,40 @@ export function SuperAdminDashboard() {
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-extrabold uppercase text-slate-700 dark:text-slate-300">Assigned License Key String:</span>
-                            <span className="font-mono font-extrabold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 px-3 py-1 rounded-lg text-xs tracking-wider shadow-2xs">
-                              {selectedOrgForManagement.license_key && selectedOrgForManagement.license_key !== "MEP-LIC-ORG-PRO"
-                                ? selectedOrgForManagement.license_key 
-                                : "MEP-CONS-8F92-4A7B-9021-X9K3"}
-                            </span>
+                            {selectedOrgForManagement.subscription_plan === 'FREE_TRIAL' || selectedOrgForManagement.license_key === 'TRIAL-FREE' ? (
+                              <span className="font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 px-3 py-1 rounded-lg text-xs tracking-wider shadow-2xs">
+                                🎁 FREE TRIAL ACTIVE (Upgrade plan to PRO/ENTERPRISE to form key)
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-extrabold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 px-3 py-1 rounded-lg text-xs tracking-wider shadow-2xs">
+                                  {selectedOrgForManagement.license_key && selectedOrgForManagement.license_key !== "MEP-LIC-ORG-PRO" && selectedOrgForManagement.license_key !== "TRIAL-FREE"
+                                    ? selectedOrgForManagement.license_key 
+                                    : "MEP-CONS-8F92-4A7B-9021-X9K3"}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const keyToCopy = (selectedOrgForManagement.license_key && selectedOrgForManagement.license_key !== "MEP-LIC-ORG-PRO" && selectedOrgForManagement.license_key !== "TRIAL-FREE")
+                                      ? selectedOrgForManagement.license_key
+                                      : "MEP-CONS-8F92-4A7B-9021-X9K3";
+                                    navigator.clipboard.writeText(keyToCopy);
+                                    toast.success("License Key copied! Send this key to users to enter in their activation box.");
+                                  }}
+                                  className="px-2.5 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 text-[11px] font-bold rounded-lg border border-blue-200 dark:border-blue-800 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                                  title="Copy 25-character License Key string"
+                                >
+                                  <Copy size={12} />
+                                  <span>Copy Key</span>
+                                </button>
+                              </div>
+                            )}
                           </div>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            Unique 25-character license key assigned in database for this organization.
+                            {selectedOrgForManagement.subscription_plan === 'FREE_TRIAL'
+                              ? 'Change subscription plan dropdown above to PRO or ENTERPRISE to form key.'
+                              : 'Unique 25-character license key formed for this organization. Users can activate this key to automatically join.'
+                            }
                           </p>
                         </div>
                       </div>
@@ -1875,10 +1940,11 @@ export function SuperAdminDashboard() {
                             <select 
                               value={newOrgPlan}
                               onChange={(e) => setNewOrgPlan(e.target.value)}
-                              className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                              className="w-full text-sm p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
                             >
-                              <option value="PRO">PRO</option>
-                              <option value="ENTERPRISE">ENTERPRISE</option>
+                              <option value="FREE_TRIAL">🎁 FREE_TRIAL (7-Day Trial)</option>
+                              <option value="PRO">⭐ PRO</option>
+                              <option value="ENTERPRISE">🚀 ENTERPRISE</option>
                             </select>
                           </div>
                           <div className="w-24">

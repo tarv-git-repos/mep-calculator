@@ -78,7 +78,27 @@ function CableTraySizingPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
+  const [trays, setTrays] = useState<Tray[]>([
+    {
+      id: `tray_${Date.now()}_1`,
+      name: "Cable Tray 1 (Floor 1)",
+      spareCapacity: 20,
+      cables: [
+        { id: `c_${Date.now()}_11`, type: 'XLPE/SWA/PVC', from: '', to: '', cores: '4C', size: '150', qty: 2 },
+        { id: `c_${Date.now()}_12`, type: 'XLPE/SWA/PVC', from: '', to: '', cores: '4C', size: '240', qty: 1 }
+      ]
+    },
+    {
+      id: `tray_${Date.now()}_2`,
+      name: "Cable Tray 2 (Floor 2)",
+      spareCapacity: 20,
+      cables: [
+        { id: `c_${Date.now()}_21`, type: 'XLPE/SWA/PVC', from: '', to: '', cores: '4C', size: '16', qty: 3 }
+      ]
+    }
+  ]);
+
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [cableDatabase, setCableDatabase] = useState<Record<string, Record<string, number>>>(() => {
@@ -247,28 +267,49 @@ function CableTraySizingPage() {
 
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: string } | null>(null);
-  // Deep-linking and auto-scroll from notifications
+  // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleScrollToItem = (e: any) => {
       const { id, name } = e.detail || {};
       if (!id && !name) return;
-      const targetTray = trays.find(t => t.id === id || t.name === name);
-      if (targetTray) {
-        setCommentTarget({
-          id: targetTray.id,
-          name: targetTray.name,
-          type: "equipment"
-        });
-        setAssignCommentOpen(true);
-        setTimeout(() => {
-          const el = document.getElementById(`tray-card-${targetTray.id}`);
-          if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "center" });
-            el.classList.add("ring-2", "ring-primary", "bg-primary/10");
-            setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
-          }
-        }, 100);
+      for (const t of trays) {
+        if (t.id === id || t.name === name) {
+          setCommentTarget({
+            id: t.id,
+            name: t.name,
+            type: "equipment"
+          });
+          setAssignCommentOpen(true);
+          setTimeout(() => {
+            const el = document.getElementById(`tray-card-${t.id}`) || document.getElementById(`cable-row-${t.id}`);
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.classList.add("ring-2", "ring-primary", "bg-primary/10");
+              setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
+            }
+          }, 150);
+          return;
+        }
+        const c = t.cables.find(cb => cb.id === id || cb.to === name || cb.from === name);
+        if (c) {
+          setSelectedRows(new Set([c.id]));
+          setCommentTarget({
+            id: c.id,
+            name: c.to ? `${c.from || 'Cable'} -> ${c.to}` : (c.from || "Cable Row"),
+            type: "equipment"
+          });
+          setAssignCommentOpen(true);
+          setTimeout(() => {
+            const el = document.getElementById(`cable-row-${c.id}`) || document.getElementById(`tray-card-${t.id}`);
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.classList.add("ring-2", "ring-primary", "bg-primary/10");
+              setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
+            }
+          }, 150);
+          return;
+        }
       }
     };
     window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
@@ -354,25 +395,6 @@ function CableTraySizingPage() {
   };
 
   const [expandedTrayId, setExpandedTrayId] = useState<string | null>(null);
-  const [trays, setTrays] = useState<Tray[]>([
-    {
-      id: `tray_${Date.now()}_1`,
-      name: "Cable Tray 1 (Floor 1)",
-      spareCapacity: 20,
-      cables: [
-        { id: `c_${Date.now()}_11`, type: 'XLPE/SWA/PVC', from: '', to: '', cores: '4C', size: '150', qty: 2 },
-        { id: `c_${Date.now()}_12`, type: 'XLPE/SWA/PVC', from: '', to: '', cores: '4C', size: '240', qty: 1 }
-      ]
-    },
-    {
-      id: `tray_${Date.now()}_2`,
-      name: "Cable Tray 2 (Floor 2)",
-      spareCapacity: 20,
-      cables: [
-        { id: `c_${Date.now()}_21`, type: 'XLPE/SWA/PVC', from: '', to: '', cores: '4C', size: '16', qty: 3 }
-      ]
-    }
-  ]);
 
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
@@ -1392,6 +1414,7 @@ function CableTraySizingPage() {
                           <ContextMenu key={c.id}>
                             <ContextMenuTrigger asChild>
                               <tr
+                                id={`cable-row-${c.id}`}
                                 data-cable-row="true"
                                 onDoubleClick={() => {
                                   toggleRowSelect(c.id, false, false);
@@ -1906,27 +1929,53 @@ function CableTraySizingPage() {
           targetId={commentTarget.id}
           targetName={commentTarget.name}
           targetType={commentTarget.type}
-          onSave={(newComment) => {
+          existingComments={(() => {
+            for (const t of trays) {
+              if (t.id === commentTarget.id) return t.comments || [];
+              const c = t.cables.find(cb => cb.id === commentTarget.id);
+              if (c) return c.comments || [];
+            }
+            return [];
+          })()}
+          onSave={async (newComment) => {
             if (!commentTarget) return;
             const targetId = commentTarget.id;
+            const currentUserName = userData?.name || profile?.name || "Design Engineer";
+            const projId = activeProjectId || project?.id || "default";
+            const projName = project?.name || "Active Project";
+
+            const commentWithMeta = {
+              ...newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: "Cable Tray",
+              projectName: projName,
+              projectId: projId,
+              calculatorPath: "/cable-tray-sizing",
+            };
+
             pushToUndo(trays);
             const updatedTrays = trays.map(t => {
               if (t.id === targetId) {
                 const existing = t.comments || [];
-                return { ...t, comments: [...existing, newComment] };
+                return { ...t, comments: [...existing, commentWithMeta] };
               }
               return {
                 ...t,
                 cables: t.cables.map(c => {
                   if (c.id === targetId) {
                     const existing = c.comments || [];
-                    return { ...c, comments: [...existing, newComment] };
+                    return { ...c, comments: [...existing, commentWithMeta] };
                   }
                   return c;
                 })
               };
             });
             setTrays(updatedTrays);
+
+            try {
+              localStorage.setItem(`mep_cable_tray_${projId}`, JSON.stringify(updatedTrays));
+            } catch(e) {}
 
             if (project?.id) {
               try {
@@ -1938,23 +1987,25 @@ function CableTraySizingPage() {
             }
 
             if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: newComment }));
-              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: newComment }));
+              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
+              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
               window.dispatchEvent(new Event("storage"));
             }
 
-            toast.success("Comment added successfully");
+            toast.success(`Task comment saved for space ${commentTarget.name}`);
             notifyCommentAssigned({
-              comment: newComment,
+              comment: commentWithMeta,
               targetId: commentTarget.id,
               targetName: commentTarget.name,
-              targetType: commentTarget.type || "Cable Tray",
+              targetType: "Cable Tray",
               calculatorTitle: "Cable Tray Sizing",
               calculatorPath: "/cable-tray-sizing",
               project,
-              currentUserName: userData?.name || profile?.name,
+              currentUserName,
               currentUserId: userData?.id || profile?.id
             }).catch(console.error);
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
           }}
         />
       )}
