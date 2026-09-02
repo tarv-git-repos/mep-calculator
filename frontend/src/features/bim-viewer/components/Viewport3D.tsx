@@ -102,9 +102,9 @@ const fragments = components.get(OBC.FragmentsManager);
 const casters = components.get(OBC.Raycasters);
 casters.get(world);
 
-// Configure camera zoom speed (base 1.0, Shift + Scroll 2.0)
+// Configure camera zoom speed (base 1.0, Shift + Scroll 3.0)
 const baseDollySpeed = 1.0;
-const shiftDollySpeed = 2.0;
+const shiftDollySpeed = 3.0;
 
 if (world.camera?.controls) {
     world.camera.controls.dollySpeed = baseDollySpeed;
