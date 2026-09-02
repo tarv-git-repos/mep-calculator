@@ -88,7 +88,11 @@ export function CalculationReviewBar({
       roleVal === "Discipline Coordinator" ||
       desVal === "Discipline Coordinator" ||
       roleVal.toLowerCase() === "discipline coordinator" ||
-      desVal.toLowerCase() === "discipline coordinator";
+      desVal.toLowerCase() === "discipline coordinator" ||
+      metaRole.toLowerCase() === "discipline coordinator" ||
+      roleVal.toLowerCase().replace(/_/g, " ") === "discipline coordinator" ||
+      desVal.toLowerCase().replace(/_/g, " ") === "discipline coordinator" ||
+      metaRole.toLowerCase().replace(/_/g, " ") === "discipline coordinator";
 
     if (isExplicitCoordinator) {
       return "Discipline Coordinator";
@@ -103,7 +107,13 @@ export function CalculationReviewBar({
       roleVal.toLowerCase() === "sr. design engineer" ||
       desVal.toLowerCase() === "sr. design engineer" ||
       roleVal.toLowerCase() === "senior design engineer" ||
-      desVal.toLowerCase() === "senior design engineer";
+      desVal.toLowerCase() === "senior design engineer" ||
+      metaRole.toLowerCase() === "sr. design engineer" ||
+      metaRole.toLowerCase() === "senior design engineer" ||
+      roleVal.toLowerCase().replace(/_/g, " ").includes("sr design") ||
+      desVal.toLowerCase().replace(/_/g, " ").includes("sr design") ||
+      roleVal.toLowerCase().replace(/_/g, " ").includes("senior design") ||
+      desVal.toLowerCase().replace(/_/g, " ").includes("senior design");
 
     if (isExplicitSenior) {
       return "Sr. Design Engineer";

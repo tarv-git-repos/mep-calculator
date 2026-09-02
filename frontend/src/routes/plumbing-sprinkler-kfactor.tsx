@@ -215,6 +215,25 @@ function computeRowOutputs(row: SprinklerRow): SprinklerRow {
   }
 }
 
+export function checkIfSprinklerMissingData(row: SprinklerRow): { isMissing: boolean; reason?: string } {
+  if (!row.label || row.label.trim() === "") {
+    return { isMissing: true, reason: "Missing Sprinkler Label / Location" };
+  }
+  if (!row.kFactor || row.kFactor <= 0 || isNaN(row.kFactor)) {
+    return { isMissing: true, reason: "Missing or invalid K-Factor" };
+  }
+  if (!row.pressure || row.pressure <= 0 || isNaN(row.pressure)) {
+    return { isMissing: true, reason: "Missing operating pressure" };
+  }
+  if (!row.flow || row.flow <= 0 || isNaN(row.flow)) {
+    return { isMissing: true, reason: "Missing flow rate" };
+  }
+  if (!row.hazard || row.hazard.trim() === "") {
+    return { isMissing: true, reason: "Missing hazard classification" };
+  }
+  return { isMissing: false };
+}
+
 function SprinklerKFactorPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
@@ -1226,7 +1245,7 @@ function SprinklerKFactorPage() {
     });
   }, [rows, searchQuery, hazardFilter, kFilter, flagFilterOnly]);
 
-  const flaggedCount = useMemo(() => rows.filter(r => r.flagged).length, [rows]);
+  const flaggedCount = useMemo(() => rows.filter(r => r.flagged || checkIfSprinklerMissingData(r).isMissing).length, [rows]);
 
   // Inline inputs
   interface InlineInputProps {
@@ -1278,20 +1297,6 @@ function SprinklerKFactorPage() {
 
   // Define Columns
   const columns = useMemo<Column<SprinklerRow>[]>(() => [
-    {
-      key: "flag",
-      header: "",
-      width: 40,
-      render: (row) => (
-        <button
-          onClick={(e) => toggleFlag(row.id, e)}
-          title={row.flagged ? `Flagged: ${row.flagReason || "Requires attention"}` : "Flag for review"}
-          className="p-1 rounded hover:bg-muted/50 transition-colors cursor-pointer"
-        >
-          <Flag className={`size-3.5 ${row.flagged ? "text-red-500 fill-red-500" : "text-muted-foreground/30 hover:text-red-400"}`} />
-        </button>
-      )
-    },
     {
       key: "label",
       header: "Sprinkler Label / Location",
@@ -2268,15 +2273,27 @@ function SprinklerKFactorPage() {
 
                   {/* Floating Bulk Actions Bar */}
                   {selected.size > 0 && (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground border border-border rounded-full py-2 px-4 shadow-xl z-50 flex items-center gap-3 animate-in slide-in-from-bottom-3 duration-200">
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground border border-border rounded-full py-2 px-4 shadow-xl z-50 flex items-center gap-2 animate-in slide-in-from-bottom-3 duration-200">
                       <span className="text-[12px] font-bold border-r border-border pr-3 text-foreground">
                         {selected.size} selected
                       </span>
                       <button
                         onClick={() => setBulkEditOpen(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-muted rounded-full text-[12px] font-semibold transition-all cursor-pointer text-primary"
+                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-primary/10 rounded-full text-[12px] font-semibold transition-all cursor-pointer text-primary"
                       >
                         <Edit3 className="size-3.5" /> Bulk Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          pushToUndo(rows);
+                          const targetIds = Array.from(selected);
+                          const allFlagged = targetIds.every(id => rows.find(r => r.id === id)?.flagged);
+                          setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: !allFlagged, flagReason: !allFlagged ? "Bulk Flagged" : undefined } : r));
+                          toast.success(!allFlagged ? `Flagged ${targetIds.length} sprinklers` : `Unflagged ${targetIds.length} sprinklers`);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-red-500/10 rounded-full text-[12px] font-semibold transition-all cursor-pointer text-red-600 dark:text-red-400"
+                      >
+                        <Flag className="size-3.5" /> Flag / Unflag
                       </button>
                       <button
                         onClick={duplicateSelected}

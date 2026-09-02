@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -140,6 +141,7 @@ function SewagePumpPage() {
           <Calculator className="w-6 h-6 text-emerald-500" />
           Sewage Pump Sizing
         </h1>
+              <CalculationReviewBar calculatorPath="/plumbing-sewage-pump" calculatorTitle="Sewage Pump Sizing" />
         <div className="flex gap-2">
           <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
             <Download className="w-4 h-4" />

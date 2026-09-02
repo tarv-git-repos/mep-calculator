@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -776,6 +777,7 @@ function LoadSummaryPage() {
       subtitle="Calculate electrical load summary and equipment totals"
       actions={
         <div className="flex gap-2">
+          <CalculationReviewBar calculatorPath="/load-summary" calculatorTitle="Electrical Load Summary" />
           <ImportExcelBtn
             columnMapping={{
               "Description": "description",

@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -860,6 +861,7 @@ function BusbarVoltageDropPage() {
       subtitle="Calculate busbar voltage drop with resistive and reactive components."
       actions={
         <div className="flex gap-2">
+          <CalculationReviewBar calculatorPath="/busbar-voltage-drop" calculatorTitle="Busbar Voltage Drop" />
           <ImportExcelBtn
             columnMapping={{
               "Busbar Ref": "busbarRef",

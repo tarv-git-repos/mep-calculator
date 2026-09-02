@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -260,6 +261,7 @@ function StormWaterPage() {
               <Calculator className="w-8 h-8 text-[#0A7BC7]" />
               Storm Water Runoff Calculation
             </h1>
+              <CalculationReviewBar calculatorPath="/plumbing-storm-water" calculatorTitle="Storm Water Drainage" />
             <p className="text-slate-300 text-sm">
               Rational Method Sizing: Q = C × i × A / 3600
             </p>

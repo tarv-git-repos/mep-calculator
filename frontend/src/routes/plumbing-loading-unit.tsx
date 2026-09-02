@@ -915,6 +915,8 @@ function LoadingUnitPage() {
     const flowLPS = getFlowLPS(totalLU, standardPreset);
     const flowGPM = flowLPS * 15.8503;
     const selectedFlowLPS = Math.ceil(flowLPS * 2) / 2; // CEILING to nearest 0.5 L/s
+    const isWsfu = standardPreset === "abudhabi" || standardPreset === "ipc_upc" || standardPreset === "ipc" || standardPreset === "upc";
+    const unitLabel = isWsfu ? "WSFU" : "LU";
     const pipeSizing = getRecommendedPipeSize(totalLU, flowLPS);
 
     return {
@@ -925,10 +927,13 @@ function LoadingUnitPage() {
       flowGPM,
       selectedFlowLPS,
       pipeSizing,
+      unitLabel,
       displayFlow: ip ? `${flowGPM.toFixed(1)} GPM` : `${flowLPS.toFixed(3)} L/s`,
       displaySelectedFlow: ip ? `${(selectedFlowLPS * 15.8503).toFixed(1)} GPM` : `${selectedFlowLPS.toFixed(1)} L/s`
     };
   }, [iopSpaces, standardPreset, selectedCategory, weightOverrides, ip, showSpaceQty, showFloorsCol]);
+
+  const unitLabel = calculations.unitLabel;
 
   // Selection Handlers
   const handleToggleSelectAll = (checked: boolean) => {

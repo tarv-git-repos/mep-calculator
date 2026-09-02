@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -166,6 +167,7 @@ function SumpPumpPage() {
             <Droplet className="w-6 h-6 text-emerald-500" />
             Sump Pump Sizing
           </h1>
+              <CalculationReviewBar calculatorPath="/plumbing-sump-pump" calculatorTitle="Sump Pump Sizing" />
           <p className="text-gray-500 text-sm mt-1">Calculate sump pit volume, flow, head, and motor requirements</p>
         </div>
         <div className="flex items-center gap-4">

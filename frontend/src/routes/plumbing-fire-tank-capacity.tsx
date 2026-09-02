@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -197,6 +198,7 @@ function FireTankCapacityPage() {
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20"
       >
+          <CalculationReviewBar calculatorPath="/plumbing-fire-tank-capacity" calculatorTitle="Fire Water Tank Capacity" />
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
           {/* LEFT COLUMN: INPUTS */}

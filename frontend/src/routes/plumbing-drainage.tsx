@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import React, { useState, useEffect } from 'react';
 import { Calculator, Save, AlertCircle, Info, Settings, List, Plus, Trash2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-store';
@@ -106,6 +107,7 @@ function DrainagePage() {
             <List className="w-6 h-6 text-blue-500" />
             Drainage Pipe Sizing
           </h1>
+              <CalculationReviewBar calculatorPath="/plumbing-drainage" calculatorTitle="Plumbing Drainage Sizer" />
           <p className="text-gray-500 text-sm mt-1">Determine branch and stack sizes based on Fixture Units (DFU)</p>
         </div>
         <div className="flex items-center gap-4">

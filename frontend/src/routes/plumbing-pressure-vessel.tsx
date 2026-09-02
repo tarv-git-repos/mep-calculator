@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -263,6 +264,7 @@ function PressureVesselPage() {
       }
     >
       <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
+          <CalculationReviewBar calculatorPath="/plumbing-pressure-vessel" calculatorTitle="Pressure Vessel Sizing" />
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* LEFT COLUMN: PARAMETER INPUTS */}
           <div className="lg:col-span-5 space-y-5">

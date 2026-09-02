@@ -1,3 +1,4 @@
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import React, { useState, useEffect } from 'react';
 import { Calculator, AlertTriangle, CheckCircle, Info, Settings, Save, AlertCircle } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-store';
@@ -84,6 +85,7 @@ function FireTankDurationPage() {
             <Calculator className="w-6 h-6 text-[#0A7BC7]" />
             Fire Tank Duration
           </h1>
+              <CalculationReviewBar calculatorPath="/plumbing-fire-tank-duration" calculatorTitle="Fire Water Tank Duration" />
           <p className="text-gray-500 text-sm mt-1">Verify tank capacity against required fire demand duration</p>
         </div>
         <div className="flex items-center gap-4">
