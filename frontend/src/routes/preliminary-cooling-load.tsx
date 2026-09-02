@@ -1822,6 +1822,7 @@ function PreliminaryCoolingLoadPage() {
             <PclCategorySelect
               value={r.type || ""}
               densities={SPACE_DENSITIES}
+              hideChevron={isCustom}
               onChange={(nextType) => {
                 const editIds = getSpaceEditIds(r.id);
                 const editSet = new Set(editIds);
