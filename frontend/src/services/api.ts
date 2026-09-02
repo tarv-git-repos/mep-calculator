@@ -78,13 +78,31 @@ export const api = {
     if (usersList.length === 0) {
       usersList = [
         { id: 'usr_admin_tarv_ai', name: 'System Admin', email: 'admin@tarv.ai', role: 'SUPER_ADMIN', isAccountVerified: true, status: 'ACTIVE' },
-        { id: 'usr_vaishu', name: 'Vaishnavi Halasage', email: 'halasagevaishu@gmail.com', role: 'Sr. Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
-        { id: 'usr_abubakar', name: 'Abubakar Work', email: 'abubakarswork2@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
-        { id: 'usr_kirtan', name: 'Kirtan Karwa', email: 'kirtankarwa@sinhgad.edu', role: 'ORG_ADMIN', isAccountVerified: true, status: 'ACTIVE' },
-        { id: 'usr_vikram1', name: 'Vikram Kadam', email: 'kadamvikram0304@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
-        { id: 'usr_vikram2', name: 'Vikram Kadam 2', email: 'kadamvikram0308@gmail.com', role: 'Jr. Design Engineer', isAccountVerified: true, status: 'ACTIVE' }
+        { id: 'usr_1787720871957_577', name: 'Abubakar Chanda', email: 'abubakarswork2@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787720981864_567', name: 'Abubakarrrr', email: 'abubakarchanda3@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786021796431_485', name: 'Kirtan', email: 'kirtankarwa@sinhgad.edu', role: 'ORG_ADMIN', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787637638368_946', name: 'Kirtan-Tarv', email: 'kirtan@tarv.ai', role: 'ORG_ADMIN', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787721668598_839', name: 'Kirtan Karwa', email: 'kirtankarwa.cse.nbnscoe@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787721176260_295', name: 'Kirtan NBN', email: 'kirtankarwa.nbnscoe.comp@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787637111471_201', name: 'Kirtan Comp', email: 'kirtankarwa.nbnscoe@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786083832014_386', name: 'Vaishnavi Halasage', email: 'halasagevaishu@gmail.com', role: 'Sr. Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1785905869652_132', name: 'Vikram Kadam', email: 'kadamvikram0304@gmail.com', role: 'Lead Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786021470630_14', name: 'Vikram Kadam', email: 'kadamvikram0308@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786947574165_155', name: 'Vikram Kadam', email: 'kadamvikram774@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787637352764_974', name: 'Salil Kulkarni', email: 'salilk.cec@gmail.com', role: 'Principal Consultant', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787229568152_328', name: 'Om Shah', email: 'omshah709@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787232833872_722', name: 'Om Shah', email: 'omshah7092004@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787210351720_389', name: 'Sabir Gadwal', email: 'sabir@consistentconsultant.com', role: 'Lead Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787290138300_282', name: 'Paras Sadafule', email: 'parassadafule05@gmail.com', role: 'Jr. Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787572776053_219', name: 'Aryan Gaikwad', email: 'aryan@consistentconsultant.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' }
       ];
     }
+
+    try {
+      if (typeof localStorage !== 'undefined' && Array.isArray(usersList) && usersList.length > 0) {
+        localStorage.setItem('mep_local_users', JSON.stringify(usersList));
+      }
+    } catch(e) {}
 
     try {
       const cachedStr = localStorage.getItem('mep_local_users');

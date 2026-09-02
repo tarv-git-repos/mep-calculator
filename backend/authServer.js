@@ -1258,34 +1258,12 @@ const server = http.createServer(async (req, res) => {
   // TEAMS & PROJECTS (CLOUD COLLABORATION)
   // ==========================================
 
-  // A. LIST ALL USERS (For assigning to teams/projects)
+  // A. LIST ALL USERS (For assigning to teams/projects & display name resolution)
   if (req.method === 'GET' && url === '/api/users/list') {
-    const user = await getUserFromReq(req);
-    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     const users = await readUsers();
-    
-    let filteredUsers = users;
-    if (user.role !== 'SUPER_ADMIN') {
-      const myOrgId = user.organization_id;
-      const myCompany = user.company || user.organization;
-      if (myOrgId || myCompany) {
-        filteredUsers = users.filter(u => {
-          if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return true;
-          const uOrgId = u.organization_id;
-          const uCompany = u.company || u.organization;
-
-          if (myOrgId && uOrgId && String(uOrgId) === String(myOrgId)) return true;
-          if (myCompany && uCompany && uCompany === myCompany) return true;
-          if (myCompany && uOrgId && String(uOrgId) === String(myCompany)) return true;
-          if (myOrgId && uCompany && uCompany === String(myOrgId)) return true;
-          return true; // Return all users so project member display names can always be resolved
-        });
-      }
-    }
-    
     const fileSettings = readOrgSettings();
     const localOrgs = readLocalOrgs();
-    const safeUsers = filteredUsers.map(u => {
+    const safeUsers = (users || []).map(u => {
       const orgId = u.organization_id || u.features?.organization_id || null;
       let resolvedCompany = u.company || u.organization_name || u.organization || u.features?.company || u.features?.organization || '';
       if (orgId && (!resolvedCompany || resolvedCompany === 'Consitent')) {
