@@ -1,11 +1,12 @@
 import React from "react";
-import { FileSpreadsheet, Box, X, ArrowRight, Sparkles } from "lucide-react";
+import { FileSpreadsheet, Box, X, ArrowRight, Sparkles, Wind } from "lucide-react";
 
 interface ImportSourceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectExcel: () => void;
   onSelect3DViewer: () => void;
+  onSelectVentilation?: () => void;
 }
 
 export function ImportSourceModal({
@@ -13,6 +14,7 @@ export function ImportSourceModal({
   onClose,
   onSelectExcel,
   onSelect3DViewer,
+  onSelectVentilation,
 }: ImportSourceModalProps) {
   if (!isOpen) return null;
 
@@ -30,12 +32,12 @@ export function ImportSourceModal({
             </div>
             <div>
               <h2 className="font-bold text-base text-foreground tracking-tight">Import Space Schedule</h2>
-              <p className="text-xs text-muted-foreground">Select data source to generate ventilation schedule</p>
+              <p className="text-xs text-muted-foreground">Select data source to generate schedule</p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
           >
             <X className="size-4" />
           </button>
@@ -49,7 +51,7 @@ export function ImportSourceModal({
               onClose();
               onSelectExcel();
             }}
-            className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-primary/5 hover:border-primary/40 transition-all text-left shadow-sm hover:shadow-md"
+            className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-primary/5 hover:border-primary/40 transition-all text-left shadow-sm hover:shadow-md cursor-pointer"
           >
             <div className="p-3 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 group-hover:scale-105 transition-transform">
               <FileSpreadsheet className="size-6" />
@@ -62,7 +64,7 @@ export function ImportSourceModal({
                 <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Upload Revit ventilation schedule, TARV add-in schedule, or custom spreadsheet formatted with Level, Zone, Name & Area.
+                Upload Revit schedule or spreadsheet formatted with Level, Floor, Name & Area.
               </p>
             </div>
           </button>
@@ -73,7 +75,7 @@ export function ImportSourceModal({
               onClose();
               onSelect3DViewer();
             }}
-            className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-primary/5 hover:border-primary/40 transition-all text-left shadow-sm hover:shadow-md"
+            className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-primary/5 hover:border-primary/40 transition-all text-left shadow-sm hover:shadow-md cursor-pointer"
           >
             <div className="p-3 rounded-xl bg-primary/10 text-primary group-hover:scale-105 transition-transform">
               <Box className="size-6" />
@@ -91,18 +93,49 @@ export function ImportSourceModal({
                 <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Extract spatial geometry, room numbers, levels, zones, floor areas, unbounded heights, and occupant counts directly from the 3D model.
+                Extract spatial geometry, room names, levels, and floor areas directly from active 3D model.
               </p>
             </div>
           </button>
+
+          {/* Option 3: Ventilation Schedule (if provided) */}
+          {onSelectVentilation && (
+            <button
+              onClick={() => {
+                onClose();
+                onSelectVentilation();
+              }}
+              className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-sky-500/5 hover:border-sky-500/40 transition-all text-left shadow-sm hover:shadow-md cursor-pointer"
+            >
+              <div className="p-3 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 group-hover:scale-105 transition-transform">
+                <Wind className="size-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-foreground group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                      Import from Ventilation
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-sky-500/15 text-sky-600 dark:text-sky-400">
+                      Ventilation
+                    </span>
+                  </div>
+                  <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Import all room names, floor levels, and areas ($m^2$) directly from the active Ventilation schedule.
+                </p>
+              </div>
+            </button>
+          )}
         </div>
 
         {/* Footer */}
         <div className="px-5 py-3.5 bg-surface-2/40 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-          <span>Both options support AI Occupancy Category detection</span>
+          <span>Automatic heat density & space classification applied</span>
           <button 
             onClick={onClose}
-            className="font-medium text-foreground hover:underline"
+            className="font-medium text-foreground hover:underline cursor-pointer"
           >
             Cancel
           </button>

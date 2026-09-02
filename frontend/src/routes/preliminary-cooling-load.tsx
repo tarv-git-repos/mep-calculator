@@ -9,7 +9,7 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   Plus, Trash2, Download, Upload, X, Sparkles, AlertTriangle, CheckCircle2,
   Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, ChevronUp, Wrench, RefreshCw, Bookmark, HelpCircle,
-  Filter, ArrowUpDown, Edit3, MessageSquare, Flag, Box
+  Filter, ArrowUpDown, Edit3, MessageSquare, Flag, Box, Wind
 } from "lucide-react";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
@@ -896,6 +896,87 @@ function PreliminaryCoolingLoadPage() {
     } finally {
       if (e.target) e.target.value = "";
     }
+  };
+
+  const handleSelectVentilation = () => {
+    let ventSpaces: any[] = [];
+
+    // 1. Check workspaceStore spaces
+    try {
+      const wsSpaces = workspaceStore.getState().spaces;
+      if (Array.isArray(wsSpaces) && wsSpaces.length > 0) {
+        ventSpaces = wsSpaces;
+      }
+    } catch (e) {}
+
+    // 2. Check project workspace_data spaces
+    if (ventSpaces.length === 0 && project?.workspace_data?.spaces) {
+      if (Array.isArray(project.workspace_data.spaces) && project.workspace_data.spaces.length > 0) {
+        ventSpaces = project.workspace_data.spaces;
+      }
+    }
+
+    // 3. Check local storage cache keys
+    if (ventSpaces.length === 0 && typeof localStorage !== "undefined") {
+      const projId = activeProjectId || project?.id || "";
+      const keysToTry = [
+        `mep_spaces_${projId}`,
+        `spaces_${projId}`,
+        "mep_spaces",
+        "spaces",
+      ];
+      for (const k of keysToTry) {
+        try {
+          const saved = localStorage.getItem(k);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              ventSpaces = parsed;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (ventSpaces.length === 0) {
+      toast.error("No spaces found in the Ventilation schedule for this project yet. Please add spaces in Ventilation first or import from Excel / 3D BIM Viewer.");
+      return;
+    }
+
+    // Map each ventilation space to Preliminary Cooling Load format with name-based space classification
+    const parsedPcl = ventSpaces.map((sp, idx) => {
+      const rawName = sp.name || `Space ${idx + 1}`;
+      const floor = sp.level || sp.floor || extractFloor(rawName) || "Ground Floor";
+      const area = typeof sp.area === "number" ? sp.area : (parseFloat(String(sp.area)) || 0);
+
+      const inferredType = inferTypeFromName(rawName);
+      const density = SPACE_DENSITIES[inferredType] || 120;
+      const dissipation = area * density;
+      const kw = dissipation / 1000;
+      const tr = kw / 3.517;
+      const isMissing = !inferredType || !area || area <= 0;
+
+      return {
+        id: `vent-pcl-${idx}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        floor,
+        name: rawName,
+        type: inferredType,
+        density,
+        area,
+        occupancy: sp.fixtures || sp.occupants || undefined,
+        dissipation,
+        kw: Number(kw.toFixed(2)),
+        tr: Number(tr.toFixed(2)),
+        flagged: isMissing,
+        source: "ventilation",
+      };
+    });
+
+    setPendingRecords(parsedPcl);
+    setSelectedPending(new Set(parsedPcl.map((p) => p.id)));
+    setImportOpen(true);
+    toast.success(`Loaded ${parsedPcl.length} spaces from Ventilation schedule!`);
   };
 
   // Comment & Task Assignment Modal State
@@ -2914,6 +2995,7 @@ function PreliminaryCoolingLoadPage() {
         onClose={() => setSourceModalOpen(false)}
         onSelectExcel={() => fileInputRef.current?.click()}
         onSelect3DViewer={handleSelect3DViewer}
+        onSelectVentilation={handleSelectVentilation}
       />
       <input
         type="file"
@@ -2960,7 +3042,17 @@ function PreliminaryCoolingLoadPage() {
                   </div>
                   <span className="font-semibold text-sm">Drag & drop your Excel space schedule here</span>
                   <span className="text-xs text-muted-foreground mt-1">or click to browse files from your computer</span>
-                  <div className="mt-4 flex items-center gap-2">
+                  <div className="mt-4 flex items-center gap-2 flex-wrap justify-center">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectVentilation();
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-border bg-surface-1 hover:bg-surface-2 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer text-foreground"
+                    >
+                      <Wind className="size-3.5 text-sky-500" /> Import from Ventilation
+                    </button>
                     <button
                       type="button"
                       onClick={(e) => {
