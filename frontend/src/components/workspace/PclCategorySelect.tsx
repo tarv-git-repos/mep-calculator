@@ -41,8 +41,8 @@ export function PclCategorySelect({
             type="button"
             disabled={isEffectiveDisabled}
             className={cn(
-              "flex items-center justify-between w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[13px] min-w-0 transition-all text-left",
-              !value ? "text-muted-foreground/60 italic" : value.endsWith(" (Custom)") ? "text-primary font-medium" : "text-foreground font-normal",
+              "flex items-center justify-between w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[13px] min-w-0 transition-all text-left",
+              !value && "text-muted-foreground/60 italic",
               isEffectiveDisabled ? "cursor-not-allowed opacity-75 pointer-events-none hover:bg-transparent" : "cursor-pointer",
               triggerClassName
             )}
