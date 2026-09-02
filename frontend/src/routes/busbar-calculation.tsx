@@ -2013,7 +2013,7 @@ function BusbarCalculationPage() {
                                               onKeyDown={(e) => handleKeyDown(e, 0)} 
                                               onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                               type="text" 
-                                              className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white flex-1" 
+                                              className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground flex-1" 
                                               value={r.desc} 
                                               onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} 
                                             />
@@ -2025,7 +2025,7 @@ function BusbarCalculationPage() {
                                             onKeyDown={(e) => handleKeyDown(e, 1)} 
                                             onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                             type="number" step="0.1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
                                             value={r.length} 
                                             onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
                                           />
@@ -2036,7 +2036,7 @@ function BusbarCalculationPage() {
                                             onKeyDown={(e) => handleKeyDown(e, 2)} 
                                             onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                             type="number" step="0.1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
                                             value={r.loadKw} 
                                             onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
                                           />
@@ -2050,7 +2050,7 @@ function BusbarCalculationPage() {
                                             onKeyDown={(e) => handleKeyDown(e, 3)} 
                                             onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                             type="number" step="0.01" max="1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
                                             value={r.div} 
                                             onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
                                           />

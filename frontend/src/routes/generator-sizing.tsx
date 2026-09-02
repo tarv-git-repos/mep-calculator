@@ -1234,7 +1234,7 @@ function GeneratorSizingPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Filter loads..."
-                      className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
+                      className="h-7 w-56 pl-8 pr-3 bg-surface-2 text-foreground border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
                     />
                   </div>
 
@@ -1274,14 +1274,14 @@ function GeneratorSizingPage() {
                         <select
                           value={filterStarter}
                           onChange={(e) => setFilterStarter(e.target.value)}
-                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                          className="h-8 w-full px-2 bg-surface-2 text-foreground border border-border rounded-lg text-xs outline-none cursor-pointer"
                         >
-                          <option value="all">All Starter Types</option>
-                          <option value="DOL">DOL</option>
-                          <option value="SD">Star Delta</option>
-                          <option value="Soft Starter">Soft Starter</option>
-                          <option value="VFD">VFD</option>
-                          <option value="None">None</option>
+                          <option value="all" className="bg-popover text-popover-foreground">All Starter Types</option>
+                          <option value="DOL" className="bg-popover text-popover-foreground">DOL</option>
+                          <option value="SD" className="bg-popover text-popover-foreground">Star Delta</option>
+                          <option value="Soft Starter" className="bg-popover text-popover-foreground">Soft Starter</option>
+                          <option value="VFD" className="bg-popover text-popover-foreground">VFD</option>
+                          <option value="None" className="bg-popover text-popover-foreground">None</option>
                         </select>
                       </div>
 
@@ -1290,11 +1290,11 @@ function GeneratorSizingPage() {
                         <select
                           value={filterEmergency}
                           onChange={(e) => setFilterEmergency(e.target.value)}
-                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                          className="h-8 w-full px-2 bg-surface-2 text-foreground border border-border rounded-lg text-xs outline-none cursor-pointer"
                         >
-                          <option value="all">All Loads</option>
-                          <option value="emergency">Emergency Included</option>
-                          <option value="excluded">Emergency Excluded</option>
+                          <option value="all" className="bg-popover text-popover-foreground">All Loads</option>
+                          <option value="emergency" className="bg-popover text-popover-foreground">Emergency Included</option>
+                          <option value="excluded" className="bg-popover text-popover-foreground">Emergency Excluded</option>
                         </select>
                       </div>
                     </PopoverContent>
@@ -1348,11 +1348,11 @@ function GeneratorSizingPage() {
                         <select
                           value={sortBy}
                           onChange={(e) => setSortBy(e.target.value as any)}
-                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                          className="h-8 w-full px-2 bg-surface-2 text-foreground border border-border rounded-lg text-xs outline-none cursor-pointer"
                         >
-                          <option value="none">Original Order</option>
-                          <option value="desc">Description (A-Z)</option>
-                          <option value="kw">Load kW (High to Low)</option>
+                          <option value="none" className="bg-popover text-popover-foreground">Original Order</option>
+                          <option value="desc" className="bg-popover text-popover-foreground">Description (A-Z)</option>
+                          <option value="kw" className="bg-popover text-popover-foreground">Load kW (High to Low)</option>
                         </select>
                       </div>
                     </PopoverContent>
@@ -1569,7 +1569,7 @@ function GeneratorSizingPage() {
                                             data-row={rowIndex}
                                             data-col={0}
                                             type="text"
-                                            className="w-full h-9 bg-transparent outline-none focus:bg-white flex-1"
+                                            className="w-full h-9 px-2 text-foreground placeholder:text-muted-foreground/60 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors flex-1"
                                             value={r.desc}
                                             onChange={(e) => updateRow(r.id, "desc", e.target.value)}
                                             placeholder="Description"
@@ -1581,7 +1581,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={1}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.unit}
                                           onChange={(e) => updateRow(r.id, "unit", e.target.value)}
                                         />
@@ -1591,7 +1591,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={2}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.kwPerUnit}
                                           onChange={(e) => updateRow(r.id, "kwPerUnit", e.target.value)}
                                         />
@@ -1600,15 +1600,15 @@ function GeneratorSizingPage() {
                                         <select
                                           data-row={rowIndex}
                                           data-col={3}
-                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white cursor-pointer"
+                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors cursor-pointer"
                                           value={r.starter}
                                           onChange={(e) => updateRow(r.id, "starter", e.target.value)}
                                         >
-                                          <option value="DOL">DOL</option>
-                                          <option value="SD">Star Delta</option>
-                                          <option value="Soft Starter">Soft Starter</option>
-                                          <option value="VFD">VFD</option>
-                                          <option value="None">None</option>
+                                          <option value="DOL" className="bg-popover text-popover-foreground">DOL</option>
+                                          <option value="SD" className="bg-popover text-popover-foreground">Star Delta</option>
+                                          <option value="Soft Starter" className="bg-popover text-popover-foreground">Soft Starter</option>
+                                          <option value="VFD" className="bg-popover text-popover-foreground">VFD</option>
+                                          <option value="None" className="bg-popover text-popover-foreground">None</option>
                                         </select>
                                       </td>
                                       <td className="p-0 border-r border-border bg-primary/10">
@@ -1616,7 +1616,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={4}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 font-medium transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.multiplier}
                                           onChange={(e) =>
                                             updateRow(r.id, "multiplier", e.target.value)
@@ -1634,7 +1634,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={5}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.standby}
                                           onChange={(e) => updateRow(r.id, "standby", e.target.value)}
                                         />
@@ -1648,7 +1648,7 @@ function GeneratorSizingPage() {
                                             data-row={rowIndex}
                                             data-col={6}
                                             type="number"
-                                            className={`w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${r.excludeEmergency ? "opacity-30 line-through" : ""}`}
+                                            className={`w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${r.excludeEmergency ? "opacity-30 line-through" : ""}`}
                                             value={r.emergency}
                                             onChange={(e) =>
                                               updateRow(r.id, "emergency", e.target.value)
@@ -1659,7 +1659,7 @@ function GeneratorSizingPage() {
                                             onClick={() =>
                                               updateRow(r.id, "excludeEmergency", !r.excludeEmergency)
                                             }
-                                            className="absolute right-1 opacity-0 group-hover/em:opacity-100 p-1 text-muted-foreground hover:text-red-500 transition-opacity bg-white shadow-sm rounded border border-border"
+                                            className="absolute right-1 opacity-0 group-hover/em:opacity-100 p-1 text-muted-foreground hover:text-red-500 transition-opacity bg-background dark:bg-surface-2 shadow-sm rounded border border-border"
                                             title={
                                               r.excludeEmergency
                                                 ? "Include Emergency Load"
@@ -1679,31 +1679,31 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={7}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
+                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
                                           value={r.powerFail}
                                           onChange={(e) => updateRow(r.id, "powerFail", e.target.value)}
                                         />
                                         <select
-                                          className="h-9 w-12 px-1 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[11px] font-medium"
+                                          className="h-9 w-12 px-1 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[11px] font-medium dark:bg-primary/20 dark:text-primary-foreground"
                                           defaultValue=""
                                           onChange={(e) => {
                                             setPowerFailPercent(r.id, e.target.value);
                                             e.target.value = "";
                                           }}
                                         >
-                                          <option value="" disabled>
+                                          <option value="" disabled className="bg-popover text-popover-foreground">
                                             %
                                           </option>
-                                          <option value="10">10%</option>
-                                          <option value="20">20%</option>
-                                          <option value="30">30%</option>
-                                          <option value="40">40%</option>
-                                          <option value="50">50%</option>
-                                          <option value="60">60%</option>
-                                          <option value="70">70%</option>
-                                          <option value="80">80%</option>
-                                          <option value="90">90%</option>
-                                          <option value="100">100%</option>
+                                          <option value="10" className="bg-popover text-popover-foreground">10%</option>
+                                          <option value="20" className="bg-popover text-popover-foreground">20%</option>
+                                          <option value="30" className="bg-popover text-popover-foreground">30%</option>
+                                          <option value="40" className="bg-popover text-popover-foreground">40%</option>
+                                          <option value="50" className="bg-popover text-popover-foreground">50%</option>
+                                          <option value="60" className="bg-popover text-popover-foreground">60%</option>
+                                          <option value="70" className="bg-popover text-popover-foreground">70%</option>
+                                          <option value="80" className="bg-popover text-popover-foreground">80%</option>
+                                          <option value="90" className="bg-popover text-popover-foreground">90%</option>
+                                          <option value="100" className="bg-popover text-popover-foreground">100%</option>
                                         </select>
                                       </td>
                                       <td className="p-0 border-r border-border">
@@ -1711,7 +1711,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={8}
                                           type="text"
-                                          className="w-full h-9 px-2 text-center bg-transparent outline-none focus:bg-white"
+                                          className="w-full h-9 px-2 text-center text-foreground placeholder:text-muted-foreground/60 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors"
                                           value={!r.remark || r.remark === "undefined" ? "" : r.remark}
                                           onChange={(e) => updateRow(r.id, "remark", e.target.value)}
                                         />
@@ -1868,7 +1868,7 @@ function GeneratorSizingPage() {
                         <input
                           type="number"
                           step="0.01"
-                          className="w-20 px-2 py-1 border border-border rounded outline-none text-right [appearance:textfield]"
+                          className="w-20 px-2 py-1 border border-border bg-surface-2 text-foreground rounded outline-none text-right [appearance:textfield] focus:ring-1 focus:ring-primary focus:border-primary"
                           value={pf}
                           onChange={(e) => setPf(parseFloat(e.target.value) || 0.8)}
                         />
@@ -1878,7 +1878,7 @@ function GeneratorSizingPage() {
                         <input
                           type="number"
                           step="0.01"
-                          className="w-20 px-2 py-1 border border-border rounded outline-none text-right [appearance:textfield]"
+                          className="w-20 px-2 py-1 border border-border bg-surface-2 text-foreground rounded outline-none text-right [appearance:textfield] focus:ring-1 focus:ring-primary focus:border-primary"
                           value={lf}
                           onChange={(e) => setLf(parseFloat(e.target.value) || 0.9)}
                         />

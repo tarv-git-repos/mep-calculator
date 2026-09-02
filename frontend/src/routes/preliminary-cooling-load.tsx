@@ -32,6 +32,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
+import { PclCategorySelect } from "@/components/workspace/PclCategorySelect";
 import { exportPreliminaryCoolingLoadPDF } from "@/lib/exportPreliminaryCoolingLoadPDF";
 
 
@@ -600,6 +601,8 @@ function PreliminaryCoolingLoadPage() {
   const [customParamModalRow, setCustomParamModalRow] = useState<PclRow | null>(null);
   const [customParamName, setCustomParamName] = useState("Custom");
   const [customParamDensity, setCustomParamDensity] = useState<number>(120);
+  const [customParamWorkflow, setCustomParamWorkflow] = useState<"calculate" | "direct">("calculate");
+  const [customParamKw, setCustomParamKw] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
 

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { X, Info, Flame, Zap, Shield, CheckCircle2, AlertTriangle, Sparkles, Flag } from "lucide-react";
+import { PclCategorySelect } from "./PclCategorySelect";
 
 export interface PclSpace {
   id: string;
@@ -273,17 +274,12 @@ export function EditPclSpaceModal({
                 </div>
                 <div>
                   <label className={labelClass}>Category Classification</label>
-                  <select
+                  <PclCategorySelect
                     value={tempSpace.type && (tempSpace.type.endsWith(" (Custom)") || tempSpace.type === "Other") ? "Other" : (tempSpace.type || "")}
-                    onChange={(e) => handleTypeChange(e.target.value)}
-                    className={`${inputClass} cursor-pointer`}
-                  >
-                    <option value="">Select Category...</option>
-                    {Object.keys(spaceDensities).map((t) => (
-                      <option key={t} value={t}>{t} ({spaceDensities[t]} W/m²)</option>
-                    ))}
-                    <option value="Other">Other / Custom Space Type...</option>
-                  </select>
+                    densities={spaceDensities}
+                    onChange={(val) => handleTypeChange(val)}
+                    triggerClassName="w-full bg-surface-2 border border-border rounded-xl px-3.5 py-2.5 text-xs text-foreground focus:border-primary focus:ring-1 focus:ring-primary shadow-xs"
+                  />
                 </div>
               </div>
 
