@@ -116,7 +116,7 @@ interface LVPanel {
 
 function BusbarCalculationPage() {
   const { userData, profile } = useAuth();
-  const { project } = useWorkspace();
+  const { project, activeProjectId } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -241,7 +241,7 @@ function BusbarCalculationPage() {
   } | null>(null);
 
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
-  // Deep-linking and auto-scroll from notifications
+  // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleScrollToItem = (e: any) => {
@@ -249,24 +249,24 @@ function BusbarCalculationPage() {
       if (!id && !name) return;
       for (const p of panels) {
         for (const s of p.sections) {
-          const r = s.rows.find(rw => rw.id === id || rw.desc === name);
+          const r = s.rows.find(rw => rw.id === id || rw.desc === name || rw.from === name);
           if (r) {
             setCommentTarget({
               id: r.id,
-              name: r.desc || "Tap Off Row",
+              name: r.desc || r.from || "Tap Off Row",
               type: "equipment",
               panelId: p.id,
               sectionId: s.id
             });
             setAssignCommentOpen(true);
             setTimeout(() => {
-              const el = document.getElementById(`busbar-row-${r.id}`);
+              const el = document.getElementById(`busbar-row-${r.id}`) || document.getElementById(`row-${r.id}`) || document.querySelector(`[data-row-id="${r.id}"]`);
               if (el) {
                 el.scrollIntoView({ behavior: "smooth", block: "center" });
                 el.classList.add("ring-2", "ring-primary", "bg-primary/10");
                 setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
               }
-            }, 100);
+            }, 150);
             return;
           }
         }
@@ -2153,6 +2153,7 @@ function BusbarCalculationPage() {
                                     return (
                                     <tr 
                                       key={r.id} 
+                                      id={`busbar-row-${r.id}`} 
                                       data-row-id={r.id}
                                       className={`transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-6 text-[11px]" : ""} ${
                                         editingRow?.row.id === r.id
@@ -2432,6 +2433,15 @@ function BusbarCalculationPage() {
           targetId={commentTarget.id}
           targetName={commentTarget.name}
           targetType={commentTarget.type}
+          existingComments={(() => {
+            for (const p of panels) {
+              for (const s of p.sections) {
+                const r = s.rows.find(rw => rw.id === commentTarget.id);
+                if (r) return r.comments || [];
+              }
+            }
+            return [];
+          })()}
           onSave={(newComment) => {
             pushToUndo(panels);
             setPanels(prev => {
