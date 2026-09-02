@@ -930,6 +930,15 @@ const loadIfcFile = async (file: File) => {
             const extractedBimSpaces = sortSpacesByFloorAndName(rawExtracted);
             if (extractedBimSpaces.length > 0) {
                 (window as any).__BIM_VIEWER_SPACES__ = extractedBimSpaces;
+                try {
+                    localStorage.setItem('mep_active_bim_spaces', JSON.stringify(extractedBimSpaces));
+                    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
+                    if (activeProjId) {
+                        localStorage.setItem(`mep_active_bim_spaces_${activeProjId}`, JSON.stringify(extractedBimSpaces));
+                    }
+                } catch (e) {
+                    console.warn("Storage quota warning for BIM spaces:", e);
+                }
             }
         };
 
