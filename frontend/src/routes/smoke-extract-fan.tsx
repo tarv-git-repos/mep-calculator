@@ -217,16 +217,17 @@ function SmokeExtractFanPage() {
       ["Total Smoke Extract Rate", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`],
       ["Quantity of Fans", fanQty],
       ["Air Flow Rate per Fan", `${calculatedData.flowEachLsRound} L/s`],
+      ["Flow of Each Fan", `${calculatedData.flowEachM3s.toFixed(3)} m³/s`],
       [],
       ["Static Head Sizing"],
       ["Ducting Length", `${ductLength} m`],
-      ["Equivalent Fittings Length", `${calculatedData.fittingsEqLen.toFixed(2)} m`],
+      ["Equivalent Length of Fittings + Accessories", `${calculatedData.fittingsEqLen.toFixed(2)} m`],
       ["Total Equivalent Length", `${calculatedData.totalEqLen.toFixed(2)} m`],
       ["Duct Friction Factor", `${frictionFactor} Pa/m`],
-      ["Duct Friction Loss", `${calculatedData.frictionLoss.toFixed(2)} Pa`],
+      ["Head Loss in Ducting", `${calculatedData.frictionLoss.toFixed(2)} Pa`],
       ["Louver & Grille Drop", `${louverLoss} Pa`],
       ["Internal Fan Drop", `${fanLoss} Pa`],
-      ["Fan Total Head", `${calculatedData.headRound} Pa`],
+      ["Total Static of the Fan", `${calculatedData.headRound} Pa`],
       [],
       ["Motor Selection"],
       ["Motor Efficiency", `${effMotor} %`],
@@ -381,8 +382,16 @@ function SmokeExtractFanPage() {
                     <strong className="font-bold text-[#0A7BC7] text-[13px] font-mono">{calculatedData.flowEachLsRound} L/s</strong>
                   </div>
                   <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Equivalent Length of Fittings + Accessories</span>
+                    <strong className="font-bold text-foreground font-mono">{calculatedData.fittingsEqLen.toFixed(2)} m</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
                     <span className="font-semibold text-muted-foreground">Total Equivalent Length</span>
                     <strong className="font-bold text-foreground font-mono">{calculatedData.totalEqLen.toFixed(1)} m</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Head Loss in Ducting</span>
+                    <strong className="font-bold text-foreground font-mono">{calculatedData.frictionLoss.toFixed(2)} Pa</strong>
                   </div>
                   <div className="flex justify-between items-center py-1.5 border-b border-border/40 col-span-2">
                     <span className="font-semibold text-muted-foreground">Total Fan Static Head Loss</span>
@@ -399,6 +408,14 @@ function SmokeExtractFanPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Flow of each fan</span>
+                    <strong className="font-bold text-[#0A7BC7] font-mono">{calculatedData.flowEachM3s.toFixed(3)} m³/s</strong>
+                  </div>
+                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
+                    <span className="font-semibold text-muted-foreground">Total Static of the Fan</span>
+                    <strong className="font-bold text-[#0A7BC7] font-mono">{calculatedData.headRound} Pa</strong>
+                  </div>
                   <div className="flex justify-between items-center py-1.5 border-b border-border/40 col-span-2">
                     <span className="font-semibold text-muted-foreground">Power Required per Fan</span>
                     <strong className="font-bold text-foreground font-mono">{calculatedData.powerEachRound.toFixed(2)} kW</strong>

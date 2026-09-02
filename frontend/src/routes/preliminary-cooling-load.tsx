@@ -93,47 +93,196 @@ interface PclRow {
 }
 
 const INFER_MAP: [string, string][] = [
+  // Specific Multilingual / Multi-word first
+  ["master bed", "Apartment - Dwelling Unit"],
+  ["guest bed", "Apartment - Dwelling Unit"],
+  ["bedroom", "Apartment - Dwelling Unit"],
+  ["bed room", "Apartment - Dwelling Unit"],
+  ["bed", "Apartment - Dwelling Unit"],
   ["bhk", "Apartment - Dwelling Unit"],
   ["studio", "Apartment - Dwelling Unit"],
   ["flat", "Apartment - Dwelling Unit"],
   ["apartment", "Apartment - Dwelling Unit"],
   ["dwelling", "Apartment - Dwelling Unit"],
-  ["bedroom", "Apartment - Dwelling Unit"],
+  ["living room", "Apartment - Dwelling Unit"],
   ["living", "Apartment - Dwelling Unit"],
+  ["family room", "Apartment - Dwelling Unit"],
+  ["dining room", "Apartment - Dwelling Unit"],
   ["dining", "Apartment - Dwelling Unit"],
+  ["balcony", "Apartment - Dwelling Unit"],
+  ["terrace", "Apartment - Dwelling Unit"],
+  ["foyer", "Apartment - Dwelling Unit"],
   ["residential", "Apartment - Dwelling Unit"],
+  ["suite", "Apartment - Dwelling Unit"],
+  ["guest room", "Apartment - Dwelling Unit"],
+
+  // Corridors
+  ["res corridor", "Corridor - Residential"],
+  ["residential corridor", "Corridor - Residential"],
+  ["corridor - res", "Corridor - Residential"],
   ["corridor", "Corridor - Residential"],
-  ["lobby", "Lobby - Residential"],
+  ["hallway", "Corridor - Residential"],
+  ["passage", "Corridor - Residential"],
+  ["aisle", "Corridor - Residential"],
+  ["service corridor", "Corridor - BOH/Service"],
+  ["boh corridor", "Corridor - BOH/Service"],
+
+  // Lobbies
+  ["lift lobby", "Lobby - Lift"],
+  ["elevator lobby", "Lobby - Lift"],
+  ["hotel lobby", "Lobby - Hotel"],
+  ["school lobby", "Lobby - School"],
+  ["tower lobby", "Lobby - Residential"],
+  ["entrance lobby", "Lobby - Residential"],
+  ["residential lobby", "Lobby - Residential"],
   ["reception", "Lobby - Residential"],
+  ["waiting", "Lobby - Residential"],
+  ["atrium", "Lobby - Residential"],
+  ["lobby", "Lobby - Residential"],
+
+  // Office / Meetings / Workspaces
+  ["conference", "Office - Meeting Room"],
+  ["boardroom", "Office - Meeting Room"],
+  ["meeting", "Office - Meeting Room"],
+  ["discussion", "Office - Meeting Room"],
+  ["huddle", "Office - Meeting Room"],
+  ["briefing", "Office - Meeting Room"],
+  ["cowork", "Coworking Space"],
+  ["open office", "Coworking Space"],
+  ["workstation", "Coworking Space"],
+  ["common room", "Office - Common Room"],
+  ["breakout", "Office - Common Room"],
+  ["staff room", "Office - Common Room"],
   ["office", "Office - Cabin"],
   ["cabin", "Office - Cabin"],
-  ["meeting", "Office - Meeting Room"],
-  ["conference", "Office - Meeting Room"],
-  ["classroom", "Classroom - Middle School"],
-  ["school", "Classroom - Middle School"],
-  ["university", "Classroom - Middle School"],
+  ["manager", "Office - Cabin"],
+  ["director", "Office - Cabin"],
+  ["executive", "Office - Cabin"],
+  ["work room", "Office - Cabin"],
+
+  // Education / Classrooms / Labs
+  ["eyfs", "Classroom - EYFS"],
+  ["kindergarten", "Classroom - EYFS"],
+  ["preschool", "Classroom - EYFS"],
+  ["art room", "Classroom - Art"],
+  ["high school", "Classroom - High School"],
+  ["ict room", "ICT Room"],
+  ["computer lab", "ICT Room"],
+  ["science lab", "Lab - Science"],
+  ["physics lab", "Lab - Science"],
+  ["chemistry lab", "Lab - Science"],
+  ["biology lab", "Lab - Science"],
   ["lab", "Lab - School"],
+  ["classroom", "Classroom - Middle School"],
+  ["class room", "Classroom - Middle School"],
+  ["lecture", "Classroom - Middle School"],
+  ["seminar", "Classroom - Middle School"],
+  ["training", "Classroom - Middle School"],
+  ["school", "Classroom - Middle School"],
+
+  // Gym / Wellness / Play
   ["gym", "GYM"],
   ["fitness", "GYM"],
+  ["workout", "GYM"],
+  ["cardio", "GYM"],
   ["spa", "SPA"],
-  ["clinic", "Clinic"],
-  ["medical", "Clinic"],
+  ["sauna", "SPA"],
+  ["steam", "SPA"],
+  ["massage", "SPA"],
+  ["therapy", "SPA"],
+  ["kids play", "Kids Play Area"],
+  ["play area", "Kids Play Area"],
+  ["nursery", "Kids Play Area"],
+  ["daycare", "Kids Play Area"],
+
+  // Medical
   ["doctor", "Clinic - Doctor Room"],
   ["treatment", "Clinic - Treatment Room"],
-  ["hotel", "Lobby - Hotel"],
-  ["kitchen", "Kitchen - Public"],
+  ["medical store", "Storage - Medical"],
+  ["pharmacy", "Storage - Medical"],
+  ["clinic", "Clinic"],
+  ["medical", "Clinic"],
+  ["triage", "Clinic"],
+
+  // F&B / Kitchens
+  ["supermarket", "Supermarket"],
+  ["grocery", "Supermarket"],
+  ["hypermarket", "Supermarket"],
+  ["public kitchen", "Kitchen - Public"],
+  ["central kitchen", "Kitchen - Public"],
+  ["main kitchen", "Kitchen - Public"],
+  ["private kitchen", "Kitchen - Private"],
   ["pantry", "Kitchen - Private"],
+  ["kitchenette", "Kitchen - Private"],
+  ["kitchen", "Kitchen - Public"],
+  ["cafe", "Café"],
+  ["café", "Café"],
+  ["coffee", "Café"],
+  ["restaurant", "Food & Beverage"],
+  ["food", "Food & Beverage"],
+  ["dining area", "Food & Beverage"],
+  ["canteen", "Food & Beverage"],
+  ["mess", "Food & Beverage"],
+  ["buffet", "Food & Beverage"],
+
+  // Retail
+  ["mall", "Retail Shop - Mall"],
+  ["retail shop - mixed", "Retail Shop - Mixed Building"],
+  ["retail", "Retail Shop - Mixed Building"],
+  ["shop", "Retail Shop - Mixed Building"],
+  ["showroom", "Retail Shop - Mixed Building"],
+  ["boutique", "Retail Shop - Mixed Building"],
+  ["store", "Storage - Dry"],
+
+  // Wet areas / Toilets / Restrooms
+  ["eyfs toilet", "Toilet - EYFS Attached"],
+  ["child toilet", "Toilet - EYFS Attached"],
   ["washroom", "Washroom"],
+  ["powder room", "Washroom"],
   ["toilet", "Toilet - Public"],
-  ["wc", "Toilet - Public"],
   ["restroom", "Toilet - Public"],
+  ["wc", "Toilet - Public"],
+  ["w.c.", "Toilet - Public"],
+  ["bath", "Toilet - Public"],
+  ["bathroom", "Toilet - Public"],
+  ["ensuite", "Toilet - Public"],
+  ["lavatory", "Toilet - Public"],
+  ["urinal", "Toilet - Public"],
+
+  // Religious
+  ["prayer", "Male Prayer Room"],
+  ["mosque", "Male Prayer Room"],
+  ["masjid", "Male Prayer Room"],
+  ["namaz", "Male Prayer Room"],
+
+  // Utilities / Housekeeping
+  ["laundry", "Laundry / House Keeping"],
+  ["house keeping", "Laundry / House Keeping"],
+  ["housekeeping", "Laundry / House Keeping"],
+  ["janitor", "Laundry / House Keeping"],
+  ["cleaner", "Laundry / House Keeping"],
+  ["garbage", "Garbage Room"],
+  ["trash", "Garbage Room"],
+  ["waste", "Garbage Room"],
+  ["refuse", "Garbage Room"],
+  ["airlock", "Airlock"],
+  ["vestibule", "Airlock"],
+  ["stairs", "Stairs"],
+  ["staircase", "Stairs"],
+  ["stairwell", "Stairs"],
+
+  // MEP Technical
   ["server", "Server Room"],
+  ["data center", "Server Room"],
+  ["datacenter", "Server Room"],
   ["cctv", "CCTV Room"],
-  ["security", "CCTV Room"],
+  ["security room", "CCTV Room"],
+  ["surveillance", "CCTV Room"],
   ["fcc", "FCC Room"],
   ["fire control", "FCC Room"],
+  ["fire command", "FCC Room"],
   ["idf", "Typ. IDF Room"],
-  ["tel.", "Typ. IDF Room"],
+  ["tel", "Typ. IDF Room"],
   ["telecom", "Typ. IDF Room"],
   ["electrical", "Typ. Electrical Room"],
   ["elec", "Typ. Electrical Room"],
@@ -141,27 +290,28 @@ const INFER_MAP: [string, string][] = [
   ["substation", "LV Room"],
   ["lv room", "LV Room"],
   ["transformer", "LV Room"],
-  ["ets", "ETS Pump Room"],
-  ["pump", "ETS Pump Room"],
+  ["switchgear", "LV Room"],
+  ["mtr room", "MTR Room"],
   ["water mt", "MTR Room"],
+  ["water meter", "MTR Room"],
+  ["ets control", "ETS Control Room"],
+  ["ets pump", "ETS Pump Room"],
+  ["ets", "ETS Room"],
   ["thermal tank", "ETS Room"],
-  ["domestic pump", "ETS Pump Room"],
   ["chilled water", "Chilled Water Pump Room"],
+  ["chiller", "Chilled Water Pump Room"],
   ["fire pump", "Fire Pump Room"],
-  ["garbage", "Garbage Room"],
-  ["trash", "Garbage Room"],
-  ["waste", "Garbage Room"],
-  ["refuse", "Garbage Room"],
+  ["boiler", "Boiler Room"],
+  ["calorifier", "Boiler Room"],
+
+  // Storage
+  ["it storage", "Storage - IT"],
+  ["server storage", "Storage - IT"],
+  ["occupied storage", "Storage - Occupied"],
   ["storage", "Storage - Dry"],
   ["store", "Storage - Dry"],
-  ["caf", "Café"],
-  ["restaurant", "Food & Beverage"],
-  ["supermarket", "Supermarket"],
-  ["retail", "Retail Shop - Mixed Building"],
-  ["shop", "Retail Shop - Mixed Building"],
-  ["mall", "Retail Shop - Mall"],
-  ["prayer", "Male Prayer Room"],
-  ["mosque", "Male Prayer Room"]
+  ["warehouse", "Storage - Dry"],
+  ["depot", "Storage - Dry"]
 ];
 
 const SPACE_DENSITIES: Record<string, number> = {
@@ -239,12 +389,29 @@ const extractFloor = (name: string): string => {
 };
 
 const inferTypeFromName = (name: string): string => {
+  if (!name || typeof name !== "string") return "Apartment - Dwelling Unit";
   const q = name.toLowerCase().trim();
-  for (const item of INFER_MAP) {
-    if (q.includes(item[0])) return item[1];
+
+  // 1. Direct match with SPACE_DENSITIES
+  if (SPACE_DENSITIES[name]) return name;
+  const exactKey = Object.keys(SPACE_DENSITIES).find(k => k.toLowerCase() === q);
+  if (exactKey) return exactKey;
+
+  // 2. Keyword inference from INFER_MAP
+  for (const [kw, targetType] of INFER_MAP) {
+    if (q.includes(kw)) {
+      return targetType;
+    }
   }
-  return "";
+
+  // 3. Smart fallbacks
+  if (q.includes("bed") || q.includes("room") || q.includes("unit") || q.includes("apt")) {
+    return "Apartment - Dwelling Unit";
+  }
+
+  return "Office - Cabin";
 };
+
 
 interface InlineInputProps {
   value: string | number;
@@ -660,37 +827,9 @@ function PreliminaryCoolingLoadPage() {
     const floor = sp.level || extractFloor(rawName) || "Ground Floor";
     const area = typeof sp.area === "number" ? sp.area : parseFloat(String(sp.area)) || 0;
 
-    let inferredType = "";
-    const predCat = sp.category || "";
-
-    if (predCat && SPACE_DENSITIES[predCat]) {
-      inferredType = predCat;
-    } else if (rawName) {
-      const rawLower = rawName.toLowerCase();
-      const matchedKey = Object.keys(SPACE_DENSITIES).find(
-        (k) => k.toLowerCase() === rawLower || rawLower.includes(k.toLowerCase()) || k.toLowerCase().includes(rawLower)
-      );
-      if (matchedKey) inferredType = matchedKey;
-    }
-
-    if (!inferredType) {
-      const n = rawName.toLowerCase();
-      if (n.includes("office")) inferredType = "Office (General)";
-      else if (n.includes("meeting") || n.includes("conf") || n.includes("board")) inferredType = "Conference / Meeting Room";
-      else if (n.includes("lobby") || n.includes("reception")) inferredType = "Lobby / Reception";
-      else if (n.includes("corridor") || n.includes("hallway") || n.includes("passage")) inferredType = "Corridor";
-      else if (n.includes("toilet") || n.includes("wc") || n.includes("bath") || n.includes("restroom")) inferredType = "Restroom / Toilet";
-      else if (n.includes("kitchen") || n.includes("pantry")) inferredType = "Commercial Kitchen / Pantry";
-      else if (n.includes("server") || n.includes("data") || n.includes("it") || n.includes("telecom")) inferredType = "Server / IT Room";
-      else if (n.includes("retail") || n.includes("shop") || n.includes("store")) inferredType = "Retail / Showroom";
-      else if (n.includes("gym") || n.includes("fitness")) inferredType = "Fitness Center / Gym";
-      else if (n.includes("classroom") || n.includes("training")) inferredType = "Classroom / Training Room";
-      else if (n.includes("storage") || n.includes("store")) inferredType = "Storage / Warehouse";
-      else if (n.includes("dining") || n.includes("restaurant") || n.includes("cafe")) inferredType = "Restaurant / Dining Area";
-      else inferredType = "Office (General)";
-    }
-
-    const density = inferredType ? (SPACE_DENSITIES[inferredType] || 120) : 120;
+    // Recognize type of space strictly based on the name of space automatically
+    const inferredType = inferTypeFromName(rawName);
+    const density = SPACE_DENSITIES[inferredType] || 120;
     const dissipation = area * density;
     const kw = dissipation / 1000;
     const tr = kw / 3.517;
