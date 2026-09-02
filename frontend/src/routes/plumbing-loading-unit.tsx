@@ -587,7 +587,7 @@ export function getRecommendedPipeSize(lu: number, flowLPS: number): { sizeMM: n
 }
 
 function LoadingUnitPage() {
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [standardPreset, setStandardPreset] = useState<StandardPreset>("dubai");
@@ -663,28 +663,30 @@ function LoadingUnitPage() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' } | null>(null);
-  // Deep-linking and auto-scroll from notifications
+  // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleScrollToItem = (e: any) => {
       const { id, name } = e.detail || {};
       if (!id && !name) return;
+      setActiveTab("spaces");
       const targetSpace = iopSpaces.find(s => String(s.id) === id || s.desc === name);
       if (targetSpace) {
+        setSelectedIds([targetSpace.id]);
         setCommentTarget({
           id: String(targetSpace.id),
-          name: targetSpace.desc,
+          name: targetSpace.desc || "Loading Unit Space",
           type: "space"
         });
         setAssignCommentOpen(true);
         setTimeout(() => {
-          const el = document.getElementById(`lu-space-${targetSpace.id}`);
+          const el = document.getElementById(`lu-space-${targetSpace.id}`) || document.getElementById(`row-${targetSpace.id}`);
           if (el) {
             el.scrollIntoView({ behavior: "smooth", block: "center" });
             el.classList.add("ring-2", "ring-primary", "bg-primary/10");
             setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
           }
-        }, 100);
+        }, 150);
       }
     };
     window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
@@ -693,6 +695,7 @@ function LoadingUnitPage() {
     const targetId = params.get("commentTargetId") || params.get("targetId");
     const targetName = params.get("commentTargetName") || params.get("targetName");
     if (targetId || targetName) {
+      setActiveTab("spaces");
       setTimeout(() => {
         handleScrollToItem({ detail: { id: targetId, name: targetName } });
       }, 500);
@@ -2678,6 +2681,7 @@ function LoadingUnitPage() {
                           return (
                             <tr
                               key={s.id}
+                              id={`lu-space-${s.id}`}
                               onDoubleClick={() => {
                                 setSelectedIds([s.id]);
                                 setEditingSpace({ space: s, floor });
@@ -3083,6 +3087,7 @@ function LoadingUnitPage() {
           targetId={commentTarget.id}
           targetName={commentTarget.name}
           targetType={commentTarget.type}
+          existingComments={iopSpaces.find((s) => String(s.id) === commentTarget.id)?.comments || []}
           onSave={(newComment) => {
             setIopSpaces(prev => {
               const next = prev.map(s => {

@@ -4,7 +4,7 @@ import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";

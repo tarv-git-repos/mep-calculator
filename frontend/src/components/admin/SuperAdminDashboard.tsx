@@ -1193,12 +1193,60 @@ export function SuperAdminDashboard() {
                             title="Select All Users"
                           />
                         </th>
-                        <th className="pb-3 font-medium">Email</th>
-                        <th className="pb-3 font-medium">Role</th>
-                        <th className="pb-3 font-medium">Organization</th>
-                        <th className="pb-3 font-medium">Status</th>
-                        <th className="pb-3 font-medium">Expires</th>
-                        <th className="pb-3 font-medium text-right">Actions</th>
+                        <th 
+                          onClick={() => {
+                            if (userSortField === 'email') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                            else { setUserSortField('email'); setUserSortOrder('asc'); }
+                          }}
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          title="Click to sort by Email"
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>Email</span>
+                            <span className="text-xs text-blue-600 font-bold">{userSortField === 'email' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          </div>
+                        </th>
+                        <th 
+                          onClick={() => {
+                            if (userSortField === 'role') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                            else { setUserSortField('role'); setUserSortOrder('asc'); }
+                          }}
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          title="Click to sort by Role Priority"
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>Role</span>
+                            <span className="text-xs text-blue-600 font-bold">{userSortField === 'role' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          </div>
+                        </th>
+                        <th 
+                          onClick={() => {
+                            if (userSortField === 'organization') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                            else { setUserSortField('organization'); setUserSortOrder('asc'); }
+                          }}
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          title="Click to sort by Organization Name"
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>Organization</span>
+                            <span className="text-xs text-blue-600 font-bold">{userSortField === 'organization' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          </div>
+                        </th>
+                        <th className="pb-3 font-semibold">Status</th>
+                        <th 
+                          onClick={() => {
+                            if (userSortField === 'expires') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                            else { setUserSortField('expires'); setUserSortOrder('asc'); }
+                          }}
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          title="Click to sort by Expiry Date"
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>Expires</span>
+                            <span className="text-xs text-blue-600 font-bold">{userSortField === 'expires' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          </div>
+                        </th>
+                        <th className="pb-3 font-semibold text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm">
@@ -1215,6 +1263,29 @@ export function SuperAdminDashboard() {
                           if (selectedOrgFilter === 'ALL') return true;
                           if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                           return p.organization_id === selectedOrgFilter;
+                        }).sort((a, b) => {
+                          let res = 0;
+                          if (userSortField === 'email') {
+                            res = (a.email || '').localeCompare(b.email || '');
+                          } else if (userSortField === 'role') {
+                            const rolePriority: Record<string, number> = { 'SUPER_ADMIN': 1, 'ORG_ADMIN': 2, 'ENGINEER': 3, 'USER': 4 };
+                            const pA = rolePriority[a.role || ''] || 5;
+                            const pB = rolePriority[b.role || ''] || 5;
+                            res = pA - pB;
+                          } else if (userSortField === 'organization') {
+                            const nameA = organizations.find(o => o.id === a.organization_id)?.name || a.company || 'Unassigned';
+                            const nameB = organizations.find(o => o.id === b.organization_id)?.name || b.company || 'Unassigned';
+                            res = nameA.localeCompare(nameB);
+                          } else if (userSortField === 'created_at') {
+                            const timeA = new Date((a as any).created_at || 0).getTime();
+                            const timeB = new Date((b as any).created_at || 0).getTime();
+                            res = timeA - timeB;
+                          } else if (userSortField === 'expires') {
+                            const expA = a.subscription_expires ? new Date(a.subscription_expires).getTime() : 9999999999999;
+                            const expB = b.subscription_expires ? new Date(b.subscription_expires).getTime() : 9999999999999;
+                            res = expA - expB;
+                          }
+                          return userSortOrder === 'asc' ? res : -res;
                         });
 
                         return visibleProfiles.map((p, idx) => (
