@@ -942,12 +942,12 @@ function BusbarVoltageDropPage() {
                         }
                       }
                     }}
-                    className="bg-transparent border border-border rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary min-w-[100px]"
+                    className="bg-surface-2 text-foreground border border-border rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary min-w-[100px]"
                   >
                     {allRatings.map(rt => (
-                      <option key={rt.rating} value={rt.rating}>{rt.rating}</option>
+                      <option key={rt.rating} value={rt.rating} className="bg-popover text-popover-foreground">{rt.rating}</option>
                     ))}
-                    <option value="Custom">Custom</option>
+                    <option value="Custom" className="bg-popover text-popover-foreground">Custom</option>
                   </select>
                 </div>
                 

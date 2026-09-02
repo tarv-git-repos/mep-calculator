@@ -1230,11 +1230,14 @@ function BusbarCalculationPage() {
         }
       };
 
+      let lastSectionCardEndY = 50;
+
       if (flatCalculatedSections.length === 0) {
         const startY = addPdfHeader(doc, "Busbar Voltage Drop Calculation Report");
         doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
         doc.text("No busbar sections calculated.", 14, startY + 5);
+        lastSectionCardEndY = startY + 15;
       } else {
         flatCalculatedSections.forEach((section, sIndex) => {
           if (sIndex > 0) doc.addPage();
@@ -1246,17 +1249,23 @@ function BusbarCalculationPage() {
           const rawX = ALL_BUSBAR_DATA[section.ratingId]?.x || 0;
           const rVal = (unitSystem === "ip" ? (rawR * 0.3048) : rawR).toFixed(4);
           const xVal = (unitSystem === "ip" ? (rawX * 0.3048) : rawX).toFixed(4);
-          const rUnit = unitSystem === "ip" ? "mΩ/ft" : "mΩ/m";
+          const rUnit = unitSystem === "ip" ? "mOhm/ft" : "mOhm/m";
 
-          // Subheader Info Box
-          doc.setFontSize(9);
+          // Styled Subheader Info Box
+          const infoBoxStartY = headerStartY + 2;
+          doc.setFillColor(245, 247, 250);
+          doc.setDrawColor(200, 200, 200);
+          doc.roundedRect(14, infoBoxStartY, 269, 12, 1.5, 1.5, "FD");
+
+          doc.setFontSize(8.5);
           doc.setFont("helvetica", "bold");
           doc.setTextColor(0, 0, 0);
-          doc.text(`Panel: ${section.panelName} | Busbar Section: ${section.name}`, 14, headerStartY + 3);
-          
-          doc.setFontSize(8.5);
+          doc.text(`Panel: ${section.panelName}  |  Busbar Section: ${section.name}`, 18, infoBoxStartY + 4.5);
+
+          doc.setFontSize(8.0);
           doc.setFont("helvetica", "normal");
-          doc.text(`Selected / Suggested Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit}) | Voltage: ${section.volts}V | Power Factor: ${section.pf}`, 14, headerStartY + 8);
+          doc.setTextColor(60, 60, 60);
+          doc.text(`Selected Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit})  |  Voltage: ${section.volts}V  |  Power Factor: ${section.pf}`, 18, infoBoxStartY + 9);
 
           const tableData = (section.calcRows || []).map((r, idx) => [
             idx + 1,
@@ -1309,7 +1318,7 @@ function BusbarCalculationPage() {
             head: [["No.", "Description", lenHeader, "Load\n(kW)", "TCL\n(kW)", "MD\n(kW)", "Current\n(A)", "Vdrop\n(V)", "Vdrop\n%", "Cum.\n%"]],
             body: tableData,
             foot: footData,
-            startY: headerStartY + 12,
+            startY: infoBoxStartY + 15,
             theme: "grid",
             styles: {
               font: "helvetica",
@@ -1359,25 +1368,28 @@ function BusbarCalculationPage() {
             margin: { left: 14, right: 14 }
           });
 
-          const finalY = (doc as any).lastAutoTable?.finalY || (headerStartY + 35);
+          const tableFinalY = (doc as any).lastAutoTable?.finalY || (infoBoxStartY + 35);
+          const cardStartY = tableFinalY + 6;
           
           // Draw Summary & Recommendation Card (Spanning full 269mm width)
           doc.setFillColor(isExceeded ? 253 : 245, isExceeded ? 237 : 248, isExceeded ? 237 : 245);
           doc.setDrawColor(isExceeded ? 231 : 180, isExceeded ? 76 : 180, isExceeded ? 60 : 180);
-          doc.roundedRect(14, finalY + 5, 269, 14, 2, 2, "FD");
+          doc.roundedRect(14, cardStartY, 269, 14, 2, 2, "FD");
 
           doc.setFontSize(8.5);
           doc.setFont("helvetica", "bold");
           doc.setTextColor(isExceeded ? 192 : 39, isExceeded ? 57 : 174, isExceeded ? 43 : 96);
-          doc.text(`SELECTED / SUGGESTED BUSBAR: ${ratingLabel}`, 18, finalY + 10);
+          doc.text(`SELECTED / SUGGESTED BUSBAR: ${ratingLabel}`, 18, cardStartY + 5);
           
           doc.setFont("helvetica", "normal");
           doc.setTextColor(0, 0, 0);
-          doc.text(`Cumulative Voltage Drop: ${Number(totalCumVd).toFixed(3)}% | Status: ${isExceeded ? 'EXCEEDS 2.5% STANDARD LIMIT (Select larger busbar rating)' : 'WITHIN 2.5% STANDARD LIMIT (PASS)'}`, 18, finalY + 15);
+          doc.text(`Cumulative Voltage Drop: ${Number(totalCumVd).toFixed(3)}% | Status: ${isExceeded ? 'EXCEEDS 2.5% STANDARD LIMIT (Select larger busbar rating)' : 'WITHIN 2.5% STANDARD LIMIT (PASS)'}`, 18, cardStartY + 10);
+
+          lastSectionCardEndY = cardStartY + 14;
         });
       }
       
-      const sigFinalY = Math.max(((doc as any).lastAutoTable?.finalY || 50) + 24, 75);
+      const sigFinalY = Math.max(lastSectionCardEndY + 8, 75);
       
       // Add Signature Block matching Full Page Width (269mm)
       const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(project?.id || "default", "busbar-calculation", currentUserName);
@@ -1732,7 +1744,7 @@ function BusbarCalculationPage() {
                                   type="text" 
                                   value={section.name} 
                                   onChange={e => updateSection(panel.id, section.id, "name", e.target.value)}
-                                  className="h-7 px-2 border border-border rounded bg-background focus:bg-white outline-none font-medium w-24 text-sm"
+                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-24 text-sm"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
@@ -1741,7 +1753,7 @@ function BusbarCalculationPage() {
                                   type="number" 
                                   value={section.volts} 
                                   onChange={e => updateSection(panel.id, section.id, "volts", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="h-7 px-2 border border-border rounded bg-background focus:bg-white outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
@@ -1751,18 +1763,18 @@ function BusbarCalculationPage() {
                                   step="0.01" max="1"
                                   value={section.pf} 
                                   onChange={e => updateSection(panel.id, section.id, "pf", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="h-7 px-2 border border-border rounded bg-background focus:bg-white outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-muted-foreground">Rating:</span>
                                 <select
-                                    className="h-7 px-2 border border-border rounded bg-background focus:bg-white outline-none font-medium cursor-pointer text-sm"
+                                    className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium cursor-pointer text-sm"
                                     value={section.ratingId}
                                     onChange={(e) => updateSection(panel.id, section.id, "ratingId", e.target.value)}
                                 >
                                   {Object.entries(ALL_BUSBAR_DATA).map(([id, data]) => (
-                                    <option key={id} value={id}>{data.label}</option>
+                                    <option key={id} value={id} className="bg-popover text-popover-foreground">{data.label}</option>
                                   ))}
                                 </select>
                               </div>

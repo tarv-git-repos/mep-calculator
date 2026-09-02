@@ -2294,30 +2294,12 @@ function PreliminaryCoolingLoadPage() {
                         <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
                         <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export PDF</TBtn>
                         <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
-                        {rows.length > 0 && (
-                          <TBtn
-                            onClick={async () => {
-                              if (await confirm(`Are you sure you want to clear all ${rows.length} spaces? This will reset the preliminary cooling load schedule.`, {
-                                title: "Clear All Spaces",
-                                confirmText: "Clear All",
-                                hideCancel: false,
-                              })) {
-                                saveRows([]);
-                                setSelected(new Set());
-                              }
-                            }}
-                            className="text-destructive hover:bg-destructive/10"
-                            title="Clear all spaces"
-                          >
-                            <Trash2 className="size-3.5" /> Clear All
-                          </TBtn>
-                        )}
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
 
-                      {/* Bulk actions bar overlay */}
+                      {/* Bulk actions bar overlay matching Ventilation */}
                       {selected.size > 0 && (
-                        <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print">
+                        <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                           <span className="font-semibold">{selected.size} selected</span>
                           <span className="text-primary/30">·</span>
                           <BulkBtn icon={Edit3} onClick={() => {
@@ -2333,8 +2315,41 @@ function PreliminaryCoolingLoadPage() {
                             });
                             setBulkEditOpen(true);
                           }}>Bulk edit</BulkBtn>
+                          <BulkBtn icon={Copy} onClick={() => {
+                            const selectedIdsArray = Array.from(selected);
+                            const selectedSpaces = rows.filter(r => selectedIdsArray.includes(r.id));
+                            if (selectedSpaces.length < 2) {
+                              toast.error("Please select 2 or more spaces to merge.");
+                              return;
+                            }
+                            const first = selectedSpaces[0];
+                            const totalMergedArea = selectedSpaces.reduce((acc, s) => acc + (typeof s.area === "number" ? s.area : parseFloat(String(s.area)) || 0), 0);
+                            const mergedName = `${first.name} (Merged)`;
+                            const density = first.type ? (SPACE_DENSITIES[first.type] || first.density || 0) : 0;
+                            const watts = totalMergedArea * density;
+                            const kw = watts / 1000;
+                            const tr = kw / 3.517;
+
+                            const mergedSpace: PclRow = {
+                              id: `pcl-${Date.now()}`,
+                              name: mergedName,
+                              floor: first.floor,
+                              area: totalMergedArea,
+                              type: first.type,
+                              density,
+                              dissipation: watts,
+                              kw: Number(kw.toFixed(2)),
+                              tr: Number(tr.toFixed(2)),
+                              flagged: false,
+                            };
+
+                            const remaining = rows.filter(r => !selectedIdsArray.includes(r.id));
+                            saveRows([...remaining, mergedSpace]);
+                            setSelected(new Set([mergedSpace.id]));
+                            toast.success(`Merged ${selectedSpaces.length} spaces into "${mergedName}"`);
+                          }}>Merge spaces</BulkBtn>
                           <BulkBtn icon={Trash2} onClick={handleDeleteSelected}>Delete</BulkBtn>
-                          <button onClick={() => setSelected(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded">
+                          <button onClick={() => setSelected(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer">
                             <X className="size-3" /> Clear
                           </button>
                         </div>
@@ -3267,9 +3282,9 @@ function BulkBtn({ icon: Icon, onClick, children, disabled }: BulkBtnProps) {
     <button
       disabled={disabled}
       onClick={onClick}
-      className="flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-800 rounded-lg text-[11px] font-bold text-slate-800 dark:text-slate-200 select-none shadow-xs transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+      className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors text-[#06456F] hover:bg-primary/10 dark:text-[#0A7BC7] dark:hover:bg-primary/20 border border-transparent hover:border-primary/20 active:bg-primary/20 dark:active:bg-primary/30 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
     >
-      <Icon className="size-3.5" />
+      <Icon className="size-3 shrink-0" />
       {children}
     </button>
   );
