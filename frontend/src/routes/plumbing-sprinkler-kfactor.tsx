@@ -301,7 +301,7 @@ function SprinklerKFactorPage() {
   }, [project?.id]);
 
   // Tabs
-  const [tab, setTab] = useState<"solver" | "schedule" | "report">("solver");
+  const [tab, setTab] = useState<"schedule" | "solver" | "report">("schedule");
   const [intelOpen, setIntelOpen] = useState(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
 
@@ -1294,6 +1294,20 @@ function SprinklerKFactorPage() {
 
         return (
           <div className="flex items-center gap-1.5 w-full">
+            {Array.isArray(row.comments) && row.comments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(row);
+                }}
+                title={`${row.comments.length} comment(s)/task(s) assigned to "${row.label}"`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-100" />
+                <span className="text-[10px] font-bold">{row.comments.length}</span>
+              </button>
+            )}
             <InlineInput
               value={row.label}
               onCommit={(val) => updateRow(row.id, "label", val)}
@@ -1668,16 +1682,6 @@ function SprinklerKFactorPage() {
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 <button
-                  onClick={() => setTab("solver")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "solver"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Quick Solver
-                </button>
-                <button
                   onClick={() => setTab("schedule")}
                   className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
                     tab === "schedule"
@@ -1686,6 +1690,16 @@ function SprinklerKFactorPage() {
                   }`}
                 >
                   Sprinkler Schedule
+                </button>
+                <button
+                  onClick={() => setTab("solver")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "solver"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Quick Solver
                 </button>
                 <button
                   onClick={() => setTab("report")}
@@ -1887,70 +1901,8 @@ function SprinklerKFactorPage() {
                   )}
                 </div>
 
-                {/* SVG Chart Panel */}
+                {/* Specifications Sidebar */}
                 <div className="w-[380px] shrink-0 p-6 bg-surface-2/45 flex flex-col gap-4 border-l border-border h-full overflow-y-auto">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Performance Curve</span>
-                  <div className="border border-border rounded-3xl bg-background p-5 shadow-sm flex flex-col gap-3 transition-all hover:border-primary/30">
-                    <p className="text-[13.5px] font-bold text-foreground leading-snug">Flow vs Pressure Curve (K={solverK})</p>
-                    <div className="w-full relative select-none mt-2">
-                      <svg viewBox={`0 0 ${chartSvg.W} ${chartSvg.H}`} className="w-full h-auto block font-sans">
-                        {/* Title & axes labels */}
-                        <text x={chartSvg.PL + chartSvg.CW / 2} y="15" textAnchor="middle" fontSize="9.5" fontWeight="700" fill="var(--muted)">Q = K × √P</text>
-                        <text x={chartSvg.PL + chartSvg.CW / 2} y={chartSvg.H - 5} textAnchor="middle" fontSize="9" fill="var(--muted)">{`Pressure P (${unitSystem === "si" ? "bar" : "psi"})`}</text>
-                        <text transform="rotate(-90)" x={-(chartSvg.PT + chartSvg.CH / 2)} y="13" textAnchor="middle" fontSize="9" fill="var(--muted)">{`Flow Q (${unitSystem === "si" ? "L/min" : "GPM"})`}</text>
-
-                        {/* X Grid ticks */}
-                        {(unitSystem === "si" ? [0, 1.5, 3.0, 4.5, 6.0, 7.0] : [0, 25, 50, 75, 100]).map(val => {
-                          const x = chartSvg.sx(val);
-                          return (
-                            <g key={val}>
-                              <line x1={x} y1={chartSvg.PT + chartSvg.CH} x2={x} y2={chartSvg.PT + chartSvg.CH + 4} stroke="var(--border)" strokeWidth="1" />
-                              <text x={x} y={chartSvg.PT + chartSvg.CH + 14} textAnchor="middle" fontSize="8.5" fill="var(--muted)" fontFamily="var(--mono)">{val}</text>
-                            </g>
-                          );
-                        })}
-
-                        {/* Y Grid ticks */}
-                        {[0, 0.25, 0.5, 0.75, 1.0].map(ratio => {
-                          const val = ratio * chartSvg.yMax;
-                          const y = chartSvg.sy(val);
-                          return (
-                            <g key={ratio}>
-                              <line x1={chartSvg.PL} y1={y} x2={chartSvg.W - chartSvg.PR} y2={y} stroke="var(--border)" strokeWidth="0.5" strokeDasharray="3,3" />
-                              <text x={chartSvg.PL - 5} y={y + 3} textAnchor="end" fontSize="8.5" fill="var(--muted)" fontFamily="var(--mono)">{val.toFixed(0)}</text>
-                            </g>
-                          );
-                        })}
-
-                        {/* X & Y Axis bars */}
-                        <line x1={chartSvg.PL} y1={chartSvg.PT} x2={chartSvg.PL} y2={chartSvg.PT + chartSvg.CH} stroke="var(--border-strong)" strokeWidth="1" />
-                        <line x1={chartSvg.PL} y1={chartSvg.PT + chartSvg.CH} x2={chartSvg.W - chartSvg.PR} y2={chartSvg.PT + chartSvg.CH} stroke="var(--border-strong)" strokeWidth="1" />
-
-                        {/* Curve shading */}
-                        <path d={chartSvg.fillD} fill="var(--red)" opacity="0.06" />
-
-                        {/* Line Curve */}
-                        <path d={chartSvg.pathD} fill="none" stroke="var(--red)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-
-                        {/* Operating point indicator */}
-                        <line x1={chartSvg.markX} y1={chartSvg.markY} x2={chartSvg.markX} y2={chartSvg.PT + chartSvg.CH} stroke="var(--red)" strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
-                        <line x1={chartSvg.PL} y1={chartSvg.markY} x2={chartSvg.markX} y2={chartSvg.markY} stroke="var(--red)" strokeWidth="1" strokeDasharray="3,3" opacity="0.6" />
-                        <circle cx={chartSvg.markX} cy={chartSvg.markY} r="5" fill="var(--red)" stroke="var(--card)" strokeWidth="1.5" />
-                        <text
-                          x={chartSvg.markX > chartSvg.W * 0.7 ? chartSvg.markX - 8 : chartSvg.markX + 8}
-                          y={chartSvg.markY - 6}
-                          textAnchor={chartSvg.markX > chartSvg.W * 0.7 ? "end" : "start"}
-                          fontSize="9.5"
-                          fill="var(--red)"
-                          fontWeight="700"
-                          fontFamily="var(--mono)"
-                        >
-                          {chartSvg.markQ.toFixed(1)} {unitSystem === "si" ? "L/m" : "GPM"}
-                        </text>
-                      </svg>
-                    </div>
-                  </div>
-
                   {/* Dynamic Orifice & Thread Spec Card */}
                   <div className="border border-border rounded-3xl bg-background p-5 shadow-sm flex flex-col gap-4 transition-all hover:border-primary/30">
                     <p className="text-[13.5px] font-bold text-foreground leading-snug">Orifice & Thread Spec</p>
@@ -2231,27 +2183,10 @@ function SprinklerKFactorPage() {
                     </select>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={exportExcel}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
-                    >
-                      <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
-                    </button>
-
-                    <button
-                      onClick={exportPdf}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
-                    >
-                      <FileText className="size-3.5 text-destructive" /> Export PDF
-                    </button>
-
-                    <button
-                      onClick={handleImportClick}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
-                    >
-                      <Upload className="size-3.5 text-muted-foreground" /> Import Excel
-                    </button>
+                  <div className="ml-auto flex items-center gap-1">
+                    <TBtn onClick={handleImportClick}><Upload className="size-3.5" /> Import</TBtn>
+                    <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export PDF</TBtn>
+                    <TBtn primary onClick={addSprinkler}><Plus className="size-3.5" /> Add Sprinkler</TBtn>
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -2259,10 +2194,6 @@ function SprinklerKFactorPage() {
                       style={{ display: "none" }}
                       accept=".xlsx,.xls,.csv"
                     />
-
-                    <TBtn primary onClick={addSprinkler} className="h-8 px-3.5 text-[12.5px] rounded-xl">
-                      <Plus className="size-4" /> Add Sprinkler
-                    </TBtn>
                   </div>
 
                   {/* Bulk actions bar overlay matching Ventilation and Preliminary */}
@@ -2341,25 +2272,10 @@ function SprinklerKFactorPage() {
                     <h3 className="text-[16px] font-bold text-foreground">Sizing Report Summary</h3>
                     <p className="text-[12.5px] text-muted-foreground mt-0.5">Review system compliance and download reports.</p>
                   </div>
-                  <div className="flex items-center gap-2 no-print print:hidden">
-                    <button
-                      onClick={exportPdf}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer shadow-xs"
-                    >
-                      <FileText className="size-3.5 text-destructive" /> Export PDF
-                    </button>
-                    <button
-                      onClick={exportExcel}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer shadow-xs"
-                    >
-                      <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
-                    </button>
-                    <button
-                      onClick={() => window.print()}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer shadow-xs"
-                    >
-                      <Printer className="size-3.5 text-muted-foreground" /> Print Report
-                    </button>
+                  <div className="flex items-center gap-1 no-print print:hidden">
+                    <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export PDF</TBtn>
+                    <TBtn onClick={exportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
+                    <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print Report</TBtn>
                   </div>
                 </div>
 
@@ -2845,6 +2761,7 @@ function SprinklerKFactorPage() {
           targetId={commentTargetItem.id}
           targetName={commentTargetItem.name}
           targetType={commentTargetItem.type}
+          existingComments={rows.find(r => r.id === commentTargetItem.id)?.comments || []}
           onSave={async (comment) => {
             try {
               const currentUserName = userData?.name || profile?.name || "Design Engineer";

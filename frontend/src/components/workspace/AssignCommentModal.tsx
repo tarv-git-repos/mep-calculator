@@ -13,6 +13,7 @@ interface AssignCommentModalProps {
   targetName: string;
   targetType: 'space' | 'zone' | 'equipment';
   onSave: (comment: TaskComment) => void;
+  existingComments?: TaskComment[];
 }
 
 export function AssignCommentModal({
@@ -21,7 +22,8 @@ export function AssignCommentModal({
   targetId,
   targetName,
   targetType,
-  onSave
+  onSave,
+  existingComments = []
 }: AssignCommentModalProps) {
   const { userData, profile } = useAuth();
   const { project, isReadOnly } = useWorkspace();
@@ -185,15 +187,17 @@ export function AssignCommentModal({
     }
   };
 
-  const toggleUser = (userId: string) => {
+  const toggleUser = (uId: any) => {
+    const strId = String(uId);
     setSelectedUsers(prev => 
-      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+      prev.includes(strId) ? prev.filter(id => id !== strId) : [...prev, strId]
     );
   };
 
-  const toggleTeam = (teamId: string) => {
+  const toggleTeam = (teamId: any) => {
+    const strId = String(teamId);
     setSelectedTeams(prev => 
-      prev.includes(teamId) ? prev.filter(id => id !== teamId) : [...prev, teamId]
+      prev.includes(strId) ? prev.filter(id => id !== strId) : [...prev, strId]
     );
   };
 
@@ -225,6 +229,34 @@ export function AssignCommentModal({
         {/* Body */}
         <div className="p-5 overflow-y-auto flex-1 custom-scrollbar space-y-5">
           
+          {/* Existing Comments History */}
+          {Array.isArray(existingComments) && existingComments.length > 0 && (
+            <div>
+              <label className="block text-[11.5px] font-bold text-muted-foreground uppercase tracking-wide mb-2">
+                Existing Comments & History ({existingComments.length})
+              </label>
+              <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                {existingComments.map((c, idx) => (
+                  <div key={c.id || idx} className="p-2.5 bg-surface-2 border border-border/60 rounded-lg text-xs">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="font-bold text-foreground">{c.authorName || 'Engineer'}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {c.timestamp ? new Date(c.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                      </span>
+                    </div>
+                    <p className="text-foreground/90 whitespace-pre-wrap">{c.text}</p>
+                    {Array.isArray(c.assignedUsers) && c.assignedUsers.length > 0 && (
+                      <div className="mt-1.5 pt-1 border-t border-border/40 text-[10.5px] text-primary font-medium flex items-center gap-1">
+                        <Users className="size-3" />
+                        <span>Assigned to: {c.assignedUsers.join(', ')}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-[12.5px] font-bold text-foreground mb-1.5 uppercase tracking-wide">
               Assign To (Project Members)
@@ -238,20 +270,24 @@ export function AssignCommentModal({
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {availableUsers.map(u => (
-                  <button
-                    key={u.id}
-                    onClick={() => toggleUser(u.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[12px] font-semibold transition-all ${
-                      selectedUsers.includes(u.id) 
-                        ? 'bg-primary/10 border-primary text-primary'
-                        : 'bg-surface-2 border-border/50 text-foreground/80 hover:border-border'
-                    }`}
-                  >
-                    <UserIcon className="size-3.5" />
-                    {u.name}
-                  </button>
-                ))}
+                {availableUsers.map(u => {
+                  const strId = String(u.id || u.email || u.name);
+                  const isSelected = selectedUsers.includes(strId) || selectedUsers.includes(String(u.id));
+                  return (
+                    <button
+                      key={strId}
+                      onClick={() => toggleUser(strId)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[12px] font-semibold transition-all ${
+                        isSelected 
+                          ? 'bg-primary/10 border-primary text-primary'
+                          : 'bg-surface-2 border-border/50 text-foreground/80 hover:border-border'
+                      }`}
+                    >
+                      <UserIcon className="size-3.5" />
+                      {u.name}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

@@ -801,6 +801,47 @@ function LoadingUnitPage() {
     }
   }, [project?.id, loadedProjectId, unitSystem, standardPreset, selectedCategory, weightOverrides, calcMeta, iopSpaces, floorSections]);
 
+  // Version History Restore Listener
+  useEffect(() => {
+    const handleVersionRestored = (e: any) => {
+      const pKey = `mep_loading_unit_calc_${project?.id || "default"}`;
+      const lsCache = e?.detail?.localStorageCache;
+      let restoredData: any = null;
+      if (lsCache && lsCache[pKey]) {
+        try {
+          restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
+        } catch (err) {}
+      }
+      if (!restoredData) {
+        const stored = localStorage.getItem(pKey);
+        if (stored) {
+          try {
+            restoredData = JSON.parse(stored);
+          } catch (err) {}
+        }
+      }
+      if (restoredData) {
+        if (restoredData.unitSystem) setUnitSystem(restoredData.unitSystem);
+        if (restoredData.standardPreset) setStandardPreset(restoredData.standardPreset);
+        if (restoredData.selectedCategory) {
+          setSelectedCategory(restoredData.selectedCategory);
+        } else if (restoredData.standardPreset) {
+          setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[restoredData.standardPreset as StandardPreset] || "med");
+        }
+        if (restoredData.weightOverrides) setWeightOverrides(restoredData.weightOverrides);
+        if (restoredData.calcMeta) setCalcMeta(restoredData.calcMeta);
+        if (Array.isArray(restoredData.floorSections)) setFloorSections(restoredData.floorSections);
+        if (Array.isArray(restoredData.iopSpaces)) {
+          setIopSpaces(restoredData.iopSpaces);
+          if (restoredData.iopSpaces[0]?.floor) setActiveFloor(restoredData.iopSpaces[0].floor);
+        }
+        toast.success("Loading Unit calculation restored to selected version!");
+      }
+    };
+    window.addEventListener("mep_version_restored", handleVersionRestored as any);
+    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
+  }, [project?.id]);
+
   // Keyboard Shortcuts (Ctrl+A, Esc, Ctrl+D, Ctrl+S, Delete)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

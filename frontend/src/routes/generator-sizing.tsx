@@ -278,6 +278,51 @@ function GeneratorSizingPage() {
     }
   }, [project?.id, loadedProjectId, projects, currentProject, pf, lf, userSelectedSize, unitSystem, manualOverrides]);
 
+  // Version History Restore Listener
+  useEffect(() => {
+    const handleVersionRestored = (e: any) => {
+      const pKey = `mep_gen_projects_${project?.id || "default"}`;
+      const lsCache = e?.detail?.localStorageCache;
+      let restoredData: any = null;
+      if (lsCache && lsCache[pKey]) {
+        try {
+          restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
+        } catch (err) {}
+      }
+      if (!restoredData) {
+        const stored = localStorage.getItem(pKey);
+        if (stored) {
+          try {
+            restoredData = JSON.parse(stored);
+          } catch (err) {}
+        }
+      }
+      if (restoredData) {
+        if (restoredData.projects) {
+          setProjects(restoredData.projects);
+          const curProj = restoredData.currentProject || "Default Project";
+          setCurrentProject(curProj);
+          if (restoredData.pf !== undefined) setPf(restoredData.pf);
+          if (restoredData.lf !== undefined) setLf(restoredData.lf);
+          if (restoredData.userSelectedSize !== undefined) setUserSelectedSize(restoredData.userSelectedSize);
+          if (restoredData.unitSystem) setUnitSystem(restoredData.unitSystem);
+          if (restoredData.manualOverrides) setManualOverrides(restoredData.manualOverrides);
+          if (restoredData.projects[curProj]) {
+            pushState(restoredData.projects[curProj]);
+          }
+        } else {
+          setProjects(restoredData);
+          if (restoredData["Default Project"]) {
+            pushState(restoredData["Default Project"]);
+          }
+        }
+        toast.success("Generator sizing restored to selected version!");
+      }
+    };
+    window.addEventListener("mep_version_restored", handleVersionRestored as any);
+    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
+  }, [project?.id]);
+
   const setOverride = (key: string, val: string) => {
     setManualOverrides((prev) => ({ ...prev, [key]: val }));
   };

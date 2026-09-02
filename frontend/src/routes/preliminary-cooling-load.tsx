@@ -3400,6 +3400,7 @@ function PreliminaryCoolingLoadPage() {
           targetId={commentTargetItem.id}
           targetName={commentTargetItem.name}
           targetType={commentTargetItem.type}
+          existingComments={rows.find(r => r.id === commentTargetItem.id)?.comments || []}
           onSave={async (comment) => {
             try {
               const currentUserName = userData?.name || profile?.name || "Design Engineer";

@@ -354,6 +354,34 @@ function CableTraySizingPage() {
     }
   }, [project?.id, loadedProjectId, trays]);
 
+  // Version History Restore Listener
+  React.useEffect(() => {
+    const handleVersionRestored = (e: any) => {
+      const pKey = `mep_cable_tray_${project?.id || "default"}`;
+      const lsCache = e?.detail?.localStorageCache;
+      let restoredData: any = null;
+      if (lsCache && lsCache[pKey]) {
+        try {
+          restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
+        } catch (err) {}
+      }
+      if (!restoredData) {
+        const stored = localStorage.getItem(pKey);
+        if (stored) {
+          try {
+            restoredData = JSON.parse(stored);
+          } catch (err) {}
+        }
+      }
+      if (restoredData && Array.isArray(restoredData)) {
+        setTrays(restoredData);
+        toast.success("Cable tray sizing restored to selected version!");
+      }
+    };
+    window.addEventListener("mep_version_restored", handleVersionRestored as any);
+    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
+  }, [project?.id]);
+
   React.useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') return;

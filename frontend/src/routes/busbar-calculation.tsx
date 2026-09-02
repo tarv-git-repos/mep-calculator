@@ -148,17 +148,78 @@ function BusbarCalculationPage() {
     }];
   });
 
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  // Load state from localStorage on project change
+  useEffect(() => {
+    if (!project?.id) return;
+    try {
+      const pKey = `mep_busbar_calc_${project.id}`;
+      const stored = localStorage.getItem(pKey) || localStorage.getItem("mep-busbar-calculation-v1");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const restoredPanels = Array.isArray(parsed) ? parsed : (parsed?.panels || null);
+        if (restoredPanels && Array.isArray(restoredPanels)) {
+          setPanels(restoredPanels);
+        }
+      }
+      setTimeout(() => dirtyStore.set(false), 50);
+    } catch (e) {
+      console.error("Failed to load busbar calculation", e);
+    }
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
+
   useEffect(() => {
     localStorage.setItem("mep-busbar-calculation-v1", JSON.stringify(panels));
-    if (project?.id) {
+    if (project?.id && loadedProjectId === project.id) {
       try {
         localStorage.setItem(`mep_busbar_calc_${project.id}`, JSON.stringify({
           panels,
           updatedAt: new Date().toISOString()
         }));
+        dirtyStore.set(true);
       } catch (e) {}
     }
-  }, [panels, project?.id]);
+  }, [panels, project?.id, loadedProjectId]);
+
+  // Version History Restore Listener
+  useEffect(() => {
+    const handleVersionRestored = (e: any) => {
+      const pKey = `mep_busbar_calc_${project?.id || "default"}`;
+      const lsCache = e?.detail?.localStorageCache;
+      let restoredData: any = null;
+      if (lsCache) {
+        if (lsCache[pKey]) {
+          try {
+            restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
+          } catch (err) {}
+        }
+        if (!restoredData && lsCache["mep-busbar-calculation-v1"]) {
+          try {
+            restoredData = typeof lsCache["mep-busbar-calculation-v1"] === "string" ? JSON.parse(lsCache["mep-busbar-calculation-v1"]) : lsCache["mep-busbar-calculation-v1"];
+          } catch (err) {}
+        }
+      }
+      if (!restoredData) {
+        const stored = localStorage.getItem(pKey) || localStorage.getItem("mep-busbar-calculation-v1");
+        if (stored) {
+          try {
+            restoredData = JSON.parse(stored);
+          } catch (err) {}
+        }
+      }
+      if (restoredData) {
+        const restoredPanels = Array.isArray(restoredData) ? restoredData : (restoredData?.panels || null);
+        if (restoredPanels && Array.isArray(restoredPanels)) {
+          setPanels(restoredPanels);
+          toast.success("Busbar calculation restored to selected version!");
+        }
+      }
+    };
+    window.addEventListener("mep_version_restored", handleVersionRestored as any);
+    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
+  }, [project?.id]);
 
   const [editingRow, setEditingRow] = useState<{ row: BusbarRow; panelId: string; sectionId: string } | null>(null);
 
