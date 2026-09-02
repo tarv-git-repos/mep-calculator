@@ -330,6 +330,13 @@ function SprinklerKFactorPage() {
     setRedoStack([]);
   };
 
+  const saveRows = (newRows: SprinklerRow[]) => {
+    setRows(newRows);
+    const key = `mep_sprinklers_${project?.id || "default"}`;
+    localStorage.setItem(key, JSON.stringify(newRows));
+    dirtyStore.set(true);
+  };
+
   const handleUndo = () => {
     if (undoStack.length === 0) return;
     const previous = undoStack[undoStack.length - 1];
