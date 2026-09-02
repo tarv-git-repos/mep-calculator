@@ -4,12 +4,11 @@ import {
   Network, Users, Plus, Shield, ShieldAlert, Mail, Trash2, Edit3, 
   ChevronDown, ChevronRight, Search, Sparkles, Save, RefreshCw, 
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
-  User, Check, ArrowRight, Wand2, CheckCircle2, AlertCircle, Loader2
+  User, Check, ArrowRight
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { api } from "@/services/api";
 
 export const Route = createFileRoute("/company-hierarchy")({
   head: () => ({
@@ -32,23 +31,6 @@ export interface HierarchyUser {
   avatarColor?: string;
   status: "active" | "away" | "offline";
 }
-
-interface BuilderRow {
-  userId: string;
-  name: string;
-  email: string;
-  designation: string;
-  department: HierarchyUser["department"];
-  role: HierarchyUser["role"];
-  parentId: string | null;
-  selected: boolean;
-}
-
-const COLOR_PALETTE = [
-  "bg-indigo-600", "bg-blue-600", "bg-purple-600", 
-  "bg-emerald-600", "bg-amber-600", "bg-teal-600", 
-  "bg-rose-600", "bg-cyan-600", "bg-sky-600", "bg-violet-600"
-];
 
 const DEFAULT_HIERARCHY: HierarchyUser[] = [
   {
@@ -188,36 +170,28 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
 function CompanyHierarchyPage() {
   const { profile, userData } = useAuth();
   const currentRole = userData?.role || profile?.role || "SUPER_ADMIN";
-  const orgId = userData?.organization_id || profile?.organization_id || "";
-  const orgName = userData?.company || userData?.organization || profile?.company || profile?.organization || "Organization";
   
   // Access check: Visible only to SUPER_ADMIN and ORG_ADMIN
   const isAuthorized = ["SUPER_ADMIN", "ORG_ADMIN"].includes(currentRole);
 
-  const [members, setMembers] = useState<HierarchyUser[]>([]);
-  const [hasCustomHierarchy, setHasCustomHierarchy] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [members, setMembers] = useState<HierarchyUser[]>(() => {
+    try {
+      const saved = localStorage.getItem("mep_company_hierarchy");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return DEFAULT_HIERARCHY;
+  });
 
-  // Organization users list
-  const [orgUsers, setOrgUsers] = useState<any[]>([]);
-
-  // Filtering and view state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDept, setSelectedDept] = useState<string>("ALL");
   const [viewMode, setViewMode] = useState<"tree" | "table">("tree");
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
 
-  // Single Add / Edit Modal states
+  // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<HierarchyUser | null>(null);
-  const [selectedExistingUser, setSelectedExistingUser] = useState<string>("");
 
-  // Hierarchy Builder Modal (Create Hierarchy)
-  const [isBuilderOpen, setIsBuilderOpen] = useState(false);
-  const [builderRows, setBuilderRows] = useState<BuilderRow[]>([]);
-  const [builderSearch, setBuilderSearch] = useState("");
-
-  // Form State for Add / Edit Single
+  // Form State
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formDesignation, setFormDesignation] = useState("");
@@ -225,68 +199,17 @@ function CompanyHierarchyPage() {
   const [formRole, setFormRole] = useState<HierarchyUser["role"]>("ENGINEER");
   const [formParentId, setFormParentId] = useState<string | null>(null);
 
-  // Load Organization Users and Hierarchy on mount
-  useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      try {
-        // 1. Fetch organization users
-        let fetchedUsers = await api.getOrgUsers();
-        if (!fetchedUsers || fetchedUsers.length === 0) {
-          const allUsers = await api.getUsers();
-          fetchedUsers = allUsers.filter((u: any) => u.role !== 'SUPER_ADMIN' && u.email !== 'admin@tarv.ai');
-        }
-        setOrgUsers(fetchedUsers || []);
-
-        // 2. Fetch saved hierarchy
-        const saved = await api.getCompanyHierarchy(orgId);
-        if (saved && Array.isArray(saved) && saved.length > 0) {
-          setMembers(saved);
-          setHasCustomHierarchy(true);
-        } else {
-          // Check local storage
-          const localStr = localStorage.getItem(`mep_company_hierarchy_${orgId}`) || localStorage.getItem("mep_company_hierarchy");
-          if (localStr) {
-            try {
-              const parsed = JSON.parse(localStr);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setMembers(parsed);
-                setHasCustomHierarchy(true);
-              } else {
-                setMembers(DEFAULT_HIERARCHY);
-                setHasCustomHierarchy(false);
-              }
-            } catch {
-              setMembers(DEFAULT_HIERARCHY);
-              setHasCustomHierarchy(false);
-            }
-          } else {
-            setMembers(DEFAULT_HIERARCHY);
-            setHasCustomHierarchy(false);
-          }
-        }
-      } catch (err) {
-        console.error("Error loading hierarchy data:", err);
-        setMembers(DEFAULT_HIERARCHY);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadData();
-  }, [orgId]);
-
-  // Save Hierarchy
-  const saveHierarchy = async (newMembers: HierarchyUser[]) => {
+  // Save to LocalStorage whenever members change
+  const saveHierarchy = (newMembers: HierarchyUser[]) => {
     setMembers(newMembers);
-    setHasCustomHierarchy(true);
-    await api.saveCompanyHierarchy(newMembers, orgId);
+    try {
+      localStorage.setItem("mep_company_hierarchy", JSON.stringify(newMembers));
+    } catch (e) {}
   };
 
   const handleResetDefault = () => {
     saveHierarchy(DEFAULT_HIERARCHY);
-    setHasCustomHierarchy(false);
-    toast.success("Hierarchy reset to default template structure!");
+    toast.success("Hierarchy reset to default organization structure!");
   };
 
   // Toggle Collapse
@@ -299,182 +222,6 @@ function CompanyHierarchyPage() {
     });
   };
 
-  // -------------------------------------------------------------
-  // HIERARCHY BUILDER MODAL LOGIC (Create Hierarchy for Org Admin)
-  // -------------------------------------------------------------
-  const handleOpenBuilder = () => {
-    let sourceUsers = orgUsers;
-    if (!sourceUsers || sourceUsers.length === 0) {
-      sourceUsers = members.map(m => ({ id: m.id, name: m.name, email: m.email, role: m.role }));
-    }
-
-    const existingMap = new Map<string, HierarchyUser>();
-    members.forEach(m => {
-      existingMap.set(m.email.toLowerCase(), m);
-      existingMap.set(m.id, m);
-    });
-
-    const mapRoleTier = (r: string): HierarchyUser["role"] => {
-      const u = String(r || '').toUpperCase();
-      if (u.includes('SUPER_ADMIN')) return 'SUPER_ADMIN';
-      if (u.includes('ORG_ADMIN') || u.includes('DIRECTOR') || u.includes('ADMIN')) return 'ORG_ADMIN';
-      if (u.includes('LEADER') || u.includes('MANAGER') || u.includes('COORDINATOR') || u.includes('PM')) return 'PROJECT_MANAGER';
-      if (u.includes('SR.') || u.includes('SENIOR')) return 'ENGINEER';
-      if (u.includes('VIEWER') || u.includes('CLIENT')) return 'VIEWER';
-      return 'USER';
-    };
-
-    const mapDept = (r: string, des: string): HierarchyUser["department"] => {
-      const combined = `${r} ${des}`.toLowerCase();
-      if (combined.includes('admin') || combined.includes('director') || combined.includes('management') || combined.includes('ceo')) return 'Management';
-      if (combined.includes('elec') || combined.includes('power') || combined.includes('lighting')) return 'Electrical';
-      if (combined.includes('plumb') || combined.includes('drain') || combined.includes('water')) return 'Plumbing';
-      if (combined.includes('fire') || combined.includes('sprinkler') || combined.includes('suppression')) return 'Fire Fighting';
-      if (combined.includes('bim') || combined.includes('model') || combined.includes('draft') || combined.includes('it')) return 'BIM & IT';
-      return 'HVAC';
-    };
-
-    const rows: BuilderRow[] = sourceUsers.map((u, idx) => {
-      const emailLower = (u.email || '').toLowerCase();
-      const existing = existingMap.get(emailLower) || existingMap.get(u.id);
-
-      const mappedRole = existing?.role || mapRoleTier(u.role);
-      const mappedDept = existing?.department || mapDept(u.role, u.designation || '');
-      const mappedDesignation = existing?.designation || u.designation || (
-        mappedRole === 'ORG_ADMIN' ? 'Director of MEP Engineering' :
-        mappedRole === 'PROJECT_MANAGER' ? `Lead ${mappedDept} Project Manager` :
-        mappedRole === 'ENGINEER' ? `Senior ${mappedDept} Engineer` :
-        mappedRole === 'VIEWER' ? 'Project Viewer' :
-        `${mappedDept} Design Engineer`
-      );
-
-      return {
-        userId: u.id || `usr-${idx}-${Date.now()}`,
-        name: u.name || u.email?.split('@')[0] || `User ${idx + 1}`,
-        email: u.email || `user${idx + 1}@company.com`,
-        designation: mappedDesignation,
-        department: mappedDept,
-        role: mappedRole,
-        parentId: existing?.parentId || null,
-        selected: true
-      };
-    });
-
-    const hasAnyParent = rows.some(r => r.parentId !== null);
-    if (!hasAnyParent && rows.length > 1) {
-      const adminRow = rows.find(r => r.role === 'ORG_ADMIN' || r.role === 'SUPER_ADMIN') || rows[0];
-      const adminId = adminRow.userId;
-
-      rows.forEach(r => {
-        if (r.userId !== adminId) {
-          if (r.role === 'PROJECT_MANAGER') {
-            r.parentId = adminId;
-          } else {
-            const pmInDept = rows.find(p => p.role === 'PROJECT_MANAGER' && p.department === r.department && p.userId !== r.userId);
-            r.parentId = pmInDept ? pmInDept.userId : adminId;
-          }
-        }
-      });
-    }
-
-    setBuilderRows(rows);
-    setBuilderSearch("");
-    setIsBuilderOpen(true);
-  };
-
-  const handleAutoArrange = () => {
-    if (builderRows.length === 0) return;
-
-    const updated = [...builderRows];
-    let rootAdmin = updated.find(r => r.selected && (r.role === 'ORG_ADMIN' || r.role === 'SUPER_ADMIN'));
-    if (!rootAdmin) {
-      rootAdmin = updated.find(r => r.selected);
-      if (rootAdmin) rootAdmin.role = 'ORG_ADMIN';
-    }
-
-    if (!rootAdmin) return;
-
-    const rootId = rootAdmin.userId;
-    rootAdmin.parentId = null;
-    rootAdmin.department = "Management";
-
-    const pms = updated.filter(r => r.selected && r.userId !== rootId && r.role === 'PROJECT_MANAGER');
-    
-    if (pms.length === 0 && updated.filter(r => r.selected).length > 2) {
-      const candidates = updated.filter(r => r.selected && r.userId !== rootId);
-      if (candidates[0]) {
-        candidates[0].role = 'PROJECT_MANAGER';
-        candidates[0].parentId = rootId;
-        pms.push(candidates[0]);
-      }
-      if (candidates[1]) {
-        candidates[1].role = 'PROJECT_MANAGER';
-        candidates[1].parentId = rootId;
-        pms.push(candidates[1]);
-      }
-    }
-
-    pms.forEach(pm => {
-      pm.parentId = rootId;
-    });
-
-    updated.forEach(r => {
-      if (!r.selected || r.userId === rootId) return;
-      if (r.role === 'PROJECT_MANAGER') {
-        r.parentId = rootId;
-        return;
-      }
-
-      const matchingPm = pms.find(pm => pm.department === r.department);
-      if (matchingPm) {
-        r.parentId = matchingPm.userId;
-      } else if (pms.length > 0) {
-        r.parentId = pms[0].userId;
-      } else {
-        r.parentId = rootId;
-      }
-    });
-
-    setBuilderRows(updated);
-    toast.success("Auto-arranged hierarchy: Org Admin at top, Lead PMs in middle, Engineers & Staff reporting to PMs!");
-  };
-
-  const handleSaveBuilderHierarchy = async () => {
-    const selectedRows = builderRows.filter(r => r.selected);
-    if (selectedRows.length === 0) {
-      toast.error("Please select at least 1 user to create the hierarchy.");
-      return;
-    }
-
-    const hasTopLeader = selectedRows.some(r => r.parentId === null);
-    if (!hasTopLeader) {
-      const topRow = selectedRows.find(r => r.role === 'ORG_ADMIN' || r.role === 'SUPER_ADMIN') || selectedRows[0];
-      topRow.parentId = null;
-    }
-
-    const selectedIds = new Set(selectedRows.map(r => r.userId));
-    const rootUser = selectedRows.find(r => r.parentId === null) || selectedRows[0];
-
-    const finalMembers: HierarchyUser[] = selectedRows.map((r, idx) => {
-      const validParent = r.parentId && selectedIds.has(r.parentId) && r.parentId !== r.userId ? r.parentId : (r.userId === rootUser.userId ? null : rootUser.userId);
-      return {
-        id: r.userId,
-        name: r.name.trim(),
-        email: r.email.trim(),
-        designation: r.designation.trim() || "MEP Specialist",
-        department: r.department,
-        role: r.role,
-        parentId: validParent,
-        avatarColor: COLOR_PALETTE[idx % COLOR_PALETTE.length],
-        status: "active"
-      };
-    });
-
-    await saveHierarchy(finalMembers);
-    setIsBuilderOpen(false);
-    toast.success(`🎉 Company hierarchy created with ${finalMembers.length} organization members!`);
-  };
-
   // Open Add Modal
   const handleOpenAddModal = (presetParentId?: string | null) => {
     setFormName("");
@@ -483,7 +230,6 @@ function CompanyHierarchyPage() {
     setFormDepartment("HVAC");
     setFormRole("ENGINEER");
     setFormParentId(presetParentId !== undefined ? presetParentId : (members[0]?.id || null));
-    setSelectedExistingUser("");
     setEditingMember(null);
     setIsAddModalOpen(true);
   };
@@ -497,41 +243,25 @@ function CompanyHierarchyPage() {
     setFormDepartment(member.department);
     setFormRole(member.role);
     setFormParentId(member.parentId);
-    setSelectedExistingUser("");
     setIsAddModalOpen(true);
   };
 
-  const handleSelectExistingUser = (userId: string) => {
-    setSelectedExistingUser(userId);
-    const found = orgUsers.find(u => u.id === userId);
-    if (found) {
-      setFormName(found.name || found.email?.split('@')[0] || "");
-      setFormEmail(found.email || "");
-      if (found.role === 'ORG_ADMIN') {
-        setFormRole('ORG_ADMIN');
-        setFormDesignation('Director of MEP Engineering');
-      } else if (found.role?.includes('Leader') || found.role?.includes('Coordinator')) {
-        setFormRole('PROJECT_MANAGER');
-        setFormDesignation(found.role);
-      } else if (found.role?.includes('Sr.')) {
-        setFormRole('ENGINEER');
-        setFormDesignation(found.role);
-      } else {
-        setFormRole('USER');
-        setFormDesignation(found.role || 'Design Engineer');
-      }
-    }
-  };
-
   // Handle Form Submit (Add or Edit)
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formEmail.trim()) {
       toast.error("Please provide both name and email.");
       return;
     }
 
+    const colorPalette = [
+      "bg-indigo-600", "bg-blue-600", "bg-purple-600", 
+      "bg-emerald-600", "bg-amber-600", "bg-teal-600", 
+      "bg-rose-600", "bg-cyan-600", "bg-sky-600"
+    ];
+
     if (editingMember) {
+      // Update existing
       const updated = members.map((m) => {
         if (m.id === editingMember.id) {
           return {
@@ -546,21 +276,22 @@ function CompanyHierarchyPage() {
         }
         return m;
       });
-      await saveHierarchy(updated);
+      saveHierarchy(updated);
       toast.success(`Updated ${formName} in hierarchy!`);
     } else {
+      // Add new
       const newMember: HierarchyUser = {
-        id: selectedExistingUser || `usr-${Date.now()}`,
+        id: `usr-${Date.now()}`,
         name: formName.trim(),
         email: formEmail.trim(),
         designation: formDesignation.trim() || "MEP Engineer",
         department: formDepartment,
         role: formRole,
         parentId: formParentId,
-        avatarColor: COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)],
+        avatarColor: colorPalette[Math.floor(Math.random() * colorPalette.length)],
         status: "active"
       };
-      await saveHierarchy([...members, newMember]);
+      saveHierarchy([...members, newMember]);
       toast.success(`Added ${newMember.name} to hierarchy!`);
     }
 
@@ -568,7 +299,7 @@ function CompanyHierarchyPage() {
   };
 
   // Delete Member
-  const handleDeleteMember = async (id: string, name: string) => {
+  const handleDeleteMember = (id: string, name: string) => {
     if (confirm(`Are you sure you want to remove ${name} from the hierarchy? Subordinates will be re-assigned to their manager.`)) {
       const target = members.find((m) => m.id === id);
       const parentOfTarget = target ? target.parentId : null;
@@ -581,14 +312,38 @@ function CompanyHierarchyPage() {
           }
           return m;
         });
-      await saveHierarchy(updated);
+      saveHierarchy(updated);
       toast.success(`Removed ${name} from hierarchy.`);
     }
   };
 
   const visibleMembers = useMemo(() => {
-    return members;
-  }, [members]);
+    if (currentRole === "SUPER_ADMIN") return members;
+
+    // For ORG_ADMIN: Find their node based on email
+    const emailToMatch = userData?.email || profile?.email;
+    let currentUserNode = members.find(m => m.email === emailToMatch);
+    if (!currentUserNode) {
+      // Fallback for dummy data if emails don't match
+      currentUserNode = members.find(m => m.role === "ORG_ADMIN");
+    }
+
+    if (!currentUserNode) return [];
+
+    const visibleIds = new Set<string>();
+    const toProcess = [currentUserNode.id];
+
+    while (toProcess.length > 0) {
+      const currentId = toProcess.pop()!;
+      if (!visibleIds.has(currentId)) {
+        visibleIds.add(currentId);
+        const children = members.filter(m => m.parentId === currentId).map(m => m.id);
+        toProcess.push(...children);
+      }
+    }
+
+    return members.filter(m => visibleIds.has(m.id));
+  }, [members, currentRole, userData?.email, profile?.email]);
 
   // Filtered members for search & department
   const filteredMembers = useMemo(() => {
@@ -643,15 +398,9 @@ function CompanyHierarchyPage() {
   return (
     <AppShell 
       title="Company Hierarchy" 
-      subtitle="Organization Hierarchy & Platform Roles Builder"
+      subtitle="Super Admin & Organization Hierarchy Builder"
       actions={
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleOpenBuilder}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
-          >
-            <Sparkles className="size-3.5" /> Create Hierarchy
-          </button>
           <button
             onClick={() => handleOpenAddModal(null)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs cursor-pointer"
@@ -672,34 +421,6 @@ function CompanyHierarchyPage() {
     >
       <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-50/40 dark:bg-zinc-950/20 overflow-y-auto custom-scrollbar p-6 space-y-6">
         
-        {/* FIRST-TIME HIERARCHY SETUP BANNER (If no custom hierarchy saved yet) */}
-        {!hasCustomHierarchy && (
-          <div className="bg-gradient-to-r from-indigo-500/10 via-blue-500/10 to-teal-500/10 border border-indigo-500/20 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="size-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
-                <Wand2 className="size-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                  Create Organization Hierarchy for {orgName}
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                    Org Admin Builder
-                  </span>
-                </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Build and structure your company reporting tree from your registered team members. Assign leadership roles, departments, and reporting managers.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleOpenBuilder}
-              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-all shrink-0 cursor-pointer flex items-center gap-2"
-            >
-              <Sparkles className="size-3.5" /> Open Hierarchy Builder
-            </button>
-          </div>
-        )}
-
         {/* KPI Banner Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-card border border-border p-4.5 rounded-2xl shadow-xs flex items-center gap-4">
@@ -777,13 +498,6 @@ function CompanyHierarchyPage() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleOpenBuilder}
-              className="px-3.5 py-1.5 text-xs font-bold rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-all cursor-pointer flex items-center gap-1.5"
-            >
-              <Wand2 className="size-3.5" /> Builder Wizard
-            </button>
-
             <div className="flex bg-surface-2 p-1 rounded-full border border-border/80">
               <button
                 onClick={() => setViewMode("tree")}
@@ -810,7 +524,7 @@ function CompanyHierarchyPage() {
             <button
               onClick={handleResetDefault}
               className="px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground border border-border rounded-full hover:bg-surface-2 transition-all cursor-pointer"
-              title="Reset to default mock hierarchy template"
+              title="Reset to default mock hierarchy"
             >
               <RefreshCw className="size-3.5 inline mr-1" /> Reset
             </button>
@@ -820,41 +534,27 @@ function CompanyHierarchyPage() {
         {/* VIEW MODE 1: VISUAL TREE HIERARCHY */}
         {viewMode === "tree" && (
           <div className="bg-card border border-border rounded-3xl p-6 shadow-sm overflow-x-auto custom-scrollbar min-h-[500px]">
-            {isLoading ? (
-              <div className="p-12 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-                <Loader2 className="size-8 animate-spin text-primary" />
-                <span className="text-xs font-medium">Loading organization hierarchy...</span>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center min-w-[750px] space-y-6">
-                {rootMembers.length === 0 ? (
-                  <div className="p-12 text-center text-muted-foreground text-sm space-y-3">
-                    <Network className="size-12 mx-auto text-muted-foreground/40" />
-                    <div>No hierarchy structure defined yet.</div>
-                    <button
-                      onClick={handleOpenBuilder}
-                      className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition shadow-xs cursor-pointer inline-flex items-center gap-2"
-                    >
-                      <Sparkles className="size-4" /> Create Hierarchy Now
-                    </button>
-                  </div>
-                ) : (
-                  rootMembers.map((root) => (
-                    <TreeNode
-                      key={root.id}
-                      member={root}
-                      reportsMap={reportsMap}
-                      collapsedNodes={collapsedNodes}
-                      onToggleCollapse={toggleCollapse}
-                      onAddReport={handleOpenAddModal}
-                      onEdit={handleOpenEditModal}
-                      onDelete={handleDeleteMember}
-                      allMembers={members}
-                    />
-                  ))
-                )}
-              </div>
-            )}
+            <div className="flex flex-col items-center min-w-[750px] space-y-6">
+              {rootMembers.length === 0 ? (
+                <div className="p-12 text-center text-muted-foreground text-sm">
+                  No hierarchy members found matching query.
+                </div>
+              ) : (
+                rootMembers.map((root) => (
+                  <TreeNode
+                    key={root.id}
+                    member={root}
+                    reportsMap={reportsMap}
+                    collapsedNodes={collapsedNodes}
+                    onToggleCollapse={toggleCollapse}
+                    onAddReport={handleOpenAddModal}
+                    onEdit={handleOpenEditModal}
+                    onDelete={handleDeleteMember}
+                    allMembers={members}
+                  />
+                ))
+              )}
+            </div>
           </div>
         )}
 
@@ -890,7 +590,7 @@ function CompanyHierarchyPage() {
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
                               <div className={`size-8 rounded-full ${m.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs`}>
-                                {m.name.charAt(0).toUpperCase()}
+                                {m.name.charAt(0)}
                               </div>
                               <div className="flex flex-col">
                                 <span className="font-bold text-foreground">{m.name}</span>
@@ -960,240 +660,7 @@ function CompanyHierarchyPage() {
         )}
       </div>
 
-      {/* ============================================================= */}
-      {/* 🚀 ORGANIZATION HIERARCHY BUILDER MODAL (FULL INTERACTIVE)     */}
-      {/* ============================================================= */}
-      {isBuilderOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-card border border-border rounded-3xl max-w-5xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-border/60 pb-4 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="size-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-md">
-                  <Wand2 className="size-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-extrabold text-foreground text-lg">
-                      Organization Hierarchy Builder
-                    </h3>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                      {orgName}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Configure your company structure: select users, assign platform roles, departments, and reporting managers.
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsBuilderOpen(false)}
-                className="size-8 rounded-full hover:bg-surface-2 flex items-center justify-center text-muted-foreground hover:text-foreground transition-all cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Wizard Quick Toolbar */}
-            <div className="bg-surface-2/60 border border-border/70 rounded-2xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center gap-2 w-full sm:w-auto flex-1 max-w-sm">
-                <Search className="size-4 text-muted-foreground shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Filter users in builder..."
-                  value={builderSearch}
-                  onChange={(e) => setBuilderSearch(e.target.value)}
-                  className="w-full bg-background border border-border/80 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-primary font-medium"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleAutoArrange}
-                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                  title="Auto-assign reporting managers based on role hierarchy"
-                >
-                  <Sparkles className="size-3.5" /> Auto-Arrange Structure
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const allSelected = builderRows.every(r => r.selected);
-                    setBuilderRows(builderRows.map(r => ({ ...r, selected: !allSelected })));
-                  }}
-                  className="px-3 py-1.5 bg-card hover:bg-surface-3 text-foreground text-xs font-semibold rounded-xl border border-border transition-all cursor-pointer"
-                >
-                  {builderRows.every(r => r.selected) ? "Deselect All" : "Select All"}
-                </button>
-              </div>
-            </div>
-
-            {/* Builder Table */}
-            <div className="flex-1 overflow-y-auto border border-border rounded-2xl custom-scrollbar">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-surface-2 text-muted-foreground font-bold uppercase text-[10px] tracking-wider border-b border-border sticky top-0 z-10 backdrop-blur-md">
-                  <tr>
-                    <th className="py-3 px-3.5 w-10 text-center">Include</th>
-                    <th className="py-3 px-3.5">Organization Member</th>
-                    <th className="py-3 px-3.5 w-44">Hierarchy Role</th>
-                    <th className="py-3 px-3.5 w-40">Department</th>
-                    <th className="py-3 px-3.5 w-52">Designation / Title</th>
-                    <th className="py-3 px-3.5 w-52">Reports To (Manager)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {builderRows
-                    .filter(r => 
-                      r.name.toLowerCase().includes(builderSearch.toLowerCase()) || 
-                      r.email.toLowerCase().includes(builderSearch.toLowerCase()) ||
-                      r.designation.toLowerCase().includes(builderSearch.toLowerCase())
-                    )
-                    .map((row) => (
-                      <tr key={row.userId} className={`transition-colors ${row.selected ? 'hover:bg-surface-2/60' : 'opacity-40 bg-surface-2/20'}`}>
-                        {/* Include Checkbox */}
-                        <td className="py-3 px-3.5 text-center">
-                          <input
-                            type="checkbox"
-                            checked={row.selected}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setBuilderRows(builderRows.map(r => r.userId === row.userId ? { ...r, selected: checked } : r));
-                            }}
-                            className="size-4 rounded accent-primary cursor-pointer"
-                          />
-                        </td>
-
-                        {/* User info */}
-                        <td className="py-3 px-3.5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="size-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                              {row.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-bold text-foreground truncate">{row.name}</div>
-                              <div className="text-[10px] text-muted-foreground truncate">{row.email}</div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Role Select */}
-                        <td className="py-3 px-3.5">
-                          <select
-                            disabled={!row.selected}
-                            value={row.role}
-                            onChange={(e) => {
-                              const newRole = e.target.value as HierarchyUser["role"];
-                              setBuilderRows(builderRows.map(r => r.userId === row.userId ? { ...r, role: newRole } : r));
-                            }}
-                            className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-lg px-2 py-1.5 text-xs font-semibold outline-none cursor-pointer"
-                          >
-                            <option value="SUPER_ADMIN">👑 Super Admin</option>
-                            <option value="ORG_ADMIN">🛡️ Org Admin (Director)</option>
-                            <option value="PROJECT_MANAGER">💼 Lead PM</option>
-                            <option value="ENGINEER">⚡ Senior Engineer</option>
-                            <option value="USER">👤 Engineer / Staff</option>
-                            <option value="VIEWER">👁️ Viewer / Guest</option>
-                          </select>
-                        </td>
-
-                        {/* Department Select */}
-                        <td className="py-3 px-3.5">
-                          <select
-                            disabled={!row.selected}
-                            value={row.department}
-                            onChange={(e) => {
-                              const newDept = e.target.value as HierarchyUser["department"];
-                              setBuilderRows(builderRows.map(r => r.userId === row.userId ? { ...r, department: newDept } : r));
-                            }}
-                            className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-lg px-2 py-1.5 text-xs font-medium outline-none cursor-pointer"
-                          >
-                            <option value="Management">Management</option>
-                            <option value="HVAC">HVAC</option>
-                            <option value="Electrical">Electrical</option>
-                            <option value="Plumbing">Plumbing</option>
-                            <option value="Fire Fighting">Fire Fighting</option>
-                            <option value="BIM & IT">BIM & IT</option>
-                          </select>
-                        </td>
-
-                        {/* Designation Input */}
-                        <td className="py-3 px-3.5">
-                          <input
-                            type="text"
-                            disabled={!row.selected}
-                            value={row.designation}
-                            onChange={(e) => {
-                              const newDes = e.target.value;
-                              setBuilderRows(builderRows.map(r => r.userId === row.userId ? { ...r, designation: newDes } : r));
-                            }}
-                            placeholder="e.g. Lead HVAC PM"
-                            className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs font-medium outline-none"
-                          />
-                        </td>
-
-                        {/* Reporting Manager Select */}
-                        <td className="py-3 px-3.5">
-                          <select
-                            disabled={!row.selected}
-                            value={row.parentId || ""}
-                            onChange={(e) => {
-                              const newParent = e.target.value ? e.target.value : null;
-                              setBuilderRows(builderRows.map(r => r.userId === row.userId ? { ...r, parentId: newParent } : r));
-                            }}
-                            className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-lg px-2 py-1.5 text-xs font-medium outline-none cursor-pointer"
-                          >
-                            <option value="">Top Leader (No Manager)</option>
-                            {builderRows
-                              .filter(r => r.selected && r.userId !== row.userId)
-                              .map(p => (
-                                <option key={p.userId} value={p.userId}>
-                                  {p.name} ({p.role.replace('_', ' ')})
-                                </option>
-                              ))}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between pt-4 border-t border-border/60 shrink-0">
-              <div className="text-xs text-muted-foreground font-medium flex items-center gap-2">
-                <span className="font-bold text-foreground">
-                  {builderRows.filter(r => r.selected).length}
-                </span> of {builderRows.length} members selected for hierarchy
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsBuilderOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-surface-2 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveBuilderHierarchy}
-                  className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer"
-                >
-                  <Check className="size-4" /> Save & Generate Hierarchy
-                </button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================= */}
-      {/* 👤 ADD / EDIT SINGLE MEMBER MODAL                             */}
-      {/* ============================================================= */}
+      {/* ADD / EDIT MEMBER MODAL */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
@@ -1204,7 +671,7 @@ function CompanyHierarchyPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-foreground text-base">
-                    {editingMember ? "Edit Team Member" : "Add Member to Hierarchy"}
+                    {editingMember ? "Edit Team Member" : "Add Team Member"}
                   </h3>
                   <p className="text-xs text-muted-foreground">Define user role and reporting hierarchy line.</p>
                 </div>
@@ -1216,27 +683,6 @@ function CompanyHierarchyPage() {
                 ✕
               </button>
             </div>
-
-            {/* If adding new: Option to select from Organization Users */}
-            {!editingMember && orgUsers.length > 0 && (
-              <div className="p-3 bg-surface-2/60 border border-border/70 rounded-2xl space-y-1.5">
-                <label className="font-bold text-foreground block text-[11px]">
-                  Select from Registered Organization Users:
-                </label>
-                <select
-                  value={selectedExistingUser}
-                  onChange={(e) => handleSelectExistingUser(e.target.value)}
-                  className="w-full bg-background border border-border/80 focus:border-primary rounded-xl px-3 py-2 text-xs font-medium outline-none cursor-pointer"
-                >
-                  <option value="">-- Choose Organization Member or type manually --</option>
-                  {orgUsers.map(u => (
-                    <option key={u.id} value={u.id}>
-                      {u.name || u.email} ({u.email}) - {u.role}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
 
             <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
               <div>
@@ -1409,7 +855,7 @@ function TreeNode({
 
         <div className="flex items-center gap-3">
           <div className={`size-10 rounded-2xl ${member.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs`}>
-            {member.name.charAt(0).toUpperCase()}
+            {member.name.charAt(0)}
           </div>
           <div className="flex flex-col min-w-0">
             <span className="font-extrabold text-foreground text-sm truncate">{member.name}</span>

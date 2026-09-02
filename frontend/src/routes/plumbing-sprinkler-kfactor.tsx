@@ -818,18 +818,20 @@ function SprinklerKFactorPage() {
 
   const renderSprinklerContextMenu = (row: SprinklerRow) => {
     const targetIds = selected.has(row.id) ? Array.from(selected) : [row.id];
+    const isMulti = targetIds.length > 1;
 
     return (
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
           onClick={() => {
             setSelected(new Set([row.id]));
           }}
-          className="flex items-center gap-2 cursor-pointer text-foreground"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-foreground"
         >
           <Edit3 className="size-3.5 text-muted-foreground" />
           <span>Edit Sprinkler</span>
         </ContextMenuItem>
+
         <ContextMenuItem
           onClick={() => {
             pushToUndo(rows);
@@ -846,33 +848,51 @@ function SprinklerKFactorPage() {
             setRows(prev => [...prev, ...dupList]);
             toast.success(`Duplicated ${dupList.length} sprinkler(s)`);
           }}
-          className="flex items-center gap-2 cursor-pointer text-foreground"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-foreground"
         >
           <Copy className="size-3.5 text-muted-foreground" />
-          <span>Duplicate</span>
+          <span>{isMulti ? "Duplicate Selected" : "Duplicate Sprinkler"}</span>
         </ContextMenuItem>
+
         <ContextMenuItem
           onClick={() => {
             pushToUndo(rows);
+            const anyUnflagged = targetIds.some(id => !rows.find(r => r.id === id)?.flagged);
             setRows(prev =>
               prev.map(item => {
                 if (targetIds.includes(item.id)) {
-                  const nextF = !item.flagged;
-                  return { ...item, flagged: nextF, flagReason: nextF ? "Flagged via menu" : undefined };
+                  return { ...item, flagged: anyUnflagged, flagReason: anyUnflagged ? "Flagged via menu" : undefined };
                 }
                 return item;
               })
             );
+            toast.success(anyUnflagged ? `Flagged ${targetIds.length} item(s)` : `Unflagged ${targetIds.length} item(s)`);
           }}
-          className="flex items-center gap-2 cursor-pointer text-foreground"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-foreground"
         >
-          <Flag className="size-3.5 text-red-500" />
-          <span>{row.flagged ? "Unflag Item(s)" : "Flag for Review"}</span>
+          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Sprinkler") : (isMulti ? "Flag Selected" : "Flag for Review")}</span>
         </ContextMenuItem>
-        <ContextMenuSeparator />
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment / Assign Task</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
           onClick={async () => {
-            const proceed = await confirm(`Delete the ${targetIds.length} selected sprinkler(s)?`);
+            const proceed = await confirm(
+              targetIds.length === 1
+                ? `Are you sure you want to delete sprinkler "${row.label}"?`
+                : `Are you sure you want to delete the ${targetIds.length} selected sprinklers?`
+            );
             if (proceed) {
               pushToUndo(rows);
               setRows(prev => prev.filter(r => !targetIds.includes(r.id)));
@@ -880,7 +900,7 @@ function SprinklerKFactorPage() {
               toast.success("Deleted");
             }
           }}
-          className="flex items-center gap-2 text-destructive cursor-pointer focus:bg-destructive/10 focus:text-destructive font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
         >
           <Trash2 className="size-3.5" />
           <span>Delete</span>

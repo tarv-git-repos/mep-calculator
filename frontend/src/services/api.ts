@@ -623,47 +623,6 @@ export const api = {
     }
   },
 
-  // ================= COMPANY HIERARCHY ENDPOINTS ================= //
-  async getCompanyHierarchy(orgId?: string) {
-    try {
-      const url = orgId ? `${getBackendUrl()}/api/org/hierarchy?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/hierarchy`;
-      const { data } = await axios.get(url);
-      if (data && data.success && Array.isArray(data.hierarchy) && data.hierarchy.length > 0) {
-        return data.hierarchy;
-      }
-    } catch (e) {
-      console.warn('Backend getCompanyHierarchy not available, falling back to local cache', e);
-    }
-
-    try {
-      const storageKey = orgId ? `mep_company_hierarchy_${orgId}` : 'mep_company_hierarchy';
-      const local = localStorage.getItem(storageKey) || localStorage.getItem('mep_company_hierarchy');
-      if (local) {
-        return JSON.parse(local);
-      }
-    } catch (e) {}
-    return null;
-  },
-
-  async saveCompanyHierarchy(hierarchy: any[], orgId?: string) {
-    try {
-      const storageKey = orgId ? `mep_company_hierarchy_${orgId}` : 'mep_company_hierarchy';
-      localStorage.setItem(storageKey, JSON.stringify(hierarchy));
-      localStorage.setItem('mep_company_hierarchy', JSON.stringify(hierarchy));
-    } catch (e) {}
-
-    try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/org/hierarchy`, {
-        hierarchy,
-        org_id: orgId
-      });
-      return data;
-    } catch (e: any) {
-      console.warn('Backend saveCompanyHierarchy warning:', e);
-      return { success: true, message: 'Saved to local workspace' };
-    }
-  },
-
   // ================= ANNOUNCEMENTS ENDPOINTS ================= //
   async getAnnouncements() {
     try {
