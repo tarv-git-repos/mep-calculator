@@ -207,8 +207,13 @@ export function SuperAdminDashboard() {
   const [newSeatsValue, setNewSeatsValue] = useState<number>(5)
 
   const handleUpdateMaxSeats = async (orgId: string, newMax: number) => {
+    const currentMemberCount = profiles.filter(p => p.organization_id === orgId).length;
     if (isNaN(newMax) || newMax < 1) {
       toast.error("Seats limit must be at least 1");
+      return;
+    }
+    if (newMax < currentMemberCount) {
+      toast.error(`Cannot set seat limit to ${newMax}. The organization currently has ${currentMemberCount} active members. Set limit to at least ${currentMemberCount}.`);
       return;
     }
     try {
@@ -218,7 +223,7 @@ export function SuperAdminDashboard() {
         setSelectedOrgForManagement((prev: any) => prev ? { ...prev, max_users: newMax, max_concurrent_users: newMax } : null);
       }
       setEditingSeatsForOrg(false);
-      toast.success(`Member seats & concurrent limit updated to ${newMax} for organization!`);
+      toast.success(`Member seats updated to ${newMax} for organization!`);
     } catch (err) {
       console.error("Failed to update seat limit", err);
       toast.error("Failed to update seat limit.");
@@ -1451,48 +1456,15 @@ export function SuperAdminDashboard() {
                         </div>
                       </div>
 
-                      {/* CONCURRENT ACTIVE CALCULATOR USERS LIMIT */}
+                      {/* CONCURRENT ACTIVE CALCULATOR USERS LIMIT (NON-EDITABLE - AUTOMATICALLY MATCHES MAX_USERS) */}
                       <div className="flex items-center gap-3 shrink-0">
                         <div className="bg-background border border-border/80 px-4 py-2 rounded-xl shadow-2xs">
                           <div className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Simultaneous Active Seat Count</div>
-                          {editingConcurrentLimit ? (
-                            <div className="flex items-center gap-2 mt-1">
-                              <input
-                                type="number"
-                                min={1}
-                                value={newConcurrentVal}
-                                onChange={(e) => setNewConcurrentVal(parseInt(e.target.value) || 1)}
-                                className="w-16 px-2 py-0.5 text-xs font-bold bg-background border border-border rounded text-foreground outline-none focus:ring-1 focus:ring-primary"
-                              />
-                              <button
-                                onClick={() => handleUpdateOrgLicense(selectedOrgForManagement.id, selectedOrgForManagement.license_key || 'MEP-LIC-ORG-PRO', newConcurrentVal)}
-                                className="px-2.5 py-0.5 bg-primary text-primary-foreground text-xs font-bold rounded shadow-2xs cursor-pointer"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingConcurrentLimit(false)}
-                                className="text-xs text-muted-foreground cursor-pointer"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs font-extrabold text-foreground">
-                                ⚡ {selectedOrgForManagement.max_concurrent_users || 1} User{(selectedOrgForManagement.max_concurrent_users || 1) === 1 ? '' : 's'} at once
-                              </span>
-                              <button
-                                onClick={() => {
-                                  setNewConcurrentVal(selectedOrgForManagement.max_concurrent_users || 1);
-                                  setEditingConcurrentLimit(true);
-                                }}
-                                className="text-[11px] text-primary font-bold hover:underline cursor-pointer ml-1 flex items-center gap-1"
-                              >
-                                <Edit3 size={11} /> Change Limit
-                              </button>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs font-extrabold text-foreground">
+                              ⚡ {selectedOrgForManagement.max_users || 5} Users at once
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1500,21 +1472,9 @@ export function SuperAdminDashboard() {
                     {/* Section: Add Existing Application Users to this Organization (Multi-Select) */}
                     <div className="p-5 bg-surface-2/60 rounded-2xl border border-border/70 space-y-4">
                       {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) && (
-                        <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-300 text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-                          <div className="flex items-center gap-2">
-                            <ShieldAlert size={18} className="text-amber-600 shrink-0" />
-                            <span>Seat limit reached ({profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length}/{selectedOrgForManagement.max_users || 5} Seats Used). No additional member can be added until the limit is increased.</span>
-                          </div>
-                          <button
-                            onClick={() => {
-                              setNewSeatsValue(selectedOrgForManagement.max_users || 5);
-                              setEditingSeatsForOrg(true);
-                            }}
-                            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] transition cursor-pointer shrink-0 flex items-center gap-1"
-                          >
-                            <Edit3 size={12} />
-                            Increase Seat Limit
-                          </button>
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-800 dark:text-amber-300 text-xs font-semibold flex items-center gap-2 shadow-xs">
+                          <ShieldAlert size={16} className="text-amber-600 shrink-0" />
+                          <span>Seat limit reached ({profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length}/{selectedOrgForManagement.max_users || 5} Seats Used). Cannot assign more users until seat limit is increased in header above.</span>
                         </div>
                       )}
 

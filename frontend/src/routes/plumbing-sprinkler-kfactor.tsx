@@ -301,35 +301,33 @@ function SprinklerKFactorPage() {
   }, [project?.id]);
 
   // Tabs
-    // Sync sprinkler rows when active project loads from backend
+    // Sync with project changes (exact PCL logic)
   useEffect(() => {
-    if (!project?.id) return;
-    const pKey = `mep_sprinklers_${project.id}`;
-    let rowsFromDb: SprinklerRow[] | null = null;
-    if (project.workspace_data) {
-      let wdata = project.workspace_data;
-      if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
-      if (wdata.sprinklers && Array.isArray(wdata.sprinklers) && wdata.sprinklers.length > 0) {
-        rowsFromDb = wdata.sprinklers;
-      } else if (wdata.sprinkler_rows && Array.isArray(wdata.sprinkler_rows) && wdata.sprinkler_rows.length > 0) {
-        rowsFromDb = wdata.sprinkler_rows;
-      }
-    }
-    if (rowsFromDb && Array.isArray(rowsFromDb) && rowsFromDb.length > 0) {
-      setRows(rowsFromDb);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(pKey, JSON.stringify(rowsFromDb));
-      }
-    } else if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(pKey) || localStorage.getItem(`mep_sprinkler_rows_${project.id}`);
-      if (stored) {
+    const projId = activeProjectId || project?.id;
+    if (!projId) return;
+    const projKey = `mep_sprinklers_${projId}`;
+    const saved = localStorage.getItem(projKey) || localStorage.getItem(`mep_sprinkler_rows_${projId}`);
+    if (saved !== null) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setRows(parsed);
+          return;
+        }
+      } catch (e) {}
+    } else {
+      const savedLegacy = localStorage.getItem("mep_sprinklers_default") || localStorage.getItem("sprinkler_rows");
+      if (savedLegacy !== null) {
         try {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) setRows(parsed);
-        } catch(e) {}
+          const parsed = JSON.parse(savedLegacy);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setRows(parsed);
+            return;
+          }
+        } catch (e) {}
       }
     }
-  }, [project?.id]);
+  }, [activeProjectId, project?.id]);
 
   const [tab, setTab] = useState<"schedule" | "solver" | "report">("schedule");
   const [intelOpen, setIntelOpen] = useState(false);
@@ -2618,8 +2616,9 @@ function SprinklerKFactorPage() {
           onSave={async (comment) => {
             try {
               const currentUserName = userData?.name || profile?.name || "Design Engineer";
+              const userIds = comment.assignedUsers || [];
               const projId = activeProjectId || project?.id || "default";
-              const projName = project?.name || "Fire Fighting Sprinkler Calculations";
+              const projName = project?.name || "Active Project";
 
               const commentWithMeta = {
                 ...comment,
@@ -2638,16 +2637,18 @@ function SprinklerKFactorPage() {
               } : r);
               pushToUndo(rows);
               saveRows(updatedRows);
-
-              // Instant notification event dispatch
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
-                window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
-                window.dispatchEvent(new Event("storage"));
+              if (project?.id) {
+                localStorage.setItem(`mep_sprinklers_${project.id}`, JSON.stringify(updatedRows));
+                localStorage.setItem(`mep_sprinkler_rows_${project.id}`, JSON.stringify(updatedRows));
               }
 
-              toast.success(`Task comment saved for "${commentTargetItem.name}"`);
-              await notifyCommentAssigned({
+              // Instant notification event dispatch
+              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
+              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
+              window.dispatchEvent(new Event("storage"));
+
+              toast.success(`Task comment saved for space ${commentTargetItem.name}`);
+              notifyCommentAssigned({
                 comment: commentWithMeta,
                 targetId: commentTargetItem.id,
                 targetName: commentTargetItem.name,
@@ -2657,10 +2658,9 @@ function SprinklerKFactorPage() {
                 project,
                 currentUserName,
                 currentUserId: userData?.id || profile?.id
-              });
+              }).catch(console.error);
             } catch(e) {
-              console.error("Error saving sprinkler comment:", e);
-              toast.success(`Task comment added for "${commentTargetItem.name}"`);
+              toast.success(`Task comment added for ${commentTargetItem.name}`);
             }
             setCommentModalOpen(false);
           }}
