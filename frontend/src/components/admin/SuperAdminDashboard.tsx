@@ -63,7 +63,22 @@ export function SuperAdminDashboard() {
   
   const [isAdmin, setIsAdmin] = useState(false)
   const [checking, setChecking] = useState(true)
-  const [activeTab, setActiveTab] = useState<'users' | 'organizations' | 'projects' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>('organizations')
+  const [activeTab, setActiveTabState] = useState<'users' | 'organizations' | 'projects' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_admin_active_tab');
+      if (saved && ['organizations', 'users', 'projects', 'broadcasts', 'licenses', 'activity'].includes(saved)) {
+        return saved as any;
+      }
+    }
+    return 'organizations';
+  });
+
+  const setActiveTab = (tab: any) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mep_admin_active_tab', tab);
+    }
+    setActiveTabState(tab);
+  };
   
   // Projects Explorer State for Super Admin
   const [allProjectsList, setAllProjectsList] = useState<any[]>([])
@@ -120,7 +135,62 @@ export function SuperAdminDashboard() {
   const [newOrgName, setNewOrgName] = useState('')
   const [newOrgPlan, setNewOrgPlan] = useState('PRO')
   const [newOrgUsers, setNewOrgUsers] = useState(5)
-  const [selectedOrgForManagement, setSelectedOrgForManagement] = useState<any | null>(null)
+  const [selectedOrgForManagement, setSelectedOrgForManagementState] = useState<any | null>(null)
+  const [editingOrgId, setEditingOrgId] = useState<string | null>(null)
+  const [editedOrgName, setEditedOrgName] = useState<string>('')
+
+  const handleSaveOrgName = async (orgId: string, newName: string) => {
+    if (!newName || !newName.trim()) return toast.error("Organization name cannot be empty");
+    const nameToSave = newName.trim();
+    try {
+      const res = await api.updateOrganization({ orgId, name: nameToSave });
+      if (res && res.success !== false) {
+        toast.success(`Organization name updated to "${nameToSave}"`);
+        setSelectedOrgForManagementState((prev: any) => prev && prev.id === orgId ? { ...prev, name: nameToSave } : prev);
+        setOrganizations(prev => prev.map(o => o.id === orgId ? { ...o, name: nameToSave } : o));
+        setEditingOrgId(null);
+      } else {
+        toast.error((res && res.message) || "Failed to update organization name");
+      }
+    } catch (err: any) {
+      toast.error("Error updating organization name: " + (err?.message || String(err)));
+    }
+  };
+
+  const setSelectedOrgForManagement = (action: any) => {
+    setSelectedOrgForManagementState((prev: any) => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      if (next && next.id) {
+        localStorage.setItem('mep_admin_selected_org_id', next.id);
+      } else {
+        localStorage.removeItem('mep_admin_selected_org_id');
+      }
+      return next;
+    });
+  };
+
+  // Preserve & Restore Scroll Position across data updates and tab switches
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 0) {
+        sessionStorage.setItem('mep_admin_scroll_y', window.scrollY.toString());
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const savedY = sessionStorage.getItem('mep_admin_scroll_y');
+    if (savedY) {
+      const y = parseInt(savedY, 10);
+      if (!isNaN(y) && y > 0) {
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: y, behavior: 'instant' as any });
+        });
+      }
+    }
+  }, [activeTab, selectedOrgForManagement]);
   const [selectedExistingUserToAdd, setSelectedExistingUserToAdd] = useState<string>('')
   const [selectedUserIds, setSelectedUserIdsState] = useState<string[]>([])
   const [historyStack, setHistoryStack] = useState<string[][]>([[]])
@@ -331,10 +401,20 @@ export function SuperAdminDashboard() {
   };
 
   const fetchOrganizations = async () => {
-    setLoadingOrganizations(true);
+    if (organizations.length === 0) setLoadingOrganizations(true);
     try {
       const res = await api.getOrganizations();
-      setOrganizations(Array.isArray(res) ? res : []);
+      const list = Array.isArray(res) ? res : [];
+      setOrganizations(list);
+
+      // Restore selected organization view if saved in localStorage
+      const savedOrgId = localStorage.getItem('mep_admin_selected_org_id');
+      if (savedOrgId && list.length > 0) {
+        const found = list.find((o: any) => o.id === savedOrgId);
+        if (found) {
+          setSelectedOrgForManagementState(found);
+        }
+      }
     } catch (e) {
       setOrganizations([]);
     } finally {
@@ -415,8 +495,8 @@ export function SuperAdminDashboard() {
   }, [isAdmin, session])
 
   const fetchProfiles = async () => {
-    setLoadingProfiles(true)
-    const users = await api.getUsers()
+    if (profiles.length === 0) setLoadingProfiles(true);
+    const users = await api.getUsers();
     const userList = Array.isArray(users) ? users : [];
     
     // Map custom_users to the expected profiles shape
@@ -429,11 +509,11 @@ export function SuperAdminDashboard() {
       status: u.isAccountVerified ? 'ACTIVE' : 'TRIAL',
       features: u.features || {},
       organization_id: u.organization_id
-    }))
+    }));
     
-    setProfiles(mappedProfiles)
-    setLoadingProfiles(false)
-  }
+    setProfiles(mappedProfiles);
+    setLoadingProfiles(false);
+  };
 
   const fetchActivityLogs = async () => {
     const logs = await api.getAdminActivityLogs()
@@ -1425,69 +1505,135 @@ export function SuperAdminDashboard() {
                 {selectedOrgForManagement ? (
                   <div className="space-y-6 animate-fade-in">
                     {/* Organization Manager Header */}
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
                       <div className="flex items-center gap-3.5">
                         <button 
                           onClick={() => {
                             setSelectedOrgForManagement(null);
                             setEditingSeatsForOrg(false);
                           }}
-                          className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors cursor-pointer border border-slate-200/80 dark:border-slate-700"
+                          className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-all cursor-pointer border border-slate-200 dark:border-slate-700 shadow-2xs"
                           title="Back to Organizations List"
                         >
-                          <ArrowLeft size={16} />
+                          <ArrowLeft size={18} />
                         </button>
                         <div>
-                          <div className="flex items-center gap-2.5">
-                            <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                              {(selectedOrgForManagement.name === 'Consitent' || selectedOrgForManagement.name === 'Consistent')
-                                ? 'Consistent Engineering Consultants'
-                                : selectedOrgForManagement.name}
-                            </h2>
-                            <select
-                              value={selectedOrgForManagement.subscription_plan || 'PRO'}
-                              onChange={async (e) => {
-                                const newPlan = e.target.value;
-                                let newKey = selectedOrgForManagement.license_key;
-                                if (newPlan !== 'FREE_TRIAL' && (!newKey || newKey === 'TRIAL-FREE' || newKey === 'MEP-LIC-ORG-PRO' || newKey.length < 25)) {
-                                  newKey = generate25CharKey(selectedOrgForManagement.name);
-                                }
-                                try {
-                                  await api.updateOrganization({
-                                    orgId: selectedOrgForManagement.id,
-                                    subscription_plan: newPlan,
-                                    license_key: newKey
-                                  });
-                                  setSelectedOrgForManagement((prev: any) => ({ ...prev, subscription_plan: newPlan, license_key: newKey }));
-                                  setOrganizations(prev => prev.map(o => o.id === selectedOrgForManagement.id ? { ...o, subscription_plan: newPlan, license_key: newKey } : o));
-                                  if (newPlan !== 'FREE_TRIAL') {
-                                    toast.success(`Plan updated to ${newPlan}! 25-char License Key generated: ${newKey}`);
-                                  } else {
-                                    toast.info(`Organization plan updated to FREE_TRIAL`);
-                                  }
-                                } catch (err) {
-                                  toast.error("Failed to update organization plan");
-                                }
-                              }}
-                              className="text-xs font-extrabold px-2.5 py-1 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 outline-none cursor-pointer uppercase tracking-wider"
-                              title="Change Organization Subscription Plan"
-                            >
-                              <option value="FREE_TRIAL">🎁 FREE_TRIAL (7-Day Trial)</option>
-                              <option value="PRO">⭐ PRO PLAN</option>
-                              <option value="ENTERPRISE">🚀 ENTERPRISE PLAN</option>
-                            </select>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {editingOrgId === selectedOrgForManagement.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={editedOrgName}
+                                  onChange={(e) => setEditedOrgName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSaveOrgName(selectedOrgForManagement.id, editedOrgName);
+                                    if (e.key === 'Escape') setEditingOrgId(null);
+                                  }}
+                                  autoFocus
+                                  className="px-3 py-1 text-sm font-extrabold bg-white dark:bg-slate-900 border border-blue-500 rounded-xl text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveOrgName(selectedOrgForManagement.id, editedOrgName)}
+                                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition cursor-pointer shadow-2xs"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingOrgId(null)}
+                                  className="px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                                  {(selectedOrgForManagement.name === 'Consitent' || selectedOrgForManagement.name === 'Consistent')
+                                    ? 'Consistent Engineering Consultants'
+                                    : selectedOrgForManagement.name}
+                                </h2>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const currentName = (selectedOrgForManagement.name === 'Consitent' || selectedOrgForManagement.name === 'Consistent')
+                                      ? 'Consistent Engineering Consultants'
+                                      : selectedOrgForManagement.name;
+                                    setEditedOrgName(currentName);
+                                    setEditingOrgId(selectedOrgForManagement.id);
+                                  }}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 transition cursor-pointer"
+                                  title="Edit Organization Name"
+                                >
+                                  <Edit3 size={16} />
+                                </button>
+                              </div>
+                            )}
+                            {selectedOrgForManagement.subscription_plan === 'FREE_TRIAL' ? (
+                              <span className="px-3 py-0.5 rounded-full text-xs font-extrabold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800 uppercase tracking-wider shadow-2xs">
+                                🎁 FREE TRIAL
+                              </span>
+                            ) : selectedOrgForManagement.subscription_plan === 'ENTERPRISE' ? (
+                              <span className="px-3 py-0.5 rounded-full text-xs font-extrabold bg-purple-100 text-purple-800 border border-purple-300 dark:bg-purple-900/40 dark:text-purple-300 dark:border-purple-800 uppercase tracking-wider shadow-2xs">
+                                🚀 ENTERPRISE PLAN
+                              </span>
+                            ) : (
+                              <span className="px-3 py-0.5 rounded-full text-xs font-extrabold bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800 uppercase tracking-wider shadow-2xs">
+                                ⭐ PRO PLAN
+                              </span>
+                            )}
                           </div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            Manage members, assign existing users, change member roles, or delete users for this organization.
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            Manage organization members, assign available users, or change subscription tier.
                           </p>
                         </div>
                       </div>
 
-                      {/* EDITABLE SEATS ALLOCATION DISPLAY */}
-                      <div className="flex items-center gap-3 shrink-0">
+                      {/* HEADER CONTROLS BAR: Plan Selector, Seats Display & + Add Users */}
+                      <div className="flex flex-wrap items-center gap-3 shrink-0">
+                        {/* Elegant Plan Selector Pill */}
+                        <div className="flex items-center gap-2 bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3.5 py-2 rounded-xl shadow-2xs">
+                          <span className="text-xs font-extrabold uppercase text-slate-500 dark:text-slate-400 shrink-0">
+                            Subscription:
+                          </span>
+                          <select
+                            value={selectedOrgForManagement.subscription_plan || 'PRO'}
+                            onChange={async (e) => {
+                              const newPlan = e.target.value;
+                              let newKey = selectedOrgForManagement.license_key;
+                              if (newPlan !== 'FREE_TRIAL' && (!newKey || newKey === 'TRIAL-FREE' || newKey === 'MEP-LIC-ORG-PRO' || newKey.length < 25)) {
+                                newKey = generate25CharKey(selectedOrgForManagement.name);
+                              }
+                              try {
+                                await api.updateOrganization({
+                                  orgId: selectedOrgForManagement.id,
+                                  subscription_plan: newPlan,
+                                  license_key: newKey
+                                });
+                                setSelectedOrgForManagement((prev: any) => ({ ...prev, subscription_plan: newPlan, license_key: newKey }));
+                                setOrganizations(prev => prev.map(o => o.id === selectedOrgForManagement.id ? { ...o, subscription_plan: newPlan, license_key: newKey } : o));
+                                if (newPlan !== 'FREE_TRIAL') {
+                                  toast.success(`Plan updated to ${newPlan}! 25-char License Key generated: ${newKey}`);
+                                } else {
+                                  toast.info(`Organization plan updated to FREE_TRIAL`);
+                                }
+                              } catch (err) {
+                                toast.error("Failed to update organization plan");
+                              }
+                            }}
+                            className="text-xs font-bold bg-transparent text-slate-900 dark:text-white outline-none cursor-pointer"
+                          >
+                            <option value="FREE_TRIAL" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">🎁 FREE_TRIAL (7-Day)</option>
+                            <option value="PRO" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">⭐ PRO PLAN</option>
+                            <option value="ENTERPRISE" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">🚀 ENTERPRISE PLAN</option>
+                          </select>
+                        </div>
+
+                        {/* Editable Seats Allocation Display */}
                         {editingSeatsForOrg ? (
-                          <div className="flex items-center gap-2 bg-surface-2 border border-primary/40 p-1.5 rounded-xl shadow-xs">
-                            <span className="text-xs font-bold text-foreground pl-2">Max Seats:</span>
+                          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 border border-blue-400 p-1.5 rounded-xl shadow-xs">
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 pl-1">Max Seats:</span>
                             <input
                               type="number"
                               min={1}
@@ -1500,37 +1646,37 @@ export function SuperAdminDashboard() {
                                   setNewSeatsValue(isNaN(parsed) ? '' : parsed);
                                 }
                               }}
-                              className="w-20 px-2.5 py-1 text-xs font-bold bg-background border border-border rounded-lg text-foreground outline-none focus:ring-2 focus:ring-primary/20"
+                              className="w-16 px-2 py-1 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
                             />
                             <button
                               onClick={() => handleUpdateMaxSeats(selectedOrgForManagement.id, newSeatsValue)}
-                              className="px-3 py-1 bg-primary text-primary-foreground font-bold text-xs rounded-lg transition cursor-pointer shadow-xs hover:bg-primary/90"
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition cursor-pointer shadow-xs"
                             >
-                              Save Seats
+                              Save
                             </button>
                             <button
                               onClick={() => setEditingSeatsForOrg(false)}
-                              className="px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+                              className="px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
                             >
                               Cancel
                             </button>
                           </div>
                         ) : (
-                          <div className={`flex items-center gap-3.5 border px-4 py-2 rounded-xl shadow-xs ${
+                          <div className={`flex items-center gap-3 border px-3.5 py-2 rounded-xl shadow-2xs ${
                             profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5)
                               ? 'bg-amber-500/10 border-amber-500/40'
-                              : 'bg-surface-2 border-border/80'
+                              : 'bg-slate-100/80 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700'
                           }`}>
                             <div className="flex items-center gap-2">
-                              <Users size={16} className={profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) ? "text-amber-600" : "text-primary"} />
-                              <div className="text-xs font-bold text-foreground">
+                              <Users size={15} className={profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) ? "text-amber-600" : "text-blue-600"} />
+                              <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
                                 <span>{profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length}</span>
-                                <span className="text-muted-foreground font-normal"> / </span>
-                                <span className="text-primary font-extrabold">{selectedOrgForManagement.max_users || 5}</span>
-                                <span className="text-muted-foreground font-semibold"> Seats Used</span>
+                                <span className="text-slate-400 font-normal"> / </span>
+                                <span className="text-blue-600 font-extrabold">{selectedOrgForManagement.max_users || 5}</span>
+                                <span className="text-slate-500 font-semibold"> Seats Used</span>
                                 {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length >= (selectedOrgForManagement.max_users || 5) && (
                                   <span className="ml-1.5 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 font-extrabold text-[10px] uppercase">
-                                    Full (Limit Reached)
+                                    Full
                                   </span>
                                 )}
                               </div>
@@ -1540,21 +1686,22 @@ export function SuperAdminDashboard() {
                                 setNewSeatsValue(selectedOrgForManagement.max_users || 5);
                                 setEditingSeatsForOrg(true);
                               }}
-                              className="px-2.5 py-1 bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-bold rounded-lg border border-primary/20 transition cursor-pointer flex items-center gap-1.5"
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 text-[11px] font-bold rounded-lg border border-blue-200 dark:border-blue-800 transition cursor-pointer flex items-center gap-1"
                               title="Increase or edit member seat limit"
                             >
-                              <Edit3 size={13} />
+                              <Edit3 size={12} />
                               <span>Edit Seats</span>
                             </button>
                           </div>
                         )}
 
+                        {/* + Add Users Modal Button */}
                         <button
                           onClick={() => {
                             setSelectedUserIds([]);
                             setShowAddUserModalForOrg(true);
                           }}
-                          className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
                         >
                           <UserPlus size={15} />
                           <span>+ Add Users</span>
@@ -1636,63 +1783,44 @@ export function SuperAdminDashboard() {
                             </button>
                           </div>
 
-                          {/* Filter Tabs & Search Bar */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setAddUsersModalFilter('unassigned')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                  addUsersModalFilter === 'unassigned'
-                                    ? 'bg-blue-600 text-white shadow-2xs'
-                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 border border-slate-200 dark:border-slate-700'
-                                }`}
-                              >
-                                👤 Unassigned Users ({profiles.filter(p => p.role !== 'SUPER_ADMIN' && (!p.organization_id || p.organization_id === '' || p.organization_id === 'UNASSIGNED' || p.organization_id === 'No Organization')).length})
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setAddUsersModalFilter('all')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                                  addUsersModalFilter === 'all'
-                                    ? 'bg-blue-600 text-white shadow-2xs'
-                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 border border-slate-200 dark:border-slate-700'
-                                }`}
-                              >
-                                🏢 All Users Not in {selectedOrgForManagement.name.split(' ')[0]} ({profiles.filter(p => p.role !== 'SUPER_ADMIN' && p.organization_id !== selectedOrgForManagement.id).length})
-                              </button>
+                          {/* Search Bar & Capacity Indicator (Tabs Removed) */}
+                          <div className="flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div className="relative flex-1">
+                              <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                              <input 
+                                type="text"
+                                placeholder="Search unassigned users by email or role..."
+                                value={userSearchQuery}
+                                onChange={(e) => setUserSearchQuery(e.target.value)}
+                                className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full outline-none focus:ring-2 focus:ring-blue-500"
+                              />
                             </div>
-                            <span className="text-xs font-semibold text-slate-500 shrink-0">
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0">
                               {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length}/{selectedOrgForManagement.max_users || 5} Seats Used
                             </span>
                           </div>
 
-                          <div className="relative">
-                            <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
-                            <input 
-                              type="text"
-                              placeholder="Search users by email or role..."
-                              value={userSearchQuery}
-                              onChange={(e) => setUserSearchQuery(e.target.value)}
-                              className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-
-                          {/* Multi-Select Grid */}
+                          {/* Multi-Select Grid (STRICTLY UNASSIGNED USERS ONLY) */}
                           <div className="flex-1 overflow-y-auto max-h-[48vh] pr-1 space-y-2">
                             {(() => {
                               const availableUsers = profiles.filter(p => {
                                 if (p.role === 'SUPER_ADMIN') return false;
-                                if (p.organization_id === selectedOrgForManagement.id) return false;
                                 
-                                if (addUsersModalFilter === 'unassigned') {
-                                  const isUnassigned = !p.organization_id || p.organization_id === '' || p.organization_id === 'UNASSIGNED' || p.organization_id === 'No Organization' || p.organization_id === 'null' || !p.company || p.company === '' || p.company === 'No Organization';
-                                  if (!isUnassigned) return false;
-                                }
+                                // Strictly users not assigned to any organization
+                                const isUnassigned = !p.organization_id || 
+                                  p.organization_id === '' || 
+                                  p.organization_id === 'UNASSIGNED' || 
+                                  p.organization_id === 'No Organization' || 
+                                  p.organization_id === 'null' || 
+                                  !p.company || 
+                                  p.company === '' || 
+                                  p.company === 'No Organization';
+
+                                if (!isUnassigned) return false;
 
                                 if (userSearchQuery) {
                                   const q = userSearchQuery.toLowerCase();
-                                  return p.email.toLowerCase().includes(q) || p.role?.toLowerCase().includes(q) || p.company?.toLowerCase().includes(q);
+                                  return p.email.toLowerCase().includes(q) || p.role?.toLowerCase().includes(q);
                                 }
                                 return true;
                               });
@@ -1701,24 +1829,13 @@ export function SuperAdminDashboard() {
 
                               if (availableUsers.length === 0) {
                                 return (
-                                  <div className="py-8 text-center space-y-3">
+                                  <div className="py-8 text-center space-y-2">
                                     <p className="text-xs text-slate-500 italic">
                                       {userSearchQuery
-                                        ? "No matching users found."
-                                        : addUsersModalFilter === 'unassigned'
-                                          ? "There are currently no unassigned users. All users are members of an organization."
-                                          : "All application users are already members of this organization!"
+                                        ? "No matching unassigned users found."
+                                        : "There are currently no unassigned users. All registered users are assigned to an organization."
                                       }
                                     </p>
-                                    {addUsersModalFilter === 'unassigned' && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setAddUsersModalFilter('all')}
-                                        className="px-3 py-1.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold text-xs rounded-lg hover:bg-blue-200 transition cursor-pointer"
-                                      >
-                                        Show All Application Users
-                                      </button>
-                                    )}
                                   </div>
                                 );
                               }
@@ -1996,11 +2113,58 @@ export function SuperAdminDashboard() {
                               const memberCount = profiles.filter(p => p.organization_id === org.id).length;
                               return (
                                 <tr key={org.id} className="border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                                  <td 
-                                    className="py-4 font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
-                                    onClick={() => setSelectedOrgForManagement(org)}
-                                  >
-                                    🏢 {org.name}
+                                  <td className="py-4 font-bold text-slate-800 dark:text-slate-200">
+                                    {editingOrgId === org.id ? (
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          value={editedOrgName}
+                                          onChange={(e) => setEditedOrgName(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSaveOrgName(org.id, editedOrgName);
+                                            if (e.key === 'Escape') setEditingOrgId(null);
+                                          }}
+                                          autoFocus
+                                          className="px-2.5 py-1 text-xs font-bold bg-white dark:bg-slate-900 border border-blue-500 rounded-lg text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveOrgName(org.id, editedOrgName)}
+                                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg transition cursor-pointer shadow-2xs"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditingOrgId(null)}
+                                          className="px-2 py-1 text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2 group">
+                                        <span 
+                                          className="hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                                          onClick={() => setSelectedOrgForManagement(org)}
+                                        >
+                                          🏢 {(org.name === 'Consitent' || org.name === 'Consistent') ? 'Consistent Engineering Consultants' : org.name}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const nameToUse = (org.name === 'Consitent' || org.name === 'Consistent') ? 'Consistent Engineering Consultants' : org.name;
+                                            setEditedOrgName(nameToUse);
+                                            setEditingOrgId(org.id);
+                                          }}
+                                          className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 transition opacity-0 group-hover:opacity-100 cursor-pointer"
+                                          title="Edit Organization Name"
+                                        >
+                                          <Edit3 size={13} />
+                                        </button>
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="py-4">
                                     <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
