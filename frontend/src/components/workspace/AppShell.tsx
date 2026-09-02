@@ -2760,7 +2760,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           )}
 
           <div className={`flex-1 min-h-0 w-full flex flex-col transition-opacity duration-300 ${isLockedByOther && pathname !== '/notifications' ? 'opacity-90 mt-10' : ''} ${
-            pathname === '/notifications' ? 'p-0 m-0 w-full' : (sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5")
+            sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5"
           }`}>
             {isInitializing ? (
               <div className="flex-1 flex flex-col items-center justify-center p-8 h-full bg-surface dark:bg-[#121212]">
