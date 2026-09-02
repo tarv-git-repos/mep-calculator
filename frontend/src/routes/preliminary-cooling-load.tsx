@@ -1610,6 +1610,7 @@ function PreliminaryCoolingLoadPage() {
 
         setPendingRecords(parsed);
         setSelectedPending(new Set(parsed.map((p) => p.id)));
+        setImportOpen(true);
       } catch (err) {
         console.error("Excel parse error:", err);
         alert("Failed to parse Excel file. Please verify file format.");
@@ -1620,7 +1621,10 @@ function PreliminaryCoolingLoadPage() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) parseExcelFile(file);
+    if (file) {
+      parseExcelFile(file);
+      e.target.value = "";
+    }
   };
 
   const togglePendingRow = (id: string, isShift?: boolean) => {
@@ -3009,6 +3013,13 @@ function PreliminaryCoolingLoadPage() {
       />
       <input
         type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept=".xlsx,.xls,.json"
+        className="hidden"
+      />
+      <input
+        type="file"
         ref={ifcFileInputRef}
         accept=".ifc"
         onChange={handleIFCFileUpload}
@@ -3075,13 +3086,6 @@ function PreliminaryCoolingLoadPage() {
                     </button>
                   </div>
                   <span className="text-[10px] text-muted-foreground mt-3 font-mono">Supports Revit Space Schedules (.xlsx, .xls) and 3D BIM Models</span>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    accept=".xlsx,.xls,.json"
-                    className="hidden"
-                  />
                 </div>
               ) : (
                 <div className="flex flex-col lg:flex-row gap-6 min-h-[400px]">
