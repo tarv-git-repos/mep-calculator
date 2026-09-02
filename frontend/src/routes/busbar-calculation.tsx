@@ -241,6 +241,50 @@ function BusbarCalculationPage() {
   } | null>(null);
 
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  // Deep-linking and auto-scroll from notifications
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleScrollToItem = (e: any) => {
+      const { id, name } = e.detail || {};
+      if (!id && !name) return;
+      for (const p of panels) {
+        for (const s of p.sections) {
+          const r = s.rows.find(rw => rw.id === id || rw.desc === name);
+          if (r) {
+            setCommentTarget({
+              id: r.id,
+              name: r.desc || "Tap Off Row",
+              type: "equipment",
+              panelId: p.id,
+              sectionId: s.id
+            });
+            setAssignCommentOpen(true);
+            setTimeout(() => {
+              const el = document.getElementById(`busbar-row-${r.id}`);
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                el.classList.add("ring-2", "ring-primary", "bg-primary/10");
+                setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
+              }
+            }, 100);
+            return;
+          }
+        }
+      }
+    };
+    window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get("commentTargetId") || params.get("targetId");
+    const targetName = params.get("commentTargetName") || params.get("targetName");
+    if (targetId || targetName) {
+      setTimeout(() => {
+        handleScrollToItem({ detail: { id: targetId, name: targetName } });
+      }, 500);
+    }
+
+    return () => window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+  }, [panels]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterVd, setFilterVd] = useState<"all" | "within" | "exceeds">("all");
@@ -1348,44 +1392,62 @@ function BusbarCalculationPage() {
           doc.setFontSize(8.0);
           doc.setFont("helvetica", "normal");
           doc.setTextColor(60, 60, 60);
-          const currentBasis = section.useMdForCurrent !== false ? "MD" : "TCL";
+          const useMd = section.useMdForCurrent !== false;
+          const currentBasis = useMd ? "MD" : "TCL";
           doc.text(`Selected Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit})  |  Voltage: ${section.volts}V  |  PF: ${section.pf}  |  Current Basis: ${currentBasis}`, 18, infoBoxStartY + 9);
 
-          const tableData = (section.calcRows || []).map((r, idx) => [
-            idx + 1,
-            r.desc || "",
-            (r.length || 0).toString(),
-            (r.loadKw || 0).toString(),
-            (r.tcl || 0).toFixed(2),
-            (r.md || 0).toFixed(2),
-            (r.current || 0).toFixed(2),
-            (r.vd || 0).toFixed(2),
-            (r.vdPercent || 0).toFixed(3) + "%",
-            (r.cumulativeVdPercent || 0).toFixed(3) + "%"
-          ]);
+          const tableData = (section.calcRows || []).map((r, idx) => {
+            const row = [
+              idx + 1,
+              r.desc || "",
+              (r.length || 0).toString(),
+              (r.loadKw || 0).toString(),
+              (r.tcl || 0).toFixed(2),
+            ];
+            if (useMd) {
+              row.push((r.md || 0).toFixed(2));
+            }
+            row.push(
+              (r.current || 0).toFixed(2),
+              (r.vd || 0).toFixed(2),
+              (r.vdPercent || 0).toFixed(3) + "%",
+              (r.cumulativeVdPercent || 0).toFixed(3) + "%"
+            );
+            return row;
+          });
 
           const totalVd = (section.calcRows || []).reduce((sum, row) => sum + (Number(row.vd) || 0), 0);
           const totalCumVd = (section as any).totalCumulativeVd ?? (section.calcRows?.[section.calcRows.length - 1]?.cumulativeVdPercent ?? 0);
           const isExceeded = totalCumVd > 2.5;
 
-          const footData = [[
-            "",
-            "Cumulative VD up to SMDB",
-            "",
-            "",
-            "",
-            "",
-            "",
-            totalVd.toFixed(2) + " V",
-            Number(totalCumVd).toFixed(3) + "%",
-            isExceeded ? "EXCEEDS (FAIL)" : "PASS"
-          ]];
+          const footData = [
+            useMd ? [
+              "",
+              "Cumulative VD up to SMDB",
+              "",
+              "",
+              "",
+              "",
+              "",
+              totalVd.toFixed(2) + " V",
+              Number(totalCumVd).toFixed(3) + "%",
+              isExceeded ? "EXCEEDS (FAIL)" : "PASS"
+            ] : [
+              "",
+              "Cumulative VD up to SMDB",
+              "",
+              "",
+              "",
+              totalVd.toFixed(2) + " V",
+              Number(totalCumVd).toFixed(3) + "%",
+              isExceeded ? "EXCEEDS (FAIL)" : "PASS"
+            ]
+          ];
 
           const lenHeader = unitSystem === "ip" ? "Len (ft)" : "Len (m)";
 
           // Dynamic Column Widths (Printable width: 269mm)
-          // Col 0: No (12mm), Col 1: Description (45mm), Cols 2-9: 8 data columns (26.5mm each)
-          const columnStyles: Record<number, any> = {
+          const columnStyles: Record<number, any> = useMd ? {
             0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
             1: { cellWidth: 45, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
             2: { cellWidth: 26.5, halign: "center" },
@@ -1396,10 +1458,26 @@ function BusbarCalculationPage() {
             7: { cellWidth: 26.5, halign: "center" },
             8: { cellWidth: 26.5, halign: "center" },
             9: { cellWidth: 26.5, halign: "center" }
+          } : {
+            0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
+            1: { cellWidth: 47, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
+            2: { cellWidth: 30, halign: "center" },
+            3: { cellWidth: 30, halign: "center" },
+            4: { cellWidth: 30, halign: "center" },
+            5: { cellWidth: 30, halign: "center" },
+            6: { cellWidth: 30, halign: "center" },
+            7: { cellWidth: 30, halign: "center" },
+            8: { cellWidth: 30, halign: "center" }
           };
 
+          const pdfHead = [
+            useMd
+              ? ["No.", "Description", lenHeader, "Load\n(kW)", "TCL\n(kW)", "MD\n(kW)", "Current\n(A)", "Vdrop\n(V)", "Vdrop\n%", "Cum.\n%"]
+              : ["No.", "Description", lenHeader, "Load\n(kW)", "TCL\n(kW)", "Current\n(A)", "Vdrop\n(V)", "Vdrop\n%", "Cum.\n%"]
+          ];
+
           runAutoTable({
-            head: [["No.", "Description", lenHeader, "Load\n(kW)", "TCL\n(kW)", "MD\n(kW)", "Current\n(A)", "Vdrop\n(V)", "Vdrop\n%", "Cum.\n%"]],
+            head: pdfHead,
             body: tableData,
             foot: footData,
             startY: infoBoxStartY + 15,
@@ -2389,8 +2467,23 @@ function BusbarCalculationPage() {
                 }));
               } catch (e) {}
 
+              if (project?.id) {
+                try {
+                  let wdata = project.workspace_data || {};
+                  if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
+                  wdata.busbar_calc = { panels: next, updatedAt: new Date().toISOString() };
+                  api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+                } catch(e) {}
+              }
+
               return next;
             });
+
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: newComment }));
+              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: newComment }));
+              window.dispatchEvent(new Event("storage"));
+            }
 
             toast.success(`Comment assigned on "${commentTarget.name}"`);
             notifyCommentAssigned({

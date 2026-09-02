@@ -1282,7 +1282,7 @@ export function SuperAdminDashboard() {
                               </button>
                             </td>
                           </tr>
-                        );
+                        ))
                       })()
                       )}
                     </tbody>

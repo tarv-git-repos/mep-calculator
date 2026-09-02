@@ -663,6 +663,43 @@ function LoadingUnitPage() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' } | null>(null);
+  // Deep-linking and auto-scroll from notifications
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleScrollToItem = (e: any) => {
+      const { id, name } = e.detail || {};
+      if (!id && !name) return;
+      const targetSpace = iopSpaces.find(s => String(s.id) === id || s.desc === name);
+      if (targetSpace) {
+        setCommentTarget({
+          id: String(targetSpace.id),
+          name: targetSpace.desc,
+          type: "space"
+        });
+        setAssignCommentOpen(true);
+        setTimeout(() => {
+          const el = document.getElementById(`lu-space-${targetSpace.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("ring-2", "ring-primary", "bg-primary/10");
+            setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
+          }
+        }, 100);
+      }
+    };
+    window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get("commentTargetId") || params.get("targetId");
+    const targetName = params.get("commentTargetName") || params.get("targetName");
+    if (targetId || targetName) {
+      setTimeout(() => {
+        handleScrollToItem({ detail: { id: targetId, name: targetName } });
+      }, 500);
+    }
+
+    return () => window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+  }, [iopSpaces]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
@@ -3065,8 +3102,25 @@ function LoadingUnitPage() {
                   updatedAt: new Date().toISOString()
                 }));
               } catch (e) {}
+
+              if (project?.id) {
+                try {
+                  let wdata = project.workspace_data || {};
+                  if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
+                  wdata.loading_unit_calc = { ...(wdata.loading_unit_calc || {}), iopSpaces: next, updatedAt: new Date().toISOString() };
+                  api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+                } catch(e) {}
+              }
+
               return next;
             });
+
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: newComment }));
+              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: newComment }));
+              window.dispatchEvent(new Event("storage"));
+            }
+
             toast.success(`Comment assigned on space "${commentTarget.name}"`);
             notifyCommentAssigned({
               comment: newComment,

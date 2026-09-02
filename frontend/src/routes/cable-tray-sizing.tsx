@@ -241,6 +241,43 @@ function CableTraySizingPage() {
 
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: string } | null>(null);
+  // Deep-linking and auto-scroll from notifications
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleScrollToItem = (e: any) => {
+      const { id, name } = e.detail || {};
+      if (!id && !name) return;
+      const targetTray = trays.find(t => t.id === id || t.name === name);
+      if (targetTray) {
+        setCommentTarget({
+          id: targetTray.id,
+          name: targetTray.name,
+          type: "equipment"
+        });
+        setAssignCommentOpen(true);
+        setTimeout(() => {
+          const el = document.getElementById(`tray-card-${targetTray.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("ring-2", "ring-primary", "bg-primary/10");
+            setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
+          }
+        }, 100);
+      }
+    };
+    window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get("commentTargetId") || params.get("targetId");
+    const targetName = params.get("commentTargetName") || params.get("targetName");
+    if (targetId || targetName) {
+      setTimeout(() => {
+        handleScrollToItem({ detail: { id: targetId, name: targetName } });
+      }, 500);
+    }
+
+    return () => window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+  }, [trays]);
 
   const insertCableAbove = (trayId: string, cableId: string) => {
     pushToUndo(trays);
@@ -1859,7 +1896,7 @@ function CableTraySizingPage() {
             if (!commentTarget) return;
             const targetId = commentTarget.id;
             pushToUndo(trays);
-            setTrays(prev => prev.map(t => {
+            const updatedTrays = trays.map(t => {
               if (t.id === targetId) {
                 const existing = t.comments || [];
                 return { ...t, comments: [...existing, newComment] };
@@ -1874,7 +1911,24 @@ function CableTraySizingPage() {
                   return c;
                 })
               };
-            }));
+            });
+            setTrays(updatedTrays);
+
+            if (project?.id) {
+              try {
+                let wdata = project.workspace_data || {};
+                if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
+                wdata.cable_tray_calc = updatedTrays;
+                api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+              } catch(e) {}
+            }
+
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: newComment }));
+              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: newComment }));
+              window.dispatchEvent(new Event("storage"));
+            }
+
             toast.success("Comment added successfully");
             notifyCommentAssigned({
               comment: newComment,
