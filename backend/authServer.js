@@ -2053,24 +2053,32 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   
   // POST log activity
+  // POST log activity
   if (req.method === 'POST' && url === '/api/activity/log') {
     const user = await getUserFromReq(req);
-    // Ignore if not logged in
-    if (!user) return sendJSON(res, 200, { success: true }); 
     const { action_type, details } = await getRequestBody(req);
+
+    const dObj = (typeof details === 'object' && details !== null) ? details : {};
     
+    const orgId = user?.organization_id || dObj.organization_id || dObj.org_id || '';
+    const userId = user?.id || dObj.user_id || '';
+    const userEmail = user?.email || dObj.user_email || dObj.email || '';
+    const userName = user?.name || dObj.user_name || dObj.name || userEmail || 'User';
+
     const logs = readActivityLogs();
     logs.unshift({
       id: `log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
       created_at: new Date().toISOString(),
-      user_id: user.id,
-      email: user.email,
-      name: user.name || user.email || 'User',
+      user_id: userId,
+      email: userEmail,
+      name: userName,
+      organization_id: orgId,
+      org_id: orgId,
       action_type,
       details
     });
-    // Keep only last 1000 logs to prevent file bloat
-    if (logs.length > 1000) logs.length = 1000;
+    // Keep only last 2000 logs to prevent file bloat
+    if (logs.length > 2000) logs.length = 2000;
     writeActivityLogs(logs);
     
     return sendJSON(res, 200, { success: true });
@@ -2129,6 +2137,8 @@ const server = http.createServer(async (req, res) => {
     const logs = readActivityLogs();
     const filteredLogs = logs.filter(log => {
       if (!targetOrgId) return true;
+      if (log.organization_id === targetOrgId || log.org_id === targetOrgId) return true;
+      if (log.details && typeof log.details === 'object' && (log.details.organization_id === targetOrgId || log.details.org_id === targetOrgId)) return true;
       if (log.user_id && orgUserIds.has(log.user_id)) return true;
       if (log.email && orgUserEmails.has(log.email.toLowerCase())) return true;
       return false;

@@ -231,6 +231,8 @@ export const exportSprinklerKFactorExcel = async (
     r.getCell(4).alignment = { horizontal: "center", vertical: "middle" };
 
     r.getCell(5).value = item.l2;
+    r.getCell(5).alignment = { horizontal: "center", vertical: "middle" };
+
     r.getCell(8).value = item.v2;
     r.getCell(8).alignment = { horizontal: "center", vertical: "middle" };
   });
