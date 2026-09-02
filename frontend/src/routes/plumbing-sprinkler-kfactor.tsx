@@ -1,4 +1,7 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { EditSprinklerCustomModal } from "@/components/workspace/EditSprinklerCustomModal";
+import { SprinklerKFactorSelect } from "@/components/workspace/SprinklerKFactorSelect";
+import { SprinklerHazardSelect } from "@/components/workspace/SprinklerHazardSelect";
 import { useAuth } from "@/contexts/AuthContext";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { exportSprinklerKFactorPDF, type SprinklerExportRow } from "@/lib/exportSprinklerKFactorPDF";
@@ -12,7 +15,7 @@ import {
   AlertTriangle, CheckCircle2, Info, FileText, Printer, FileSpreadsheet,
   ArrowUpDown, ChevronRight, ChevronDown, RefreshCw, Play, Settings, Search,
   HelpCircle, Share2, Clipboard, Undo, Redo,
-  Activity, Droplet, Flag, MessageSquare, Check, Eye
+  Activity, Droplet, Flag, MessageSquare, Check, Eye, Wrench
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
@@ -269,6 +272,7 @@ function SprinklerKFactorPage() {
   const [hazardFilter, setHazardFilter] = useState("All");
   const [kFilter, setKFilter] = useState("All");
   const [flagFilterOnly, setFlagFilterOnly] = useState(false);
+  const [editingSprinkler, setEditingSprinkler] = useState<SprinklerRow | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkEditData, setBulkEditData] = useState<{
     hazard?: string;
@@ -1291,69 +1295,71 @@ function SprinklerKFactorPage() {
     {
       key: "label",
       header: "Sprinkler Label / Location",
-      width: 200,
-      render: (row) => (
-        <div className="flex items-center gap-1.5 w-full">
-          <InlineInput
-            value={row.label}
-            onCommit={(val) => updateRow(row.id, "label", val)}
-            className="text-[13px] font-medium"
-          />
-          {row.notes && (
-            <span title={row.notes} className="text-muted-foreground hover:text-foreground cursor-help shrink-0">
-              <MessageSquare className="size-3 text-primary/70" />
-            </span>
-          )}
-        </div>
-      )
+      width: 210,
+      render: (row) => {
+        const isStandardList = unitSystem === "si" ? [40, 60, 80, 115, 160, 200, 242, 282, 320, 360, 400] : [2.8, 4.2, 5.6, 8.0, 11.2, 14.0, 16.8, 19.6, 22.4, 25.2, 28.0];
+        const isCustom = row.hazard?.endsWith(" (Custom)") || String(row.label).endsWith(" (Custom)") || !isStandardList.some(k => Math.abs(k - row.kFactor) < 0.05);
+
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            <InlineInput
+              value={row.label}
+              onCommit={(val) => updateRow(row.id, "label", val)}
+              className="text-[13px] font-medium"
+            />
+            {isCustom && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingSprinkler(row);
+                }}
+                title="Configure custom sprinkler parameters"
+                className="p-1 rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+              >
+                <Wrench className="size-3" />
+              </button>
+            )}
+            {row.notes && (
+              <span title={row.notes} className="text-muted-foreground hover:text-foreground cursor-help shrink-0">
+                <MessageSquare className="size-3 text-primary/70" />
+              </span>
+            )}
+          </div>
+        );
+      }
     },
     {
       key: "kFactor",
       header: "K-Factor",
-      width: 110,
+      width: 140,
       render: (row) => {
-        const isSI = unitSystem === "si";
+        const isStandardList = unitSystem === "si" ? [40, 60, 80, 115, 160, 200, 242, 282, 320, 360, 400] : [2.8, 4.2, 5.6, 8.0, 11.2, 14.0, 16.8, 19.6, 22.4, 25.2, 28.0];
+        const isCustomK = !isStandardList.some(k => Math.abs(k - row.kFactor) < 0.05);
+
         return (
-          <select
-            value={row.kFactor}
-            onChange={(e) => updateRow(row.id, "kFactor", parseFloat(e.target.value))}
-            onClick={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            className="bg-transparent w-full border border-transparent hover:border-border hover:bg-surface-2 focus:bg-background focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl px-1.5 py-1 text-[13px] text-foreground font-medium transition-all outline-none cursor-pointer"
-          >
-            {isSI ? (
-              <>
-                <option value="40.0">K-40 (Res)</option>
-                <option value="60.0">K-60</option>
-                <option value="80.0">K-80 (Std)</option>
-                <option value="115.0">K-115</option>
-                <option value="160.0">K-160 (ESFR)</option>
-                <option value="200.0">K-200</option>
-                <option value="242.0">K-242</option>
-                <option value="282.0">K-282</option>
-                <option value="320.0">K-320</option>
-                <option value="360.0">K-360</option>
-                <option value="400.0">K-400</option>
-              </>
-            ) : (
-              <>
-                <option value="2.8">K-2.8 (Res)</option>
-                <option value="4.2">K-4.2</option>
-                <option value="5.6">K-5.6 (Std)</option>
-                <option value="8.0">K-8.0</option>
-                <option value="11.2">K-11.2 (ESFR)</option>
-                <option value="14.0">K-14.0</option>
-                <option value="16.8">K-16.8</option>
-                <option value="19.6">K-19.6</option>
-                <option value="22.4">K-22.4</option>
-                <option value="25.2">K-25.2</option>
-                <option value="28.0">K-28.0</option>
-              </>
+          <div className="flex items-center gap-1 w-full">
+            <SprinklerKFactorSelect
+              value={row.kFactor}
+              unitSystem={unitSystem}
+              onChange={(val) => updateRow(row.id, "kFactor", val)}
+              onOpenCustomModal={() => setEditingSprinkler(row)}
+              hideChevron={isCustomK}
+            />
+            {isCustomK && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingSprinkler(row);
+                }}
+                title="Configure custom parameters"
+                className="p-1 rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+              >
+                <Wrench className="size-3" />
+              </button>
             )}
-            {!(isSI ? [40, 60, 80, 115, 160, 200, 242, 282, 320, 360, 400] : [2.8, 4.2, 5.6, 8.0, 11.2, 14.0, 16.8, 19.6, 22.4, 25.2, 28.0]).includes(row.kFactor) && (
-              <option value={row.kFactor}>Custom: K-{row.kFactor.toFixed(1)}</option>
-            )}
-          </select>
+          </div>
         );
       }
     },
@@ -1431,20 +1437,36 @@ function SprinklerKFactorPage() {
     {
       key: "hazard",
       header: "Hazard Classification",
-      width: 180,
-      render: (row) => (
-        <select
-          value={row.hazard}
-          onChange={(e) => updateRow(row.id, "hazard", e.target.value)}
-          className="bg-transparent w-full border border-transparent hover:border-border hover:bg-surface-2 focus:bg-background focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl px-1.5 py-1 text-[13px] text-foreground font-medium transition-all outline-none cursor-pointer"
-        >
-          <option value="Light Hazard">Light Hazard</option>
-          <option value="Ordinary Hazard Gp 1">Ordinary Gp 1</option>
-          <option value="Ordinary Hazard Gp 2">Ordinary Gp 2</option>
-          <option value="Extra Hazard Gp 1">Extra Gp 1</option>
-          <option value="Extra Hazard Gp 2">Extra Gp 2</option>
-        </select>
-      )
+      width: 190,
+      render: (row) => {
+        const standardHazards = ["Light Hazard", "Ordinary Hazard Gp 1", "Ordinary Hazard Gp 2", "Extra Hazard Gp 1", "Extra Hazard Gp 2", "Storage / ESFR"];
+        const isCustomHazard = row.hazard?.endsWith(" (Custom)") || !standardHazards.includes(row.hazard);
+
+        return (
+          <div className="flex items-center gap-1 w-full">
+            <SprinklerHazardSelect
+              value={row.hazard}
+              unitSystem={unitSystem}
+              onChange={(val) => updateRow(row.id, "hazard", val)}
+              onOpenCustomModal={() => setEditingSprinkler(row)}
+              hideChevron={isCustomHazard}
+            />
+            {isCustomHazard && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingSprinkler(row);
+                }}
+                title="Configure custom parameters"
+                className="p-1 rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+              >
+                <Wrench className="size-3" />
+              </button>
+            )}
+          </div>
+        );
+      }
     },
     {
       key: "status",
@@ -2625,6 +2647,19 @@ function SprinklerKFactorPage() {
           )}
         </div>
       </div>
+
+      {/* Custom Sprinkler Parameter Modal */}
+      {editingSprinkler && (
+        <EditSprinklerCustomModal
+          sprinkler={editingSprinkler}
+          unitSystem={unitSystem}
+          onClose={() => setEditingSprinkler(null)}
+          onSave={(updated) => {
+            pushToUndo(rows);
+            setRows((prev) => prev.map((r) => (r.id === updated.id ? computeRowOutputs(updated) : r)));
+          }}
+        />
+      )}
 
       {/* Bulk Edit Modal */}
       {bulkEditOpen && (
