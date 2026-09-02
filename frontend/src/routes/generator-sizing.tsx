@@ -9,6 +9,7 @@ import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { Download, FileSpreadsheet, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag } from "lucide-react";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { EditGeneratorRowModal } from "@/components/workspace/EditGeneratorRowModal";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import {
@@ -220,7 +221,7 @@ function GeneratorSizingPage() {
 
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
   const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
-
+  const [editingRow, setEditingRow] = useState<{ row: GenRow; index: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
 
@@ -1508,12 +1509,27 @@ function GeneratorSizingPage() {
                           const totalKw = rUnit * rKw;
                               const actualKw = totalKw - rSb;
 
+                              const isEditing = editingRow?.row.id === r.id;
+                              const isModalOpen = editingRow !== null;
+
                               return (
                                 <ContextMenu key={r.id}>
                                   <ContextMenuTrigger asChild>
                                     <tr
                                       key={r.id}
-                                      className={`hover:bg-surface-2 transition-colors cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11.5px]" : "h-9 text-[12.5px]"} ${selectedRows.has(r.id) ? "bg-primary/5" : ""} ${draggedRowIndex === rowIndex ? "opacity-50" : ""}`}
+                                      onDoubleClick={() => {
+                                        toggleSelection(r.id, false, false);
+                                        setEditingRow({ row: r, index: rowIndex });
+                                      }}
+                                      className={`transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11.5px]" : "h-9 text-[12.5px]"} ${
+                                        isEditing
+                                          ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                          : isModalOpen
+                                          ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                          : selectedRows.has(r.id)
+                                          ? "bg-primary/5"
+                                          : "hover:bg-surface-2"
+                                      } ${draggedRowIndex === rowIndex ? "opacity-50" : ""}`}
                                       draggable
                                       onDragStart={(e) => handleDragStart(e, rowIndex)}
                                       onDragOver={(e) => handleDragOver(e, rowIndex)}
@@ -1717,7 +1733,19 @@ function GeneratorSizingPage() {
                                         />
                                       </td>
                                       <td className="p-0 text-center">
-                                        <div className="flex items-center justify-center h-full w-full px-1">
+                                        <div className="flex items-center justify-center gap-1 h-full w-full px-1">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleSelection(r.id, false, false);
+                                              setEditingRow({ row: r, index: rowIndex });
+                                            }}
+                                            className="text-primary/70 hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
+                                            title="Edit Parameters & Calculations Breakdown"
+                                          >
+                                            <Info className="size-3.5" />
+                                          </button>
                                           {(() => {
                                             const { isAutoFlagged, isFlagged, warnings } = getGenRowValidation(r);
                                             const tooltipText = isFlagged
@@ -2205,6 +2233,38 @@ function GeneratorSizingPage() {
             );
             pushState(newRows);
             toast.success("Comment added successfully");
+          }}
+        />
+      )}
+      {/* Double-Click Edit & Calculation Breakdown Modal */}
+      {editingRow && (
+        <EditGeneratorRowModal
+          row={editingRow.row}
+          rowIndex={editingRow.index + 1}
+          projectName={currentProject}
+          pf={pf}
+          lf={lf}
+          unitSystem={unitSystem}
+          onClose={() => setEditingRow(null)}
+          onSave={(updated) => {
+            const targetId = editingRow.row.id;
+            const newRows = rows.map((r) =>
+              r.id === targetId
+                ? {
+                    ...r,
+                    desc: updated.desc,
+                    unit: updated.unit,
+                    kwPerUnit: updated.kwPerUnit,
+                    starter: updated.starter,
+                    multiplier: updated.multiplier,
+                    remark: updated.remark,
+                    excludeEmergency: updated.excludeEmergency,
+                  }
+                : r
+            );
+            pushState(newRows);
+            setEditingRow(null);
+            toast.success(`Updated "${updated.desc || 'Load Item'}" parameters.`);
           }}
         />
       )}

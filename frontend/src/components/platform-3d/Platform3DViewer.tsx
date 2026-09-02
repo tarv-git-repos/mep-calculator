@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { extractSpacesFromIFCFile } from '@/lib/bimViewerSpaceExtractor';
 
 export function Platform3DViewer() {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -69,15 +71,36 @@ export function Platform3DViewer() {
     };
   }, []);
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = async (file: File) => {
     if (!file || !file.name.toLowerCase().endsWith('.ifc')) return;
     setIsLoading(true);
-    setLoadingText(`Loading ${file.name}...`);
+    setLoadingText(`Parsing 3D BIM model ${file.name}...`);
 
-    setTimeout(() => {
+    try {
+      const spaces = await extractSpacesFromIFCFile(file);
+      if (typeof window !== "undefined") {
+        (window as any).__BIM_VIEWER_SPACES__ = spaces;
+        (window as any).__BIM_VIEWER_ACTIVE_FILE__ = file.name;
+        try {
+          localStorage.setItem('mep_active_bim_spaces', JSON.stringify(spaces));
+          localStorage.setItem('mep_active_bim_filename', file.name);
+        } catch (e) {
+          // ignore storage quota errors for large models
+        }
+      }
       setIsLoading(false);
       setIsLoaded(true);
-    }, 1200);
+      if (spaces.length > 0) {
+        toast.success(`Loaded 3D BIM model with ${spaces.length} spatial zones ready for calculator import!`);
+      } else {
+        toast.success(`Loaded 3D model ${file.name}`);
+      }
+    } catch (err) {
+      console.error("Error parsing IFC model:", err);
+      setIsLoading(false);
+      setIsLoaded(true);
+      toast.error("Failed to extract spatial data from IFC file.");
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {

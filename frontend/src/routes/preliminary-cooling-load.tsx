@@ -9,7 +9,7 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   Plus, Trash2, Download, Upload, X, Sparkles, AlertTriangle, CheckCircle2,
   Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, ChevronUp, Wrench, RefreshCw, Bookmark, HelpCircle,
-  Filter, ArrowUpDown, Edit3, MessageSquare, Flag
+  Filter, ArrowUpDown, Edit3, MessageSquare, Flag, Box
 } from "lucide-react";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
@@ -34,7 +34,9 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
 import { PclCategorySelect } from "@/components/workspace/PclCategorySelect";
 import { exportPreliminaryCoolingLoadPDF } from "@/lib/exportPreliminaryCoolingLoadPDF";
-
+import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
+import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/preliminary-cooling-load")({
   head: () => ({
@@ -45,7 +47,6 @@ export const Route = createFileRoute("/preliminary-cooling-load")({
   }),
   component: PreliminaryCoolingLoadPage,
 });
-
 
 export function checkIfPclMissingData(r: { name?: string; area?: number | string; type?: string }): { isMissing: boolean; reason: string } {
   const isNoName = !r.name || r.name.trim() === "";
@@ -641,7 +642,8 @@ function PreliminaryCoolingLoadPage() {
     flagged: false,
   });
 
-  // Revit Excel / JSON Import Modal state
+  // Revit Excel / JSON / 3D BIM Import Modal state
+  const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [pendingRecords, setPendingRecords] = useState<any[]>([]);
   const [selectedPending, setSelectedPending] = useState<Set<string>>(new Set());
@@ -651,6 +653,111 @@ function PreliminaryCoolingLoadPage() {
     type: "",
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ifcFileInputRef = useRef<HTMLInputElement>(null);
+
+  const mapExtracted3DSpaceToPcl = (sp: any, idx: number): any => {
+    const rawName = sp.name || `Space ${idx + 1}`;
+    const floor = sp.level || extractFloor(rawName) || "Ground Floor";
+    const area = typeof sp.area === "number" ? sp.area : parseFloat(String(sp.area)) || 0;
+
+    let inferredType = "";
+    const predCat = sp.category || "";
+
+    if (predCat && SPACE_DENSITIES[predCat]) {
+      inferredType = predCat;
+    } else if (rawName) {
+      const rawLower = rawName.toLowerCase();
+      const matchedKey = Object.keys(SPACE_DENSITIES).find(
+        (k) => k.toLowerCase() === rawLower || rawLower.includes(k.toLowerCase()) || k.toLowerCase().includes(rawLower)
+      );
+      if (matchedKey) inferredType = matchedKey;
+    }
+
+    if (!inferredType) {
+      const n = rawName.toLowerCase();
+      if (n.includes("office")) inferredType = "Office (General)";
+      else if (n.includes("meeting") || n.includes("conf") || n.includes("board")) inferredType = "Conference / Meeting Room";
+      else if (n.includes("lobby") || n.includes("reception")) inferredType = "Lobby / Reception";
+      else if (n.includes("corridor") || n.includes("hallway") || n.includes("passage")) inferredType = "Corridor";
+      else if (n.includes("toilet") || n.includes("wc") || n.includes("bath") || n.includes("restroom")) inferredType = "Restroom / Toilet";
+      else if (n.includes("kitchen") || n.includes("pantry")) inferredType = "Commercial Kitchen / Pantry";
+      else if (n.includes("server") || n.includes("data") || n.includes("it") || n.includes("telecom")) inferredType = "Server / IT Room";
+      else if (n.includes("retail") || n.includes("shop") || n.includes("store")) inferredType = "Retail / Showroom";
+      else if (n.includes("gym") || n.includes("fitness")) inferredType = "Fitness Center / Gym";
+      else if (n.includes("classroom") || n.includes("training")) inferredType = "Classroom / Training Room";
+      else if (n.includes("storage") || n.includes("store")) inferredType = "Storage / Warehouse";
+      else if (n.includes("dining") || n.includes("restaurant") || n.includes("cafe")) inferredType = "Restaurant / Dining Area";
+      else inferredType = "Office (General)";
+    }
+
+    const density = inferredType ? (SPACE_DENSITIES[inferredType] || 120) : 120;
+    const dissipation = area * density;
+    const kw = dissipation / 1000;
+    const tr = kw / 3.517;
+    const isMissing = !inferredType || !area || area <= 0;
+
+    return {
+      id: `3d-pcl-${idx}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      floor,
+      name: rawName,
+      type: inferredType,
+      density,
+      area,
+      occupancy: sp.fixtures || undefined,
+      dissipation,
+      kw: Number(kw.toFixed(2)),
+      tr: Number(tr.toFixed(2)),
+      flagged: isMissing,
+      source: "3d-viewer",
+    };
+  };
+
+  const handleSelect3DViewer = async () => {
+    const extracted = extractSpacesFromActiveViewer();
+    if (extracted.length > 0) {
+      const parsedPcl = extracted.map((sp, idx) => mapExtracted3DSpaceToPcl(sp, idx));
+      setPendingRecords(parsedPcl);
+      setSelectedPending(new Set(parsedPcl.map((p) => p.id)));
+      setImportOpen(true);
+      toast.success(`Extracted ${parsedPcl.length} spaces from 3D BIM Viewer!`);
+    } else {
+      const answer = await confirm(
+        "No active 3D model spaces detected in memory. Would you like to select an IFC model file to parse spaces?",
+        {
+          title: "Import from 3D BIM Model",
+          confirmText: "Select IFC File",
+          cancelText: "Cancel",
+        }
+      );
+      if (answer && ifcFileInputRef.current) {
+        ifcFileInputRef.current.click();
+      }
+    }
+  };
+
+  const handleIFCFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      toast.loading("Parsing 3D IFC Model spaces...", { id: "ifc-parse" });
+      const extracted = await extractSpacesFromIFCFile(file);
+      toast.dismiss("ifc-parse");
+      if (extracted.length === 0) {
+        toast.error("No IFCSPACE elements found in the selected model.");
+        return;
+      }
+      const parsedPcl = extracted.map((sp, idx) => mapExtracted3DSpaceToPcl(sp, idx));
+      setPendingRecords(parsedPcl);
+      setSelectedPending(new Set(parsedPcl.map((p) => p.id)));
+      setImportOpen(true);
+      toast.success(`Successfully imported ${parsedPcl.length} spaces from 3D IFC Model!`);
+    } catch (err) {
+      toast.dismiss("ifc-parse");
+      toast.error("Failed to parse IFC file. Please ensure it is a valid BIM IFC model.");
+    } finally {
+      if (e.target) e.target.value = "";
+    }
+  };
 
   // Comment & Task Assignment Modal State
   const [commentModalOpen, setCommentModalOpen] = useState(false);
@@ -2292,7 +2399,7 @@ function PreliminaryCoolingLoadPage() {
                       </Popover>
                       
                       <div className="ml-auto flex items-center gap-1">
-                        <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
+                        <TBtn onClick={() => setSourceModalOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
                         <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export PDF</TBtn>
                         <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
@@ -2661,6 +2768,21 @@ function PreliminaryCoolingLoadPage() {
           </div>
         </div>
       </div>
+
+      {/* Import Source Selector Modal */}
+      <ImportSourceModal
+        isOpen={sourceModalOpen}
+        onClose={() => setSourceModalOpen(false)}
+        onSelectExcel={() => fileInputRef.current?.click()}
+        onSelect3DViewer={handleSelect3DViewer}
+      />
+      <input
+        type="file"
+        ref={ifcFileInputRef}
+        accept=".ifc"
+        onChange={handleIFCFileUpload}
+        className="hidden"
+      />
 
       {/* Import Modal Overlay */}
       {importOpen && (

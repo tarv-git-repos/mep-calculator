@@ -7,7 +7,7 @@ import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
@@ -19,6 +19,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { EditCableTrayRowModal } from "@/components/workspace/EditCableTrayRowModal";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -102,6 +103,7 @@ function CableTraySizingPage() {
   };
 
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [editingCable, setEditingCable] = useState<{ cable: Cable; trayId: string; index: number } | null>(null);
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkForm, setBulkForm] = useState({ type: "", cores: "", size: "", qty: "", spacingFactor: "" });
@@ -1301,22 +1303,40 @@ function CableTraySizingPage() {
                       calcCables.map((c, idx) => {
                         const currentGlobalRowIndex = globalRowIndex++;
                         const sizesForCore = c.cores ? Object.keys(cableDatabase[c.cores] || {}).sort((a,b) => parseFloat(a) - parseFloat(b)) : [];
+                        const isEditing = editingCable?.cable.id === c.id;
+                        const isModalOpen = editingCable !== null;
+
                         return (
                           <ContextMenu key={c.id}>
                             <ContextMenuTrigger asChild>
-                              <tr data-cable-row="true" className={cn(
-                                "hover:bg-surface-2/50 transition-colors cursor-pointer",
-                                selectedRows.has(c.id) ? "bg-primary/10" : ""
-                              )} onClick={(e) => {
-                                const tagName = (e.target as HTMLElement).tagName;
-                                if (tagName === 'TD') {
-                                  toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                }
-                              }} onContextMenu={() => {
-                                if (!selectedRows.has(c.id)) {
+                              <tr
+                                data-cable-row="true"
+                                onDoubleClick={() => {
                                   toggleRowSelect(c.id, false, false);
-                                }
-                              }}>
+                                  setEditingCable({ cable: c, trayId: tray.id, index: idx });
+                                }}
+                                className={cn(
+                                  "transition-all duration-200 cursor-pointer",
+                                  isEditing
+                                    ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                    : isModalOpen
+                                    ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                    : selectedRows.has(c.id)
+                                    ? "bg-primary/10"
+                                    : "hover:bg-surface-2/50"
+                                )}
+                                onClick={(e) => {
+                                  const tagName = (e.target as HTMLElement).tagName;
+                                  if (tagName === 'TD') {
+                                    toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                  }
+                                }}
+                                onContextMenu={() => {
+                                  if (!selectedRows.has(c.id)) {
+                                    toggleRowSelect(c.id, false, false);
+                                  }
+                                }}
+                              >
                                 <td className="w-8 border-r border-border text-center p-0">
                                   <div className="flex justify-center items-center h-full w-full">
                                     <input
@@ -1426,10 +1446,28 @@ function CableTraySizingPage() {
                                 <td className="px-3 py-1 text-center font-mono font-medium border-r border-border bg-surface-2 text-foreground">
                                   {isNaN(c.sumOd) ? "-" : (unitSystem === "si" ? c.sumOd.toFixed(1) : (c.sumOd / 25.4).toFixed(2))}
                                 </td>
-                                <td className="text-center p-0">
-                                  <button onClick={() => removeCable(tray.id, c.id)} className="text-destructive/70 hover:text-destructive hover:bg-destructive/10 w-full h-8 flex items-center justify-center transition-colors">
-                                    <Trash2 className="size-3.5" />
-                                  </button>
+                                <td className="text-center p-0" onDoubleClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-center gap-1 w-full h-8 px-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        toggleRowSelect(c.id, false, false);
+                                        setEditingCable({ cable: c, trayId: tray.id, index: idx });
+                                      }}
+                                      className="text-primary/70 hover:text-primary hover:bg-primary/10 p-1 rounded transition-colors cursor-pointer"
+                                      title="Edit Parameters & Calculations Breakdown"
+                                    >
+                                      <Info className="size-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeCable(tray.id, c.id)}
+                                      className="text-destructive/70 hover:text-destructive hover:bg-destructive/10 p-1 rounded transition-colors cursor-pointer"
+                                      title="Remove Cable"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             </ContextMenuTrigger>
@@ -1807,6 +1845,25 @@ function CableTraySizingPage() {
               };
             }));
             toast.success("Comment added successfully");
+          }}
+        />
+      )}
+      {/* Double-Click Edit & Calculation Breakdown Modal */}
+      {editingCable && (
+        <EditCableTrayRowModal
+          cable={editingCable.cable}
+          rowIndex={editingCable.index + 1}
+          trayName={trays.find((t) => t.id === editingCable.trayId)?.name || "Cable Tray"}
+          unitSystem={unitSystem}
+          cableDatabase={cableDatabase}
+          onClose={() => setEditingCable(null)}
+          onSave={(updated) => {
+            pushToUndo(trays);
+            updateCable(editingCable.trayId, editingCable.cable.id, "cores", updated.cores);
+            updateCable(editingCable.trayId, editingCable.cable.id, "size", updated.size);
+            updateCable(editingCable.trayId, editingCable.cable.id, "qty", updated.qty);
+            setEditingCable(null);
+            toast.success(`Updated "${updated.cores} ${updated.size} mm²" cable parameters.`);
           }}
         />
       )}

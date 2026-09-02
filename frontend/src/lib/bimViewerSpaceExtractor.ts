@@ -323,7 +323,38 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
   const spaces: Extracted3DSpace[] = [];
 
   const win = typeof window !== "undefined" ? (window as any) : {};
-  const activeBimData = win.__BIM_VIEWER_SPACES__ || win.__BIM_VIEWER_MODEL_DATA__ || [];
+  let activeBimData = win.__BIM_VIEWER_SPACES__ || win.__BIM_VIEWER_MODEL_DATA__;
+
+  if ((!activeBimData || activeBimData.length === 0) && typeof localStorage !== "undefined") {
+    try {
+      const stored = localStorage.getItem("mep_active_bim_spaces");
+      if (stored) {
+        activeBimData = JSON.parse(stored);
+      }
+    } catch (e) {
+      console.warn("Failed to parse cached BIM spaces:", e);
+    }
+  }
+
+  // Fallback to workspace spaces if available
+  if ((!activeBimData || activeBimData.length === 0) && typeof workspaceStore !== "undefined") {
+    try {
+      const wsSpaces = workspaceStore.getState().spaces;
+      if (wsSpaces && wsSpaces.length > 0) {
+        activeBimData = wsSpaces.map((s) => ({
+          name: s.name,
+          level: s.level || s.floor || "Ground Floor",
+          zone: s.zone || "Default",
+          area: s.area || 0,
+          height: s.height || 3.0,
+          category: s.category || "",
+          fixtures: s.fixtures || "",
+        }));
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
 
   if (Array.isArray(activeBimData) && activeBimData.length > 0) {
     activeBimData.forEach((sp: any, idx: number) => {
@@ -337,7 +368,7 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
       if (height > 100) height = height / 1000;
       const occupants = sp.occupants || sp.people || sp.fixtures || "";
 
-      const predCat = predictOccupancyCategory(rawName);
+      const predCat = sp.category ? { category: sp.category, confidence: 0.9 } : predictOccupancyCategory(rawName);
       const predPress = predictSpacePressure(predCat.category || "");
 
       spaces.push({
