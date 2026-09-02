@@ -1585,8 +1585,41 @@ function SprinklerKFactorPage() {
           </span>
         );
       }
-    }
-  ], [rows, unitSystem]);
+    },
+    {
+      key: "flagged",
+      header: "",
+      width: 40,
+      align: "center",
+      render: (row) => {
+        const check = checkIfSprinklerMissingData(row);
+        const isFlagged = Boolean(row.flagged || check.isMissing);
+        const tooltip = check.isMissing
+          ? check.reason
+          : (row.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag sprinkler");
+
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFlag(row.id, e);
+            }}
+            title={tooltip}
+            className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+          >
+            <Flag
+              className={`size-3.5 transition-all duration-200 ${
+                isFlagged
+                  ? "fill-red-500 text-red-500 scale-110"
+                  : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+              }`}
+            />
+          </button>
+        );
+      },
+    },
+  ], [rows, unitSystem, selected, toggleFlag, updateRow]);
 
   const toggleSelect = (id: string, isShift?: boolean, isCtrl?: boolean) => {
     setSelected(prev => {
