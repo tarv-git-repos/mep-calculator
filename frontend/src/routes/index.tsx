@@ -2925,10 +2925,10 @@ function SpacesView() {
                 </p>
                 <div className="flex items-center gap-3 w-full">
                   <button
-                    onClick={() => setImportOpen(true)}
+                    onClick={() => setSourceModalOpen(true)}
                     className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
                   >
-                    <Upload className="size-3.5" /> Import Revit Excel
+                    <Upload className="size-3.5" /> Import
                   </button>
                   <button
                     onClick={handleNewSpace}

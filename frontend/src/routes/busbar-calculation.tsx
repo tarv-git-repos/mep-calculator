@@ -202,7 +202,23 @@ function BusbarCalculationPage() {
     return () => window.removeEventListener("click", handleClickOutside);
   }, []);
 
-  const [customBusbars, setCustomBusbars] = useState<Record<string, { r: number; x: number; label: string }>>({});
+  const [customBusbars, setCustomBusbars] = useState<Record<string, { r: number; x: number; label: string }>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_custom_busbar_ratings");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to load custom busbar ratings", e);
+      }
+    }
+    return {};
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("mep_custom_busbar_ratings", JSON.stringify(customBusbars));
+    }
+  }, [customBusbars]);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState<Set<string>>(new Set());
@@ -1487,12 +1503,12 @@ function BusbarCalculationPage() {
         let rating: any = null, r: number | null = null, x: number | null = null, label: string | null = null;
         for (const key in row) {
           if (!key) continue;
-          const k = key.toString().toLowerCase();
+          const k = key.toString().toLowerCase().trim();
           const val = row[key];
-          if (k.includes('rating') || k.includes('size')) rating = val;
-          else if (k === 'r' || k.includes('resist')) r = parseFloat(val);
-          else if (k === 'x' || k.includes('react')) x = parseFloat(val);
-          else if (k.includes('label') || k.includes('type')) label = val;
+          if (k.includes('rating') || k.includes('size') || k.includes('amp') || k.includes('current') || k === 'a') rating = val;
+          else if (k === 'r' || k.includes('resist') || k.includes('resistance')) r = parseFloat(val);
+          else if (k === 'x' || k.includes('react') || k.includes('reactance')) x = parseFloat(val);
+          else if (k.includes('label') || k.includes('type') || k.includes('name') || k.includes('material')) label = val;
         }
         
         if (rating && r != null && !isNaN(r) && x != null && !isNaN(x)) {
@@ -1507,9 +1523,9 @@ function BusbarCalculationPage() {
 
       if (importedCount > 0) {
         setCustomBusbars(newCustoms);
-        confirm(`Successfully imported ${importedCount} custom busbar ratings!`);
+        toast.success(`Successfully imported ${importedCount} custom busbar rating(s)!`);
       } else {
-        confirm("Could not find columns for Rating, Resistance, and Reactance in the Excel file.\nPlease ensure your Excel file has headers like 'Busbar Rating', 'Resistance', and 'Reactance'.");
+        toast.error("Could not find columns for Rating, Resistance, and Reactance in the Excel file.\nPlease ensure your Excel file has headers like 'Rating', 'Resistance', and 'Reactance'.");
       }
       
       event.target.value = '';

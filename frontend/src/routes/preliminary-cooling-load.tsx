@@ -2617,10 +2617,10 @@ function PreliminaryCoolingLoadPage() {
                             </p>
                             <div className="flex items-center gap-3 w-full">
                               <button
-                                onClick={() => setImportOpen(true)}
+                                onClick={() => setSourceModalOpen(true)}
                                 className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
                               >
-                                <Upload className="size-3.5" /> Import Revit Excel
+                                <Upload className="size-3.5" /> Import
                               </button>
                               <button
                                 onClick={handleAddNewSpace}
@@ -2930,14 +2930,14 @@ function PreliminaryCoolingLoadPage() {
             <header className="px-6 py-4 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Upload className="size-5 text-primary animate-bounce" />
-                <h3 className="font-bold text-[15px]">Import Space Schedule (Excel / JSON)</h3>
+                <h3 className="font-bold text-[15px]">Import Space Schedule</h3>
               </div>
               <button
                 onClick={() => {
                   setImportOpen(false);
                   setPendingRecords([]);
                 }}
-                className="text-muted-foreground hover:text-foreground hover:bg-surface-3 rounded-md p-1"
+                className="text-muted-foreground hover:text-foreground hover:bg-surface-3 rounded-md p-1 cursor-pointer"
               >
                 <X className="size-4" />
               </button>
@@ -2960,7 +2960,19 @@ function PreliminaryCoolingLoadPage() {
                   </div>
                   <span className="font-semibold text-sm">Drag & drop your Excel space schedule here</span>
                   <span className="text-xs text-muted-foreground mt-1">or click to browse files from your computer</span>
-                  <span className="text-[10px] text-muted-foreground mt-4 font-mono">Supports Revit Space Schedules with columns: Level/Floor, Name, Area</span>
+                  <div className="mt-4 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelect3DViewer();
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-border bg-surface-1 hover:bg-surface-2 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer text-foreground"
+                    >
+                      <Box className="size-3.5 text-primary" /> Import from 3D BIM Viewer
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-3 font-mono">Supports Revit Space Schedules (.xlsx, .xls) and 3D BIM Models</span>
                   <input
                     type="file"
                     ref={fileInputRef}
@@ -2971,7 +2983,6 @@ function PreliminaryCoolingLoadPage() {
                 </div>
               ) : (
                 <div className="flex flex-col lg:flex-row gap-6 min-h-[400px]">
-                  
                   {/* Left: Pending rows table */}
                   <div className="flex-1 flex flex-col border border-border rounded-xl bg-card overflow-hidden">
                     <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/50 border-b border-border flex items-center justify-between text-xs font-semibold">
