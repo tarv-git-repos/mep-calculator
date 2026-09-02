@@ -892,9 +892,37 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       addNotifs(wdata.zones, "Zone", p.name, p.id, "/ventilation");
       addNotifs(wdata.equipment, "Equipment", p.name, p.id, "/ventilation");
 
-      // Scan local calculation state for Loading Unit, Fixture Unit & Busbar
+      // Scan local calculation state for Loading Unit, Fixture Unit, Busbar, Preliminary Cooling Load, Sprinkler K-Factor, Lux & Cable Tray
       if (typeof localStorage !== 'undefined') {
         try {
+          const pclStored = localStorage.getItem(`mep_pcl_rows_${p.id}`);
+          if (pclStored) {
+            const pclRows = JSON.parse(pclStored);
+            if (Array.isArray(pclRows)) {
+              addNotifs(pclRows, "Cooling Space", p.name, p.id, "/preliminary-cooling-load");
+            }
+          }
+          const spkStored = localStorage.getItem(`mep_sprinklers_${p.id}`) || localStorage.getItem(`mep_sprinkler_rows_${p.id}`);
+          if (spkStored) {
+            const spkRows = JSON.parse(spkStored);
+            if (Array.isArray(spkRows)) {
+              addNotifs(spkRows, "Sprinkler Head", p.name, p.id, "/plumbing-sprinkler-kfactor");
+            }
+          }
+          const luxStored = localStorage.getItem(`mep_lux_calc_${p.id}`);
+          if (luxStored) {
+            const luxRows = JSON.parse(luxStored);
+            if (Array.isArray(luxRows)) {
+              addNotifs(luxRows, "Lux Space", p.name, p.id, "/lighting-lux-calculation");
+            }
+          }
+          const trayStored = localStorage.getItem(`mep_cable_tray_${p.id}`);
+          if (trayStored) {
+            const trayRows = JSON.parse(trayStored);
+            if (Array.isArray(trayRows)) {
+              addNotifs(trayRows, "Cable Tray", p.name, p.id, "/cable-tray-sizing");
+            }
+          }
           const luStored = localStorage.getItem(`mep_loading_unit_calc_${p.id}`);
           if (luStored) {
             const luData = JSON.parse(luStored);
@@ -944,32 +972,68 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && (key.startsWith("mep_loading_unit_calc_") || key.startsWith("mep_fixture_unit_calc_") || key.startsWith("mep_busbar_calc_") || key.startsWith("mep_busbar_vd_calc_"))) {
+          if (key && (
+            key.startsWith("mep_loading_unit_calc_") ||
+            key.startsWith("mep_fixture_unit_calc_") ||
+            key.startsWith("mep_busbar_calc_") ||
+            key.startsWith("mep_busbar_vd_calc_") ||
+            key.startsWith("mep_pcl_rows_") ||
+            key.startsWith("mep_sprinklers_") ||
+            key.startsWith("mep_sprinkler_rows_") ||
+            key.startsWith("mep_lux_calc_") ||
+            key.startsWith("mep_cable_tray_")
+          )) {
             const raw = localStorage.getItem(key);
             if (raw) {
-              const data = JSON.parse(raw);
-              if (key.startsWith("mep_busbar_calc_")) {
-                const projId = key.replace("mep_busbar_calc_", "");
-                const projObj = projects.find((p: any) => p.id === projId);
-                const panels = data.panels || data;
-                addNotifs(extractBusbarRows(panels), "Busbar Calculation", projObj?.name || "Active Project", projId, "/busbar-calculation");
-              } else if (key.startsWith("mep_busbar_vd_calc_")) {
-                const projId = key.replace("mep_busbar_vd_calc_", "");
-                const projObj = projects.find((p: any) => p.id === projId);
-                if (Array.isArray(data.rows)) {
-                  addNotifs(data.rows, "Busbar Voltage Drop", projObj?.name || "Active Project", projId, "/busbar-voltage-drop");
+              try {
+                const data = JSON.parse(raw);
+                if (key.startsWith("mep_pcl_rows_")) {
+                  const projId = key.replace("mep_pcl_rows_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) {
+                    addNotifs(data, "Cooling Space", projObj?.name || "Active Project", projId, "/preliminary-cooling-load");
+                  }
+                } else if (key.startsWith("mep_sprinklers_") || key.startsWith("mep_sprinkler_rows_")) {
+                  const projId = key.replace("mep_sprinklers_", "").replace("mep_sprinkler_rows_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) {
+                    addNotifs(data, "Sprinkler Head", projObj?.name || "Active Project", projId, "/plumbing-sprinkler-kfactor");
+                  }
+                } else if (key.startsWith("mep_lux_calc_")) {
+                  const projId = key.replace("mep_lux_calc_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) {
+                    addNotifs(data, "Lux Space", projObj?.name || "Active Project", projId, "/lighting-lux-calculation");
+                  }
+                } else if (key.startsWith("mep_cable_tray_")) {
+                  const projId = key.replace("mep_cable_tray_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) {
+                    addNotifs(data, "Cable Tray", projObj?.name || "Active Project", projId, "/cable-tray-sizing");
+                  }
+                } else if (key.startsWith("mep_busbar_calc_")) {
+                  const projId = key.replace("mep_busbar_calc_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  const panels = data.panels || data;
+                  addNotifs(extractBusbarRows(panels), "Busbar Calculation", projObj?.name || "Active Project", projId, "/busbar-calculation");
+                } else if (key.startsWith("mep_busbar_vd_calc_")) {
+                  const projId = key.replace("mep_busbar_vd_calc_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data.rows)) {
+                    addNotifs(data.rows, "Busbar Voltage Drop", projObj?.name || "Active Project", projId, "/busbar-voltage-drop");
+                  }
+                } else {
+                  const isLU = key.startsWith("mep_loading_unit_calc_");
+                  const spaces = isLU ? data.iopSpaces : data.fuSpaces;
+                  const path = isLU ? "/plumbing-loading-unit" : "/plumbing-fixture-unit";
+                  const typeLabel = isLU ? "Loading Unit Space" : "Fixture Unit Space";
+                  const projId = key.replace(isLU ? "mep_loading_unit_calc_" : "mep_fixture_unit_calc_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (spaces && Array.isArray(spaces)) {
+                    addNotifs(spaces, typeLabel, projObj?.name || "Active Project", projId, path);
+                  }
                 }
-              } else {
-                const isLU = key.startsWith("mep_loading_unit_calc_");
-                const spaces = isLU ? data.iopSpaces : data.fuSpaces;
-                const path = isLU ? "/plumbing-loading-unit" : "/plumbing-fixture-unit";
-                const typeLabel = isLU ? "Loading Unit Space" : "Fixture Unit Space";
-                const projId = key.replace(isLU ? "mep_loading_unit_calc_" : "mep_fixture_unit_calc_", "");
-                const projObj = projects.find((p: any) => p.id === projId);
-                if (spaces && Array.isArray(spaces)) {
-                  addNotifs(spaces, typeLabel, projObj?.name || "Active Project", projId, path);
-                }
-              }
+              } catch(e) {}
             }
           }
         }
@@ -1201,7 +1265,45 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   }, [myNotifications]);
 
   useEffect(() => {
-    const handleNotifAdded = () => setNotifTick(t => t + 1);
+    const fetchBackendNotifs = async () => {
+      try {
+        const remoteNotifs = await api.getNotifications();
+        if (Array.isArray(remoteNotifs) && remoteNotifs.length > 0) {
+          setPersistentNotifs(prev => {
+            const map = new Map();
+            prev.forEach(n => n.id && map.set(n.id, n));
+            remoteNotifs.forEach(n => n.id && map.set(n.id, n));
+            const merged = Array.from(map.values());
+            if (typeof window !== "undefined") {
+              const uId = userId || userData?.id;
+              const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+              localStorage.setItem(key, JSON.stringify(merged));
+            }
+            return merged;
+          });
+        }
+      } catch (e) {}
+    };
+
+    fetchBackendNotifs();
+
+    const handleNotifAdded = (e?: any) => {
+      setNotifTick(t => t + 1);
+      if (e?.detail) {
+        setPersistentNotifs(prev => {
+          const item = e.detail;
+          if (!item || !item.id) return prev;
+          if (prev.some(n => n.id === item.id)) return prev;
+          const updated = [item, ...prev];
+          if (typeof window !== "undefined") {
+            const uId = userId || userData?.id;
+            const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+            localStorage.setItem(key, JSON.stringify(updated));
+          }
+          return updated;
+        });
+      }
+    };
     const handleReviewStateUpdate = (e: any) => {
       setNotifTick(t => t + 1);
       const notifProjectId = e?.detail?.projectId;
@@ -1237,12 +1339,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
     if (typeof window !== 'undefined') {
       window.addEventListener("mep-notification-added", handleNotifAdded);
+      window.addEventListener("mep_notification_received", handleNotifAdded);
       window.addEventListener("mep-review-state-updated", handleReviewStateUpdate);
+      window.addEventListener("storage", handleNotifAdded);
     }
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener("mep-notification-added", handleNotifAdded);
+        window.removeEventListener("mep_notification_received", handleNotifAdded);
         window.removeEventListener("mep-review-state-updated", handleReviewStateUpdate);
+        window.removeEventListener("storage", handleNotifAdded);
       }
     };
   }, [userId, userData, profile, projects, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin]);
@@ -1892,18 +1998,21 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";
   const brandName = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K-Factor Calc" : "MEP Calculator";
 
-  const rawExpiry = userData?.subscription_expires || profile?.subscription_expires;
-  let computedRemainingDays = licenseInfo?.remainingDays ?? 14;
-  let computedStatus = licenseInfo?.status;
+  const activePlan = licenseInfo?.plan || (profile?.role === 'ORG_ADMIN' || profile?.role === 'SUPER_ADMIN' ? 'ENTERPRISE' : null);
+  const isPaidPlan = activePlan === 'ENTERPRISE' || activePlan === 'PRO';
 
-  if (rawExpiry) {
+  const rawExpiry = userData?.subscription_expires || profile?.subscription_expires;
+  let computedRemainingDays = licenseInfo?.remainingDays ?? 30;
+  let computedStatus = licenseInfo?.status || (isPaidPlan ? 'ACTIVE' : 'FREE_TRIAL');
+
+  if (rawExpiry && !isPaidPlan) {
     const expDate = new Date(rawExpiry);
     if (!isNaN(expDate.getTime())) {
       const diff = Math.ceil((expDate.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
       computedRemainingDays = Math.max(0, diff);
       if (diff <= 0) {
         computedStatus = 'EXPIRED_TRIAL';
-      } else if (computedStatus !== 'ACTIVE') {
+      } else {
         computedStatus = 'FREE_TRIAL';
       }
     }
@@ -2480,7 +2589,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
       <main className="col-start-2 row-start-2 min-w-0 flex flex-col overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300">
         <AnimatePresence>
-          {profile?.role !== 'SUPER_ADMIN' && rawExpiry && computedRemainingDays <= 7 && computedRemainingDays > 0 && (
+          {!isPaidPlan && profile?.role !== 'SUPER_ADMIN' && rawExpiry && computedRemainingDays <= 7 && computedRemainingDays > 0 && computedStatus === 'FREE_TRIAL' && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}

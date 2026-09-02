@@ -3,7 +3,9 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { useAuth } from "@/contexts/AuthContext";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
 import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, FileText, Calculator } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -3025,9 +3027,17 @@ function LoadingUnitPage() {
               return next;
             });
             toast.success(`Comment assigned on space "${commentTarget.name}"`);
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent("mep-notification-added"));
-            }
+            notifyCommentAssigned({
+              comment: newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: commentTarget.type || "Loading Unit Space",
+              calculatorTitle: "Loading Unit & Pipe Sizer",
+              calculatorPath: "/plumbing-loading-unit",
+              project,
+              currentUserName: (useAuth as any)?.()?.userData?.name || (useAuth as any)?.()?.profile?.name || "Design Engineer",
+              currentUserId: (useAuth as any)?.()?.userData?.id || (useAuth as any)?.()?.profile?.id
+            }).catch(console.error);
           }}
         />
       )}

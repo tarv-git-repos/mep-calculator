@@ -20,6 +20,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditCableTrayRowModal } from "@/components/workspace/EditCableTrayRowModal";
 import {
   ContextMenu,
@@ -1847,6 +1848,17 @@ function CableTraySizingPage() {
               };
             }));
             toast.success("Comment added successfully");
+            notifyCommentAssigned({
+              comment: newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: commentTarget.type || "Cable Tray",
+              calculatorTitle: "Cable Tray Sizing",
+              calculatorPath: "/cable-tray-sizing",
+              project,
+              currentUserName: userData?.name || profile?.name,
+              currentUserId: userData?.id || profile?.id
+            }).catch(console.error);
           }}
         />
       )}

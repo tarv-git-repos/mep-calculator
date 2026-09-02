@@ -12,6 +12,7 @@ import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { Plus, Download, Trash, Copy, Trash2, X, Database, FileText, FileSpreadsheet, MessageSquare } from "lucide-react";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -1133,13 +1134,33 @@ function LightingLuxCalculationPage() {
           targetType={commentTarget.type}
           onSave={(newComment) => {
             pushToHistory(rows, history, setHistory, setRedoStack);
-            setRows(prev => prev.map(r => {
-              if (r.id === commentTarget.id) {
-                const comments = [...(r.comments || []), newComment];
-                return { ...r, comments };
+            setRows(prev => {
+              const updated = prev.map(r => {
+                if (r.id === commentTarget.id) {
+                  const comments = [...(r.comments || []), newComment];
+                  return { ...r, comments };
+                }
+                return r;
+              });
+              if (project?.id) {
+                try {
+                  localStorage.setItem(`mep_lux_calc_${project.id}`, JSON.stringify(updated));
+                } catch(e) {}
               }
-              return r;
-            }));
+              return updated;
+            });
+            toast.success(`Comment assigned on "${commentTarget.name}"`);
+            notifyCommentAssigned({
+              comment: newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: commentTarget.type || "Lux Space",
+              calculatorTitle: "Lighting LUX Calculation",
+              calculatorPath: "/lighting-lux-calculation",
+              project,
+              currentUserName: userData?.name || profile?.name,
+              currentUserId: userData?.id || profile?.id
+            }).catch(console.error);
           }}
         />
       )}

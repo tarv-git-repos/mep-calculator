@@ -6,6 +6,7 @@ import { api } from "../services/api";
 import { supabase } from "./supabase";
 import { getOccupancyData } from "./ashrae-data";
 import { logCalculatorUpdate, getCalculatorTitleFromPath } from "@/utils/logger";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 export type { Space, Zone, Equipment };
 export type { SpaceStatus } from "./mock-data";
 
@@ -770,6 +771,27 @@ export const workspaceStore = {
     saveState();
     logCalculatorUpdate('Ventilation', `Added comment to ${targetType}`);
     notify();
+
+    let targetName = targetId;
+    if (targetType === 'space') {
+      targetName = currentWorkspaceState.spaces.find(s => s.id === targetId)?.name || targetId;
+    } else if (targetType === 'zone') {
+      targetName = currentWorkspaceState.zones.find(z => z.id === targetId)?.name || targetId;
+    } else if (targetType === 'equipment') {
+      targetName = currentWorkspaceState.equipment.find(e => e.id === targetId)?.name || targetId;
+    }
+
+    notifyCommentAssigned({
+      comment,
+      targetId,
+      targetName,
+      targetType,
+      calculatorTitle: 'Ventilation & Air Balance',
+      calculatorPath: '/ventilation',
+      project: currentWorkspaceState.project,
+      currentUserName: comment.authorName,
+      currentUserId: comment.authorId
+    }).catch(console.error);
   },
 
   addSpace(newSpace: Space) {

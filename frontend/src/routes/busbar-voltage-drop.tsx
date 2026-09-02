@@ -11,6 +11,7 @@ import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
 import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database, Upload, MessageSquare } from "lucide-react";
@@ -1101,9 +1102,17 @@ function BusbarVoltageDropPage() {
               } catch (e) {}
             }
             toast.success(`Comment assigned on "${commentTarget.name}"`);
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent("mep-notification-added"));
-            }
+            notifyCommentAssigned({
+              comment: newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: commentTarget.type || "Busbar Row",
+              calculatorTitle: "Busbar Voltage Drop",
+              calculatorPath: "/busbar-voltage-drop",
+              project,
+              currentUserName: userData?.name || profile?.name,
+              currentUserId: userData?.id || profile?.id
+            }).catch(console.error);
           }}
         />
       )}

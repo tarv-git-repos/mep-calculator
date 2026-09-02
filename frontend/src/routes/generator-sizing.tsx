@@ -10,6 +10,7 @@ import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { Download, FileSpreadsheet, FileText, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag } from "lucide-react";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditGeneratorRowModal } from "@/components/workspace/EditGeneratorRowModal";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
@@ -2220,6 +2221,17 @@ function GeneratorSizingPage() {
             );
             pushState(newRows);
             toast.success("Comment added successfully");
+            notifyCommentAssigned({
+              comment: newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: commentTarget.type || "Generator Load",
+              calculatorTitle: "Generator Sizing",
+              calculatorPath: "/generator-sizing",
+              project,
+              currentUserName: userData?.name || profile?.name,
+              currentUserId: userData?.id || profile?.id
+            }).catch(console.error);
           }}
         />
       )}

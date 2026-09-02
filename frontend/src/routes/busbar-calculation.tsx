@@ -11,6 +11,7 @@ import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { TBtn } from "@/components/workspace/Button";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
 import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal } from "lucide-react";
@@ -2286,9 +2287,17 @@ function BusbarCalculationPage() {
             });
 
             toast.success(`Comment assigned on "${commentTarget.name}"`);
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent("mep-notification-added"));
-            }
+            notifyCommentAssigned({
+              comment: newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: commentTarget.type || "Busbar Row",
+              calculatorTitle: "Busbar Calculation",
+              calculatorPath: "/busbar-calculation",
+              project,
+              currentUserName: userData?.name || profile?.name,
+              currentUserId: userData?.id || profile?.id
+            }).catch(console.error);
           }}
         />
       )}

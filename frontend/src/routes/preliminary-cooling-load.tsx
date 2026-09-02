@@ -31,6 +31,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
 import { PclCategorySelect } from "@/components/workspace/PclCategorySelect";
 import { exportPreliminaryCoolingLoadPDF } from "@/lib/exportPreliminaryCoolingLoadPDF";
@@ -756,13 +757,18 @@ function PreliminaryCoolingLoadPage() {
   });
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const handleReviewUpdate = (e: any) => {
       if (e.detail) {
         setCalcReviewState(e.detail);
       }
     };
     window.addEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
-    return () => window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+    window.addEventListener("mep-review-state-updated" as any, handleReviewUpdate);
+    return () => {
+      window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+      window.removeEventListener("mep-review-state-updated" as any, handleReviewUpdate);
+    };
   }, []);
 
   // Custom Category Parameter Modal state
@@ -2449,7 +2455,11 @@ function PreliminaryCoolingLoadPage() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className="mx-6 mb-6 bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
+          <div className={`mx-6 mb-6 rounded-2xl flex-1 flex flex-col min-h-[450px] overflow-hidden transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
@@ -3415,37 +3425,21 @@ function PreliminaryCoolingLoadPage() {
 
               // Instant notification event dispatch
               window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
+              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
               window.dispatchEvent(new Event("storage"));
 
-              if (userIds.length > 0) {
-                for (const uId of userIds) {
-                  try {
-                    await api.sendNotification({
-                      recipientId: uId,
-                      title: `New Task Assigned on ${commentTargetItem.name}`,
-                      message: `${currentUserName} assigned a task on space ${commentTargetItem.name}: "${comment.text}"`,
-                      link: `/preliminary-cooling-load?commentTargetType=${commentTargetItem.type}&commentTargetId=${commentTargetItem.id}&commentTargetName=${encodeURIComponent(commentTargetItem.name)}`,
-                      metadata: {
-                        id: comment.id,
-                        projectId: projId,
-                        projectName: projName,
-                        calculatorPath: "/preliminary-cooling-load",
-                        targetId: commentTargetItem.id,
-                        targetName: commentTargetItem.name,
-                        targetType: "Cooling Space",
-                        authorName: currentUserName,
-                        text: comment.text,
-                        createdAt: comment.timestamp,
-                      }
-                    });
-                  } catch(e) {
-                    console.error("Failed to send notification to user", uId, e);
-                  }
-                }
-                toast.success(`Task comment assigned to ${userIds.length} selected team member(s)!`);
-              } else {
-                toast.success(`Task comment recorded for space ${commentTargetItem.name}`);
-              }
+              toast.success(`Task comment saved for space ${commentTargetItem.name}`);
+              notifyCommentAssigned({
+                comment: commentWithMeta,
+                targetId: commentTargetItem.id,
+                targetName: commentTargetItem.name,
+                targetType: "Cooling Space",
+                calculatorTitle: "Preliminary Cooling Load",
+                calculatorPath: "/preliminary-cooling-load",
+                project,
+                currentUserName,
+                currentUserId: userData?.id || profile?.id
+              }).catch(console.error);
             } catch(e) {
               toast.success(`Task comment added for ${commentTargetItem.name}`);
             }

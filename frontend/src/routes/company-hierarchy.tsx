@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
 import { 
-  Network, Users, Plus, Shield, ShieldAlert, Mail, Trash2, Edit3, 
+  Network, Users, Plus, Shield, ShieldAlert, ShieldCheck, Mail, Trash2, Edit3, 
   ChevronDown, ChevronRight, Search, Sparkles, Save, RefreshCw, 
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
   User, Check, ArrowRight
@@ -20,6 +20,8 @@ export const Route = createFileRoute("/company-hierarchy")({
   component: CompanyHierarchyPage,
 });
 
+export type ApprovalAuthority = "REVIEW" | "APPROVE_REJECT" | "NONE";
+
 export interface HierarchyUser {
   id: string;
   name: string;
@@ -27,6 +29,7 @@ export interface HierarchyUser {
   designation: string;
   department: "Management" | "HVAC" | "Electrical" | "Plumbing" | "Fire Fighting" | "BIM & IT";
   role: "SUPER_ADMIN" | "ORG_ADMIN" | "PROJECT_MANAGER" | "ENGINEER" | "USER" | "VIEWER";
+  approvalAuthority?: ApprovalAuthority;
   parentId: string | null; // ID of manager
   avatarColor?: string;
   status: "active" | "away" | "offline";
@@ -40,6 +43,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Chief Executive Officer & Founder",
     department: "Management",
     role: "SUPER_ADMIN",
+    approvalAuthority: "APPROVE_REJECT",
     parentId: null,
     avatarColor: "bg-indigo-600",
     status: "active"
@@ -51,6 +55,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Director of MEP Engineering",
     department: "Management",
     role: "ORG_ADMIN",
+    approvalAuthority: "APPROVE_REJECT",
     parentId: "usr-101",
     avatarColor: "bg-blue-600",
     status: "active"
@@ -62,6 +67,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Director of BIM & Technology",
     department: "BIM & IT",
     role: "ORG_ADMIN",
+    approvalAuthority: "APPROVE_REJECT",
     parentId: "usr-101",
     avatarColor: "bg-purple-600",
     status: "active"
@@ -73,6 +79,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Lead HVAC Principal PM",
     department: "HVAC",
     role: "PROJECT_MANAGER",
+    approvalAuthority: "APPROVE_REJECT",
     parentId: "usr-102",
     avatarColor: "bg-emerald-600",
     status: "active"
@@ -84,6 +91,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Lead Electrical PM",
     department: "Electrical",
     role: "PROJECT_MANAGER",
+    approvalAuthority: "APPROVE_REJECT",
     parentId: "usr-102",
     avatarColor: "bg-amber-600",
     status: "active"
@@ -95,6 +103,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Lead Plumbing & Fire Protection PM",
     department: "Plumbing",
     role: "PROJECT_MANAGER",
+    approvalAuthority: "APPROVE_REJECT",
     parentId: "usr-102",
     avatarColor: "bg-teal-600",
     status: "active"
@@ -106,6 +115,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Senior HVAC Mechanical Engineer",
     department: "HVAC",
     role: "ENGINEER",
+    approvalAuthority: "REVIEW",
     parentId: "usr-104",
     avatarColor: "bg-cyan-600",
     status: "active"
@@ -117,6 +127,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Senior Electrical Systems Engineer",
     department: "Electrical",
     role: "ENGINEER",
+    approvalAuthority: "REVIEW",
     parentId: "usr-105",
     avatarColor: "bg-rose-600",
     status: "active"
@@ -128,6 +139,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Fire Suppression Systems Specialist",
     department: "Fire Fighting",
     role: "ENGINEER",
+    approvalAuthority: "REVIEW",
     parentId: "usr-106",
     avatarColor: "bg-orange-600",
     status: "active"
@@ -139,6 +151,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "HVAC Design & Load Calculation Specialist",
     department: "HVAC",
     role: "ENGINEER",
+    approvalAuthority: "REVIEW",
     parentId: "usr-107",
     avatarColor: "bg-sky-600",
     status: "active"
@@ -150,6 +163,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Electrical BIM Specialist & Modeler",
     department: "BIM & IT",
     role: "ENGINEER",
+    approvalAuthority: "REVIEW",
     parentId: "usr-103",
     avatarColor: "bg-violet-600",
     status: "active"
@@ -161,6 +175,7 @@ const DEFAULT_HIERARCHY: HierarchyUser[] = [
     designation: "Junior Plumbing & Hydraulics Engineer",
     department: "Plumbing",
     role: "USER",
+    approvalAuthority: "NONE",
     parentId: "usr-106",
     avatarColor: "bg-slate-600",
     status: "active"
@@ -180,6 +195,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Director of MEP Engineering",
       department: "Management",
       role: "ORG_ADMIN",
+      approvalAuthority: "APPROVE_REJECT",
       parentId: null,
       avatarColor: "bg-blue-600",
       status: "active"
@@ -191,6 +207,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Lead HVAC Principal PM",
       department: "HVAC",
       role: "PROJECT_MANAGER",
+      approvalAuthority: "APPROVE_REJECT",
       parentId: rootId,
       avatarColor: "bg-emerald-600",
       status: "active"
@@ -202,6 +219,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Lead Electrical PM",
       department: "Electrical",
       role: "PROJECT_MANAGER",
+      approvalAuthority: "APPROVE_REJECT",
       parentId: rootId,
       avatarColor: "bg-amber-600",
       status: "active"
@@ -213,6 +231,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Lead Plumbing & Fire Protection PM",
       department: "Plumbing",
       role: "PROJECT_MANAGER",
+      approvalAuthority: "APPROVE_REJECT",
       parentId: rootId,
       avatarColor: "bg-teal-600",
       status: "active"
@@ -224,6 +243,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Senior HVAC Mechanical Engineer",
       department: "HVAC",
       role: "ENGINEER",
+      approvalAuthority: "REVIEW",
       parentId: "usr-104",
       avatarColor: "bg-cyan-600",
       status: "active"
@@ -235,6 +255,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Senior Electrical Systems Engineer",
       department: "Electrical",
       role: "ENGINEER",
+      approvalAuthority: "REVIEW",
       parentId: "usr-105",
       avatarColor: "bg-rose-600",
       status: "active"
@@ -246,6 +267,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Fire Suppression Systems Specialist",
       department: "Fire Fighting",
       role: "ENGINEER",
+      approvalAuthority: "REVIEW",
       parentId: "usr-106",
       avatarColor: "bg-orange-600",
       status: "active"
@@ -257,6 +279,7 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
       designation: "Junior Plumbing & Hydraulics Engineer",
       department: "Plumbing",
       role: "USER",
+      approvalAuthority: "NONE",
       parentId: "usr-106",
       avatarColor: "bg-slate-600",
       status: "active"
@@ -298,6 +321,7 @@ function CompanyHierarchyPage() {
   const [formDesignation, setFormDesignation] = useState("");
   const [formDepartment, setFormDepartment] = useState<HierarchyUser["department"]>("HVAC");
   const [formRole, setFormRole] = useState<HierarchyUser["role"]>("ENGINEER");
+  const [formApprovalAuthority, setFormApprovalAuthority] = useState<ApprovalAuthority>("NONE");
   const [formParentId, setFormParentId] = useState<string | null>(null);
 
   // Save to LocalStorage whenever members change
@@ -354,8 +378,17 @@ function CompanyHierarchyPage() {
     setFormName("");
     setFormEmail("");
     setFormDesignation("");
-    setFormDepartment(currentRole === "ORG_ADMIN" && members.length === 0 ? "Management" : "HVAC");
-    setFormRole(currentRole === "ORG_ADMIN" && members.length === 0 ? "ORG_ADMIN" : "ENGINEER");
+    const defaultDept = currentRole === "ORG_ADMIN" && members.length === 0 ? "Management" : "HVAC";
+    const defaultRole = currentRole === "ORG_ADMIN" && members.length === 0 ? "ORG_ADMIN" : "ENGINEER";
+    setFormDepartment(defaultDept);
+    setFormRole(defaultRole);
+    setFormApprovalAuthority(
+      ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(defaultRole) 
+        ? "APPROVE_REJECT" 
+        : defaultRole === "ENGINEER" 
+        ? "REVIEW" 
+        : "NONE"
+    );
     setFormParentId(presetParentId !== undefined ? presetParentId : (visibleMembers[0]?.id || null));
     setEditingMember(null);
     setIsAddModalOpen(true);
@@ -369,6 +402,14 @@ function CompanyHierarchyPage() {
     setFormDesignation(member.designation);
     setFormDepartment(member.department);
     setFormRole(member.role);
+    setFormApprovalAuthority(
+      member.approvalAuthority ||
+      (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(member.role)
+        ? "APPROVE_REJECT"
+        : member.role === "ENGINEER"
+        ? "REVIEW"
+        : "NONE")
+    );
     setFormParentId(member.parentId);
     setIsAddModalOpen(true);
   };
@@ -398,6 +439,7 @@ function CompanyHierarchyPage() {
             designation: formDesignation.trim() || "MEP Specialist",
             department: formDepartment,
             role: formRole,
+            approvalAuthority: formApprovalAuthority,
             parentId: formParentId,
           };
         }
@@ -414,6 +456,7 @@ function CompanyHierarchyPage() {
         designation: formDesignation.trim() || (formRole === "ORG_ADMIN" ? "Director of MEP Engineering" : "MEP Engineer"),
         department: formDepartment,
         role: formRole,
+        approvalAuthority: formApprovalAuthority,
         parentId: formParentId,
         avatarColor: colorPalette[Math.floor(Math.random() * colorPalette.length)],
         status: "active"
@@ -797,6 +840,7 @@ function CompanyHierarchyPage() {
                         <th className="py-3 px-4">Designation</th>
                         <th className="py-3 px-4">Department</th>
                         <th className="py-3 px-4">Role Tier</th>
+                        <th className="py-3 px-4">Authority</th>
                         <th className="py-3 px-4">Reporting Manager</th>
                         <th className="py-3 px-4 text-center">Direct Reports</th>
                         <th className="py-3 px-4 text-right">Actions</th>
@@ -805,7 +849,7 @@ function CompanyHierarchyPage() {
                     <tbody className="divide-y divide-border/60">
                       {filteredMembers.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-muted-foreground italic space-y-2">
+                          <td colSpan={8} className="py-12 text-center text-muted-foreground italic space-y-2">
                             <p>No team members found matching search query.</p>
                             {(searchQuery || selectedDept !== "ALL") && (
                               <button
@@ -845,6 +889,9 @@ function CompanyHierarchyPage() {
                               </td>
                               <td className="py-3 px-4">
                                 <RoleBadge role={m.role} />
+                              </td>
+                              <td className="py-3 px-4">
+                                <AuthorityBadge authority={m.approvalAuthority} />
                               </td>
                               <td className="py-3 px-4 text-muted-foreground">
                                 {manager ? (
@@ -984,7 +1031,17 @@ function CompanyHierarchyPage() {
                   <label className="font-bold text-foreground block mb-1">System Role Tier</label>
                   <select
                     value={formRole}
-                    onChange={(e) => setFormRole(e.target.value as any)}
+                    onChange={(e) => {
+                      const newRole = e.target.value as HierarchyUser["role"];
+                      setFormRole(newRole);
+                      if (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(newRole)) {
+                        setFormApprovalAuthority("APPROVE_REJECT");
+                      } else if (newRole === "ENGINEER") {
+                        setFormApprovalAuthority("REVIEW");
+                      } else {
+                        setFormApprovalAuthority("NONE");
+                      }
+                    }}
                     className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium cursor-pointer"
                   >
                     {currentRole === "SUPER_ADMIN" && <option value="SUPER_ADMIN">Super Admin (CEO)</option>}
@@ -1013,6 +1070,21 @@ function CompanyHierarchyPage() {
                       ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-foreground block mb-1">
+                  Review & Approval Authority
+                </label>
+                <select
+                  value={formApprovalAuthority}
+                  onChange={(e) => setFormApprovalAuthority(e.target.value as ApprovalAuthority)}
+                  className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium cursor-pointer"
+                >
+                  <option value="NONE">None</option>
+                  <option value="REVIEW">Review</option>
+                  <option value="APPROVE_REJECT">Approve / Reject</option>
+                </select>
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-border/60">
@@ -1065,9 +1137,12 @@ function TreeNode({
     <div className="flex flex-col items-center relative">
       {/* Node Card */}
       <div className="group relative bg-card border border-border hover:border-primary/50 p-4 rounded-2xl shadow-xs hover:shadow-md transition-all w-72 flex flex-col gap-2.5">
-        <div className="flex items-center justify-between">
-          <RoleBadge role={member.role} />
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <RoleBadge role={member.role} />
+            <AuthorityBadge authority={member.approvalAuthority} />
+          </div>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
             <button
               onClick={() => onAddReport(member.id)}
               className="p-1 hover:bg-primary/10 text-primary rounded-md transition-all cursor-pointer"
@@ -1191,6 +1266,32 @@ function RoleBadge({ role }: { role: HierarchyUser["role"] }) {
       return (
         <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 uppercase tracking-wider flex items-center gap-1">
           <User className="size-3" /> Staff
+        </span>
+      );
+  }
+}
+
+// Sub-component: Authority Badge
+function AuthorityBadge({ authority }: { authority?: ApprovalAuthority }) {
+  const auth = authority || "NONE";
+  switch (auth) {
+    case "APPROVE_REJECT":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider flex items-center gap-1" title="Can review, approve or reject calculation sheets">
+          <ShieldCheck className="size-3" /> Approve / Reject
+        </span>
+      );
+    case "REVIEW":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider flex items-center gap-1" title="Can review calculation sheets">
+          <UserCheck className="size-3" /> Review
+        </span>
+      );
+    case "NONE":
+    default:
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-medium bg-slate-500/10 text-muted-foreground border border-slate-500/20 uppercase tracking-wider flex items-center gap-1" title="No review or approval authority">
+          None
         </span>
       );
   }

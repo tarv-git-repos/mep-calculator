@@ -737,12 +737,22 @@ export const api = {
         } catch(e) {}
 
         window.dispatchEvent(new CustomEvent('mep_notification_received', { detail: newNotifItem }));
+        window.dispatchEvent(new CustomEvent('mep-notification-added', { detail: newNotifItem }));
       }
 
       const { data } = await axios.post(`${getBackendUrl()}/api/notifications/send`, notifData);
       return data;
     } catch(e) {
       return { success: true };
+    }
+  },
+
+  async getNotifications() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/notifications`);
+      return data.success ? (data.notifications || []) : [];
+    } catch(e) {
+      return [];
     }
   }
 };

@@ -15,6 +15,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPumpModal } from "@/components/workspace/EditChwPumpModal";
 import { api } from "@/services/api";
 
@@ -1198,24 +1199,17 @@ function ChwPumpHeadPage() {
           const updated = [...commentsList, newComment];
           saveComments(updated);
 
-          // Dispatch notification to assigned team members
-          const targetProj = project || { id: "default", name: "Active Project" };
-          if (commentData.assignedUsers && commentData.assignedUsers.length > 0) {
-            for (const user of commentData.assignedUsers) {
-              try {
-                await api.sendNotification({
-                  userId: user.id || user.email,
-                  title: `💬 New Task Assigned: ${commentTargetItem?.name || "Pump Head Sizing"}`,
-                  message: `"${commentData.text}" assigned by ${currentUserName}`,
-                  type: "TASK_ASSIGNED",
-                  projectId: targetProj.id,
-                  calculatorPath: "/chw-pump-head"
-                });
-              } catch (e) {
-                console.error("Failed to send notification:", e);
-              }
-            }
-          }
+          notifyCommentAssigned({
+            comment: newComment,
+            targetId: commentTargetItem?.id || "chw-pump-head",
+            targetName: commentTargetItem?.name || "Chilled Water Pump",
+            targetType: "equipment",
+            calculatorTitle: "CHW Pump Head Loss Sizer",
+            calculatorPath: "/chw-pump-head",
+            project,
+            currentUserName,
+            currentUserId: userData?.id || profile?.id
+          }).catch(console.error);
         }}
       />
       {editModalOpen && (

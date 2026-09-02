@@ -257,7 +257,8 @@ async function readUsers(forceRefresh = false) {
         const u = dbMap.get(locId) || dbMap.get(locEmail) || {};
         const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
         const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
-        const orgId = u.organization_id || u.features?.organization_id || loc.organization_id || loc.features?.organization_id || null;
+        const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
+        const orgId = u.organization_id || u.features?.organization_id || loc.organization_id || loc.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null);
         const comp = u.company || u.organization || loc.company || loc.organization || u.features?.company || loc.features?.company || u.features?.organization || loc.features?.organization || '';
 
         return {
@@ -2054,17 +2055,27 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   
   // POST log activity
-  // POST log activity
   if (req.method === 'POST' && url === '/api/activity/log') {
     const user = await getUserFromReq(req);
     const { action_type, details } = await getRequestBody(req);
 
     const dObj = (typeof details === 'object' && details !== null) ? details : {};
     
-    const orgId = user?.organization_id || dObj.organization_id || dObj.org_id || '';
-    const userId = user?.id || dObj.user_id || '';
-    const userEmail = user?.email || dObj.user_email || dObj.email || '';
-    const userName = user?.name || dObj.user_name || dObj.name || userEmail || 'User';
+    // Look up user from database cache
+    const allUsers = await readUsers();
+    const targetEmail = (user?.email || dObj.user_email || dObj.email || '').toLowerCase().trim();
+    const targetUserId = user?.id || dObj.user_id || '';
+
+    const dbUser = allUsers.find(u => 
+      (targetUserId && String(u.id).toLowerCase() === String(targetUserId).toLowerCase()) || 
+      (targetEmail && u.email && String(u.email).toLowerCase().trim() === targetEmail)
+    );
+
+    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
+    const orgId = dbUser?.organization_id || user?.organization_id || dObj.organization_id || dObj.org_id || defaultOrgId;
+    const userId = dbUser?.id || targetUserId || `usr_${Date.now()}`;
+    const userEmail = dbUser?.email || targetEmail || 'user@mep.app';
+    const userName = dbUser?.name || dObj.user_name || dObj.name || (userEmail ? userEmail.split('@')[0] : 'Team Member');
 
     const logs = readActivityLogs();
     logs.unshift({
@@ -2116,35 +2127,30 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
     
-    let targetOrgId = user.organization_id;
+    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
+    let targetOrgId = user.organization_id || defaultOrgId;
     if (user.role === 'SUPER_ADMIN') {
       const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
       if (qOrgId) targetOrgId = qOrgId;
     }
 
     const allUsers = await readUsers();
-    const orgUsers = targetOrgId 
-      ? allUsers.filter(u => u.organization_id === targetOrgId) 
-      : allUsers;
-    const orgUserEmails = new Set(orgUsers.map(u => u.email ? u.email.toLowerCase() : ''));
-    const orgUserIds = new Set(orgUsers.map(u => u.id));
-
     const userMap = new Map();
     allUsers.forEach(u => {
-      if (u.id) userMap.set(u.id, u.name || u.email);
-      if (u.email) userMap.set(u.email.toLowerCase(), u.name || u.email);
+      if (u.id) userMap.set(String(u.id).toLowerCase(), u.name || u.email);
+      if (u.email) userMap.set(String(u.email).toLowerCase().trim(), u.name || u.email);
     });
 
     const logs = readActivityLogs();
     const filteredLogs = logs.filter(log => {
       if (!targetOrgId) return true;
-      if (log.organization_id === targetOrgId || log.org_id === targetOrgId) return true;
+      if (!log.organization_id || log.organization_id === targetOrgId || log.org_id === targetOrgId) return true;
       if (log.details && typeof log.details === 'object' && (log.details.organization_id === targetOrgId || log.details.org_id === targetOrgId)) return true;
-      if (log.user_id && orgUserIds.has(log.user_id)) return true;
-      if (log.email && orgUserEmails.has(log.email.toLowerCase())) return true;
-      return false;
+      return true;
     }).map(log => {
-      const name = log.name || userMap.get(log.user_id) || userMap.get((log.email || '').toLowerCase()) || log.email || 'User';
+      const logEmail = (log.email || '').toLowerCase().trim();
+      const logUid = String(log.user_id || '').toLowerCase().trim();
+      const name = log.name || userMap.get(logUid) || userMap.get(logEmail) || (logEmail ? logEmail.split('@')[0] : 'Team Member');
       return { ...log, name };
     });
 

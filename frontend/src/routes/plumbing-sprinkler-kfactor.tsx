@@ -1,4 +1,5 @@
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { EditSprinklerCustomModal } from "@/components/workspace/EditSprinklerCustomModal";
@@ -2859,46 +2860,28 @@ function SprinklerKFactorPage() {
               } : r);
               pushToUndo(rows);
               setRows(updatedRows);
+              const pKey = `mep_sprinklers_${project?.id || "default"}`;
+              localStorage.setItem(pKey, JSON.stringify(updatedRows));
               if (project?.id) {
                 localStorage.setItem(`mep_sprinkler_rows_${project.id}`, JSON.stringify(updatedRows));
               }
 
-              // Instant notification event dispatch
-              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
-              window.dispatchEvent(new Event("storage"));
-
-              if (userIds.length > 0) {
-                for (const uId of userIds) {
-                  try {
-                    await api.sendNotification({
-                      recipientId: uId,
-                      title: `New Task Assigned on ${commentTargetItem.name}`,
-                      message: `${currentUserName} assigned a task on sprinkler head ${commentTargetItem.name}: "${comment.text}"`,
-                      link: `/plumbing-sprinkler-kfactor?commentTargetType=${commentTargetItem.type}&commentTargetId=${commentTargetItem.id}&commentTargetName=${encodeURIComponent(commentTargetItem.name)}`,
-                      metadata: {
-                        id: comment.id,
-                        projectId: projId,
-                        projectName: projName,
-                        calculatorPath: "/plumbing-sprinkler-kfactor",
-                        targetId: commentTargetItem.id,
-                        targetName: commentTargetItem.name,
-                        targetType: "Sprinkler Head",
-                        authorName: currentUserName,
-                        text: comment.text,
-                        createdAt: comment.timestamp,
-                      }
-                    });
-                  } catch(e) {
-                    console.error("Failed to send notification to user", uId, e);
-                  }
-                }
-                toast.success(`Task comment assigned to ${userIds.length} selected team member(s)!`);
-              } else {
-                toast.success(`Task comment recorded for "${commentTargetItem.name}"`);
-              }
+              toast.success(`Task comment saved for "${commentTargetItem.name}"`);
+              notifyCommentAssigned({
+                comment: commentWithMeta,
+                targetId: commentTargetItem.id,
+                targetName: commentTargetItem.name,
+                targetType: "Sprinkler Head",
+                calculatorTitle: "Sprinkler K-Factor",
+                calculatorPath: "/plumbing-sprinkler-kfactor",
+                project,
+                currentUserName,
+                currentUserId: userData?.id || profile?.id
+              }).catch(console.error);
             } catch(e) {
               toast.success(`Task comment added for "${commentTargetItem.name}"`);
             }
+            setCommentModalOpen(false);
           }}
         />
       )}

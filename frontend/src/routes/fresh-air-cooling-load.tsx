@@ -17,6 +17,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
 
 export const Route = createFileRoute("/fresh-air-cooling-load")({
@@ -1133,18 +1134,17 @@ function FreshAirCoolingLoadPage() {
           const updated = [comment, ...commentsList];
           saveComments(updated);
 
-          // Dispatch notification if assigned
-          if (comment.assignedTo && api.sendNotification) {
-            api.sendNotification({
-              recipientId: comment.assignedTo,
-              senderId: userData?.id || profile?.id || "unknown",
-              senderName: currentUserName,
-              type: "TASK_ASSIGNED",
-              title: `Task assigned: ${commentTargetItem?.name || "Fresh Air Cooling Coil"}`,
-              message: comment.text,
-              link: "/fresh-air-cooling-load",
-            }).catch(console.error);
-          }
+          notifyCommentAssigned({
+            comment,
+            targetId: commentTargetItem?.id || "fresh-air-coil-duty",
+            targetName: commentTargetItem?.name || "Fresh Air Cooling Coil",
+            targetType: "equipment",
+            calculatorTitle: "Fresh Air Cooling Load",
+            calculatorPath: "/fresh-air-cooling-load",
+            project,
+            currentUserName,
+            currentUserId: userData?.id || profile?.id
+          }).catch(console.error);
         }}
       />
     </AppShell>
