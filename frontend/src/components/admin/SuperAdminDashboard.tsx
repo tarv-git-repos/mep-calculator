@@ -335,14 +335,21 @@ export function SuperAdminDashboard() {
     }
   };
 
+  const generate20CharKey = (orgName: string) => {
+    const clean = (orgName || 'ORG').replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase().padEnd(4, 'X');
+    const rand = (len: number) => Array.from({ length: len }, () => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 36)]).join('');
+    return `MEP-${clean}-${rand(4)}-${rand(4)}-${rand(4)}`;
+  };
+
   const handleAddOrg = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newOrgName || !newOrgName.trim()) return toast.error("Organization name is required");
     setIsAddingOrg(true);
     try {
-      const res = await api.createOrganization({ name: newOrgName.trim(), subscription_plan: newOrgPlan, max_users: newOrgUsers });
+      const autoKey = generate20CharKey(newOrgName.trim());
+      const res = await api.createOrganization({ name: newOrgName.trim(), subscription_plan: newOrgPlan, max_users: newOrgUsers, license_key: autoKey });
       if (res && res.success) {
-        toast.success("Organization created successfully!");
+        toast.success(`Organization created with License Key: ${autoKey}`);
         setShowAddOrg(false);
         setNewOrgName('');
         await fetchOrganizations();
@@ -1387,18 +1394,6 @@ export function SuperAdminDashboard() {
                             </button>
                           </div>
                         )}
-
-                        <button 
-                          onClick={() => {
-                            setSelectedOrgForManagement(null);
-                            setEditingSeatsForOrg(false);
-                            setEditingLicenseKey(false);
-                            setEditingConcurrentLimit(false);
-                          }}
-                          className="text-xs font-bold text-muted-foreground hover:text-foreground px-3.5 py-2.5 rounded-xl bg-surface-2 hover:bg-surface-3 transition cursor-pointer border border-border/60"
-                        >
-                          Close Manager ✕
-                        </button>
                       </div>
                     </div>
 

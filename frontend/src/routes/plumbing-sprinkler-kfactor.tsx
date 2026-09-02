@@ -237,7 +237,7 @@ function SprinklerKFactorPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project } = useWorkspace();
+  const { project, activeProjectId } = useWorkspace();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
