@@ -1762,8 +1762,8 @@ function SprinklerKFactorPage() {
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {/* Quick Solver Tab */}
               {tab === "solver" && (
-                <div className="flex-1 min-h-0 overflow-y-auto p-6 flex justify-center">
-                  <div className="w-full max-w-4xl flex flex-col gap-6">
+                <div className="flex-1 min-h-0 overflow-y-auto p-6">
+                  <div className="w-full flex flex-col gap-6">
                     {/* Overview box */}
                     <div className="flex gap-3.5 p-4 bg-background border border-border rounded-3xl shadow-xs transition-all hover:border-primary/30">
                     <Info className="size-4.5 text-primary mt-0.5 shrink-0" />

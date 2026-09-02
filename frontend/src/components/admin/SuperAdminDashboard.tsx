@@ -1282,9 +1282,8 @@ export function SuperAdminDashboard() {
                               </button>
                             </td>
                           </tr>
-                        ))
-                      })()
-                      )}
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -1292,30 +1291,34 @@ export function SuperAdminDashboard() {
             )}
 
             {activeTab === 'organizations' && (
-              <div className="p-6">
+              <div className="p-6 space-y-6">
                 {selectedOrgForManagement ? (
-                  <div className="bg-card border border-border/80 rounded-2xl p-6 shadow-sm space-y-6 animate-fade-in">
+                  <div className="space-y-6 animate-fade-in">
                     {/* Organization Manager Header */}
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/60 pb-5">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
                       <div className="flex items-center gap-3.5">
                         <button 
                           onClick={() => {
                             setSelectedOrgForManagement(null);
                             setEditingSeatsForOrg(false);
                           }}
-                          className="p-2.5 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground transition-colors cursor-pointer border border-border/60"
+                          className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors cursor-pointer border border-slate-200/80 dark:border-slate-700"
                           title="Back to Organizations List"
                         >
-                          <ArrowLeft size={18} />
+                          <ArrowLeft size={16} />
                         </button>
                         <div>
                           <div className="flex items-center gap-2.5">
-                            <h2 className="text-xl font-extrabold text-foreground tracking-tight">{selectedOrgForManagement.name}</h2>
-                            <span className="px-3 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20 uppercase tracking-wider">
+                            <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                              {(selectedOrgForManagement.name === 'Consitent' || selectedOrgForManagement.name === 'Consistent')
+                                ? 'Consistent Engineering Consultants'
+                                : selectedOrgForManagement.name}
+                            </h2>
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 uppercase tracking-wider">
                               {selectedOrgForManagement.subscription_plan || "PRO PLAN"}
                             </span>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                             Manage members, assign existing users, change member roles, or delete users for this organization.
                           </p>
                         </div>
@@ -1647,7 +1650,7 @@ export function SuperAdminDashboard() {
                         Current Organization Members ({profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length})
                       </h3>
 
-                      <div className="overflow-x-auto rounded-2xl border border-border/80 bg-card shadow-xs">
+                      <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="bg-surface-2/80 border-b border-border text-[11px] font-extrabold tracking-wider text-muted-foreground uppercase">
