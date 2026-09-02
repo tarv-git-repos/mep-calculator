@@ -2304,19 +2304,6 @@ function SprinklerKFactorPage() {
                         <option key={k} value={k}>K-{k.toFixed(1)}</option>
                       ))}
                     </select>
-
-                    {/* Flagged Filter Toggle */}
-                    <button
-                      onClick={() => setFlagFilterOnly(v => !v)}
-                      className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border transition-all cursor-pointer ${
-                        flagFilterOnly
-                          ? "bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400 font-bold"
-                          : "border-border bg-background hover:bg-surface-2 text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <Flag className="size-3.5 text-red-500" />
-                      Flagged {flaggedCount > 0 && <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-red-500 text-white font-bold">{flaggedCount}</span>}
-                    </button>
                   </div>
 
                   <div className="flex items-center gap-2">

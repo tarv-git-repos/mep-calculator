@@ -587,31 +587,8 @@ function CompanyHierarchyPage() {
   };
 
   const visibleMembers = useMemo(() => {
-    if (currentRole === "SUPER_ADMIN") return members;
-
-    // For ORG_ADMIN: Find their node based on email
-    const emailToMatch = (userData?.email || profile?.email || "").toLowerCase();
-    let currentUserNode = members.find(m => m.email.toLowerCase() === emailToMatch);
-    if (!currentUserNode) {
-      currentUserNode = members.find(m => m.role === "ORG_ADMIN") || members[0];
-    }
-
-    if (!currentUserNode) return members;
-
-    const visibleIds = new Set<string>();
-    const toProcess = [currentUserNode.id];
-
-    while (toProcess.length > 0) {
-      const currentId = toProcess.pop()!;
-      if (!visibleIds.has(currentId)) {
-        visibleIds.add(currentId);
-        const children = members.filter(m => m.parentId === currentId).map(m => m.id);
-        toProcess.push(...children);
-      }
-    }
-
-    return visibleIds.size > 0 ? members.filter(m => visibleIds.has(m.id)) : members;
-  }, [members, currentRole, userData?.email, profile?.email]);
+    return members;
+  }, [members]);
 
   // Filtered members for search & department
   const filteredMembers = useMemo(() => {

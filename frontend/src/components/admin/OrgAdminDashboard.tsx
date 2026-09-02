@@ -487,15 +487,24 @@ export function OrgAdminDashboard() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900 dark:text-white">Organization Team Members</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Manage user access and assign platform roles to organization members.</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Manage user access, role assignments, and organization company hierarchy.</p>
                 </div>
-                <button
-                  onClick={() => setShowInviteModal(true)}
-                  className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition shrink-0 shadow-2xs"
-                >
-                  <Plus className="w-4 h-4" />
-                  Invite Team Member
-                </button>
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <button
+                    onClick={() => navigate({ to: '/company-hierarchy' })}
+                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    <Network className="w-4 h-4" />
+                    Build Company Hierarchy
+                  </button>
+                  <button
+                    onClick={() => setShowInviteModal(true)}
+                    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Invite Team Member
+                  </button>
+                </div>
               </div>
 
               {/* Role Counters Summary - Clean Slate Styling */}
