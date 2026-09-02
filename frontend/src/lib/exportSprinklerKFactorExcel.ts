@@ -191,7 +191,7 @@ export const exportSprinklerKFactorExcel = async (
 
   const systemDemand = totalFlow + hoseAllowance;
 
-  // Summary Stats Box (Rows 8 to 11)
+  // Summary Stats Box (Rows 8 to 11) - Clean background matching Ventilation
   const r8 = sheet.getRow(8);
   r8.height = 24;
   sheet.mergeCells("A8:J8");
@@ -205,9 +205,9 @@ export const exportSprinklerKFactorExcel = async (
   }
 
   const summaryData = [
-    { l1: "Total Sprinkler Heads:", v1: rows.length, l2: "Total Demand Flow:", v2: `${totalFlow.toFixed(2)} ${flowUnit}`, isBlue2: true },
-    { l1: "Total System Demand (with Hose):", v1: `${systemDemand.toFixed(2)} ${flowUnit}`, l2: "Max Node Operating Pressure:", v2: `${maxPressure.toFixed(2)} ${pressUnit}`, isBlue2: true },
-    { l1: "Hose Stream Allowance:", v1: `${hoseAllowance} ${flowUnit}`, l2: "Design Standard / NFPA Code:", v2: "NFPA 13 Standard", isBlue2: false },
+    { l1: "Total Sprinkler Heads:", v1: rows.length, l2: "Total Demand Flow:", v2: `${totalFlow.toFixed(2)} ${flowUnit}` },
+    { l1: "Total System Demand (with Hose):", v1: `${systemDemand.toFixed(2)} ${flowUnit}`, l2: "Max Node Operating Pressure:", v2: `${maxPressure.toFixed(2)} ${pressUnit}` },
+    { l1: "Hose Stream Allowance:", v1: `${hoseAllowance} ${flowUnit}`, l2: "Design Standard / NFPA Code:", v2: "NFPA 13 Standard" },
   ];
 
   summaryData.forEach((item, idx) => {
@@ -233,11 +233,6 @@ export const exportSprinklerKFactorExcel = async (
     r.getCell(5).value = item.l2;
     r.getCell(8).value = item.v2;
     r.getCell(8).alignment = { horizontal: "center", vertical: "middle" };
-    if (item.isBlue2) {
-      r.getCell(8).fill = blueFill;
-      r.getCell(9).fill = blueFill;
-      r.getCell(10).fill = blueFill;
-    }
   });
 
   // Section Header (Row 13)
@@ -285,7 +280,8 @@ export const exportSprinklerKFactorExcel = async (
     for (let c = 1; c <= 10; c++) {
       const cell = sheet.getCell(r, c);
       cell.font = boldFont;
-      cell.fill = (c === 6 || c === 7) ? blueFill : grayFill;
+      // Use blueFill ONLY on the primary output column header (Flow Rate, Col G) matching Ventilation
+      cell.fill = (c === 7) ? blueFill : grayFill;
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       setCellBorder(cell, r === 14 ? "medium" : "thin", r === 15 ? "medium" : "thin", c === 1 ? "medium" : "thin", c === 10 ? "medium" : "thin");
     }
@@ -318,7 +314,7 @@ export const exportSprinklerKFactorExcel = async (
     }
     currentRow++;
 
-    // Group Data Rows
+    // Group Data Rows (Clean white cells without excessive blue background)
     floorRows.forEach((r) => {
       const row = sheet.getRow(currentRow);
       row.height = 22;
@@ -344,19 +340,17 @@ export const exportSprinklerKFactorExcel = async (
       row.getCell(5).value = r.solveFor === "Q" ? "Flow (Q)" : "Pressure (P)";
       row.getCell(5).alignment = { horizontal: "center", vertical: "middle" };
 
-      // Pressure (Col F) - CENTERED
+      // Pressure (Col F) - Centered (clean background)
       row.getCell(6).value = r.pressure;
       row.getCell(6).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(6).numFmt = "0.00";
-      row.getCell(6).fill = blueFill;
 
-      // Flow (Col G) - CENTERED
+      // Flow (Col G) - Centered (clean background)
       row.getCell(7).value = r.flow;
       row.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(7).numFmt = "0.00";
-      row.getCell(7).fill = blueFill;
 
-      // Coverage Area (Col H) - CENTERED
+      // Coverage Area (Col H) - Centered (clean background)
       row.getCell(8).value = r.coverage;
       row.getCell(8).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(8).numFmt = "0.0";
@@ -399,9 +393,9 @@ export const exportSprinklerKFactorExcel = async (
   totRow.getCell(6).font = boldFont;
   totRow.getCell(6).alignment = { horizontal: "center", vertical: "middle" };
   totRow.getCell(6).numFmt = "0.00";
-  totRow.getCell(6).fill = blueFill;
+  totRow.getCell(6).fill = grayFill;
 
-  // Total Demand Flow (Col G) - Centered
+  // Total Demand Flow (Col G) - Centered (Only this primary output cell gets blueFill, matching Ventilation)
   totRow.getCell(7).value = totalFlow;
   totRow.getCell(7).font = boldFont;
   totRow.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
