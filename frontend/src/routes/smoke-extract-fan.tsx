@@ -358,9 +358,6 @@ function SmokeExtractFanPage() {
 
             {/* Results Column */}
             <div className="lg:col-span-7 flex flex-col gap-5">
-              <div className="flex items-center gap-2.5 bg-background border border-border rounded-xl p-2 select-none">
-              </div>
-
               {/* Summary card */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">

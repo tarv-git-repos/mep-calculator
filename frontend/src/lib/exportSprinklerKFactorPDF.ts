@@ -33,7 +33,8 @@ export interface SprinklerProjectMetaData {
 
 export const exportSprinklerKFactorPDF = async (
   rows: SprinklerExportRow[],
-  meta: SprinklerProjectMetaData = {}
+  meta: SprinklerProjectMetaData = {},
+  liveReviewState?: any
 ) => {
   if (!rows || rows.length === 0) {
     toast.error("No sprinkler rows available to export.");
@@ -254,7 +255,7 @@ export const exportSprinklerKFactorPDF = async (
       activeProjectId,
       "/plumbing-sprinkler-kfactor",
       getExporterUserName(currentUserName),
-      new Date().toISOString()
+      liveReviewState
     );
 
     addPdfSignatureBlock(doc, tableEndY + 6, sigDetails);

@@ -2,6 +2,7 @@ import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBa
 import { useAuth } from "@/contexts/AuthContext";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { exportSprinklerKFactorPDF, type SprinklerExportRow } from "@/lib/exportSprinklerKFactorPDF";
+import { addPdfSignatureBlock, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -218,6 +219,27 @@ function SprinklerKFactorPage() {
   const { project } = useWorkspace();
   const confirm = useConfirm();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  // Review & Approval State
+  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const pId = project?.id || "default";
+        return resolveLatestReviewState(pId, "/plumbing-sprinkler-kfactor");
+      } catch (e) {}
+    }
+    return { status: "DRAFT" };
+  });
+
+  useEffect(() => {
+    const handleReviewUpdate = (e: any) => {
+      if (e.detail) {
+        setCalcReviewState(e.detail);
+      }
+    };
+    window.addEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+    return () => window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+  }, []);
 
   // Tabs
   const [tab, setTab] = useState<"solver" | "schedule" | "report">("solver");
@@ -1093,13 +1115,18 @@ function SprinklerKFactorPage() {
       flagReason: r.flagReason
     }));
 
-    exportSprinklerKFactorPDF(exportRows, {
-      projectName: project?.name,
-      client: project?.client,
-      projectNo: project?.code,
-      date: project?.date,
-      unitSystem: unitSystem
-    });
+    exportSprinklerKFactorPDF(
+      exportRows,
+      {
+        projectName: project?.name || "Sprinkler Hydraulic Calculation",
+        client: project?.client || "Consistent Engineering Consultants",
+        projectNo: project?.code || "SPRINKLER-01",
+        date: project?.date || new Date().toISOString().split("T")[0],
+        unitSystem: unitSystem,
+        userName: currentUserName,
+      },
+      calcReviewState
+    );
   };
 
   // AI intelligence optimizations
@@ -1549,7 +1576,7 @@ function SprinklerKFactorPage() {
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
-                <CalculationReviewBar calculatorPath="/plumbing-sprinkler-kfactor" calculatorTitle="Sprinkler K-Factor" />
+                
               </div>
             </div>
             
@@ -1575,6 +1602,16 @@ function SprinklerKFactorPage() {
               </div>
               {actions}
             </div>
+          </div>
+
+          {/* Calculation Review Bar Container */}
+          <div className="px-6 shrink-0 select-none no-print">
+            <CalculationReviewBar
+              calculatorPath="/plumbing-sprinkler-kfactor"
+              calculatorTitle="Sprinkler K-Factor Calculation"
+              projectId={project?.id || "default"}
+              onReviewStateChange={(state) => setCalcReviewState(state)}
+            />
           </div>
 
           {/* White card container for Tabs & Data Grid */}
