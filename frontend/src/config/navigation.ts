@@ -30,7 +30,7 @@ export const NAV: NavItem[] = [
       { label: "CHW Pipe Sizer", to: "/chw-pipe-sizer" },
       { label: "CHW Pump Head", to: "/chw-pump-head" },
       { label: "LOAD & VENTILATION", isHeader: true },
-      { label: "VENTILATION", to: "/ventilation" },
+      { label: "VENTILATION", to: "/" },
       { label: "Fresh Air Cooling Load", to: "/fresh-air-cooling-load" },
       { label: "Condensate Drain Calc", to: "/condensate-drain-calc" },
       { label: "Heating Load", to: "/heating-load" },

@@ -25,7 +25,7 @@ export const logActivity = async (userId: string | undefined, action: ActivityAc
 
     let storedUserData: any = null;
     try {
-      const raw = localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
+      const raw = localStorage.getItem('mep_calculator_user_data') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
       if (raw) storedUserData = JSON.parse(raw);
     } catch (e) {}
 

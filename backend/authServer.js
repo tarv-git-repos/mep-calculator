@@ -1706,6 +1706,26 @@ const server = http.createServer(async (req, res) => {
     
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
+    // Auto-log activity on server whenever ANY team member saves workspace
+    try {
+      let projName = 'Project';
+      const { data: proj } = await supabase.from('projects').select('name').eq('id', project_id).single();
+      if (proj && proj.name) projName = proj.name;
+
+      const defaultOrg = '8343112c-110b-4c26-bce9-b5786b05f241';
+      const userOrg = user.organization_id || defaultOrg;
+
+      logActivity(user, 'UPDATED', {
+        message: `Calculation was updated and saved in project ${projName}`,
+        project_name: projName,
+        project_id: project_id,
+        organization_id: userOrg,
+        org_id: userOrg
+      });
+    } catch (e) {
+      console.warn('Auto activity logging warning:', e.message);
+    }
+
     // Auto-save file backup on server without requiring user interaction
     try {
       const fileSettings = readOrgSettings();
