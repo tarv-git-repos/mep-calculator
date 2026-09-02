@@ -2048,29 +2048,29 @@ function LoadingUnitPage() {
                 Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
               </p>
             </div>
+          </div>
 
-            {/* Top Navigation Tabs (Spaces vs Sizing & Report) */}
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("spaces")}
-                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    activeTab === "spaces" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Spaces
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("report")}
-                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    activeTab === "report" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Sizing &amp; Report
-                </button>
-              </div>
+          {/* Top Navigation Tabs Bar (Aligned Left above Filter header with rounded-full capsule design) */}
+          <div className="flex items-center justify-start select-none">
+            <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setActiveTab("spaces")}
+                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                  activeTab === "spaces" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Spaces
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("report")}
+                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                  activeTab === "report" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Sizing &amp; Report
+              </button>
             </div>
           </div>
 

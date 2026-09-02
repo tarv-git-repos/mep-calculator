@@ -21,7 +21,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace } from "@/lib/workspace-store";
-import { useConfirm } from "@/hooks/use-confirm";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { dirtyStore } from "@/lib/dirty-store";
 import {
   ContextMenuContent,
@@ -42,6 +42,7 @@ export const Route = createFileRoute("/plumbing-sprinkler-kfactor")({
 
 interface SprinklerRow {
   id: string;
+  floor?: string;
   label: string;
   kFactor: number;
   solveFor: "Q" | "P";
@@ -157,6 +158,7 @@ const HAZARD_LIMITS: Record<string, number> = {
 const DEFAULT_ROWS: SprinklerRow[] = [
   {
     id: "sprink_1",
+    floor: "Level 1",
     label: "Office Room 101 - Pendent",
     kFactor: 5.6,
     solveFor: "Q",
@@ -168,6 +170,7 @@ const DEFAULT_ROWS: SprinklerRow[] = [
   },
   {
     id: "sprink_2",
+    floor: "Ground Floor",
     label: "Reception Area - Pendent",
     kFactor: 5.6,
     solveFor: "Q",
@@ -179,6 +182,7 @@ const DEFAULT_ROWS: SprinklerRow[] = [
   },
   {
     id: "sprink_3",
+    floor: "Level 1",
     label: "Server Room - Upright",
     kFactor: 8.0,
     solveFor: "Q",
@@ -190,6 +194,7 @@ const DEFAULT_ROWS: SprinklerRow[] = [
   },
   {
     id: "sprink_4",
+    floor: "Ground Floor",
     label: "Storage Closet - Sidewall",
     kFactor: 4.2,
     solveFor: "Q",
@@ -213,6 +218,18 @@ function computeRowOutputs(row: SprinklerRow): SprinklerRow {
     const P = Math.pow(Q / K, 2);
     return { ...row, pressure: parseFloat(P.toFixed(2)) };
   }
+}
+
+export function extractFloor(name: string): string {
+  if (!name) return "Ground Floor";
+  const lower = name.toLowerCase();
+  if (lower.includes("basement") || lower.includes("b1") || lower.includes("b2")) return "Basement";
+  if (lower.includes("ground") || lower.includes("gf") || lower.includes("level 0")) return "Ground Floor";
+  if (lower.includes("1st") || lower.includes("first") || lower.includes("level 1") || lower.includes("l1") || lower.includes("101") || lower.includes("102") || lower.includes("103")) return "Level 1";
+  if (lower.includes("2nd") || lower.includes("second") || lower.includes("level 2") || lower.includes("l2") || lower.includes("201") || lower.includes("202")) return "Level 2";
+  if (lower.includes("3rd") || lower.includes("third") || lower.includes("level 3") || lower.includes("l3") || lower.includes("301")) return "Level 3";
+  if (lower.includes("roof") || lower.includes("terrace")) return "Roof";
+  return "Ground Floor";
 }
 
 export function checkIfSprinklerMissingData(row: SprinklerRow): { isMissing: boolean; reason?: string } {
@@ -240,6 +257,7 @@ function SprinklerKFactorPage() {
 
   const { project } = useWorkspace();
   const confirm = useConfirm();
+  const prompt = usePrompt();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Review & Approval State
@@ -288,9 +306,18 @@ function SprinklerKFactorPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [floorFilter, setFloorFilter] = useState("All");
   const [hazardFilter, setHazardFilter] = useState("All");
   const [kFilter, setKFilter] = useState("All");
   const [flagFilterOnly, setFlagFilterOnly] = useState(false);
+
+  const allUniqueFloors = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => {
+      set.add(r.floor || "Ground Floor");
+    });
+    return Array.from(set).sort();
+  }, [rows]);
   const [editingSprinkler, setEditingSprinkler] = useState<SprinklerRow | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkEditData, setBulkEditData] = useState<{
@@ -750,6 +777,58 @@ function SprinklerKFactorPage() {
   };
 
   // Grid context menu builder
+    const renderFloorGroupHeader = (floor: string) => {
+    const floorRows = filteredRows.filter((r) => (r.floor || "Ground Floor") === floor);
+    return (
+      <span className="flex items-center gap-1.5 font-medium">
+        <span><strong className="font-bold text-primary">{floor}</strong></span>
+        <span className="text-[10px] text-muted-foreground font-normal">({floorRows.length} heads) (Right-click to manage floor)</span>
+      </span>
+    );
+  };
+
+  const renderFloorGroupContextMenu = (floor: string) => {
+    return (
+      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={async () => {
+            const newFloor = await prompt("Enter new floor / level name:", floor, { title: "Rename Floor / Level" });
+            if (newFloor && newFloor.trim() !== "" && newFloor.trim() !== floor) {
+              const trimmed = newFloor.trim();
+              pushToUndo(rows);
+              setRows(prev => prev.map(s => (s.floor || "Ground Floor") === floor ? { ...s, floor: trimmed } : s));
+              toast.success(`Renamed floor to "${trimmed}"`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Edit3 className="size-3.5 text-muted-foreground" />
+          <span>Rename Floor</span>
+        </ContextMenuItem>
+        
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        
+        <ContextMenuItem
+          onClick={async () => {
+            const floorSpaces = rows.filter((s) => (s.floor || "Ground Floor") === floor);
+            if (floorSpaces.length > 0) {
+              if (await confirm(`Are you sure you want to delete all ${floorSpaces.length} sprinklers on "${floor}"?`)) {
+                pushToUndo(rows);
+                setRows(prev => prev.filter((s) => (s.floor || "Ground Floor") !== floor));
+                setSelected(new Set());
+                toast.success(`Deleted sprinklers on ${floor}`);
+              }
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete Floor Group</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
   const renderSprinklerContextMenu = (row: SprinklerRow) => {
     const targetIds = selected.has(row.id) ? Array.from(selected) : [row.id];
 
@@ -1631,15 +1710,7 @@ function SprinklerKFactorPage() {
             </div>
           </div>
 
-          {/* Calculation Review Bar Container */}
-          <div className="px-6 shrink-0 select-none no-print">
-            <CalculationReviewBar
-              calculatorPath="/plumbing-sprinkler-kfactor"
-              calculatorTitle="Sprinkler K-Factor Calculation"
-              projectId={project?.id || "default"}
-              onReviewStateChange={(state) => setCalcReviewState(state)}
-            />
-          </div>
+          
 
           {/* White card container for Tabs & Data Grid */}
           <div className="bg-card border border-border rounded-3xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden mx-6 mb-6">
@@ -2263,6 +2334,15 @@ function SprinklerKFactorPage() {
                       onToggle={toggleSelect}
                       onToggleAll={toggleSelectAll}
                       renderContextMenu={renderSprinklerContextMenu}
+                      groupBy={(r) => r.floor || "Ground Floor"}
+                      groupOrder={allUniqueFloors}
+                      renderGroupHeader={renderFloorGroupHeader}
+                      renderGroupContextMenu={renderFloorGroupContextMenu}
+                      rowClassName={(row, index) =>
+                        index % 2 === 0
+                          ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
+                          : "bg-card hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
+                      }
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
