@@ -80,6 +80,24 @@ const K_FACTOR_DETAILS: Record<number, KFactorDetail> = {
   28.0: { orifice: '1" (25 mm)', thread: '1" NPT', desc: "Maximum flow capacity ESFR for extra high bay ceiling configurations" },
 };
 
+function getKFactorDetail(k: number, isSi: boolean): KFactorDetail {
+  const ipK = isSi ? parseFloat((k / 14.288).toFixed(1)) : k;
+  let closest = 5.6;
+  let minDiff = Infinity;
+  for (const std of STANDARD_K_FACTORS) {
+    const diff = Math.abs(std - ipK);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = std;
+    }
+  }
+  return K_FACTOR_DETAILS[closest] || {
+    orifice: isSi ? '15 mm' : '1/2" NPT',
+    thread: isSi ? '1/2" (15 mm)' : '1/2" NPT',
+    desc: `Custom K-${k.toFixed(1)} sprinkler head configuration`
+  };
+}
+
 interface BulbRating {
   color: string;
   tempF: string;
