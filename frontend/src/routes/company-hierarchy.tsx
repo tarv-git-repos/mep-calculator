@@ -175,10 +175,12 @@ function CompanyHierarchyPage() {
   const isAuthorized = ["SUPER_ADMIN", "ORG_ADMIN"].includes(currentRole);
 
   const [members, setMembers] = useState<HierarchyUser[]>(() => {
-    try {
-      const saved = localStorage.getItem("mep_company_hierarchy");
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_company_hierarchy");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
     return DEFAULT_HIERARCHY;
   });
 
@@ -202,9 +204,11 @@ function CompanyHierarchyPage() {
   // Save to LocalStorage whenever members change
   const saveHierarchy = (newMembers: HierarchyUser[]) => {
     setMembers(newMembers);
-    try {
-      localStorage.setItem("mep_company_hierarchy", JSON.stringify(newMembers));
-    } catch (e) {}
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem("mep_company_hierarchy", JSON.stringify(newMembers));
+      } catch (e) {}
+    }
   };
 
   const handleResetDefault = () => {

@@ -276,8 +276,15 @@ function SprinklerKFactorPage() {
   // Grid/Schedule State
   const [rows, setRows] = useState<SprinklerRow[]>(() => {
     try {
-      const stored = project?.id ? localStorage.getItem(`mep_sprinklers_${project.id}`) : null;
-      return stored ? JSON.parse(stored) : DEFAULT_ROWS;
+      if (typeof window !== "undefined") {
+        const pKey = `mep_sprinklers_${project?.id || "default"}`;
+        const stored = localStorage.getItem(pKey);
+        if (stored !== null) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      }
+      return DEFAULT_ROWS;
     } catch {
       return DEFAULT_ROWS;
     }
@@ -347,21 +354,26 @@ function SprinklerKFactorPage() {
 
   // Load data when active project changes
   useEffect(() => {
-    if (project?.id) {
-      const stored = localStorage.getItem(`mep_sprinklers_${project.id}`);
-      if (stored) {
-        try {
-          setRows(JSON.parse(stored));
-        } catch {
-          setRows(DEFAULT_ROWS);
+    const key = `mep_sprinklers_${project?.id || "default"}`;
+    const stored = localStorage.getItem(key);
+    if (stored !== null) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setRows(parsed);
+          setUndoStack([]);
+          setRedoStack([]);
+          return;
         }
-      } else {
-        setRows(DEFAULT_ROWS);
+      } catch (e) {
+        console.error("Failed to parse sprinklers data from localStorage", e);
       }
-      setUndoStack([]);
-      setRedoStack([]);
-      setLoadedProjectId(project.id);
+    } else {
+      setRows(DEFAULT_ROWS);
+      localStorage.setItem(key, JSON.stringify(DEFAULT_ROWS));
     }
+    setUndoStack([]);
+    setRedoStack([]);
   }, [project?.id]);
 
   const handleUnitToggle = (newSystem: "si" | "ip") => {
@@ -422,11 +434,10 @@ function SprinklerKFactorPage() {
 
   // Sync to localstorage
   useEffect(() => {
-    if (project?.id && loadedProjectId === project.id) {
-      localStorage.setItem(`mep_sprinklers_${project.id}`, JSON.stringify(rows));
-      dirtyStore.set(true);
-    }
-  }, [rows, project?.id, loadedProjectId]);
+    const key = `mep_sprinklers_${project?.id || "default"}`;
+    localStorage.setItem(key, JSON.stringify(rows));
+    dirtyStore.set(true);
+  }, [rows, project?.id]);
 
   // Keyboard shortcuts handling
   useEffect(() => {
