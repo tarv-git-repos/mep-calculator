@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown } from "lucide-react";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, FileText, Calculator } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -586,6 +586,7 @@ export function getRecommendedPipeSize(lu: number, flowLPS: number): { sizeMM: n
 
 function LoadingUnitPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [standardPreset, setStandardPreset] = useState<StandardPreset>("dubai");
   const [selectedCategory, setSelectedCategory] = useState<string>("med");
@@ -2042,6 +2043,30 @@ function LoadingUnitPage() {
                 Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
               </p>
             </div>
+
+            {/* Top Navigation Tabs (Spaces vs Sizing & Report) */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("spaces")}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    activeTab === "spaces" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Spaces
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("report")}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    activeTab === "report" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Sizing &amp; Report
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Standard & Unit System Selector Header */}
@@ -2110,7 +2135,10 @@ function LoadingUnitPage() {
             </div>
           </div>
 
-          {/* Workspace Header Toolbar Strip */}
+          {/* Spaces Tab View */}
+          {activeTab === "spaces" && (
+            <>
+              {/* Workspace Header Toolbar Strip */}
           <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border border-border bg-card rounded-2xl shrink-0 select-none gap-2 shadow-xs">
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               <div className="relative">
@@ -2662,9 +2690,46 @@ function LoadingUnitPage() {
                   </table>
                 </div>
               </div>
+            </>
+          )}
 
-              {/* Sizing Results & Recommended Pipe Summary Cards (Matching Ventilation UI) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full pt-2">
+          {/* Sizing & Report Tab View */}
+          {activeTab === "report" && (
+            <div className="flex flex-col gap-5 animate-in fade-in-50 duration-200">
+              
+              {/* Report Header Export Triggers */}
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-card border border-border p-4 rounded-2xl shadow-xs">
+                <div className="flex flex-col gap-0.5">
+                  <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+                    <Calculator className="size-4 text-[#0A7BC7]" />
+                    Building Water Demand Sizing Report
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Comprehensive demand calculations, pipe sizing, and submittal report summaries.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
+                  >
+                    <Download className="size-3.5" />
+                    Excel Submittal (.xlsx)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportPDF}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#0A7BC7] hover:bg-[#06456F] text-white shadow-xs transition-all cursor-pointer"
+                  >
+                    <FileText className="size-3.5" />
+                    PDF Report (.pdf)
+                  </button>
+                </div>
+              </div>
+
+              {/* Sizing Results & Recommended Pipe Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                 
                 {/* Sizing Results Card */}
                 <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-xs">
@@ -2674,19 +2739,19 @@ function LoadingUnitPage() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 font-sans text-xs">
-                    <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
+                    <div className="flex flex-col p-2.5 bg-surface-2 rounded-xl border border-border/50">
                       <span className="font-semibold text-muted-foreground text-[10px] uppercase">Standard Preset</span>
                       <span className="font-bold text-foreground text-xs">{standardPreset === "iop_bs" ? "IoP PESDG / BS 6700" : standardPreset === "dubai" ? "Dubai (DBC)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC"}</span>
                     </div>
-                    <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
+                    <div className="flex flex-col p-2.5 bg-surface-2 rounded-xl border border-border/50">
                       <span className="font-semibold text-muted-foreground text-[10px] uppercase">Total Demand</span>
                       <strong className="font-bold text-foreground font-mono text-xs">{calculations.totalLU.toFixed(1)} {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}</strong>
                     </div>
-                    <div className="flex flex-col p-2 bg-surface-2 rounded-xl border border-border/50">
+                    <div className="flex flex-col p-2.5 bg-surface-2 rounded-xl border border-border/50">
                       <span className="font-semibold text-muted-foreground text-[10px] uppercase">Peak Flow Rate</span>
                       <strong className="font-bold text-[#0A7BC7] font-mono text-xs">{calculations.displayFlow}</strong>
                     </div>
-                    <div className="flex flex-col p-2 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/50 dark:border-blue-800/40 rounded-xl">
+                    <div className="flex flex-col p-2.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/50 dark:border-blue-800/40 rounded-xl">
                       <span className="font-bold text-foreground uppercase tracking-wide text-[9.5px]">Pump Flow (Q)</span>
                       <strong className="font-extrabold text-[#0A7BC7] text-xs font-mono">{calculations.displaySelectedFlow}</strong>
                     </div>
@@ -2754,6 +2819,42 @@ function LoadingUnitPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Building Water Demand Table Summary */}
+              <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
+                <div className="bg-slate-100 dark:bg-slate-900 p-3 border-b border-border text-center font-bold text-xs uppercase tracking-wider text-foreground">
+                  {getStandardDemandHeaderTitle(standardPreset)}
+                </div>
+                <div className="divide-y divide-border text-xs font-sans">
+                  <div className="flex items-center justify-between p-3">
+                    <span className="font-semibold text-muted-foreground">No of Booster Pump</span>
+                    <span className="font-mono font-bold text-foreground">1W + 1A + 1S</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3">
+                    <span className="font-semibold text-muted-foreground">Total Water Supply Fixture ({unitLabel})</span>
+                    <span className="font-mono font-bold text-foreground">{calculations.totalLU.toFixed(1)}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3">
+                    <span className="font-semibold text-muted-foreground">Flow due to loading unit (L/s)</span>
+                    <span className="font-mono font-bold text-[#0A7BC7]">{calculations.flowLPS.toFixed(3)}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3">
+                    <span className="font-semibold text-muted-foreground">Total Water demand considered (L/s)</span>
+                    <span className="font-mono font-bold text-foreground">{calculations.selectedFlowLPS.toFixed(1)}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3">
+                    <span className="font-semibold text-muted-foreground">Diversity (if any)</span>
+                    <span className="font-mono font-medium text-muted-foreground">—</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-blue-50/70 dark:bg-blue-950/40 font-bold">
+                    <span className="text-blue-700 dark:text-blue-300">Selected Water Flow Rate (Q) L/s</span>
+                    <span className="font-mono text-base text-[#0A7BC7]">{calculations.selectedFlowLPS.toFixed(1)} L/s</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
 
         </div>
       </div>

@@ -122,6 +122,22 @@ export function SprinklerKFactorSelect({
             <CommandEmpty className="py-2 text-center text-xs text-muted-foreground">No K-factor found.</CommandEmpty>
             <CommandList className="max-h-[220px] overflow-y-auto custom-scrollbar p-1">
               <CommandGroup>
+                {!matched && (
+                  <CommandItem
+                    value={`K-${value.toFixed(1)} (Custom)`}
+                    onSelect={() => {
+                      if (onOpenCustomModal) onOpenCustomModal();
+                      setOpen(false);
+                    }}
+                    className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 rounded-md font-bold text-foreground"
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-foreground">K-{value.toFixed(1)} (Custom)</span>
+                      <span className="text-[10px] text-muted-foreground truncate">User-defined orifice coefficient</span>
+                    </div>
+                    <Check className="size-3.5 text-primary shrink-0 ml-2" />
+                  </CommandItem>
+                )}
                 {standardOptions.map((opt) => {
                   const isSelected = Math.abs(opt.value - value) < 0.05;
                   return (

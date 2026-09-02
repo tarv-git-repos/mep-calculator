@@ -103,6 +103,22 @@ export function SprinklerHazardSelect({
             <CommandEmpty className="py-2 text-center text-xs text-muted-foreground">No hazard class found.</CommandEmpty>
             <CommandList className="max-h-[220px] overflow-y-auto custom-scrollbar p-1">
               <CommandGroup>
+                {isCustom && (
+                  <CommandItem
+                    value={`${displayVal}`}
+                    onSelect={() => {
+                      if (onOpenCustomModal) onOpenCustomModal();
+                      setOpen(false);
+                    }}
+                    className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 rounded-md font-bold text-foreground"
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-bold text-foreground">{displayVal}</span>
+                      <span className="text-[10px] text-muted-foreground truncate">User-defined hazard classification</span>
+                    </div>
+                    <Check className="size-3.5 text-primary shrink-0 ml-2" />
+                  </CommandItem>
+                )}
                 {standardHazards.map((h) => {
                   const isSelected = value === h.name;
                   const covUnit = isSI ? "m²" : "ft²";
