@@ -53,6 +53,7 @@ interface SprinklerRow {
   coverage: number;
   hazard: string;
   notes?: string;
+  comments?: any[];
   flagged?: boolean;
   flagReason?: string;
 }
@@ -63,71 +64,21 @@ interface KFactorDetail {
   orifice: string;
   thread: string;
   desc: string;
-  sizeRatio: number;
 }
 
-function getKFactorDetail(k: number | "", isSI: boolean): KFactorDetail {
-  if (k === "") {
-    return { orifice: "—", thread: "—", desc: "Custom K-factor", sizeRatio: 0.55 };
-  }
-  const kVal = Number(k);
-  const ipK = isSI ? kVal / 14.28 : kVal;
-  
-  if (ipK <= 3.0) {
-    return {
-      orifice: isSI ? "9.5 mm" : '3/8"',
-      thread: isSI ? '15 mm (1/2" NPT)' : '1/2" NPT',
-      desc: "Residential / Small Orifice",
-      sizeRatio: 0.35
-    };
-  }
-  if (ipK <= 4.8) {
-    return {
-      orifice: isSI ? "11.0 mm" : '7/16"',
-      thread: isSI ? '15 mm (1/2" NPT)' : '1/2" NPT',
-      desc: "Residential / Light Hazard",
-      sizeRatio: 0.45
-    };
-  }
-  if (ipK <= 6.0) {
-    return {
-      orifice: isSI ? "12.7 mm" : '1/2"',
-      thread: isSI ? '15 mm (1/2" NPT)' : '1/2" NPT',
-      desc: "Standard Spray Sprinkler",
-      sizeRatio: 0.55
-    };
-  }
-  if (ipK <= 9.0) {
-    return {
-      orifice: isSI ? "13.5 mm" : '17/32"',
-      thread: isSI ? '20 mm (3/4" NPT)' : '3/4" NPT',
-      desc: "Large Orifice / Extra Hazard",
-      sizeRatio: 0.65
-    };
-  }
-  if (ipK <= 12.0) {
-    return {
-      orifice: isSI ? "15.9 mm" : '5/8"',
-      thread: isSI ? '20 mm (3/4" NPT)' : '3/4" NPT',
-      desc: "ESFR / Storage Sprinkler",
-      sizeRatio: 0.75
-    };
-  }
-  if (ipK <= 15.0) {
-    return {
-      orifice: isSI ? "19.0 mm" : '3/4"',
-      thread: isSI ? '20 mm (3/4" NPT)' : '3/4" NPT',
-      desc: "ESFR / High Flow Storage",
-      sizeRatio: 0.85
-    };
-  }
-  return {
-    orifice: isSI ? "20.0 - 25.4 mm" : '25/32" to 1.0"',
-    thread: isSI ? '20 - 25 mm (3/4" or 1" NPT)' : '3/4" or 1" NPT',
-    desc: "Ultra Large Orifice / ESFR Deluge",
-    sizeRatio: 0.95
-  };
-}
+const K_FACTOR_DETAILS: Record<number, KFactorDetail> = {
+  2.8: { orifice: '3/8" (10 mm)', thread: '1/2" NPT', desc: "Small orifice for residential and light hazard applications" },
+  4.2: { orifice: '7/16" (11 mm)', thread: '1/2" NPT', desc: "Standard small orifice for low hazard density control" },
+  5.6: { orifice: '1/2" (15 mm)', thread: '1/2" NPT', desc: "Standard orifice sprinkler - most widely used commercially" },
+  8.0: { orifice: '17/32" (20 mm)', thread: '3/4" NPT', desc: "Large orifice (ELO) - higher discharge at lower water pressure" },
+  11.2: { orifice: '5/8" (20 mm)', thread: '3/4" NPT', desc: "Extra-large orifice (VELO) for high-challenge storage density" },
+  14.0: { orifice: '3/4" (20 mm)', thread: '3/4" NPT', desc: "ESFR / Storage early suppression fast response applications" },
+  16.8: { orifice: '3/4" (20 mm)', thread: '3/4" NPT', desc: "High density storage control without in-rack sprinkler heads" },
+  19.6: { orifice: '1" (25 mm)', thread: '1" NPT', desc: "Very high volume ESFR for palletized ceiling storage >35 ft" },
+  22.4: { orifice: '1" (25 mm)', thread: '1" NPT', desc: "High discharge large droplet ESFR storage protection" },
+  25.2: { orifice: '1" (25 mm)', thread: '1" NPT', desc: "Ultra high volume ESFR suppression for high-bay warehousing" },
+  28.0: { orifice: '1" (25 mm)', thread: '1" NPT', desc: "Maximum flow capacity ESFR for extra high bay ceiling configurations" },
+};
 
 interface BulbRating {
   color: string;
@@ -168,7 +119,16 @@ const DEFAULT_ROWS: SprinklerRow[] = [
     flow: 21.69,
     coverage: 130,
     hazard: "Ordinary Hazard Gp 1",
-    notes: "Standard office coverage"
+    notes: "Standard office coverage",
+    comments: [
+      {
+        id: "c_demo_1",
+        authorName: "Design Engineer",
+        text: "Verify hydraulic calculation with pump head",
+        timestamp: "2026-09-02T10:00:00.000Z",
+        status: "in_progress"
+      }
+    ]
   },
   {
     id: "sprink_2",
@@ -1718,13 +1678,18 @@ function SprinklerKFactorPage() {
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                     intelOpen
                       ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                      : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
                   }`}
                 >
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
-                
+                <CalculationReviewBar
+                  projectId={project?.id || "default"}
+                  calculatorPath="/plumbing-sprinkler-kfactor"
+                  calculatorTitle="Sprinkler K-Factor"
+                  onReviewStateChange={setCalcReviewState}
+                />
               </div>
             </div>
             
@@ -2264,7 +2229,7 @@ function SprinklerKFactorPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4 flex-wrap">
+                <div className="relative flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* Search */}
                     <div className="relative">
@@ -2281,6 +2246,20 @@ function SprinklerKFactorPage() {
                         </button>
                       )}
                     </div>
+
+                    {/* Floor Filter */}
+                    <select
+                      value={floorFilter}
+                      onChange={(e) => setFloorFilter(e.target.value)}
+                      className="h-8 px-3 border border-border focus:border-primary rounded-xl text-[12.5px] bg-background text-foreground outline-none cursor-pointer font-medium transition-all shadow-xs"
+                    >
+                      <option value="All">All Floors</option>
+                      {allUniqueFloors.map((fl) => (
+                        <option key={fl} value={fl}>
+                          {fl}
+                        </option>
+                      ))}
+                    </select>
 
                     {/* Hazard Category Filter */}
                     <select
@@ -2323,15 +2302,6 @@ function SprinklerKFactorPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {selected.size > 0 && (
-                      <button
-                        onClick={() => setBulkEditOpen(true)}
-                        className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary cursor-pointer transition-all shadow-xs"
-                      >
-                        <Edit3 className="size-3.5" /> Bulk Edit ({selected.size})
-                      </button>
-                    )}
-
                     <button
                       onClick={exportExcel}
                       className="inline-flex items-center justify-center gap-1.5 h-8 px-3.5 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer transition-all shadow-xs"
@@ -2364,6 +2334,30 @@ function SprinklerKFactorPage() {
                       <Plus className="size-4" /> Add Sprinkler
                     </TBtn>
                   </div>
+
+                  {/* Bulk actions bar overlay matching Ventilation and Preliminary */}
+                  {selected.size > 0 && (
+                    <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                      <span className="font-semibold">{selected.size} selected</span>
+                      <span className="text-primary/30">·</span>
+                      <BulkBtn icon={Edit3} onClick={() => setBulkEditOpen(true)}>Bulk edit</BulkBtn>
+                      <BulkBtn icon={Flag} onClick={() => {
+                        pushToUndo(rows);
+                        const targetIds = Array.from(selected);
+                        const anyUnflagged = targetIds.some(id => !rows.find(r => r.id === id)?.flagged);
+                        setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: anyUnflagged, flagReason: anyUnflagged ? "Bulk Flagged" : undefined } : r));
+                        toast.success(anyUnflagged ? `Flagged ${targetIds.length} sprinklers` : `Unflagged ${targetIds.length} sprinklers`);
+                      }}>Flag / Unflag</BulkBtn>
+                      <BulkBtn icon={Copy} onClick={duplicateSelected}>Duplicate</BulkBtn>
+                      <BulkBtn icon={Trash2} onClick={confirmDeleteSelected}>Delete</BulkBtn>
+                      <button
+                        onClick={() => setSelected(new Set())}
+                        className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                      >
+                        <X className="size-3" /> Clear
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* DataGrid Area */}
@@ -2392,55 +2386,6 @@ function SprinklerKFactorPage() {
                       <span className="text-[13px]">No sprinklers match the current filter.</span>
                     </div>
                   )}
-
-                  {/* Floating Bulk Actions Bar */}
-                  {selected.size > 0 && (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground border border-border rounded-full py-2 px-4 shadow-xl z-50 flex items-center gap-2 animate-in slide-in-from-bottom-3 duration-200">
-                      <span className="text-[12px] font-bold border-r border-border pr-3 text-foreground">
-                        {selected.size} selected
-                      </span>
-                      <button
-                        onClick={() => setBulkEditOpen(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-primary/10 rounded-full text-[12px] font-semibold transition-all cursor-pointer text-primary"
-                      >
-                        <Edit3 className="size-3.5" /> Bulk Edit
-                      </button>
-                      <button
-                        onClick={() => {
-                          pushToUndo(rows);
-                          const targetIds = Array.from(selected);
-                          const allFlagged = targetIds.every(id => rows.find(r => r.id === id)?.flagged);
-                          setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: !allFlagged, flagReason: !allFlagged ? "Bulk Flagged" : undefined } : r));
-                          toast.success(!allFlagged ? `Flagged ${targetIds.length} sprinklers` : `Unflagged ${targetIds.length} sprinklers`);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-red-500/10 rounded-full text-[12px] font-semibold transition-all cursor-pointer text-red-600 dark:text-red-400"
-                      >
-                        <Flag className="size-3.5" /> Flag / Unflag
-                      </button>
-                      <button
-                        onClick={duplicateSelected}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-muted rounded-full text-[12px] font-semibold transition-all cursor-pointer text-foreground"
-                      >
-                        <Copy className="size-3.5 text-muted-foreground" /> Duplicate
-                      </button>
-                      <button
-                        onClick={confirmDeleteSelected}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-destructive/10 rounded-full text-[12px] font-bold text-destructive transition-all cursor-pointer"
-                      >
-                        <Trash2 className="size-3.5" /> Delete
-                      </button>
-                      <button
-                        onClick={() => setSelected(new Set())}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 hover:bg-muted rounded-full text-[12px] font-semibold text-muted-foreground transition-all cursor-pointer"
-                      >
-                        <X className="size-3.5" /> Clear
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Clean Footer Bar */}
-                <div className="flex items-center justify-between px-4 h-9 border-t border-border bg-header-bg text-[11.5px] text-muted-foreground shrink-0 select-none font-medium">
                   <div>
                     Showing <span className="text-foreground font-bold tabular">{filteredRows.length}</span> of {rows.length} sprinklers
                   </div>
@@ -2950,5 +2895,25 @@ function SprinklerKFactorPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+interface BulkBtnProps {
+  icon: React.ElementType;
+  onClick: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}
+
+function BulkBtn({ icon: Icon, onClick, children, disabled }: BulkBtnProps) {
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors text-[#06456F] hover:bg-primary/10 dark:text-[#0A7BC7] dark:hover:bg-primary/20 border border-transparent hover:border-primary/20 active:bg-primary/20 dark:active:bg-primary/30 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+    >
+      <Icon className="size-3 shrink-0" />
+      {children}
+    </button>
   );
 }

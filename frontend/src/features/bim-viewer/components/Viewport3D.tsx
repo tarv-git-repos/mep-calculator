@@ -1253,7 +1253,7 @@ const loadIfcFile = async (file: File) => {
             ctx.textBaseline = 'middle';
 
             const line1 = `${longName || 'Room'} (${name || ''})`;
-            const line2 = `${area.toFixed(1)} m²`;
+            const line2 = `${area.toFixed(2)} m²`;
 
             // Auto-fit font size so long titles never clip at canvas boundaries
             let fontSize1 = 64;

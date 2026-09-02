@@ -313,7 +313,7 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
                           <option value="-2">-2</option>
                         </select>
                       </td>
-                      <td className="p-2.5 font-mono text-zinc-300">{rec.area.toFixed(1)}</td>
+                      <td className="p-2.5 font-mono text-zinc-300">{rec.area.toFixed(2)}</td>
                       <td className="p-2.5 font-mono text-zinc-300">{rec.height.toFixed(2)}</td>
                     </tr>
                   );
