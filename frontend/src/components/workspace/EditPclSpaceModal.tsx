@@ -34,7 +34,19 @@ export function EditPclSpaceModal({
 }: EditPclSpaceModalProps) {
   const [tempSpace, setTempSpace] = useState<PclSpace>({ ...space });
   const [showPreview, setShowPreview] = useState(false);
-  const [customDensityOverride, setCustomDensityOverride] = useState(false);
+  const [customDensityOverride, setCustomDensityOverride] = useState<boolean>(() => {
+    if (!space.type) return false;
+    if (space.type.endsWith(" (Custom)") || space.type === "Other") return true;
+    return typeof space.density === "number" && space.density !== (spaceDensities[space.type] || 0);
+  });
+
+  const isCustomType = Boolean(tempSpace.type && (tempSpace.type.endsWith(" (Custom)") || tempSpace.type === "Other"));
+  const [customTypeName, setCustomTypeName] = useState(() => {
+    if (space.type && space.type.endsWith(" (Custom)")) {
+      return space.type.replace(/\s*\(Custom\)$/, "");
+    }
+    return "Custom";
+  });
 
   useEffect(() => {
     const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
@@ -67,6 +79,26 @@ export function EditPclSpaceModal({
   }, [tempSpace.area, tempSpace.density, tempSpace.type, customDensityOverride, spaceDensities]);
 
   const handleTypeChange = (newType: string) => {
+    if (newType === "Other" || newType.endsWith(" (Custom)")) {
+      setCustomDensityOverride(true);
+      setTempSpace((prev) => {
+        const areaNum = typeof prev.area === "number" ? prev.area : parseFloat(String(prev.area)) || 0;
+        const nextDensity = prev.density || 120;
+        const watts = areaNum * nextDensity;
+        const kw = watts / 1000;
+        const tr = kw / 3.51685;
+        return {
+          ...prev,
+          type: newType,
+          density: nextDensity,
+          dissipation: watts,
+          kw: Number(kw.toFixed(2)),
+          tr: Number(tr.toFixed(2)),
+        };
+      });
+      return;
+    }
+
     const nextDensity = newType ? (spaceDensities[newType] || 0) : 0;
     setCustomDensityOverride(false);
     setTempSpace((prev) => {
@@ -121,14 +153,24 @@ export function EditPclSpaceModal({
 
   const handleSave = () => {
     const areaNum = typeof tempSpace.area === "number" ? tempSpace.area : (tempSpace.area === "" ? 0 : parseFloat(String(tempSpace.area)) || 0);
-    const finalDensity = tempSpace.type ? (customDensityOverride ? tempSpace.density : (spaceDensities[tempSpace.type] || tempSpace.density || 0)) : 0;
+    let resolvedType = tempSpace.type || "";
+    if (resolvedType === "Other" || resolvedType.endsWith(" (Custom)")) {
+      let customBase = customTypeName.trim() || "Custom";
+      if (!customBase.endsWith(" (Custom)")) {
+        resolvedType = `${customBase} (Custom)`;
+      } else {
+        resolvedType = customBase;
+      }
+    }
+
+    const finalDensity = resolvedType ? (customDensityOverride ? tempSpace.density : (spaceDensities[resolvedType] || tempSpace.density || 0)) : 0;
     const finalWatts = areaNum * finalDensity;
     const finalKw = finalWatts / 1000;
     const finalTr = finalKw / 3.51685;
 
     const isNoName = !tempSpace.name || tempSpace.name.trim() === "";
     const isNoArea = areaNum <= 0;
-    const isNoType = !tempSpace.type || tempSpace.type.trim() === "";
+    const isNoType = !resolvedType || resolvedType.trim() === "";
     const isMissing = isNoName || isNoArea || isNoType;
     const wasMissing = !space.name || !space.type || !space.area || Number(space.area) <= 0;
     let nextFlagged = tempSpace.flagged;
@@ -142,7 +184,7 @@ export function EditPclSpaceModal({
       ...tempSpace,
       name: tempSpace.name.trim() || space.name,
       area: tempSpace.area === "" ? "" : areaNum,
-      type: tempSpace.type || "",
+      type: resolvedType,
       density: finalDensity,
       dissipation: finalWatts,
       kw: Number(finalKw.toFixed(2)),
@@ -232,7 +274,7 @@ export function EditPclSpaceModal({
                 <div>
                   <label className={labelClass}>Category Classification</label>
                   <select
-                    value={tempSpace.type || ""}
+                    value={tempSpace.type && (tempSpace.type.endsWith(" (Custom)") || tempSpace.type === "Other") ? "Other" : (tempSpace.type || "")}
                     onChange={(e) => handleTypeChange(e.target.value)}
                     className={`${inputClass} cursor-pointer`}
                   >
@@ -240,9 +282,26 @@ export function EditPclSpaceModal({
                     {Object.keys(spaceDensities).map((t) => (
                       <option key={t} value={t}>{t} ({spaceDensities[t]} W/m²)</option>
                     ))}
+                    <option value="Other">Other / Custom Space Type...</option>
                   </select>
                 </div>
               </div>
+
+              {isCustomType && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                  <label className={labelClass}>Custom Category Name</label>
+                  <input
+                    type="text"
+                    value={customTypeName}
+                    onChange={(e) => setCustomTypeName(e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. Custom or Server Room"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Custom categories will be automatically formatted and saved as <code className="font-semibold text-foreground">"{customTypeName.trim() || 'Custom'} (Custom)"</code>.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className={labelClass}>Floor Assigned</label>

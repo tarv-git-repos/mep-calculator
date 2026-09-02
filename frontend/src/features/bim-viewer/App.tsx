@@ -11,6 +11,16 @@ export default function App() {
   const [pendingSpaces, setPendingSpaces] = useState<Extracted3DSpace[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const handleFullscreenToggle = () => {
+    const container = document.getElementById('bim-viewer-container');
+    if (!container) return;
+    if (!document.fullscreenElement) {
+      container.requestFullscreen().catch((err) => console.warn("Fullscreen request failed:", err));
+    } else {
+      document.exitFullscreen().catch((err) => console.warn("Exit fullscreen failed:", err));
+    }
+  };
+
   const processIfcFile = async (file: File) => {
     try {
       toast.loading(`Parsing 3D IFC spaces from "${file.name}"...`, { id: "bim-sp-extract" });
@@ -78,7 +88,7 @@ export default function App() {
         className="hidden"
       />
       <Viewport3D />
-      <Sidebar />
+      <Sidebar onFullscreenToggle={handleFullscreenToggle} />
       <BimScheduleReviewModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}

@@ -30,6 +30,7 @@ export interface PclProjectMetaData {
   userName?: string;
   archDrawingRef?: string;
   dbrRef?: string;
+  reviewState?: any;
 }
 
 export const exportPreliminaryCoolingLoadPDF = async (
@@ -101,15 +102,15 @@ export const exportPreliminaryCoolingLoadPDF = async (
     doc.rect(leftMargin, 12, contentWidth, 10, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
+    doc.setFont("times", "bold");
     doc.text("PRELIMINARY COOLING LOAD REPORT", 105, 18.5, { align: "center" });
 
     // 3. Company & Date Line
     doc.setTextColor(20, 20, 20);
     doc.setFontSize(9.5);
-    doc.setFont("helvetica", "bold");
+    doc.setFont("times", "bold");
     doc.text(clientName, leftMargin, 27);
-    doc.setFont("helvetica", "normal");
+    doc.setFont("times", "normal");
     doc.text("Date: " + today, leftMargin + contentWidth, 27, { align: "right" });
 
     // 4. PROJECT SUMMARY STATS Table
@@ -127,6 +128,7 @@ export const exportPreliminaryCoolingLoadPDF = async (
               textColor: [255, 255, 255],
               fontStyle: "bold",
               fontSize: 9,
+              font: "times",
               halign: "left",
               cellPadding: 2,
             },
@@ -135,28 +137,35 @@ export const exportPreliminaryCoolingLoadPDF = async (
       ],
       body: [
         [
-          { content: "Total Spaces:", styles: { fontStyle: "bold", halign: "left", cellWidth: 45 } },
-          { content: String(rows.length), styles: { fontStyle: "bold", halign: "right", cellWidth: 45 } },
-          { content: "Total Load (TR):", styles: { fontStyle: "bold", halign: "left", cellWidth: 46 } },
-          { content: `${totalTr.toFixed(2)} TR`, styles: { fontStyle: "bold", halign: "right", cellWidth: 46 } },
+          { content: "Project Name:", styles: { font: "times", fontStyle: "bold", cellWidth: 35 } },
+          { content: projectName, styles: { font: "times", cellWidth: 55 } },
+          { content: "Total Estimated Load (TR):", styles: { font: "times", fontStyle: "bold", cellWidth: 45 } },
+          { content: `${totalTr.toFixed(2)} TR`, styles: { font: "times", fontStyle: "bold", textColor: [10, 123, 199], halign: "right", cellWidth: 47 } },
         ],
         [
-          { content: "Total Floor Area (m²):", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${totalArea.toFixed(1)} m²`, styles: { fontStyle: "bold", halign: "right" } },
-          { content: "Total Load (TR):", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${totalTr.toFixed(2)} TR`, styles: { fontStyle: "bold", halign: "right" } },
+          { content: "Client Name:", styles: { font: "times", fontStyle: "bold" } },
+          { content: clientName, styles: { font: "times" } },
+          { content: "Total Estimated Load (kW):", styles: { font: "times", fontStyle: "bold" } },
+          { content: `${totalKw.toFixed(2)} kW`, styles: { font: "times", fontStyle: "bold", textColor: [10, 123, 199], halign: "right" } },
         ],
         [
-          { content: "Total Cooling Load (kW):", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${totalKw.toFixed(2)} kW`, styles: { fontStyle: "bold", halign: "right" } },
-          { content: "Average Load Density (W/m²):", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${avgDensity.toFixed(1)} W/m²`, styles: { fontStyle: "bold", halign: "right" } },
+          { content: "Calculation No:", styles: { font: "times", fontStyle: "bold" } },
+          { content: meta.calcNo || "CALC-HVAC-PCL01", styles: { font: "times" } },
+          { content: "Total Area (m²):", styles: { font: "times", fontStyle: "bold" } },
+          { content: `${totalArea.toFixed(1)} m²`, styles: { font: "times", halign: "right" } },
+        ],
+        [
+          { content: "Project Code:", styles: { font: "times", fontStyle: "bold" } },
+          { content: meta.projectNo || activeProj?.code || "MEP-2026-001", styles: { font: "times" } },
+          { content: "Avg Heat Load Density:", styles: { font: "times", fontStyle: "bold" } },
+          { content: `${avgDensity.toFixed(1)} W/m²`, styles: { font: "times", halign: "right" } },
         ],
       ],
       styles: {
+        font: "times",
         fontSize: 8,
+        cellPadding: 1.8,
         textColor: [30, 30, 30],
-        cellPadding: 1.5,
         lineColor: [220, 220, 220],
         lineWidth: 0.1,
       },
@@ -164,39 +173,34 @@ export const exportPreliminaryCoolingLoadPDF = async (
 
     const statsEndY = (doc as any).lastAutoTable.finalY;
 
-    // 5. Build Grouped Table Body
-    const groupedFloors: Record<string, PclExportRow[]> = {};
-    const floorOrderList: string[] = [];
-
+    // 5. Build Room by Room Schedule Body Grouped by Floor
+    const floorsMap = new Map<string, PclExportRow[]>();
     rows.forEach((r) => {
-      const fl = (r.floor || "General").trim();
-      if (!groupedFloors[fl]) {
-        groupedFloors[fl] = [];
-        floorOrderList.push(fl);
-      }
-      groupedFloors[fl].push(r);
+      const f = r.floor || "GF";
+      if (!floorsMap.has(f)) floorsMap.set(f, []);
+      floorsMap.get(f)!.push(r);
     });
 
     const scheduleBody: any[] = [];
     let sNo = 1;
 
-    const floorHeaderFill = [220, 239, 251] as [number, number, number]; // Soft Blue #DCEFFB
-    const totalRowFill = [220, 239, 251] as [number, number, number];
+    const floorHeaderFill = [240, 244, 248]; // Light Blue-Gray
+    const totalRowFill = [225, 238, 248]; // Accent Highlight
 
-    floorOrderList.forEach((floorName) => {
-      const floorRows = groupedFloors[floorName];
-
-      // Floor Section Header Row
+    floorsMap.forEach((floorRows, floorName) => {
+      // Floor Subheader
       scheduleBody.push([
         {
-          content: `Floor: ${floorName}`,
+          content: `${floorName} (${floorRows.length} spaces)`,
           colSpan: 7,
           styles: {
-            fillColor: floorHeaderFill,
+            font: "times",
             fontStyle: "bold",
-            halign: "left",
+            fontSize: 8,
+            fillColor: floorHeaderFill,
             textColor: [6, 69, 111],
-            fontSize: 8.5,
+            halign: "left",
+            cellPadding: 2,
           },
         },
       ]);
@@ -208,25 +212,25 @@ export const exportPreliminaryCoolingLoadPDF = async (
         const tr = typeof r.tr === "number" ? r.tr : kw / 3.517;
 
         scheduleBody.push([
-          { content: String(sNo++), styles: { halign: "center" } },
-          { content: r.name || "Space", styles: { halign: "left" } },
-          { content: numArea.toFixed(1), styles: { halign: "right" } },
-          { content: r.type || "Unassigned", styles: { halign: "left" } },
-          { content: density.toFixed(1), styles: { halign: "right" } },
-          { content: kw.toFixed(2), styles: { halign: "right" } },
-          { content: tr.toFixed(2), styles: { halign: "right" } },
+          { content: String(sNo++), styles: { font: "times", halign: "center" } },
+          { content: r.name || "Space", styles: { font: "times", halign: "left" } },
+          { content: numArea > 0 ? numArea.toFixed(1) : "—", styles: { font: "times", halign: "right" } },
+          { content: r.type || "Unassigned", styles: { font: "times", halign: "left" } },
+          { content: density > 0 ? density.toFixed(1) : "—", styles: { font: "times", halign: "right" } },
+          { content: kw > 0 ? kw.toFixed(2) : "—", styles: { font: "times", halign: "right" } },
+          { content: tr > 0 ? tr.toFixed(2) : "—", styles: { font: "times", halign: "right" } },
         ]);
       });
     });
 
     // TOTAL Summary Row
     scheduleBody.push([
-      { content: "TOTAL", colSpan: 2, styles: { fontStyle: "bold", halign: "left", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalArea.toFixed(1), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
+      { content: "TOTAL", colSpan: 2, styles: { font: "times", fontStyle: "bold", halign: "left", fillColor: totalRowFill, textColor: [6, 69, 111] } },
+      { content: totalArea.toFixed(1), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
       { content: "", styles: { fillColor: totalRowFill } },
-      { content: avgDensity.toFixed(1), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalKw.toFixed(2), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalTr.toFixed(2), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
+      { content: avgDensity.toFixed(1), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
+      { content: totalKw.toFixed(2), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
+      { content: totalTr.toFixed(2), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
     ]);
 
     // 6. COOLING LOAD SCHEDULE Banner (Draws on Page 1 above the table)
@@ -235,7 +239,7 @@ export const exportPreliminaryCoolingLoadPDF = async (
     doc.rect(leftMargin, scheduleBannerY, contentWidth, 6, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(8.5);
-    doc.setFont("helvetica", "bold");
+    doc.setFont("times", "bold");
     doc.text("COOLING LOAD SCHEDULE", leftMargin + 3, scheduleBannerY + 4.2);
 
     // 7. Schedule Table (Only Column Headers repeat on page breaks)
@@ -258,11 +262,13 @@ export const exportPreliminaryCoolingLoadPDF = async (
       headStyles: {
         fillColor: [10, 123, 199], // Primary Blue #0A7BC7
         textColor: [255, 255, 255],
+        font: "times",
         fontStyle: "bold",
         fontSize: 7.5,
         valign: "middle",
       },
       styles: {
+        font: "times",
         fontSize: 7.5,
         textColor: [20, 20, 20],
         cellPadding: 1.5,
@@ -273,7 +279,7 @@ export const exportPreliminaryCoolingLoadPDF = async (
         // Footer: Page Numbers
         const pageCount = (doc as any).internal.getNumberOfPages();
         doc.setFontSize(7.5);
-        doc.setFont("helvetica", "normal");
+        doc.setFont("times", "normal");
         doc.setTextColor(100, 100, 100);
         doc.text(
           `Page ${data.pageNumber} of ${pageCount}`,
@@ -286,15 +292,15 @@ export const exportPreliminaryCoolingLoadPDF = async (
 
     const tableEndY = (doc as any).lastAutoTable.finalY;
 
-    // 7. Signature Block
+    // 8. Signature Block
     const sigDetails = getSignatureBlockDetails(
       activeProjectId,
-      "preliminary-cooling-load",
+      "/preliminary-cooling-load",
       getExporterUserName(currentUserName),
-      new Date().toISOString()
+      meta.reviewState
     );
 
-    addPdfSignatureBlock(doc, tableEndY + 6, sigDetails);
+    addPdfSignatureBlock(doc, tableEndY + 6, sigDetails, activeProjectId, "/preliminary-cooling-load");
 
     // Save and download
     const fileName = `${(projectName || "Preliminary_Cooling_Load").replace(/\s+/g, "_")}_report.pdf`;

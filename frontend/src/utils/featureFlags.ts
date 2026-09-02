@@ -6,18 +6,47 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'chw-pump-head',
   'ventilation',
   'fresh-air-cooling-load',
+  'condensate-drain-calc',
+  'heating-load',
+  'lobby-pressurisation',
+  'staircase-pressurization',
+  'smoke-extract-fan',
+  'basement-smoke-calc',
+  'duct-sizer',
+  'diffuser-selector',
+  'refrigerant-pipe-sizing',
+  'condensate-drain',
+  'sanity-check-tool',
+  'psychrometric',
+  'central-battery-sizing',
+  'ups-sizing-calculation',
+  'generator-sizing',
+  'lighting-lux-calculation',
+  'lpd-calculation',
+  'transformer-sizing',
+  'circuit-breaker-sizing',
+  'busbar-calculation',
+  'cable-tray-sizing',
+  'capacitor-bank-sizing',
+  'conductor-sizing',
+  'cable-voltage-drop',
+  'busbar-voltage-drop',
+  'short-circuit-calculations',
+  'load-summary',
+  'project-load-schedule',
   'plumbing-loading-unit',
   'plumbing-fixture-unit',
   'plumbing-water-demand',
   'plumbing-supply-pipe-sizer',
-  'busbar-calculation',
-  'busbar-voltage-drop',
-  'generator-sizing',
-  'cable-tray-sizing',
-  'capacitor-bank-sizing',
-  'lighting-lux-calculation',
-  'project-load-schedule',
-  'load-summary',
+  'plumbing-pump-sizing',
+  'plumbing-pressure-vessel',
+  'plumbing-sump-pump',
+  'plumbing-drainage',
+  'plumbing-discharge-unit',
+  'plumbing-sewage-pump',
+  'plumbing-storm-water',
+  'plumbing-tank-sizing',
+  'plumbing-gas-tank',
   'plumbing-sprinkler-kfactor',
   'k-factor',
   'plumbing-sprinkler-density',
@@ -34,7 +63,7 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   
   // SUPER_ADMIN and ORG_ADMIN should never be locked out of admin or hierarchy pages
   if (profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN') {
-    if (path === '/admin' || path === '/company-hierarchy') return false;
+    return false;
   }
 
   // System pages should never be locked
@@ -74,6 +103,5 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     if (features.fireFighting === true || features.kfactor === true || features.sprinkler === true) return false;
   }
 
-  // All other features are disabled by default (locked unless explicitly set to true)
-  return true;
+  return false;
 };

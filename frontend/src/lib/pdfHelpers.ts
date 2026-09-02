@@ -141,9 +141,13 @@ export function resolveLatestReviewState(projectId: string, calculatorPath: stri
 export function getSignatureBlockDetails(
   projectId: string,
   calculatorPath: string,
-  exporterName: string
+  exporterName: string,
+  liveReviewState?: any
 ) {
-  const reviewState = resolveLatestReviewState(projectId, calculatorPath);
+  const resolvedState = resolveLatestReviewState(projectId, calculatorPath);
+  const reviewState = (liveReviewState && typeof liveReviewState === "object" && (liveReviewState.status || liveReviewState.approvedBy || liveReviewState.history))
+    ? { ...resolvedState, ...liveReviewState }
+    : resolvedState;
   const currentProj = workspaceStore.getState().project;
 
   // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = Current export/calculation date

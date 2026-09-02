@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -8,7 +8,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
   Plus, Trash2, Download, Upload, X, Sparkles, AlertTriangle, CheckCircle2,
-  Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, Wrench, RefreshCw, Bookmark, HelpCircle,
+  Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, ChevronUp, Wrench, RefreshCw, Bookmark, HelpCircle,
   Filter, ArrowUpDown, Edit3, MessageSquare, Flag
 } from "lucide-react";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
@@ -291,6 +291,250 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   );
 }
 
+/* ──────────────────── Preliminary Cooling Load Intelligence Drawer ───────────────────── */
+interface CollapsibleMissingPclSectionProps {
+  label: string;
+  count: number;
+  itemsList: { id: string; name: string; detail: string }[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onItemClick: (id: string) => void;
+}
+
+function CollapsibleMissingPclSection({
+  label,
+  count,
+  itemsList,
+  isOpen,
+  onToggle,
+  onItemClick,
+}: CollapsibleMissingPclSectionProps) {
+  return (
+    <div className="border-b border-border/40 last:border-b-0 py-1.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-[12.5px] font-medium text-foreground/90 hover:text-foreground transition-colors cursor-pointer select-none py-0.5"
+      >
+        <span className="flex items-center gap-1.5">
+          <span>{label}</span>
+          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+        </span>
+        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
+      </button>
+
+      {isOpen && count > 0 && (
+        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
+          {itemsList.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onItemClick(item.id)}
+              className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
+            >
+              <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
+                <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
+                  {item.name}
+                </span>
+                <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
+                  ({item.detail})
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PclIntelligenceDrawer({
+  rows,
+  onClose,
+  onSelectSpace,
+}: {
+  rows: PclRow[];
+  onClose: () => void;
+  onSelectSpace: (id: string) => void;
+}) {
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    missingArea: false,
+    missingType: false,
+    highDensity: false,
+    flagged: false,
+  });
+
+  const totalSpaces = rows.length;
+  const missingAreaSpaces = rows.filter((r) => r.area === "" || r.area === undefined || parseFloat(String(r.area)) <= 0 || isNaN(parseFloat(String(r.area))));
+  const missingTypeSpaces = rows.filter((r) => !r.type || r.type.trim() === "" || r.type === "Select Space Type...");
+  const flaggedSpaces = rows.filter((r) => r.flagged);
+  const highDensitySpaces = rows.filter((r) => (r.density || 0) > 300);
+
+  const missingAreaItems = missingAreaSpaces.map((s) => ({
+    id: s.id,
+    name: s.name || "Unnamed Space",
+    detail: s.floor || "GF",
+  }));
+  const missingTypeItems = missingTypeSpaces.map((s) => ({
+    id: s.id,
+    name: s.name || "Unnamed Space",
+    detail: s.floor || "GF",
+  }));
+  const highDensityItems = highDensitySpaces.map((s) => ({
+    id: s.id,
+    name: `${s.name || "Space"} (${s.density} W/m²)`,
+    detail: s.type || "High Density",
+  }));
+  const flaggedItems = flaggedSpaces.map((s) => ({
+    id: s.id,
+    name: s.name || "Space",
+    detail: s.floor || "GF",
+  }));
+
+  const nonCompliantCount = rows.filter((r) => {
+    const check = checkIfPclMissingData(r);
+    return check.isMissing || r.flagged;
+  }).length;
+
+  const compliancePercent = totalSpaces > 0
+    ? Math.round(((totalSpaces - nonCompliantCount) / totalSpaces) * 100)
+    : 100;
+
+  let totalArea = 0;
+  let totalWatts = 0;
+  rows.forEach((r) => {
+    const a = typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0);
+    const d = r.density || (r.type ? (SPACE_DENSITIES[r.type] || 0) : 0);
+    totalArea += a;
+    totalWatts += a * d;
+  });
+  const totalKw = totalWatts / 1000;
+  const totalTr = totalKw / 3.517;
+  const avgDensity = totalArea > 0 ? totalWatts / totalArea : 0;
+
+  return (
+    <div className="h-full w-[360px] border-l border-border bg-card flex flex-col animate-fade-in shrink-0 z-20">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0 bg-surface-1">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-3.5 text-primary animate-pulse" />
+          <span className="text-[13px] font-semibold tracking-tight">PCL Intelligence & Audit</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <X className="size-3.5" />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-3 space-y-4 custom-scrollbar">
+        {/* Compliance Section */}
+        <div className="bg-surface-1 border border-border/80 rounded-xl p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider flex items-center gap-1.5">
+              <CheckCircle2 className="size-3 text-emerald-500" /> Space Schedule Compliance
+            </span>
+            <span className="font-mono text-xs font-bold">{compliancePercent}%</span>
+          </div>
+          <div className="mt-2 h-1.5 bg-surface-3 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-300 ${compliancePercent === 100 ? "bg-emerald-500" : compliancePercent > 70 ? "bg-amber-500" : "bg-red-500"}`}
+              style={{ width: `${compliancePercent}%` }}
+            />
+          </div>
+          <p className="text-[10.5px] text-muted-foreground mt-2 leading-relaxed">
+            {totalSpaces - nonCompliantCount} of {totalSpaces} spaces fully assigned with area, classification, and heat density.
+          </p>
+        </div>
+
+        {/* Capacity Summary */}
+        <div className="bg-surface-1 border border-border/80 rounded-xl p-3">
+          <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider flex items-center gap-1.5 mb-2">
+            <Gauge className="size-3 text-primary" /> Cooling Capacity Summary
+          </span>
+          <div className="space-y-1.5 text-[11.5px]">
+            <div className="flex justify-between py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Total Conditioned Area:</span>
+              <span className="font-mono font-bold text-foreground">{totalArea.toFixed(1)} m²</span>
+            </div>
+            <div className="flex justify-between py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Avg Heat Density:</span>
+              <span className="font-mono font-bold text-foreground">{avgDensity.toFixed(1)} W/m²</span>
+            </div>
+            <div className="flex justify-between py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Total Cooling Load (kW):</span>
+              <span className="font-mono font-bold text-primary">{totalKw.toFixed(2)} kW</span>
+            </div>
+            <div className="flex justify-between py-0.5">
+              <span className="text-muted-foreground">Total Cooling Load (TR):</span>
+              <span className="font-mono font-bold text-pink-600">{totalTr.toFixed(2)} TR</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Heat Load Warnings */}
+        <div className="bg-surface-1 border border-border/80 rounded-xl p-3">
+          <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider flex items-center gap-1.5 mb-2">
+            <AlertTriangle className="size-3 text-amber-500" /> Density & Hotspot Warnings
+          </span>
+          {avgDensity > 300 ? (
+            <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded p-2 mb-2">
+              High average heat density detected ({avgDensity.toFixed(1)} W/m²). Ensure dedicated airflow and high air-change rates.
+            </div>
+          ) : (
+            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded p-2 mb-2">
+              Average heat density is within normal range ({avgDensity.toFixed(1)} W/m²).
+            </div>
+          )}
+          <CollapsibleMissingPclSection
+            label="High density spaces (>300 W/m²)"
+            count={highDensityItems.length}
+            itemsList={highDensityItems}
+            isOpen={openSections.highDensity}
+            onToggle={() => setOpenSections((prev) => ({ ...prev, highDensity: !prev.highDensity }))}
+            onItemClick={onSelectSpace}
+          />
+        </div>
+
+        {/* Missing Data Audit */}
+        <div className="bg-surface-1 border border-border/80 rounded-xl p-3">
+          <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider flex items-center gap-1.5 mb-2">
+            <Info className="size-3 text-blue-500" /> Missing Data & Flag Audit
+          </span>
+          <div className="divide-y divide-border/40">
+            <CollapsibleMissingPclSection
+              label="Missing space areas"
+              count={missingAreaItems.length}
+              itemsList={missingAreaItems}
+              isOpen={openSections.missingArea}
+              onToggle={() => setOpenSections((prev) => ({ ...prev, missingArea: !prev.missingArea }))}
+              onItemClick={onSelectSpace}
+            />
+            <CollapsibleMissingPclSection
+              label="Unassigned space types"
+              count={missingTypeItems.length}
+              itemsList={missingTypeItems}
+              isOpen={openSections.missingType}
+              onToggle={() => setOpenSections((prev) => ({ ...prev, missingType: !prev.missingType }))}
+              onItemClick={onSelectSpace}
+            />
+            <CollapsibleMissingPclSection
+              label="Spaces flagged for review"
+              count={flaggedItems.length}
+              itemsList={flaggedItems}
+              isOpen={openSections.flagged}
+              onToggle={() => setOpenSections((prev) => ({ ...prev, flagged: !prev.flagged }))}
+              onItemClick={onSelectSpace}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function PreliminaryCoolingLoadPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
@@ -330,6 +574,32 @@ function PreliminaryCoolingLoadPage() {
     return [];
   });
   const [editingSpace, setEditingSpace] = useState<PclRow | null>(null);
+
+  // Review & Approval State
+  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const pId = activeProjectId || project?.id || "default";
+        return resolveLatestReviewState(pId, "/preliminary-cooling-load");
+      } catch (e) {}
+    }
+    return { status: "DRAFT" };
+  });
+
+  useEffect(() => {
+    const handleReviewUpdate = (e: any) => {
+      if (e.detail) {
+        setCalcReviewState(e.detail);
+      }
+    };
+    window.addEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+    return () => window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+  }, []);
+
+  // Custom Category Parameter Modal state
+  const [customParamModalRow, setCustomParamModalRow] = useState<PclRow | null>(null);
+  const [customParamName, setCustomParamName] = useState("Custom");
+  const [customParamDensity, setCustomParamDensity] = useState<number>(120);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
 
@@ -1376,6 +1646,7 @@ function PreliminaryCoolingLoadPage() {
       projectNo: projectInfo.projectNumber,
       calcNo: projectInfo.calcNumber,
       date: projectInfo.date,
+      reviewState: calcReviewState,
     });
   };
 
@@ -1541,55 +1812,84 @@ function PreliminaryCoolingLoadPage() {
       header: "Type of Space",
       width: 260,
       editable: true,
-      render: (r) => (
-        <select
-          value={r.type || ""}
-          onChange={(e) => {
-            const nextType = e.target.value;
-            const editIds = getSpaceEditIds(r.id);
-            const editSet = new Set(editIds);
-            const density = nextType ? (SPACE_DENSITIES[nextType] || 0) : 0;
+      render: (r) => {
+        const isCustom = Boolean(r.type && (r.type.endsWith(" (Custom)") || r.type === "Other"));
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            <select
+              value={isCustom ? "Other" : (r.type || "")}
+              onChange={(e) => {
+                const nextType = e.target.value;
+                if (nextType === "Other") {
+                  setCustomParamModalRow(r);
+                  setCustomParamName(r.type && r.type.endsWith(" (Custom)") ? r.type.replace(/\s*\(Custom\)$/, "") : "Custom");
+                  setCustomParamDensity(r.density || 120);
+                  return;
+                }
+                const editIds = getSpaceEditIds(r.id);
+                const editSet = new Set(editIds);
+                const density = nextType ? (SPACE_DENSITIES[nextType] || 0) : 0;
 
-            saveRows(rows.map(row => {
-              if (!editSet.has(row.id)) return row;
-              const numArea = row.area !== "" ? Number(row.area) : 0;
-              const dissipation = numArea * density;
-              const kw = dissipation / 1000;
-              const tr = kw / 3.517;
+                saveRows(rows.map(row => {
+                  if (!editSet.has(row.id)) return row;
+                  const numArea = row.area !== "" ? Number(row.area) : 0;
+                  const dissipation = numArea * density;
+                  const kw = dissipation / 1000;
+                  const tr = kw / 3.517;
 
-              const wasMissing = checkIfPclMissingData(row).isMissing;
-              const check = checkIfPclMissingData({
-                ...row,
-                type: nextType,
-              });
-              let flagged = row.flagged;
-              if (check.isMissing) {
-                flagged = true;
-              } else if (wasMissing && !check.isMissing) {
-                flagged = false;
-              }
+                  const wasMissing = checkIfPclMissingData(row).isMissing;
+                  const check = checkIfPclMissingData({
+                    ...row,
+                    type: nextType,
+                  });
+                  let flagged = row.flagged;
+                  if (check.isMissing) {
+                    flagged = true;
+                  } else if (wasMissing && !check.isMissing) {
+                    flagged = false;
+                  }
 
-              return {
-                ...row,
-                type: nextType,
-                density,
-                dissipation,
-                kw,
-                tr,
-                flagged
-              };
-            }));
-          }}
-          className={`w-full bg-transparent border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[12.5px] cursor-pointer font-sans ${!r.type ? "text-muted-foreground/45" : "text-foreground font-medium"}`}
-        >
-          <option value="" className="text-muted-foreground">Select Space Type...</option>
-          {Object.keys(SPACE_DENSITIES).map(k => (
-            <option key={k} value={k} className="bg-background text-foreground text-xs font-normal">
-              {k} ({SPACE_DENSITIES[k]} W/m²)
-            </option>
-          ))}
-        </select>
-      ),
+                  return {
+                    ...row,
+                    type: nextType,
+                    density,
+                    dissipation,
+                    kw,
+                    tr,
+                    flagged
+                  };
+                }));
+              }}
+              className={`flex-1 min-w-0 bg-transparent border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[12.5px] cursor-pointer font-sans ${!r.type ? "text-muted-foreground/45" : isCustom ? "text-primary font-medium" : "text-foreground font-medium"}`}
+            >
+              <option value="" className="text-muted-foreground">Select Space Type...</option>
+              {Object.keys(SPACE_DENSITIES).map(k => (
+                <option key={k} value={k} className="bg-background text-foreground text-xs font-normal">
+                  {k} ({SPACE_DENSITIES[k]} W/m²)
+                </option>
+              ))}
+              <option value="Other" className="bg-background text-primary font-medium text-xs">
+                Other / Custom Space Type...
+              </option>
+            </select>
+            {isCustom && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCustomParamModalRow(r);
+                  setCustomParamName(r.type.replace(/\s*\(Custom\)$/, ""));
+                  setCustomParamDensity(r.density || 120);
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary font-medium shrink-0 cursor-pointer border border-primary/20"
+                title="Configure custom parameters"
+              >
+                {r.type}
+              </button>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: "density",
@@ -1809,6 +2109,7 @@ function PreliminaryCoolingLoadPage() {
                   projectId={activeProjectId || project?.id || "default"}
                   calculatorPath="/preliminary-cooling-load"
                   calculatorTitle="Preliminary Cooling Load"
+                  onReviewStateChange={setCalcReviewState}
                 />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -1989,7 +2290,7 @@ function PreliminaryCoolingLoadPage() {
                       
                       <div className="ml-auto flex items-center gap-1">
                         <TBtn onClick={() => setImportOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
-                        <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber })}><FileText className="size-3.5" /> Export PDF</TBtn>
+                        <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export PDF</TBtn>
                         <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
                         {rows.length > 0 && (
                           <TBtn
@@ -2080,13 +2381,11 @@ function PreliminaryCoolingLoadPage() {
                           renderGroupHeader={renderFloorGroupHeader}
                           renderGroupContextMenu={renderFloorGroupContextMenu}
                           onToggleGroup={handleToggleGroup}
-                          rowClassName={(r) => {
-                            const check = checkIfPclMissingData(r);
-                            if (check.isMissing || r.flagged) {
-                              return "border-l-2 border-l-red-500 bg-red-500/[0.03]";
-                            }
-                            return "";
-                          }}
+                          rowClassName={(row, index) =>
+                            index % 2 === 0
+                              ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
+                              : "bg-card hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
+                          }
                         />
                       )}
                       {editingSpace && (

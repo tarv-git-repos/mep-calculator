@@ -1610,7 +1610,6 @@ ui.viewport.addEventListener('drop', (e: DragEvent) => {
                 onLevelChange={cb.onLevelChange}
                 onExportSchedule={cb.onExportSchedule}
                 onRemoveModel={cb.onRemoveModel}
-                onFullscreenToggle={handleFullscreenToggle}
             />
         </div>
     );

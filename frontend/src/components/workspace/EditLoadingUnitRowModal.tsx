@@ -34,6 +34,48 @@ export interface EditLoadingUnitRowModalProps {
   onSave: (updated: { desc: string; fixtures: Record<string, number>; qty: number; floorQty: number }) => void;
 }
 
+export function getStandardFormulaLabel(standard: StandardPreset): string {
+  switch (standard) {
+    case "as_nzs_3500":
+      return "AS/NZS 3500 Lookup Table";
+    case "barrie":
+      return "Barrie's Book Lookup Table";
+    case "bs_806":
+      return "BS 806 / BS EN 806 Lookup Table";
+    case "bs_8558":
+    case "iop_bs":
+    case "iop_low":
+    case "iop_med":
+    case "iop_high":
+      return "BS 8558 / IoP Nomogram";
+    case "din_res":
+      return "DIN 1988-300 Residential (Q = 1.48×LU⁰˙¹⁹ - 0.94)";
+    case "din_hosp":
+      return "DIN 1988-300 Hospital (Q = 0.75×LU⁰˙⁴⁴ - 0.18)";
+    case "din_hotel":
+      return "DIN 1988-300 Hotel (Q = 0.70×LU⁰˙⁴⁸ - 0.13)";
+    case "din_school":
+      return "DIN 1988-300 School (Q = 0.91×LU⁰˙³¹ - 0.38)";
+    case "din_office":
+      return "DIN 1988-300 Office (Q = 0.91×LU⁰˙³¹ - 0.38)";
+    case "din_assisted":
+      return "DIN 1988-300 Assisted Living (Q = 1.48×LU⁰˙¹⁹ - 0.94)";
+    case "din_nursing":
+      return "DIN 1988-300 Nursing Home (Q = 1.40×LU⁰˙¹⁴ - 0.92)";
+    case "ipc":
+    case "ipc_upc":
+      return "IPC Table E103.3(2) Lookup";
+    case "upc":
+      return "UPC Lookup Table";
+    case "dubai":
+      return "Dubai DBC (Q = 0.10 × √(Total LU))";
+    case "abudhabi":
+      return "Abu Dhabi ADM Table 6-9 Lookup";
+    default:
+      return "Standard Plumbing Lookup";
+  }
+}
+
 export function EditLoadingUnitRowModal({
   space,
   rowIndex = 1,
@@ -334,7 +376,7 @@ export function EditLoadingUnitRowModal({
                     {calcDetails.peakFlowLs.toFixed(2)} L/s ({calcDetails.peakFlowGpm.toFixed(1)} GPM)
                   </div>
                   <div className="text-[10px] font-mono text-neutral-500 mt-1">
-                    {standardPreset === "iop_bs" ? "BS 6700 Fig 24 / IoP Nomogram" : standardPreset === "dubai" ? "Q = 0.10 × √(Total LU)" : standardPreset === "abudhabi" ? "ADM Table 6-9 Lookup" : "IPC / UPC Hunter Curve"}
+                    {getStandardFormulaLabel(standardPreset)}
                   </div>
                 </div>
 
@@ -397,16 +439,10 @@ export function EditLoadingUnitRowModal({
               <div className="p-3 bg-white/60 dark:bg-black/20 rounded-xl border border-black/5 dark:border-white/5 space-y-1">
                 <div className="text-[10px] font-bold uppercase text-neutral-400">3. Peak Flow Rate (Q)</div>
                 <div className="text-[11px] font-mono text-neutral-500">
-                  {standardPreset === "iop_bs" ? "BS 6700 Fig 24 / IoP Nomogram" : standardPreset === "dubai" ? "Q = 0.10 × √(Total LU)" : standardPreset === "abudhabi" ? "ADM Table 6-9 Lookup" : "IPC / UPC Hunter Curve"}
+                  {getStandardFormulaLabel(standardPreset)}
                 </div>
                 <div className="text-xs font-mono text-neutral-700 dark:text-neutral-300">
-                  {standardPreset === "iop_bs"
-                    ? `BS 6700 Fig 24 (${calcDetails.totalLU.toFixed(1)} LU)`
-                    : standardPreset === "dubai"
-                    ? `Q = 0.10 × √(${calcDetails.totalLU.toFixed(1)})`
-                    : standardPreset === "abudhabi"
-                    ? `ADM Table 6-9 (${calcDetails.totalLU.toFixed(1)} WSFU)`
-                    : `0.8 × (${calcDetails.totalLU.toFixed(1)})^0.65 GPM`}
+                  Target Load: {calcDetails.totalLU.toFixed(1)} {unitLabel}
                 </div>
                 <div className="text-xs font-mono text-primary font-bold">
                   Q = {calcDetails.peakFlowLs.toFixed(2)} L/s ({calcDetails.peakFlowGpm.toFixed(1)} GPM)

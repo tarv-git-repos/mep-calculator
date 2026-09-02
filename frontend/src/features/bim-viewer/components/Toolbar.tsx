@@ -13,7 +13,6 @@ export function Toolbar({
   onColorToggle,
   onExportSchedule,
   onRemoveModel,
-  onFullscreenToggle,
 }: any) {
   const { viewMode, cameraMode, colorMode, isClipActive, isTagsActive, isSpacesActive, levels, selectedLevel, setIsTagsActive, isLoaded } = useViewerStore();
 
@@ -121,16 +120,6 @@ export function Toolbar({
       >
         <span>⚡</span>
         Generate Space Schedule
-      </button>
-
-      {/* Fullscreen Toggle Button */}
-      <button
-        onClick={onFullscreenToggle}
-        title="Toggle Fullscreen View"
-        className="px-[10px] h-[34px] rounded-[6px] text-[12px] font-bold transition-all bg-[#333] hover:bg-[#555] text-white border border-[#555] flex items-center gap-[4px] cursor-pointer shrink-0"
-      >
-        <span>⛶</span>
-        <span>Fullscreen</span>
       </button>
 
       {/* Delete Model Action Button */}
