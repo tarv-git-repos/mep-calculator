@@ -64,12 +64,12 @@ export function PclCategorySelect({
           onClick={(e) => e.stopPropagation()}
         >
           <Command
-            filter={(itemValue, search) => {
-              const itemLower = itemValue.toLowerCase();
+            filter={(itemVal, search) => {
+              const display = itemVal.toLowerCase();
               const searchLower = search.toLowerCase();
-              if (itemLower.includes(searchLower)) return 1;
+              if (display.includes(searchLower)) return 1;
               const words = searchLower.split(/\s+/).filter(Boolean);
-              if (words.length > 1 && words.every((word) => itemLower.includes(word))) return 1;
+              if (words.length > 1 && words.every((word) => display.includes(word))) return 1;
               return 0;
             }}
           >
@@ -78,7 +78,7 @@ export function PclCategorySelect({
             <CommandList className="max-h-[250px] overflow-y-auto custom-scrollbar">
               <CommandGroup>
                 <CommandItem
-                  value="select_category_empty"
+                  value=""
                   onSelect={() => {
                     onChange("");
                     setOpen(false);
@@ -94,7 +94,7 @@ export function PclCategorySelect({
                     onChange("Other");
                     setOpen(false);
                   }}
-                  className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 font-medium text-primary"
+                  className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10"
                 >
                   <span>Other</span>
                   {(value === "Other" || (value && value.endsWith(" (Custom)"))) && <Check className="size-3.5 text-primary" />}

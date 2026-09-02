@@ -1813,68 +1813,66 @@ function PreliminaryCoolingLoadPage() {
     {
       key: "type",
       header: "Type of Space",
-      width: 260,
+      width: 270,
       editable: true,
       render: (r) => {
         const isCustom = Boolean(r.type && (r.type.endsWith(" (Custom)") || r.type === "Other"));
         return (
-          <div className="flex items-center gap-1.5 w-full">
-            <select
-              value={isCustom ? "Other" : (r.type || "")}
-              onChange={(e) => {
-                const nextType = e.target.value;
-                if (nextType === "Other") {
-                  setCustomParamModalRow(r);
-                  setCustomParamName(r.type && r.type.endsWith(" (Custom)") ? r.type.replace(/\s*\(Custom\)$/, "") : "Custom");
-                  setCustomParamDensity(r.density || 120);
-                  return;
-                }
+          <div className="flex items-center justify-between gap-1 w-full h-full pr-1" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <PclCategorySelect
+              value={r.type || ""}
+              densities={SPACE_DENSITIES}
+              onChange={(nextType) => {
                 const editIds = getSpaceEditIds(r.id);
                 const editSet = new Set(editIds);
-                const density = nextType ? (SPACE_DENSITIES[nextType] || 0) : 0;
 
-                saveRows(rows.map(row => {
-                  if (!editSet.has(row.id)) return row;
-                  const numArea = row.area !== "" ? Number(row.area) : 0;
-                  const dissipation = numArea * density;
-                  const kw = dissipation / 1000;
-                  const tr = kw / 3.517;
-
-                  const wasMissing = checkIfPclMissingData(row).isMissing;
-                  const check = checkIfPclMissingData({
-                    ...row,
-                    type: nextType,
+                if (nextType === "Other" || nextType === "OTHER") {
+                  const categoryName = r.type && r.type.endsWith(" (Custom)") ? r.type : "Custom (Custom)";
+                  setCustomParamModalRow({
+                    ...r,
+                    type: categoryName,
                   });
-                  let flagged = row.flagged;
-                  if (check.isMissing) {
-                    flagged = true;
-                  } else if (wasMissing && !check.isMissing) {
-                    flagged = false;
-                  }
+                  setCustomParamName(categoryName.replace(/\s*\(Custom\)$/, ""));
+                  setCustomParamDensity(r.density || 120);
+                  setCustomParamWorkflow("calculate");
+                  return;
+                }
 
-                  return {
-                    ...row,
-                    type: nextType,
-                    density,
-                    dissipation,
-                    kw,
-                    tr,
-                    flagged
-                  };
-                }));
+                const density = nextType ? (SPACE_DENSITIES[nextType] || 0) : 0;
+                saveRows(
+                  rows.map((row) => {
+                    if (!editSet.has(row.id)) return row;
+                    const numArea = row.area !== "" ? Number(row.area) : 0;
+                    const dissipation = numArea * density;
+                    const kw = dissipation / 1000;
+                    const tr = kw / 3.517;
+
+                    const wasMissing = checkIfPclMissingData(row).isMissing;
+                    const check = checkIfPclMissingData({
+                      ...row,
+                      type: nextType,
+                    });
+                    let flagged = row.flagged;
+                    if (check.isMissing) {
+                      flagged = true;
+                    } else if (wasMissing && !check.isMissing) {
+                      flagged = false;
+                    }
+
+                    return {
+                      ...row,
+                      type: nextType,
+                      density,
+                      dissipation,
+                      kw,
+                      tr,
+                      flagged,
+                    };
+                  })
+                );
               }}
-              className={`flex-1 min-w-0 bg-transparent border border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[12.5px] cursor-pointer font-sans ${!r.type ? "text-muted-foreground/45" : isCustom ? "text-primary font-medium" : "text-foreground font-medium"}`}
-            >
-              <option value="" className="text-muted-foreground">Select Space Type...</option>
-              {Object.keys(SPACE_DENSITIES).map(k => (
-                <option key={k} value={k} className="bg-background text-foreground text-xs font-normal">
-                  {k} ({SPACE_DENSITIES[k]} W/m²)
-                </option>
-              ))}
-              <option value="Other" className="bg-background text-primary font-medium text-xs">
-                Other / Custom Space Type...
-              </option>
-            </select>
+              triggerClassName="pl-1 pr-1.5 flex-1"
+            />
             {isCustom && (
               <button
                 type="button"
@@ -1883,11 +1881,12 @@ function PreliminaryCoolingLoadPage() {
                   setCustomParamModalRow(r);
                   setCustomParamName(r.type.replace(/\s*\(Custom\)$/, ""));
                   setCustomParamDensity(r.density || 120);
+                  setCustomParamWorkflow("calculate");
                 }}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary font-medium shrink-0 cursor-pointer border border-primary/20"
-                title="Configure custom parameters"
+                className="flex items-center justify-center p-1 rounded hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors cursor-pointer w-6 h-6 shrink-0"
+                title="Configure Custom Parameters"
               >
-                {r.type}
+                <Wrench className="size-3.5" />
               </button>
             )}
           </div>
@@ -3073,6 +3072,184 @@ function PreliminaryCoolingLoadPage() {
             setCommentModalOpen(false);
           }}
         />
+      )}
+
+      {/* Intelligence Drawer */}
+      {intelOpen && (
+        <PclIntelligenceDrawer
+          rows={rows}
+          onClose={() => setIntelOpen(false)}
+          onSelectSpace={(id) => {
+            setSelected(new Set([id]));
+            const el = document.getElementById(`space-row-${id}`);
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}
+        />
+      )}
+
+      {/* Custom Category Modal for "OTHER" */}
+      {customParamModalRow && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-background border border-border rounded-lg shadow-2xl w-full max-w-md animate-scale-in text-foreground">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" />
+                <h3 className="font-semibold text-[14px]">Configure Custom Parameters</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setCustomParamModalRow(null)} 
+                className="text-muted-foreground hover:text-foreground hover:bg-surface-3 rounded p-0.5 cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-4 text-xs">
+              <div>
+                <div className="text-muted-foreground mb-2 leading-relaxed">
+                  Define custom calculation parameters for the category of space <span className="font-semibold text-foreground">"{customParamModalRow.name || "Space"}"</span>.
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1">Custom Category Name</label>
+                <input
+                  type="text"
+                  value={customParamName}
+                  onChange={(e) => setCustomParamName(e.target.value)}
+                  placeholder="e.g. Custom (Custom)"
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none text-foreground font-sans focus:border-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1">Workflow Method</label>
+                <select
+                  value={customParamWorkflow}
+                  onChange={(e) => setCustomParamWorkflow(e.target.value as "calculate" | "direct")}
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer text-foreground focus:border-primary"
+                >
+                  <option value="calculate">Calculate Airflow / Cooling Density</option>
+                  <option value="direct">Direct Airflow / Cooling Values</option>
+                </select>
+              </div>
+
+              {customParamWorkflow === "direct" ? (
+                <div className="grid grid-cols-2 gap-4 border-t border-border/40 pt-3">
+                  <div>
+                    <label className="block text-muted-foreground font-medium mb-1">Cooling Load (kW)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customParamKw || ""}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCustomParamKw(val);
+                        const areaNum = typeof customParamModalRow.area === "number" ? customParamModalRow.area : parseFloat(String(customParamModalRow.area)) || 0;
+                        if (areaNum > 0) {
+                          setCustomParamDensity(Number(((val * 1000) / areaNum).toFixed(1)));
+                        }
+                      }}
+                      className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono text-foreground focus:border-primary"
+                      placeholder="10.0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground font-medium mb-1">Cooling Load (TR)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customParamKw ? Number((customParamKw / 3.517).toFixed(2)) : ""}
+                      onChange={(e) => {
+                        const trVal = parseFloat(e.target.value) || 0;
+                        const kwVal = trVal * 3.517;
+                        setCustomParamKw(Number(kwVal.toFixed(2)));
+                        const areaNum = typeof customParamModalRow.area === "number" ? customParamModalRow.area : parseFloat(String(customParamModalRow.area)) || 0;
+                        if (areaNum > 0) {
+                          setCustomParamDensity(Number(((kwVal * 1000) / areaNum).toFixed(1)));
+                        }
+                      }}
+                      className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono text-foreground focus:border-primary"
+                      placeholder="2.84"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 border-t border-border/40 pt-3">
+                  <div>
+                    <label className="block text-muted-foreground font-medium mb-1">Cooling Load Density (W/m²)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customParamDensity ?? ""}
+                      onChange={(e) => setCustomParamDensity(parseFloat(e.target.value) || 0)}
+                      className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono text-foreground focus:border-primary"
+                      placeholder="120"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button 
+                type="button"
+                onClick={() => setCustomParamModalRow(null)} 
+                className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2 cursor-pointer font-medium"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={() => {
+                  let catName = customParamName.trim();
+                  if (!catName || catName === "Other" || catName === "OTHER") {
+                    catName = "Custom (Custom)";
+                  } else if (!catName.endsWith(" (Custom)")) {
+                    catName = `${catName} (Custom)`;
+                  }
+
+                  const editIds = getSpaceEditIds(customParamModalRow.id);
+                  const editSet = new Set(editIds);
+                  const nextDensity = customParamDensity > 0 ? customParamDensity : 120;
+
+                  saveRows(
+                    rows.map((r) => {
+                      if (!editSet.has(r.id)) return r;
+                      const numArea = r.area !== "" ? Number(r.area) : 0;
+                      const dissipation = numArea * nextDensity;
+                      const kw = dissipation / 1000;
+                      const tr = kw / 3.517;
+
+                      const wasMissing = checkIfPclMissingData(r).isMissing;
+                      const check = checkIfPclMissingData({ ...r, type: catName });
+                      let flagged = r.flagged;
+                      if (check.isMissing) {
+                        flagged = true;
+                      } else if (wasMissing && !check.isMissing) {
+                        flagged = false;
+                      }
+
+                      return {
+                        ...r,
+                        type: catName,
+                        density: nextDensity,
+                        dissipation,
+                        kw,
+                        tr,
+                        flagged,
+                      };
+                    })
+                  );
+
+                  setCustomParamModalRow(null);
+                }} 
+                className="bg-[#0A7BC7] hover:bg-[#0866A5] text-white text-xs px-4 py-1.5 rounded font-medium cursor-pointer shadow-sm"
+              >
+                Save Parameters
+              </button>
+            </footer>
+          </div>
+        </div>
       )}
     </AppShell>
   );
