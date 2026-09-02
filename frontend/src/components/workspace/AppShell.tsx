@@ -1222,7 +1222,23 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     // Merge scanned notifications with persistent stored notifications
     const combinedMap = new Map();
     (persistentNotifs || []).forEach(pn => {
-      if (pn && pn.id) combinedMap.set(pn.id, pn);
+      if (!pn || !pn.id) return;
+      const assignedUsers = Array.isArray(pn.assignedUsers) ? pn.assignedUsers : (pn.recipientId ? [pn.recipientId] : []);
+      if (assignedUsers.length > 0) {
+        const isTargetedToMe = assignedUsers.some((u: any) => {
+          const uStr = String(u).toLowerCase().trim();
+          return uStr === String(currentId || "").toLowerCase().trim() ||
+            (currentName && uStr === currentName) ||
+            (currentEmail && uStr === currentEmail);
+        });
+        if (isTargetedToMe) combinedMap.set(pn.id, pn);
+      } else {
+        const authorIdStr = String(pn.authorId || pn.metadata?.authorId || "").toLowerCase().trim();
+        const currentIdStr = String(currentId || "").toLowerCase().trim();
+        if (!authorIdStr || authorIdStr !== currentIdStr) {
+          combinedMap.set(pn.id, pn);
+        }
+      }
     });
     (notifs || []).forEach(n => {
       if (n && n.id) combinedMap.set(n.id, n);

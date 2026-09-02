@@ -254,13 +254,18 @@ function SprinklerKFactorPage() {
   });
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const handleReviewUpdate = (e: any) => {
       if (e.detail) {
         setCalcReviewState(e.detail);
       }
     };
     window.addEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
-    return () => window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+    window.addEventListener("mep-review-state-updated" as any, handleReviewUpdate);
+    return () => {
+      window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
+      window.removeEventListener("mep-review-state-updated" as any, handleReviewUpdate);
+    };
   }, []);
 
   // Version History Restore Listener (Full parity with VersionManager)
@@ -1654,7 +1659,11 @@ function SprinklerKFactorPage() {
           
 
           {/* White card container for Tabs & Data Grid */}
-          <div className="bg-card border border-border rounded-3xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden mx-6 mb-6">
+          <div className={`rounded-3xl flex-1 flex flex-col min-h-[450px] overflow-hidden mx-6 mb-6 transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
