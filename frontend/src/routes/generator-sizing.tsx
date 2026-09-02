@@ -1152,7 +1152,7 @@ function GeneratorSizingPage() {
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Sections Navigation (Tabs) */}
-          <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between">
+          <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center">
             <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
               <button
                 type="button"
@@ -1177,15 +1177,6 @@ function GeneratorSizingPage() {
                 Sizing &amp; Report
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={exportPdf}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
-            >
-              <FileText className="size-3.5" />
-              Export PDF
-            </button>
           </div>
 
           {activeTab === "report" && (

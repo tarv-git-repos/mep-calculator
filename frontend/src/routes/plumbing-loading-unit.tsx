@@ -2095,7 +2095,7 @@ function LoadingUnitPage() {
           </div>
 
           {/* Top Navigation Tabs Bar (Aligned Left above Filter header with rounded-full capsule design) */}
-          <div className="flex items-center justify-between select-none">
+          <div className="flex items-center justify-start select-none">
             <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
               <button
                 type="button"
@@ -2116,15 +2116,6 @@ function LoadingUnitPage() {
                 Sizing &amp; Report
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={handleExportPDF}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
-            >
-              <FileText className="size-3.5" />
-              Export PDF
-            </button>
           </div>
 
           {/* Standard & Unit System Selector Header */}

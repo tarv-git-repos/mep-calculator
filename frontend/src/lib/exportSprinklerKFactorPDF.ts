@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 export interface SprinklerExportRow {
   id: string;
+  floor?: string;
   label: string;
   kFactor: number;
   solveFor: "Q" | "P";
@@ -73,7 +74,7 @@ export const exportSprinklerKFactorPDF = async (
 
     const isSI = meta.unitSystem === "si";
     const pressureUnit = isSI ? "bar" : "PSI";
-    const flowUnit = isSI ? "LPM" : "GPM";
+    const flowUnit = isSI ? "L/min" : "GPM";
     const areaUnit = isSI ? "m²" : "ft²";
 
     const today = meta.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -88,6 +89,7 @@ export const exportSprinklerKFactorPDF = async (
     let maxPressure = 0;
     let minPressure = Infinity;
     let totalCoverage = 0;
+    let hoseAllowance = isSI ? 950 : 250;
 
     rows.forEach((r) => {
       totalFlow += (r.flow || 0);
@@ -98,6 +100,7 @@ export const exportSprinklerKFactorPDF = async (
 
     if (minPressure === Infinity) minPressure = 0;
     const avgPressure = rows.length > 0 ? (rows.reduce((sum, r) => sum + (r.pressure || 0), 0) / rows.length) : 0;
+    const systemDemand = totalFlow + hoseAllowance;
 
     // 2. Title Banner: SPRINKLER K-FACTOR & FLOW REPORT
     doc.setFillColor(10, 123, 199); // Primary Blue #0A7BC7
@@ -105,7 +108,7 @@ export const exportSprinklerKFactorPDF = async (
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(13);
     doc.setFont("helvetica", "bold");
-    doc.text("SPRINKLER K-FACTOR & FLOW REPORT", 105, 18.5, { align: "center" });
+    doc.text("NFPA 13 SPRINKLER K-FACTOR & HYDRAULIC CALCULATION", 105, 18.5, { align: "center" });
 
     // 3. Company & Date Line
     doc.setTextColor(20, 20, 20);
@@ -123,7 +126,7 @@ export const exportSprinklerKFactorPDF = async (
       head: [
         [
           {
-            content: "FIRE FIGHTING DESIGN SUMMARY STATS",
+            content: "FIRE FIGHTING DESIGN SUMMARY STATS (NFPA 13)",
             colSpan: 4,
             styles: {
               fillColor: [6, 69, 111], // Deep Navy #06456F
@@ -144,15 +147,15 @@ export const exportSprinklerKFactorPDF = async (
           { content: `${totalFlow.toFixed(2)} ${flowUnit}`, styles: { fontStyle: "bold", halign: "right", cellWidth: 46 } },
         ],
         [
-          { content: "Total Coverage Area:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${totalCoverage.toFixed(1)} ${areaUnit}`, styles: { fontStyle: "bold", halign: "right" } },
+          { content: "Total System Demand (with Hose):", styles: { fontStyle: "bold", halign: "left" } },
+          { content: `${systemDemand.toFixed(2)} ${flowUnit}`, styles: { fontStyle: "bold", halign: "right" } },
           { content: "Max Operating Pressure:", styles: { fontStyle: "bold", halign: "left" } },
           { content: `${maxPressure.toFixed(2)} ${pressureUnit}`, styles: { fontStyle: "bold", halign: "right" } },
         ],
         [
-          { content: "Average Operating Pressure:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${avgPressure.toFixed(2)} ${pressureUnit}`, styles: { fontStyle: "bold", halign: "right" } },
-          { content: "Design Standard:", styles: { fontStyle: "bold", halign: "left" } },
+          { content: "Hose Stream Allowance:", styles: { fontStyle: "bold", halign: "left" } },
+          { content: `${hoseAllowance} ${flowUnit}`, styles: { fontStyle: "bold", halign: "right" } },
+          { content: "Design Standard / Code:", styles: { fontStyle: "bold", halign: "left" } },
           { content: "NFPA 13 Standard", styles: { fontStyle: "bold", halign: "right" } },
         ],
       ],
@@ -167,29 +170,53 @@ export const exportSprinklerKFactorPDF = async (
 
     const statsEndY = (doc as any).lastAutoTable.finalY;
 
-    // 5. Build Schedule Body
+    // 5. Build Schedule Body with Floor Groupings
+    const floorGroups = new Map<string, SprinklerExportRow[]>();
+    rows.forEach((r) => {
+      const f = r.floor || "Ground Floor";
+      if (!floorGroups.has(f)) floorGroups.set(f, []);
+      floorGroups.get(f)!.push(r);
+    });
+
     const scheduleBody: any[] = [];
     let sNo = 1;
-
     const totalRowFill = [220, 239, 251] as [number, number, number];
+    const groupHeaderFill = [242, 244, 247] as [number, number, number];
 
-    rows.forEach((r) => {
+    floorGroups.forEach((floorRows, floorName) => {
+      // Floor header row in table
       scheduleBody.push([
-        { content: String(sNo++), styles: { halign: "center" } },
-        { content: r.label || "Sprinkler Head", styles: { halign: "left" } },
-        { content: Number(r.kFactor || 5.6).toFixed(1), styles: { halign: "center" } },
-        { content: r.hazard || "Ordinary Hazard", styles: { halign: "left" } },
-        { content: Number(r.coverage || 0).toFixed(1), styles: { halign: "right" } },
-        { content: Number(r.pressure || 0).toFixed(2), styles: { halign: "right" } },
-        { content: Number(r.flow || 0).toFixed(2), styles: { halign: "right" } },
+        {
+          content: `📍 ${floorName} (${floorRows.length} sprinkler heads)`,
+          colSpan: 7,
+          styles: {
+            fontStyle: "bold",
+            halign: "left",
+            fillColor: groupHeaderFill,
+            textColor: [6, 69, 111],
+            fontSize: 7.5
+          }
+        }
       ]);
+
+      floorRows.forEach((r) => {
+        scheduleBody.push([
+          { content: String(sNo++), styles: { halign: "center" } },
+          { content: r.label || "Sprinkler Head", styles: { halign: "left" } },
+          { content: Number(r.kFactor || 5.6).toFixed(1), styles: { halign: "center" } },
+          { content: r.hazard || "Ordinary Hazard", styles: { halign: "left" } },
+          { content: Number(r.coverage || 0).toFixed(1), styles: { halign: "right" } },
+          { content: Number(r.pressure || 0).toFixed(2), styles: { halign: "right" } },
+          { content: Number(r.flow || 0).toFixed(2), styles: { halign: "right" } },
+        ]);
+      });
     });
 
     // TOTAL Summary Row
     scheduleBody.push([
-      { content: "TOTAL", colSpan: 4, styles: { fontStyle: "bold", halign: "left", fillColor: totalRowFill, textColor: [6, 69, 111] } },
+      { content: "TOTAL / SYSTEM DEMAND", colSpan: 4, styles: { fontStyle: "bold", halign: "left", fillColor: totalRowFill, textColor: [6, 69, 111] } },
       { content: totalCoverage.toFixed(1), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: "—", styles: { fontStyle: "bold", halign: "center", fillColor: totalRowFill, textColor: [6, 69, 111] } },
+      { content: `Max: ${maxPressure.toFixed(2)}`, styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
       { content: totalFlow.toFixed(2), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
     ]);
 
@@ -200,7 +227,7 @@ export const exportSprinklerKFactorPDF = async (
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(8.5);
     doc.setFont("helvetica", "bold");
-    doc.text("SPRINKLER DESIGN SCHEDULE", leftMargin + 3, scheduleBannerY + 4.2);
+    doc.text("SPRINKLER HYDRAULIC SIZING SCHEDULE", leftMargin + 3, scheduleBannerY + 4.2);
 
     // 7. Schedule Table (Only Column Headers repeat on page breaks)
     callAutoTable(doc, {

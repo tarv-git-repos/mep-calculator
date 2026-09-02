@@ -7,6 +7,7 @@ import { SprinklerHazardSelect } from "@/components/workspace/SprinklerHazardSel
 import { useAuth } from "@/contexts/AuthContext";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { exportSprinklerKFactorPDF, type SprinklerExportRow } from "@/lib/exportSprinklerKFactorPDF";
+import { exportSprinklerKFactorExcel } from "@/lib/exportSprinklerKFactorExcel";
 import { addPdfSignatureBlock, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -1016,252 +1017,34 @@ function SprinklerKFactorPage() {
 
   // Standardized Excel Export matching Ventilation / Preliminary theme
   const exportExcel = async () => {
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = currentUserName;
-    workbook.created = new Date();
-
-    const sheet = workbook.addWorksheet("Sprinkler Schedule", {
-      views: [{ showGridLines: true }]
-    });
-
-    const isSI = unitSystem === "si";
-    const pressUnit = isSI ? "bar" : "psi";
-    const flowUnit = isSI ? "L/min" : "GPM";
-    const areaUnit = isSI ? "m²" : "ft²";
-
-    // Set Column Widths (Cols 1 to 8)
-    sheet.columns = [
-      { width: 8 },  // A: Sr. No.
-      { width: 34 }, // B: Label / Location
-      { width: 16 }, // C: K-Factor
-      { width: 16 }, // D: Sizing Target
-      { width: 22 }, // E: Pressure
-      { width: 22 }, // F: Flow
-      { width: 22 }, // G: Coverage Area
-      { width: 28 }, // H: Hazard Classification
-    ];
-
-    const thinBorder = {
-      top: { style: "thin" as const, color: { argb: "FF000000" } },
-      bottom: { style: "thin" as const, color: { argb: "FF000000" } },
-      left: { style: "thin" as const, color: { argb: "FF000000" } },
-      right: { style: "thin" as const, color: { argb: "FF000000" } }
-    };
-
-    const grayFill = {
-      type: "pattern" as const,
-      pattern: "solid" as const,
-      fgColor: { argb: "FFD9D9D9" }
-    };
-
-    const blueFill = {
-      type: "pattern" as const,
-      pattern: "solid" as const,
-      fgColor: { argb: "FFDAE9F8" }
-    };
-
-    // Row 2: Title
-    const titleRow = sheet.getRow(2);
-    titleRow.height = 24;
-    titleRow.getCell(1).value = "NFPA 13 Sprinkler K-Factor & Hydraulic Calculation";
-    titleRow.getCell(1).font = { name: "Arial", size: 14, bold: true };
-
-    // Rows 4-6: Metadata Box
-    const metaRows = [
-      { label1: "Calculation No.:", val1: project?.code || "CALC-FP-SKF01", label2: "Date:", val2: new Date().toISOString().split("T")[0] },
-      { label1: "Project No.:", val1: project?.code || "MEP-FP-2026", label2: "Client:", val2: project?.client || "Prestige Group developers" },
-      { label1: "Project Name:", val1: project?.name || "Sprinkler Hydraulic Calculation", label2: "End User:", val2: "Consistent Engineering Consultants" }
-    ];
-
-    metaRows.forEach((item, idx) => {
-      const rNum = 4 + idx;
-      const r = sheet.getRow(rNum);
-      r.height = 22;
-
-      sheet.mergeCells(`A${rNum}:D${rNum}`);
-      sheet.mergeCells(`E${rNum}:H${rNum}`);
-
-      for (let c = 1; c <= 8; c++) {
-        const cell = r.getCell(c);
-        cell.font = { name: "Arial", size: 10, bold: true };
-        cell.alignment = { vertical: "middle" };
-        cell.border = thinBorder;
-      }
-
-      r.getCell(1).value = `${item.label1}   ${item.val1}`;
-      r.getCell(5).value = `${item.label2}   ${item.val2}`;
-    });
-
-    // Row 8-11: Summary Stats Box
-    const r8 = sheet.getRow(8);
-    r8.height = 22;
-    sheet.mergeCells("A8:H8");
-    for (let c = 1; c <= 8; c++) {
-      const cell = r8.getCell(c);
-      cell.value = "FIRE FIGHTING DESIGN SUMMARY STATS";
-      cell.fill = grayFill;
-      cell.font = { name: "Arial", size: 10, bold: true };
-      cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
-      cell.border = thinBorder;
+    if (!rows || rows.length === 0) {
+      toast.error("No sprinkler rows available to export.");
+      return;
     }
-
-    const statsData = [
-      { l1: "Total Sprinklers:", v1: rows.length, l2: "Total Demand Flow:", v2: `${aggregateMetrics.totalFlow.toFixed(2)} ${flowUnit}`, blue2: true },
-      { l1: "Total System Demand:", v1: `${aggregateMetrics.systemDemand.toFixed(2)} ${flowUnit}`, l2: "Max Operating Pressure:", v2: `${aggregateMetrics.maxPressure.toFixed(2)} ${pressUnit}`, blue2: true },
-      { l1: "Hose Stream Allowance:", v1: `${aggregateMetrics.hoseAllowance} ${flowUnit}`, l2: "Design Standard:", v2: "NFPA 13 Standard", blue2: false },
-    ];
-
-    statsData.forEach((item, idx) => {
-      const rNum = 9 + idx;
-      const r = sheet.getRow(rNum);
-      r.height = 20;
-
-      sheet.mergeCells(`A${rNum}:B${rNum}`);
-      sheet.mergeCells(`D${rNum}:F${rNum}`);
-
-      for (let c = 1; c <= 8; c++) {
-        const cell = r.getCell(c);
-        cell.font = { name: "Arial", size: 10, bold: true };
-        cell.alignment = { vertical: "middle" };
-        cell.border = thinBorder;
-      }
-
-      r.getCell(1).value = item.l1;
-      r.getCell(3).value = item.v1;
-      r.getCell(3).alignment = { horizontal: "right", vertical: "middle" };
-
-      r.getCell(4).value = item.l2;
-      r.getCell(7).value = item.v2;
-      r.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
-      if (item.blue2) {
-        r.getCell(7).fill = blueFill;
-        r.getCell(8).fill = blueFill;
-      }
-      sheet.mergeCells(`G${rNum}:H${rNum}`);
-    });
-
-    // Row 13: Section Title
-    const r13 = sheet.getRow(13);
-    r13.height = 22;
-    sheet.mergeCells("A13:H13");
-    for (let c = 1; c <= 8; c++) {
-      const cell = r13.getCell(c);
-      cell.value = "SPRINKLER DESIGN SCHEDULE";
-      cell.fill = grayFill;
-      cell.font = { name: "Arial", size: 10, bold: true };
-      cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
-      cell.border = thinBorder;
+    try {
+      await exportSprinklerKFactorExcel(
+        rows,
+        {
+          projectName: project?.name || "Sprinkler Hydraulic Calculation",
+          client: project?.client || "Consistent Engineering Consultants",
+          projectNo: project?.code || "SPRINKLER-01",
+          date: project?.date || new Date().toISOString().split("T")[0],
+          unitSystem: unitSystem,
+          userName: currentUserName,
+        },
+        calcReviewState
+      );
+      toast.success("Sprinkler K-Factor Excel calculation exported successfully!");
+    } catch (e: any) {
+      console.error(e);
+      toast.error("Failed to generate Excel report.");
     }
-
-    // Row 14: Column Headers
-    const headers = [
-      "Sr. No.",
-      "Label / Location",
-      "K-Factor",
-      "Sizing Target",
-      `Operating Pressure\n(${pressUnit})`,
-      `Flow Rate\n(${flowUnit})`,
-      `Coverage Area\n(${areaUnit})`,
-      "Hazard Classification"
-    ];
-
-    const r14 = sheet.getRow(14);
-    r14.height = 36;
-    headers.forEach((h, idx) => {
-      const cell = r14.getCell(idx + 1);
-      cell.value = h;
-      cell.fill = (idx === 4 || idx === 5) ? blueFill : grayFill;
-      cell.font = { name: "Arial", size: 10, bold: true };
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      cell.border = thinBorder;
-    });
-
-    // Data Rows
-    let currentRow = 15;
-    rows.forEach((r, idx) => {
-      const row = sheet.getRow(currentRow);
-      row.height = 20;
-
-      row.getCell(1).value = idx + 1;
-      row.getCell(1).alignment = { horizontal: "center", vertical: "middle" };
-
-      row.getCell(2).value = r.label;
-      row.getCell(2).alignment = { horizontal: "left", vertical: "middle" };
-
-      row.getCell(3).value = r.kFactor;
-      row.getCell(3).alignment = { horizontal: "center", vertical: "middle" };
-      row.getCell(3).numFmt = "0.0";
-
-      row.getCell(4).value = r.solveFor === "Q" ? "Flow (Q)" : "Pressure (P)";
-      row.getCell(4).alignment = { horizontal: "center", vertical: "middle" };
-
-      row.getCell(5).value = r.pressure;
-      row.getCell(5).alignment = { horizontal: "right", vertical: "middle" };
-      row.getCell(5).numFmt = "0.00";
-      row.getCell(5).fill = blueFill;
-
-      row.getCell(6).value = r.flow;
-      row.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
-      row.getCell(6).numFmt = "0.00";
-      row.getCell(6).fill = blueFill;
-
-      row.getCell(7).value = r.coverage;
-      row.getCell(7).alignment = { horizontal: "right", vertical: "middle" };
-      row.getCell(7).numFmt = "0.0";
-
-      row.getCell(8).value = r.hazard;
-      row.getCell(8).alignment = { horizontal: "left", vertical: "middle" };
-
-      for (let c = 1; c <= 8; c++) {
-        row.getCell(c).font = { name: "Arial", size: 10 };
-        row.getCell(c).border = thinBorder;
-      }
-      currentRow++;
-    });
-
-    // Total Row
-    const totRow = sheet.getRow(currentRow);
-    totRow.height = 22;
-    sheet.mergeCells(`A${currentRow}:D${currentRow}`);
-    totRow.getCell(1).value = "TOTAL / SYSTEM DEMAND:";
-    totRow.getCell(1).font = { name: "Arial", size: 10, bold: true };
-    totRow.getCell(1).alignment = { horizontal: "right", vertical: "middle" };
-    totRow.getCell(1).fill = grayFill;
-
-    totRow.getCell(5).value = aggregateMetrics.maxPressure;
-    totRow.getCell(5).font = { name: "Arial", size: 10, bold: true };
-    totRow.getCell(5).alignment = { horizontal: "right", vertical: "middle" };
-    totRow.getCell(5).numFmt = "0.00";
-    totRow.getCell(5).fill = blueFill;
-
-    totRow.getCell(6).value = aggregateMetrics.totalFlow;
-    totRow.getCell(6).font = { name: "Arial", size: 10, bold: true };
-    totRow.getCell(6).alignment = { horizontal: "right", vertical: "middle" };
-    totRow.getCell(6).numFmt = "0.00";
-    totRow.getCell(6).fill = blueFill;
-
-    sheet.mergeCells(`G${currentRow}:H${currentRow}`);
-    totRow.getCell(7).value = `Demand: ${aggregateMetrics.systemDemand.toFixed(1)} ${flowUnit}`;
-    totRow.getCell(7).font = { name: "Arial", size: 10, bold: true };
-    totRow.getCell(7).alignment = { horizontal: "center", vertical: "middle" };
-    totRow.getCell(7).fill = grayFill;
-
-    for (let c = 1; c <= 8; c++) {
-      totRow.getCell(c).border = thinBorder;
-    }
-    currentRow += 2;
-
-    // 3-Tier Signature Block
-    addExcelSignatureBlock(sheet, currentRow, currentUserName, project?.id || "default", "/plumbing-sprinkler-kfactor", 8);
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    downloadFile(new Uint8Array(buffer), `${(project?.name || "Sprinkler_K_Factor").replace(/\s+/g, "_")}_report.xlsx`, "Excel Document", ["xlsx"]);
-    toast.success("Sprinkler K-Factor Excel report exported successfully!");
   };
 
   const exportPdf = () => {
     const exportRows: SprinklerExportRow[] = rows.map(r => ({
       id: r.id,
+      floor: r.floor || "Ground Floor",
       label: r.label,
       kFactor: r.kFactor,
       solveFor: r.solveFor,
