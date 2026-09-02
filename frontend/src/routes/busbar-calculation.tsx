@@ -15,6 +15,7 @@ import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
 import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -1542,7 +1543,7 @@ function BusbarCalculationPage() {
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
         {/* Sizer Section Header with Search, Filters, View, Flag Filter & Module Actions */}
-        <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-x-auto">
+        <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-visible">
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
@@ -1554,81 +1555,90 @@ function BusbarCalculationPage() {
               />
             </div>
 
-            {/* Filters Icon Popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                    activeFiltersCount > 0
-                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                  }`}
-                >
-                  <Filter className="size-3.5 shrink-0" />
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+            <TooltipProvider delayDuration={150}>
+              {/* Filters Icon Popover */}
+              <Popover>
+                <Tooltip>
+                  <PopoverTrigger asChild>
+                    <TooltipTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group ${
+                          activeFiltersCount > 0
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                        }`}
+                      >
+                        <Filter className="size-3.5 shrink-0" />
+                        {activeFiltersCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                            {activeFiltersCount}
+                          </span>
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                  </PopoverTrigger>
+                  <TooltipContent side="bottom" className="px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm select-none z-50">
                     Filter
-                  </span>
-                  {activeFiltersCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                      {activeFiltersCount}
-                    </span>
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
-                <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                  <span className="text-xs font-bold text-foreground">Filter Tap Offs</span>
-                  {activeFiltersCount > 0 && (
-                    <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
-                      Reset All
-                    </button>
-                  )}
-                </div>
+                  </TooltipContent>
+                </Tooltip>
+                <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                    <span className="text-xs font-bold text-foreground">Filter Tap Offs</span>
+                    {activeFiltersCount > 0 && (
+                      <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
+                        Reset All
+                      </button>
+                    )}
+                  </div>
 
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Voltage Drop</span>
-                  <select
-                    value={filterVd}
-                    onChange={(e) => setFilterVd(e.target.value as any)}
-                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                  >
-                    <option value="all">All V.Drop Status</option>
-                    <option value="within">Within Limit (≤ 2.5%)</option>
-                    <option value="exceeds">Exceeds Limit (&gt; 2.5%)</option>
-                  </select>
-                </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Voltage Drop</span>
+                    <select
+                      value={filterVd}
+                      onChange={(e) => setFilterVd(e.target.value as any)}
+                      className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                    >
+                      <option value="all">All V.Drop Status</option>
+                      <option value="within">Within Limit (≤ 2.5%)</option>
+                      <option value="exceeds">Exceeds Limit (&gt; 2.5%)</option>
+                    </select>
+                  </div>
 
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Range</span>
-                  <select
-                    value={filterLoad}
-                    onChange={(e) => setFilterLoad(e.target.value as any)}
-                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                  >
-                    <option value="all">All Loads</option>
-                    <option value="high">High Load (&gt; 100 kW)</option>
-                    <option value="low">Low Load (≤ 100 kW)</option>
-                  </select>
-                </div>
-              </PopoverContent>
-            </Popover>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Range</span>
+                    <select
+                      value={filterLoad}
+                      onChange={(e) => setFilterLoad(e.target.value as any)}
+                      className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                    >
+                      <option value="all">All Loads</option>
+                      <option value="high">High Load (&gt; 100 kW)</option>
+                      <option value="low">Low Load (≤ 100 kW)</option>
+                    </select>
+                  </div>
+                </PopoverContent>
+              </Popover>
 
-            {/* View Icon Popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                    sortBy !== "none" || rowDensity === "compact"
-                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                  }`}
-                >
-                  <SlidersHorizontal className="size-3.5 shrink-0" />
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+              {/* View Icon Popover */}
+              <Popover>
+                <Tooltip>
+                  <PopoverTrigger asChild>
+                    <TooltipTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group ${
+                          sortBy !== "none" || rowDensity === "compact"
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                        }`}
+                      >
+                        <SlidersHorizontal className="size-3.5 shrink-0" />
+                      </button>
+                    </TooltipTrigger>
+                  </PopoverTrigger>
+                  <TooltipContent side="bottom" className="px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm select-none z-50">
                     View / Sort
-                  </span>
-                </button>
-              </PopoverTrigger>
+                  </TooltipContent>
+                </Tooltip>
               <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
                 <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
                   View Options
@@ -1671,7 +1681,8 @@ function BusbarCalculationPage() {
                 </div>
               </PopoverContent>
             </Popover>
-          </div>
+          </TooltipProvider>
+        </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
             {/* Flag KPI Filter */}

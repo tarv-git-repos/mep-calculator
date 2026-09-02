@@ -1229,7 +1229,7 @@ function GeneratorSizingPage() {
           {activeTab === "equipment" && (
             <div className="flex flex-col h-full overflow-hidden">
               {/* Filter & Action Toolbar */}
-              <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-x-auto">
+              <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-visible">
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />

@@ -62,6 +62,17 @@ try { if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.string
 const VERSIONS_FILE = path.join(DATA_DIR, 'project_versions.json');
 try { if (!fs.existsSync(VERSIONS_FILE)) fs.writeFileSync(VERSIONS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
 
+const HIERARCHIES_FILE = path.join(DATA_DIR, 'hierarchies.json');
+try { if (!fs.existsSync(HIERARCHIES_FILE)) fs.writeFileSync(HIERARCHIES_FILE, JSON.stringify({}), 'utf8'); } catch (e) {}
+
+function readHierarchies() {
+  try { return JSON.parse(fs.readFileSync(HIERARCHIES_FILE, 'utf8') || '{}'); } catch (e) { return {}; }
+}
+
+function writeHierarchies(data) {
+  try { fs.writeFileSync(HIERARCHIES_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch (e) {}
+}
+
 function readVersionsData() {
   try { return JSON.parse(fs.readFileSync(VERSIONS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
 }
@@ -3140,8 +3151,52 @@ const server = http.createServer(async (req, res) => {
     };
     transporter.sendMail(inviteMailOptions).catch(console.error);
 
-      logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
+    logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
     return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: await formatUser(newUser) });
+  }
+
+  // --- ORGANIZATION HIERARCHY ROUTES ---
+  if (req.method === 'GET' && url.startsWith('/api/org/hierarchy')) {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    let orgId = user.organization_id || user.company || user.organization || 'GLOBAL';
+    if (user.role === 'SUPER_ADMIN') {
+      const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
+      if (qOrgId && qOrgId !== 'undefined' && qOrgId !== 'null') {
+        orgId = qOrgId;
+      }
+    }
+
+    const allHierarchies = readHierarchies();
+    const hierarchy = allHierarchies[orgId] || allHierarchies['GLOBAL'] || null;
+
+    return sendJSON(res, 200, { success: true, hierarchy, orgId });
+  }
+
+  if (req.method === 'POST' && url === '/api/org/hierarchy') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    if (!['SUPER_ADMIN', 'ORG_ADMIN'].includes(user.role)) {
+      return sendJSON(res, 403, { success: false, message: 'Only Super Admins and Organization Admins can modify hierarchy' });
+    }
+
+    const { hierarchy, org_id } = await getRequestBody(req);
+    if (!Array.isArray(hierarchy)) {
+      return sendJSON(res, 400, { success: false, message: 'Hierarchy array data is required' });
+    }
+
+    let targetOrgId = user.organization_id || user.company || user.organization || 'GLOBAL';
+    if (user.role === 'SUPER_ADMIN' && org_id) {
+      targetOrgId = org_id;
+    }
+
+    const allHierarchies = readHierarchies();
+    allHierarchies[targetOrgId] = hierarchy;
+    writeHierarchies(allHierarchies);
+
+    logActivity(user, 'UPDATE_HIERARCHY', { orgId: targetOrgId, memberCount: hierarchy.length });
+    return sendJSON(res, 200, { success: true, message: 'Hierarchy updated successfully', hierarchy });
   }
 
   // --- ORGANIZATION BACKUP SETTINGS ROUTES ---

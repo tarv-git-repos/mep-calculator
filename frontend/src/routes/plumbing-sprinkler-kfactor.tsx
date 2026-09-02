@@ -2404,13 +2404,17 @@ function SprinklerKFactorPage() {
                       <span className="text-[13px]">No sprinklers match the current filter.</span>
                     </div>
                   )}
-                  <div>
-                    Showing <span className="text-foreground font-bold tabular">{filteredRows.length}</span> of {rows.length} sprinklers
-                  </div>
-                  <div className="flex items-center gap-4 text-muted-foreground tabular">
-                    <span>Total Flow: <span className="font-mono text-primary font-bold">{aggregateMetrics.totalFlow.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}</span></span>
-                    <span>Max Pressure: <span className="font-mono text-foreground font-bold">{aggregateMetrics.maxPressure.toFixed(1)} {unitSystem === "si" ? "bar" : "psi"}</span></span>
-                    <span>System Demand: <span className="font-mono text-red-500 font-bold">{aggregateMetrics.systemDemand.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}</span></span>
+                  
+                  {/* Clean Footer Bar */}
+                  <div className="flex items-center justify-between px-4 h-9 border-t border-border bg-header-bg text-[11.5px] text-muted-foreground shrink-0 select-none font-medium">
+                    <div>
+                      Showing <span className="text-foreground font-bold tabular">{filteredRows.length}</span> of {rows.length} sprinklers
+                    </div>
+                    <div className="flex items-center gap-4 text-muted-foreground tabular">
+                      <span>Total Flow: <span className="font-mono text-primary font-bold">{aggregateMetrics.totalFlow.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}</span></span>
+                      <span>Max Pressure: <span className="font-mono text-foreground font-bold">{aggregateMetrics.maxPressure.toFixed(1)} {unitSystem === "si" ? "bar" : "psi"}</span></span>
+                      <span>System Demand: <span className="font-mono text-red-500 font-bold">{aggregateMetrics.systemDemand.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}</span></span>
+                    </div>
                   </div>
                 </div>
               </div>
