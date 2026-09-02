@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3 } from "lucide-react"
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3, ArrowUpDown } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -207,6 +207,10 @@ export function SuperAdminDashboard() {
   const [newSeatsValue, setNewSeatsValue] = useState<number | ''>(5)
   const [showAddUserModalForOrg, setShowAddUserModalForOrg] = useState<boolean>(false)
   const [addUsersModalFilter, setAddUsersModalFilter] = useState<'unassigned' | 'all'>('unassigned')
+
+  // User Sorting States
+  const [userSortField, setUserSortField] = useState<'email' | 'role' | 'organization' | 'created_at' | 'expires'>('email')
+  const [userSortOrder, setUserSortOrder] = useState<'asc' | 'desc'>('asc')
 
   const handleUpdateMaxSeats = async (orgId: string, newMaxInput: number | '') => {
     const newMax = typeof newMaxInput === 'number' ? newMaxInput : parseInt(String(newMaxInput), 10);
@@ -969,34 +973,64 @@ export function SuperAdminDashboard() {
                   </div>
                 </div>
 
-                {/* Requirement: Organization Selector Dropdown */}
-                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
-                  <div className="flex items-center gap-3 flex-1">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
-                      <Building size={16} className="text-blue-600" />
-                      Select Organization:
-                    </label>
-                    <select
-                      value={selectedOrgFilter}
-                      onChange={(e) => setSelectedOrgFilter(e.target.value)}
-                      className="text-sm p-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 max-w-md w-full shadow-xs cursor-pointer"
-                    >
-                      <option value="ALL">🏢 All Organizations & Members ({profiles.length} total users)</option>
-                      <option value="UNASSIGNED">👤 Unassigned Users (No Organization) ({profiles.filter(p => !p.organization_id && p.role !== 'SUPER_ADMIN').length})</option>
-                      {organizations.map(org => {
-                        const count = profiles.filter(p => p.organization_id === org.id).length;
-                        const orgAdmin = profiles.find(p => p.organization_id === org.id && p.role === 'ORG_ADMIN');
-                        const adminStr = orgAdmin ? ` — Admin: ${orgAdmin.email}` : '';
-                        return (
-                          <option key={org.id} value={org.id}>
-                            🏢 {org.name} ({count} users{adminStr})
-                          </option>
-                        );
-                      })}
-                    </select>
+                {/* Requirement: Organization Selector Dropdown & Sorting Options */}
+                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1">
+                    <div className="flex items-center gap-2 flex-1">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
+                        <Building size={16} className="text-blue-600" />
+                        Organization:
+                      </label>
+                      <select
+                        value={selectedOrgFilter}
+                        onChange={(e) => setSelectedOrgFilter(e.target.value)}
+                        className="text-sm p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 w-full shadow-xs cursor-pointer"
+                      >
+                        <option value="ALL">🏢 All Organizations & Members ({profiles.length} total users)</option>
+                        <option value="UNASSIGNED">👤 Unassigned Users (No Organization) ({profiles.filter(p => !p.organization_id && p.role !== 'SUPER_ADMIN').length})</option>
+                        {organizations.map(org => {
+                          const count = profiles.filter(p => p.organization_id === org.id).length;
+                          const orgAdmin = profiles.find(p => p.organization_id === org.id && p.role === 'ORG_ADMIN');
+                          const adminStr = orgAdmin ? ` — Admin: ${orgAdmin.email}` : '';
+                          return (
+                            <option key={org.id} value={org.id}>
+                              🏢 {org.name} ({count} users{adminStr})
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    {/* SORT BY DROPDOWN AND ORDER TOGGLE */}
+                    <div className="flex items-center gap-2 sm:border-l border-slate-200 dark:border-slate-700 sm:pl-4">
+                      <ArrowUpDown size={15} className="text-blue-600 shrink-0" />
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0">
+                        Sort By:
+                      </label>
+                      <select
+                        value={userSortField}
+                        onChange={(e) => setUserSortField(e.target.value as any)}
+                        className="text-xs font-bold p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      >
+                        <option value="email">Email Address</option>
+                        <option value="role">User Role Priority</option>
+                        <option value="organization">Organization Name</option>
+                        <option value="created_at">Creation Date</option>
+                        <option value="expires">Subscription Expiry</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                        className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer flex items-center gap-1 shadow-2xs whitespace-nowrap"
+                        title="Toggle Sort Direction"
+                      >
+                        <span>{userSortOrder === 'asc' ? 'Ascending (A-Z)' : 'Descending (Z-A)'}</span>
+                        <span className="text-blue-600 font-extrabold">{userSortOrder === 'asc' ? '↑' : '↓'}</span>
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="text-xs font-semibold text-slate-500">
+                  <div className="text-xs font-semibold text-slate-500 shrink-0">
                     Showing {profiles.filter(p => {
                       if (selectedOrgFilter === 'ALL') return true;
                       if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';

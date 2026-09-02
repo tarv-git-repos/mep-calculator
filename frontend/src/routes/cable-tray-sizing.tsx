@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditCableTrayRowModal } from "@/components/workspace/EditCableTrayRowModal";
+import { api } from "@/services/api";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -47,8 +48,8 @@ const DEFAULT_CABLE_DATABASE: Record<string, Record<string, number>> = {
   "4C": { "2.5": 13.5, "4": 15.0, "6": 17.3, "10": 19.8, "16": 22.3, "25": 27.6, "35": 30.6, "50": 32.7, "70": 38.0, "95": 41.3, "120": 46.4, "150": 50.5, "185": 55.3, "240": 61.1, "300": 66.7 }
 };
 
-function formatTraySize(size: string, isSI: boolean) {
-  if (size === 'N/A') return 'N/A';
+function formatTraySize(size: string | undefined | null, isSI: boolean) {
+  if (!size || size === 'N/A') return 'N/A';
   if (isSI) return size + ' mm';
   
   const sizeMap: Record<string, string> = {
@@ -83,7 +84,12 @@ function CableTraySizingPage() {
   const [cableDatabase, setCableDatabase] = useState<Record<string, Record<string, number>>>(() => {
     try {
       const saved = localStorage.getItem("customCableCatalog");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+          return parsed;
+        }
+      }
     } catch {}
     return DEFAULT_CABLE_DATABASE;
   });
@@ -375,7 +381,12 @@ function CableTraySizingPage() {
     try {
       const saved = localStorage.getItem(`mep_cable_tray_${project.id}`);
       if (saved) {
-        setTrays(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setTrays(parsed);
+        } else if (parsed && Array.isArray(parsed.trays)) {
+          setTrays(parsed.trays);
+        }
       }
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
@@ -1195,36 +1206,39 @@ function CableTraySizingPage() {
         <div className="flex-1 overflow-y-auto flex flex-col p-4 md:p-6 gap-4 bg-background">
         
         {(() => {
-          let displayTrays = [...trays];
+          let displayTrays = Array.isArray(trays) ? [...trays] : [];
 
           if (filterSpare === "standard") {
-            displayTrays = displayTrays.filter(t => Number(t.spareCapacity ?? 20) === 20);
+            displayTrays = displayTrays.filter(t => Number(t?.spareCapacity ?? 20) === 20);
           } else if (filterSpare === "custom") {
-            displayTrays = displayTrays.filter(t => Number(t.spareCapacity ?? 20) !== 20);
+            displayTrays = displayTrays.filter(t => Number(t?.spareCapacity ?? 20) !== 20);
           }
 
           if (sortBy === "name") {
-            displayTrays.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+            displayTrays.sort((a, b) => (a?.name || "").localeCompare(b?.name || ""));
           }
 
           return displayTrays.map((tray, trayIndex) => {
-            const sq = searchQuery.toLowerCase();
-          const filteredCables = tray.cables.filter(c => 
-            (c.type || '').toLowerCase().includes(sq) || 
-            (c.cores || '').toLowerCase().includes(sq) || 
-            (c.size || '').toLowerCase().includes(sq) ||
-            (tray.name || '').toLowerCase().includes(sq)
-          );
+            if (!tray) return null;
+            const trayCables = Array.isArray(tray.cables) ? tray.cables : [];
+            const sq = (searchQuery || "").toLowerCase();
+            const filteredCables = trayCables.filter(c => 
+              (c?.type || '').toLowerCase().includes(sq) || 
+              (c?.cores || '').toLowerCase().includes(sq) || 
+              (c?.size || '').toLowerCase().includes(sq) ||
+              ((tray?.name || '').toLowerCase().includes(sq))
+            );
 
-          if (sq && filteredCables.length === 0 && !(tray.name.toLowerCase().includes(sq))) {
-            return null;
-          }
+            if (sq && filteredCables.length === 0 && !((tray?.name || "").toLowerCase().includes(sq))) {
+              return null;
+            }
 
           let subTotal1 = 0;
           let hasValidCables = false;
           
+          const safeDb = cableDatabase || DEFAULT_CABLE_DATABASE;
           const calcCables = filteredCables.map(c => {
-            const baseOd = c.cores && c.size ? cableDatabase[c.cores]?.[c.size] || NaN : NaN;
+            const baseOd = c.cores && c.size ? (safeDb[c.cores]?.[c.size] ?? NaN) : NaN;
             const od = c.customOd !== undefined && c.customOd !== "" ? Number(c.customOd) : baseOd;
             const qtyNum = typeof c.qty === 'number' ? c.qty : 0;
             const sumOd = !isNaN(od) && qtyNum > 0 ? od * qtyNum : NaN;
@@ -1370,7 +1384,7 @@ function CableTraySizingPage() {
                     ) : (
                       calcCables.map((c, idx) => {
                         const currentGlobalRowIndex = globalRowIndex++;
-                        const sizesForCore = c.cores ? Object.keys(cableDatabase[c.cores] || {}).sort((a,b) => parseFloat(a) - parseFloat(b)) : [];
+                        const sizesForCore = c.cores ? Object.keys(safeDb[c.cores] || {}).sort((a,b) => parseFloat(a) - parseFloat(b)) : [];
                         const isEditing = editingCable?.cable.id === c.id;
                         const isModalOpen = editingCable !== null;
 
@@ -1466,7 +1480,7 @@ function CableTraySizingPage() {
                                     onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 3)}
                                   >
                                     <option value="">-- Select --</option>
-                                    {Object.keys(cableDatabase).map(core => (
+                                    {Object.keys(safeDb).map(core => (
                                       <option key={core} value={core}>{core}</option>
                                     ))}
                                   </select>

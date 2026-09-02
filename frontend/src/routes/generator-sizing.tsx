@@ -120,7 +120,7 @@ function GeneratorSizingPage() {
 
   const confirm = useConfirm();
   const prompt = usePrompt();
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
 
   const [projects, setProjects] = useState<Record<string, GenRow[]>>({ "Default Project": [] });
   const [currentProject, setCurrentProject] = useState<string>("Default Project");
@@ -226,28 +226,30 @@ function GeneratorSizingPage() {
   const [editingRow, setEditingRow] = useState<{ row: GenRow; index: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
-  // Deep-linking and auto-scroll from notifications
+  // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleScrollToItem = (e: any) => {
       const { id, name } = e.detail || {};
       if (!id && !name) return;
+      setActiveTab("equipment");
       const targetRow = rows.find(r => r.id === id || r.desc === name);
       if (targetRow) {
+        toggleSelection(targetRow.id, false, false);
         setCommentTarget({
           id: targetRow.id,
-          name: targetRow.desc,
-          type: "equipment"
+          name: targetRow.desc || "Generator Load",
+          type: "space"
         });
         setAssignCommentOpen(true);
         setTimeout(() => {
-          const el = document.getElementById(`gen-row-${targetRow.id}`);
+          const el = document.getElementById(`gen-row-${targetRow.id}`) || document.getElementById(`row-${targetRow.id}`);
           if (el) {
             el.scrollIntoView({ behavior: "smooth", block: "center" });
             el.classList.add("ring-2", "ring-primary", "bg-primary/10");
             setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
           }
-        }, 100);
+        }, 150);
       }
     };
     window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
@@ -256,6 +258,7 @@ function GeneratorSizingPage() {
     const targetId = params.get("commentTargetId") || params.get("targetId");
     const targetName = params.get("commentTargetName") || params.get("targetName");
     if (targetId || targetName) {
+      setActiveTab("equipment");
       setTimeout(() => {
         handleScrollToItem({ detail: { id: targetId, name: targetName } });
       }, 500);
@@ -1599,6 +1602,7 @@ function GeneratorSizingPage() {
                                   <ContextMenuTrigger asChild>
                                     <tr
                                       key={r.id}
+                                      id={`gen-row-${r.id}`}
                                       onDoubleClick={() => {
                                         toggleSelection(r.id, false, false);
                                         setEditingRow({ row: r, index: rowIndex });
@@ -2290,13 +2294,28 @@ function GeneratorSizingPage() {
           targetId={commentTarget.id}
           targetName={commentTarget.name}
           targetType={commentTarget.type}
-          onSave={(newComment) => {
+          existingComments={rows.find((r) => r.id === commentTarget.id)?.comments || []}
+          onSave={async (newComment) => {
             if (!commentTarget) return;
             const targetId = commentTarget.id;
             const targetRow = rows.find((r) => r.id === targetId);
             if (!targetRow) return;
+            const currentUserName = userData?.name || profile?.name || "Design Engineer";
+            const projId = activeProjectId || project?.id || "default";
+            const projName = project?.name || "Active Project";
+
+            const commentWithMeta = {
+              ...newComment,
+              targetId: commentTarget.id,
+              targetName: commentTarget.name,
+              targetType: "Generator Load",
+              projectName: projName,
+              projectId: projId,
+              calculatorPath: "/generator-sizing",
+            };
+
             const existingComments = targetRow.comments || [];
-            const updatedComments = [...existingComments, newComment];
+            const updatedComments = [...existingComments, commentWithMeta];
 
             const newRows = rows.map((r) =>
               r.id === targetId ? { ...r, comments: updatedComments } : r
@@ -2313,23 +2332,25 @@ function GeneratorSizingPage() {
             }
 
             if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: newComment }));
-              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: newComment }));
+              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
+              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
               window.dispatchEvent(new Event("storage"));
             }
 
-            toast.success("Comment added successfully");
+            toast.success(`Task comment saved for space ${commentTarget.name}`);
             notifyCommentAssigned({
-              comment: newComment,
+              comment: commentWithMeta,
               targetId: commentTarget.id,
               targetName: commentTarget.name,
-              targetType: commentTarget.type || "Generator Load",
+              targetType: "Generator Load",
               calculatorTitle: "Generator Sizing",
               calculatorPath: "/generator-sizing",
               project,
-              currentUserName: userData?.name || profile?.name,
+              currentUserName,
               currentUserId: userData?.id || profile?.id
             }).catch(console.error);
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
           }}
         />
       )}
