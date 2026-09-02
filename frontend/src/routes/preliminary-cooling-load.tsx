@@ -2426,10 +2426,10 @@ function PreliminaryCoolingLoadPage() {
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print px-6">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; PRELIMINARY COOLING LOAD</span>
-              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Preliminary Cooling Load</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} spaces</span>
@@ -2439,7 +2439,7 @@ function PreliminaryCoolingLoadPage() {
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                     intelOpen
                       ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                   }`}
                 >
                   <Sparkles className="size-3.5" />
@@ -2459,7 +2459,7 @@ function PreliminaryCoolingLoadPage() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className={`mx-6 mb-6 rounded-2xl flex-1 flex flex-col min-h-[450px] overflow-hidden transition-all duration-300 ${
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
