@@ -1736,18 +1736,6 @@ function GeneratorSizingPage() {
                                       </td>
                                       <td className="p-0 text-center">
                                         <div className="flex items-center justify-center gap-1 h-full w-full px-1">
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              toggleSelection(r.id, false, false);
-                                              setEditingRow({ row: r, index: rowIndex });
-                                            }}
-                                            className="text-primary/70 hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
-                                            title="Edit Parameters & Calculations Breakdown"
-                                          >
-                                            <Info className="size-3.5" />
-                                          </button>
                                           {(() => {
                                             const { isAutoFlagged, isFlagged, warnings } = getGenRowValidation(r);
                                             const tooltipText = isFlagged

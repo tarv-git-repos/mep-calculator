@@ -1256,24 +1256,41 @@ function SprinklerKFactorPage() {
     );
   };
 
-  // AI intelligence optimizations
+  // AI intelligence optimizations & audit checks
   const warningsList = useMemo(() => {
-    const list: { id: string; type: "critical" | "warning"; title: string; desc: string; fixable: boolean; action?: () => void }[] = [];
-    rows.forEach((r, idx) => {
-      if (r.pressure < (unitSystem === "si" ? 0.48 : 7.0)) {
+    const list: { id: string; rowId: string; type: "critical" | "warning"; title: string; desc: string; fixable: boolean; action?: () => void }[] = [];
+    rows.forEach((r) => {
+      // 1. Missing Data validation
+      const missingCheck = checkIfSprinklerMissingData(r);
+      if (missingCheck.isMissing) {
+        list.push({
+          id: `w_miss_${r.id}`,
+          rowId: r.id,
+          type: "critical",
+          title: `Incomplete Data on "${r.label}"`,
+          desc: missingCheck.reason || "Required hydraulic fields are missing or invalid.",
+          fixable: false,
+        });
+      }
+
+      // 2. Minimum operating pressure guard
+      const minP = unitSystem === "si" ? 0.48 : 7.0;
+      if (r.pressure < minP) {
         list.push({
           id: `w_press_${r.id}`,
+          rowId: r.id,
           type: "critical",
-          title: `Low Pressure on ${r.label}`,
-          desc: `Calculated pressure is ${r.pressure.toFixed(2)} ${unitSystem === "si" ? "bar" : "psi"}, which is below the NFPA 13 minimum ${unitSystem === "si" ? "0.48 bar" : "7.0 psi"}.`,
+          title: `Low Operating Pressure (${r.label})`,
+          desc: `Calculated pressure is ${r.pressure.toFixed(2)} ${unitSystem === "si" ? "bar" : "psi"}, below NFPA 13 minimum (${minP} ${unitSystem === "si" ? "bar" : "psi"}).`,
           fixable: true,
           action: () => {
-            pushToUndo(rows);
-            setRows(prev => prev.map(item => item.id === r.id ? computeRowOutputs({ ...item, pressure: (unitSystem === "si" ? 0.48 : 7.0), solveFor: "Q" }) : item));
+            saveRows(rows.map(item => item.id === r.id ? computeRowOutputs({ ...item, pressure: minP, solveFor: "Q" }) : item));
+            toast.success(`Adjusted "${r.label}" pressure to ${minP} ${unitSystem === "si" ? "bar" : "psi"}`);
           }
         });
       }
 
+      // 3. Over-coverage area check
       let limit = 130;
       if (r.hazard.startsWith("Light")) limit = 225;
       else if (r.hazard.startsWith("Extra")) limit = 100;
@@ -1281,27 +1298,34 @@ function SprinklerKFactorPage() {
       if (r.coverage > actualLimit) {
         list.push({
           id: `w_cov_${r.id}`,
+          rowId: r.id,
           type: "warning",
-          title: `Over-coverage on ${r.label}`,
-          desc: `Coverage area is ${r.coverage} ${unitSystem === "si" ? "m²" : "ft²"}, exceeding the standard limit of ${actualLimit} ${unitSystem === "si" ? "m²" : "ft²"} for ${r.hazard}.`,
-          fixable: false
+          title: `Excess Coverage Area (${r.label})`,
+          desc: `Coverage area is ${r.coverage} ${unitSystem === "si" ? "m²" : "ft²"}, exceeding NFPA limit of ${actualLimit} ${unitSystem === "si" ? "m²" : "ft²"} for ${r.hazard}.`,
+          fixable: true,
+          action: () => {
+            saveRows(rows.map(item => item.id === r.id ? { ...item, coverage: actualLimit } : item));
+            toast.success(`Adjusted coverage on "${r.label}" to ${actualLimit} ${unitSystem === "si" ? "m²" : "ft²"}`);
+          }
         });
       }
 
-      // Check if high pressure can be optimized by K-factor resize
-      if (r.pressure > (unitSystem === "si" ? 2.41 : 35.0) && r.kFactor < (unitSystem === "si" ? 160 : 11.2)) {
+      // 4. High operating pressure (> 35 psi / 2.41 bar) optimization check
+      const maxP = unitSystem === "si" ? 2.41 : 35.0;
+      if (r.pressure > maxP && r.kFactor < (unitSystem === "si" ? 160 : 11.2)) {
         const nextKIdx = STANDARD_K_FACTORS.indexOf(r.kFactor) + 1;
         const nextK = STANDARD_K_FACTORS[nextKIdx] || r.kFactor;
         const newP = Math.pow(r.flow / nextK, 2);
         list.push({
           id: `w_opt_${r.id}`,
+          rowId: r.id,
           type: "warning",
-          title: `Optimize K-Factor on ${r.label}`,
-          desc: `Required pressure is high (${r.pressure.toFixed(1)} ${unitSystem === "si" ? "bar" : "psi"}). Changing K-${r.kFactor} to K-${nextK} reduces required pressure to ${newP.toFixed(1)}.`,
+          title: `High Pressure Optimizer (${r.label})`,
+          desc: `Pressure is ${r.pressure.toFixed(1)} ${unitSystem === "si" ? "bar" : "psi"}. Upgrading to K-${nextK} lowers pressure to ${newP.toFixed(1)} ${unitSystem === "si" ? "bar" : "psi"}.`,
           fixable: true,
           action: () => {
-            pushToUndo(rows);
-            setRows(prev => prev.map(item => item.id === r.id ? computeRowOutputs({ ...item, kFactor: nextK, solveFor: "P" }) : item));
+            saveRows(rows.map(item => item.id === r.id ? computeRowOutputs({ ...item, kFactor: nextK, solveFor: "P" }) : item));
+            toast.success(`Upgraded "${r.label}" to K-${nextK}`);
           }
         });
       }
@@ -1309,33 +1333,71 @@ function SprinklerKFactorPage() {
     return list;
   }, [rows, unitSystem]);
 
+  // Jump to row in grid from Intelligence drawer
+  const handleJumpToRow = (rowId: string) => {
+    setTab("schedule");
+    setSelected(new Set([rowId]));
+    setLastSelectedId(rowId);
+    toast.info("Selected targeted sprinkler head in schedule");
+  };
+
   const handleFixAllPressures = () => {
-    pushToUndo(rows);
-    setRows(prev =>
-      prev.map(r => {
-        if (r.pressure < (unitSystem === "si" ? 0.48 : 7.0)) {
-          return computeRowOutputs({ ...r, pressure: (unitSystem === "si" ? 0.48 : 7.0), solveFor: "Q" });
-        }
-        return r;
-      })
-    );
-    toast.success("Fixed all low pressure violations");
+    const minP = unitSystem === "si" ? 0.48 : 7.0;
+    const updated = rows.map(r => {
+      if (r.pressure < minP) {
+        return computeRowOutputs({ ...r, pressure: minP, solveFor: "Q" });
+      }
+      return r;
+    });
+    saveRows(updated);
+    toast.success(`All low pressures adjusted to NFPA 13 minimum (${minP} ${unitSystem === "si" ? "bar" : "psi"})`);
   };
 
   const handleOptimizeAllKFactors = () => {
-    pushToUndo(rows);
-    setRows(prev =>
-      prev.map(r => {
-        if (r.pressure > (unitSystem === "si" ? 2.41 : 35.0) && r.kFactor < (unitSystem === "si" ? 160 : 11.2)) {
-          const nextKIdx = STANDARD_K_FACTORS.indexOf(r.kFactor) + 1;
-          const nextK = STANDARD_K_FACTORS[nextKIdx] || r.kFactor;
-          return computeRowOutputs({ ...r, kFactor: nextK, solveFor: "P" });
-        }
-        return r;
-      })
-    );
-    toast.success("Optimized high pressure K-factors");
+    const maxP = unitSystem === "si" ? 2.41 : 35.0;
+    let count = 0;
+    const updated = rows.map(r => {
+      if (r.pressure > maxP && r.kFactor < (unitSystem === "si" ? 160 : 11.2)) {
+        const nextKIdx = STANDARD_K_FACTORS.indexOf(r.kFactor) + 1;
+        const nextK = STANDARD_K_FACTORS[nextKIdx] || r.kFactor;
+        count++;
+        return computeRowOutputs({ ...r, kFactor: nextK, solveFor: "P" });
+      }
+      return r;
+    });
+    saveRows(updated);
+    toast.success(`Optimized K-factors for ${count} sprinkler(s)`);
   };
+
+  const handleFixAllOverCoverage = () => {
+    let count = 0;
+    const updated = rows.map(r => {
+      let limit = 130;
+      if (r.hazard.startsWith("Light")) limit = 225;
+      else if (r.hazard.startsWith("Extra")) limit = 100;
+      const actualLimit = unitSystem === "si" ? parseFloat((limit / 10.7639).toFixed(1)) : limit;
+      if (r.coverage > actualLimit) {
+        count++;
+        return { ...r, coverage: actualLimit };
+      }
+      return r;
+    });
+    saveRows(updated);
+    toast.success(`Aligned ${count} sprinkler head(s) to NFPA 13 maximum coverage limits`);
+  };
+
+  const handleFlagAllWarningRows = () => {
+    const warningRowIds = new Set(warningsList.map(w => w.rowId));
+    const updated = rows.map(r => warningRowIds.has(r.id) ? { ...r, flagged: true, flagReason: "Flagged by Intelligence Audit" } : r);
+    saveRows(updated);
+    toast.success(`Flagged ${warningRowIds.size} non-compliant head(s) for engineering review`);
+  };
+
+  const complianceScore = useMemo(() => {
+    if (rows.length === 0) return 100;
+    const criticalCount = warningsList.filter(w => w.type === "critical").length;
+    return Math.max(0, Math.round(((rows.length - criticalCount) / rows.length) * 100));
+  }, [rows.length, warningsList]);
 
   // Filter rows for grid display
   const filteredRows = useMemo(() => {
@@ -2683,82 +2745,151 @@ function SprinklerKFactorPage() {
         {/* Intelligence Side Drawer */}
         <div
           className={`shrink-0 bg-background overflow-hidden transition-[width] duration-300 ease-out select-none no-print print:hidden ${
-            intelOpen ? "w-[360px] border-l border-border" : "w-0"
+            intelOpen ? "w-[380px] border-l border-border" : "w-0"
           }`}
         >
           {intelOpen && (
-            <div className="w-[360px] h-full flex flex-col min-h-0 bg-background font-sans">
+            <div className="w-[380px] h-full flex flex-col min-h-0 bg-background font-sans">
               {/* Header */}
               <div className="flex items-center justify-between p-4 border-b border-border bg-header-bg shrink-0">
                 <div className="flex items-center gap-2">
                   <Sparkles className="size-4.5 text-primary" />
-                  <h3 className="text-[13.5px] font-bold uppercase tracking-wider text-foreground">Live Intelligence</h3>
+                  <h3 className="text-[13.5px] font-bold uppercase tracking-wider text-foreground">NFPA 13 Live Intelligence</h3>
                 </div>
-                <button onClick={() => setIntelOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <button onClick={() => setIntelOpen(false)} className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded hover:bg-surface-2">
                   <X className="size-4" />
                 </button>
               </div>
 
               {/* Drawer Body */}
               <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-                {/* Formula Guideline */}
-                <div className="border border-border rounded-3xl p-3.5 bg-background shadow-xs">
-                  <h4 className="text-[12.5px] font-bold text-foreground">Equations Guidance</h4>
-                  <p className="text-[11.5px] text-muted-foreground mt-1 leading-relaxed">
-                    NFPA 13 formulas calculate standard discharge:
-                  </p>
-                  <ul className="text-[11px] text-muted-foreground mt-2 list-disc pl-4 flex flex-col gap-1 font-mono">
-                    <li>Flow: Q = K × √P</li>
-                    <li>Pressure: P = (Q / K)²</li>
-                  </ul>
-                </div>
-
-                {/* Optimizations Actions */}
-                <div className="border border-border rounded-3xl p-3.5 bg-background shadow-xs flex flex-col gap-3">
-                  <h4 className="text-[12.5px] font-bold text-foreground">AI Quick Optimizers</h4>
-                  <p className="text-[11.5px] text-muted-foreground leading-normal">
-                    Batch-fix spacing guidelines or K-factor sizes to optimize hydraulic efficiency.
-                  </p>
-                  <div className="flex flex-col gap-2 mt-1">
-                    <button
-                      onClick={handleFixAllPressures}
-                      className="w-full py-1.5 px-3 rounded-xl text-[11.5px] font-bold border border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 text-center transition-all cursor-pointer"
-                    >
-                      Fix All Low Pressures (Set to 7 psi)
-                    </button>
-                    <button
-                      onClick={handleOptimizeAllKFactors}
-                      className="w-full py-1.5 px-3 rounded-xl text-[11.5px] font-bold border border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 text-center transition-all cursor-pointer"
-                    >
-                      Optimize Large Pressures (&gt;35 psi)
-                    </button>
+                {/* Hydraulic Compliance Scorecard */}
+                <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Compliance Score</span>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                      complianceScore === 100 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    }`}>
+                      {complianceScore === 100 ? "NFPA 13 Compliant" : `${warningsList.length} Action(s) Needed`}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="text-[28px] font-extrabold font-mono text-foreground leading-none">
+                      {complianceScore}%
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="h-2 w-full bg-surface-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-500 rounded-full ${
+                            complianceScore === 100 ? "bg-emerald-500" : complianceScore >= 70 ? "bg-amber-500" : "bg-red-500"
+                          }`}
+                          style={{ width: `${complianceScore}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10.5px] text-muted-foreground mt-1.5 font-medium">
+                        <span>{rows.length} Total Heads</span>
+                        <span>{rows.length - warningsList.filter(w => w.type === 'critical').length} Compliant</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Dynamic Warnings Checklist */}
+                {/* AI Quick Optimizers */}
+                <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[12.5px] font-bold text-foreground">AI Quick Optimizers</h4>
+                    <span className="text-[10px] font-semibold text-primary/80 uppercase tracking-wider">1-Click Actions</span>
+                  </div>
+                  <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+                    Batch-optimize hydraulic flow, pressure limits, and spacing constraints across the active schedule.
+                  </p>
+                  
+                  <div className="flex flex-col gap-2 mt-1">
+                    <button
+                      onClick={handleFixAllPressures}
+                      className="w-full py-2 px-3 rounded-xl text-[11.5px] font-bold border border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 text-left transition-all cursor-pointer flex items-center justify-between shadow-2xs"
+                    >
+                      <span>⚡ Fix All Low Pressures (&lt; 7.0 psi)</span>
+                      <span className="text-[10px] font-mono text-primary/70">Auto-solve</span>
+                    </button>
+
+                    <button
+                      onClick={handleOptimizeAllKFactors}
+                      className="w-full py-2 px-3 rounded-xl text-[11.5px] font-bold border border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 text-left transition-all cursor-pointer flex items-center justify-between shadow-2xs"
+                    >
+                      <span>🔄 Optimize High Pressure Heads (&gt; 35 psi)</span>
+                      <span className="text-[10px] font-mono text-primary/70">Resize K</span>
+                    </button>
+
+                    <button
+                      onClick={handleFixAllOverCoverage}
+                      className="w-full py-2 px-3 rounded-xl text-[11.5px] font-bold border border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 text-left transition-all cursor-pointer flex items-center justify-between shadow-2xs"
+                    >
+                      <span>📐 Auto-Align Hazard Area Limits</span>
+                      <span className="text-[10px] font-mono text-primary/70">NFPA Spacing</span>
+                    </button>
+
+                    {warningsList.length > 0 && (
+                      <button
+                        onClick={handleFlagAllWarningRows}
+                        className="w-full py-2 px-3 rounded-xl text-[11.5px] font-bold border border-red-500/30 text-red-600 dark:text-red-400 bg-red-500/5 hover:bg-red-500/10 text-left transition-all cursor-pointer flex items-center justify-between shadow-2xs"
+                      >
+                        <span>🚩 Flag All Non-Compliant Heads</span>
+                        <span className="text-[10px] font-mono opacity-80">{warningsList.length} items</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dynamic Warnings Checklist with Clickable Jump Links */}
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Active Warnings & Fixes</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Active Warnings & Fixes</span>
+                    <span className="text-[10.5px] font-mono font-bold text-muted-foreground">{warningsList.length} item(s)</span>
+                  </div>
+
                   {warningsList.length > 0 ? (
                     <div className="flex flex-col gap-2.5">
                       {warningsList.map((warn, index) => (
                         <div
                           key={index}
-                          className={`p-3 rounded-2xl border text-[12px] flex gap-3 shadow-xs ${
+                          className={`p-3 rounded-2xl border text-[12px] flex flex-col gap-2 shadow-xs transition-all ${
                             warn.type === "critical"
                               ? "border-destructive/20 bg-destructive/5 text-foreground"
                               : "border-warning/20 bg-warning/5 text-foreground"
                           }`}
                         >
-                          <AlertTriangle className={`size-4 shrink-0 mt-0.5 ${warn.type === "critical" ? "text-destructive" : "text-warning"}`} />
-                          <div className="flex-1 min-w-0">
-                            <div className="font-bold">{warn.title}</div>
-                            <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-normal">{warn.desc}</div>
+                          <div className="flex items-start gap-2.5">
+                            <AlertTriangle className={`size-4 shrink-0 mt-0.5 ${warn.type === "critical" ? "text-destructive" : "text-warning"}`} />
+                            <div className="flex-1 min-w-0">
+                              <button
+                                onClick={() => handleJumpToRow(warn.rowId)}
+                                className="font-bold text-left hover:text-primary hover:underline cursor-pointer block truncate w-full"
+                                title="Click to select this sprinkler head in the schedule"
+                              >
+                                {warn.title}
+                              </button>
+                              <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-normal">
+                                {warn.desc}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-border/40 mt-1">
+                            <button
+                              onClick={() => handleJumpToRow(warn.rowId)}
+                              className="text-[11px] font-semibold text-muted-foreground hover:text-primary transition-colors cursor-pointer flex items-center gap-1"
+                            >
+                              <span>👉 Jump to row</span>
+                            </button>
+
                             {warn.fixable && warn.action && (
                               <button
                                 onClick={warn.action}
-                                className="mt-2 text-[11px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                                className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer bg-primary/10 px-2 py-0.5 rounded-lg"
                               >
-                                <RefreshCw className="size-3" /> Auto-Fix Issue
+                                <RefreshCw className="size-3" /> Auto-Fix
                               </button>
                             )}
                           </div>
@@ -2766,12 +2897,27 @@ function SprinklerKFactorPage() {
                       ))}
                     </div>
                   ) : (
-                    <div className="border border-border/80 rounded-3xl p-4 flex flex-col items-center justify-center text-center text-muted-foreground gap-2 py-8 bg-surface-2/10">
-                      <CheckCircle2 className="size-8 text-success" />
-                      <span className="text-[12px] font-semibold text-foreground">Sizing Complies!</span>
-                      <span className="text-[11px] text-muted-foreground">All pressures and areas are within NFPA limits.</span>
+                    <div className="border border-border/80 rounded-3xl p-5 flex flex-col items-center justify-center text-center text-muted-foreground gap-2 py-8 bg-surface-2/10">
+                      <CheckCircle2 className="size-9 text-emerald-500" />
+                      <span className="text-[13px] font-bold text-foreground">Sizing Complies with NFPA 13!</span>
+                      <span className="text-[11.5px] text-muted-foreground max-w-[240px]">All operating pressures, flow rates, and hazard coverage areas are within standard limits.</span>
                     </div>
                   )}
+                </div>
+
+                {/* Design Formulas & NFPA 13 Guidelines */}
+                <div className="border border-border rounded-3xl p-3.5 bg-background shadow-xs flex flex-col gap-2">
+                  <h4 className="text-[12.5px] font-bold text-foreground">Hydraulic Formulas & Guidelines</h4>
+                  <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+                    Standard NFPA 13 formulas calculate discharge and required node pressures:
+                  </p>
+                  <ul className="text-[11px] text-muted-foreground list-disc pl-4 flex flex-col gap-1 font-mono bg-surface-2/30 p-2.5 rounded-xl border border-border/50">
+                    <li>Discharge: <strong>Q = K × √P</strong></li>
+                    <li>Node Pressure: <strong>P = (Q / K)²</strong></li>
+                    <li>Min Standard Pressure: <strong>7.0 psi (0.48 bar)</strong></li>
+                    <li>Max Light Hazard Coverage: <strong>225 ft² (20.9 m²)</strong></li>
+                    <li>Max Ordinary Hazard Coverage: <strong>130 ft² (12.1 m²)</strong></li>
+                  </ul>
                 </div>
               </div>
             </div>
