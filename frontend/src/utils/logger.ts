@@ -31,6 +31,8 @@ export const logActivity = async (userId: string | undefined, action: ActivityAc
 
     const userEmail = storedUserData?.email || '';
     const userName = storedUserData?.name || storedUserData?.email || 'User';
+    const orgId = storedUserData?.organization_id || storedUserData?.org_id || localStorage.getItem('mep_organization_id') || '';
+    const uId = userId || storedUserData?.id || '';
 
     const calcName = details.calculator_name || calcTitle;
     const actionMsg = details.message || `Calculation ${calcName} was updated and saved in project ${projectName}`;
@@ -40,8 +42,11 @@ export const logActivity = async (userId: string | undefined, action: ActivityAc
       calculator_name: calcName,
       path: path,
       timestamp: new Date().toISOString(),
+      user_id: uId,
       user_email: userEmail,
       user_name: userName,
+      organization_id: orgId,
+      org_id: orgId,
       message: actionMsg,
       ...details
     };

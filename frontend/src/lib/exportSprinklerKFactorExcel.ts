@@ -200,7 +200,7 @@ export const exportSprinklerKFactorExcel = async (
     cell.value = "FIRE FIGHTING DESIGN SUMMARY STATS (NFPA 13)";
     cell.fill = grayFill;
     cell.font = boldFont;
-    cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
     setCellBorder(cell, "medium", "medium", c === 1 ? "medium" : "thin", c === 10 ? "medium" : "thin");
   }
 
@@ -244,7 +244,7 @@ export const exportSprinklerKFactorExcel = async (
     cell.value = "SPRINKLER HYDRAULIC SIZING SCHEDULE";
     cell.fill = grayFill;
     cell.font = boldFont;
-    cell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
     setCellBorder(cell, "medium", "medium", c === 1 ? "medium" : "thin", c === 10 ? "medium" : "thin");
   }
 
@@ -355,14 +355,14 @@ export const exportSprinklerKFactorExcel = async (
       row.getCell(8).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(8).numFmt = "0.0";
 
-      // Hazard (Col I) - Left
+      // Hazard (Col I) - Centered
       row.getCell(9).value = r.hazard;
-      row.getCell(9).alignment = { horizontal: "left", vertical: "middle" };
+      row.getCell(9).alignment = { horizontal: "center", vertical: "middle" };
 
       // Compliance Status (Col J) - Centered
       const minP = isSI ? 0.48 : 7.0;
       const isCompliant = r.pressure >= minP;
-      row.getCell(10).value = isCompliant ? "• COMPLIED" : "⚠️ LOW PRESSURE";
+      row.getCell(10).value = isCompliant ? "COMPLIED" : "LOW PRESSURE";
       row.getCell(10).alignment = { horizontal: "center", vertical: "middle" };
       row.getCell(10).font = { name: "Arial", size: 9.5, bold: true, color: { argb: isCompliant ? "FF2E7D32" : "FFD32F2F" } };
       row.getCell(10).fill = isCompliant ? greenFill : amberFill;

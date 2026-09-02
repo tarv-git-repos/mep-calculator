@@ -2062,131 +2062,134 @@ function LoadingUnitPage() {
   return (
     <AppShell title="Loading Unit Calculator" onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6 animate-in fade-in-50 duration-200">
+        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-2.5 overflow-hidden h-full px-6 pb-4 animate-in fade-in-50 duration-200">
           
-          {/* Page Header */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 select-none">
-            <div className="flex flex-col gap-1 max-w-2xl">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; LOADING UNIT CALCULATOR</span>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                  <Sparkles className="size-3" /> Dubai Building Code Ready
-                </span>
+          {/* Top Stationary Header Block (Fixed & Stationary) */}
+          <div className="shrink-0 flex flex-col gap-2.5">
+            {/* Page Header */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 select-none">
+              <div className="flex flex-col gap-1 max-w-2xl">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; LOADING UNIT CALCULATOR</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                    <Sparkles className="size-3" /> Dubai Building Code Ready
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
+                  <button 
+                    onClick={() => setIntelOpen((v) => !v)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
+                      intelOpen
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                    }`}
+                  >
+                    <Sparkles className="size-3.5" />
+                    Intelligence
+                  </button>
+                  <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
+                </div>
+                <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
+                  Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
+                </p>
               </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
-                <button 
-                  onClick={() => setIntelOpen((v) => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
-                    intelOpen
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+            </div>
+
+            {/* Top Navigation Tabs Bar (Aligned Left above Filter header with rounded-full capsule design) */}
+            <div className="flex items-center justify-start select-none">
+              <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("spaces")}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                    activeTab === "spaces" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Sparkles className="size-3.5" />
-                  Intelligence
+                  Spaces
                 </button>
-                <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
-              </div>
-              <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
-                Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
-              </p>
-            </div>
-          </div>
-
-          {/* Top Navigation Tabs Bar (Aligned Left above Filter header with rounded-full capsule design) */}
-          <div className="flex items-center justify-start select-none">
-            <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setActiveTab("spaces")}
-                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                  activeTab === "spaces" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Spaces
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("report")}
-                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                  activeTab === "report" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Sizing &amp; Report
-              </button>
-            </div>
-          </div>
-
-          {/* Standard & Unit System Selector Header */}
-          <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center bg-slate-100 dark:bg-slate-900/60 p-2.5 sm:p-3 border border-border rounded-2xl gap-3 shadow-xs">
-            <div className="flex items-center gap-3 w-full md:w-auto min-w-0 flex-wrap">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Standard Preset:</span>
-                <select
-                  value={standardPreset}
-                  onChange={(e) => {
-                    const newPreset = e.target.value as StandardPreset;
-                    setStandardPreset(newPreset);
-                    setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
-                    setWeightOverrides({});
-                  }}
-                  className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[280px]"
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("report")}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                    activeTab === "report" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                  }`}
                 >
-                  <optgroup label="Regional UAE">
-                    <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10×√LU)</option>
-                    <option value="abudhabi">Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
-                  </optgroup>
-                  <optgroup label="British Standards & CIPHE">
-                    <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
-                    <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
-                    <option value="bs_8558">BS 8558 Water Supply</option>
-                    <option value="iop_low">IoP / CIPHE Low Demand</option>
-                    <option value="iop_med">IoP / CIPHE Medium Demand</option>
-                    <option value="iop_high">IoP / CIPHE High Demand</option>
-                  </optgroup>
-                  <optgroup label="German DIN 1988-300">
-                    <option value="din_res">DIN 1988-300 Residential (Equation)</option>
-                    <option value="din_hosp">DIN 1988-300 Hospital (Equation)</option>
-                    <option value="din_hotel">DIN 1988-300 Hotel (Equation)</option>
-                    <option value="din_school">DIN 1988-300 School (Equation)</option>
-                    <option value="din_office">DIN 1988-300 Office (Equation)</option>
-                    <option value="din_assisted">DIN 1988-300 Assisted Living (Equation)</option>
-                    <option value="din_nursing">DIN 1988-300 Nursing Home (Equation)</option>
-                  </optgroup>
-                  <optgroup label="International Codes (US)">
-                    <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
-                    <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
-                    <option value="upc">UPC (Uniform Plumbing Code)</option>
-                  </optgroup>
-                  <optgroup label="Australia & Other">
-                    <option value="as_nzs_3500">AS/NZS 3500 (Australia / New Zealand)</option>
-                    <option value="barrie">Barrie's Book Method</option>
-                  </optgroup>
-                </select>
+                  Sizing &amp; Report
+                </button>
               </div>
+            </div>
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Demand Category:</span>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => {
-                    setSelectedCategory(e.target.value);
-                    setWeightOverrides({});
-                  }}
-                  className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[210px]"
-                >
-                  {STANDARD_CATEGORIES[standardPreset].map(cat => (
-                    <option key={cat.id} value={cat.id}>{cat.label}</option>
-                  ))}
-                </select>
+            {/* Standard & Unit System Selector Header */}
+            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center bg-slate-100 dark:bg-slate-900/60 p-2.5 sm:p-3 border border-border rounded-2xl gap-3 shadow-xs">
+              <div className="flex items-center gap-3 w-full md:w-auto min-w-0 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Standard Preset:</span>
+                  <select
+                    value={standardPreset}
+                    onChange={(e) => {
+                      const newPreset = e.target.value as StandardPreset;
+                      setStandardPreset(newPreset);
+                      setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
+                      setWeightOverrides({});
+                    }}
+                    className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[280px]"
+                  >
+                    <optgroup label="Regional UAE">
+                      <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10×√LU)</option>
+                      <option value="abudhabi">Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
+                    </optgroup>
+                    <optgroup label="British Standards & CIPHE">
+                      <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
+                      <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
+                      <option value="bs_8558">BS 8558 Water Supply</option>
+                      <option value="iop_low">IoP / CIPHE Low Demand</option>
+                      <option value="iop_med">IoP / CIPHE Medium Demand</option>
+                      <option value="iop_high">IoP / CIPHE High Demand</option>
+                    </optgroup>
+                    <optgroup label="German DIN 1988-300">
+                      <option value="din_res">DIN 1988-300 Residential (Equation)</option>
+                      <option value="din_hosp">DIN 1988-300 Hospital (Equation)</option>
+                      <option value="din_hotel">DIN 1988-300 Hotel (Equation)</option>
+                      <option value="din_school">DIN 1988-300 School (Equation)</option>
+                      <option value="din_office">DIN 1988-300 Office (Equation)</option>
+                      <option value="din_assisted">DIN 1988-300 Assisted Living (Equation)</option>
+                      <option value="din_nursing">DIN 1988-300 Nursing Home (Equation)</option>
+                    </optgroup>
+                    <optgroup label="International Codes (US)">
+                      <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
+                      <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
+                      <option value="upc">UPC (Uniform Plumbing Code)</option>
+                    </optgroup>
+                    <optgroup label="Australia & Other">
+                      <option value="as_nzs_3500">AS/NZS 3500 (Australia / New Zealand)</option>
+                      <option value="barrie">Barrie's Book Method</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Demand Category:</span>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => {
+                      setSelectedCategory(e.target.value);
+                      setWeightOverrides({});
+                    }}
+                    className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[210px]"
+                  >
+                    {STANDARD_CATEGORIES[standardPreset].map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Spaces Tab View */}
           {activeTab === "spaces" && (
-            <>
+            <div className="flex-1 min-h-0 flex flex-col gap-2.5 overflow-hidden">
               {/* Workspace Header Toolbar Strip */}
           <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border border-border bg-card rounded-2xl shrink-0 select-none gap-2 shadow-xs">
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
@@ -2432,12 +2435,12 @@ function LoadingUnitPage() {
               </div>
             </div>
 
-            {/* Table with Resizable Columns (Matching Ventilation UI) */}
-            <div className="overflow-x-auto border border-border rounded-xl w-full custom-scrollbar">
-              <table className="w-full border-collapse text-[11.5px] font-sans select-none table-fixed">
-                <thead className="bg-slate-50/80 dark:bg-slate-900/60 sticky top-0 z-10 border-b border-border text-muted-foreground select-none">
+            {/* Table with Resizable Columns (Steady header & scrollable space rows) */}
+            <div className="flex-1 min-h-[200px] max-h-[calc(100vh-350px)] overflow-x-auto overflow-y-auto border border-border rounded-xl w-full custom-scrollbar pb-6">
+              <table className="w-full min-w-full border-collapse text-[11.5px] font-sans select-none">
+                <thead className="bg-slate-100 dark:bg-slate-900 sticky top-0 z-20 border-b border-border text-muted-foreground select-none">
                   <tr className="text-left text-[10.5px] font-bold uppercase tracking-wider">
-                    <th style={{ width: luColWidths.select }} rowSpan={2} className="p-2 text-center relative group">
+                    <th style={{ width: luColWidths.select, minWidth: luColWidths.select }} rowSpan={2} className="p-2 text-center relative group">
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -2446,33 +2449,33 @@ function LoadingUnitPage() {
                       />
                       <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
-                    <th style={{ width: luColWidths.desc }} rowSpan={2} className="p-2 text-left relative group">
+                    <th style={{ minWidth: luColWidths.desc }} rowSpan={2} className="p-2 text-left relative group">
                       Description
                       <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
                     {LU_FIXTURES_META.map(f => (
-                      <th key={f.id} style={{ width: luColWidths[f.id] || 60 }} className="p-2 text-center relative group">
+                      <th key={f.id} style={{ width: luColWidths[f.id] || 60, minWidth: luColWidths[f.id] || 60 }} className="p-2 text-center relative group">
                         {f.short}
                         <div onMouseDown={(e) => handleResizeMouseDown(f.id, e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                       </th>
                     ))}
-                    <th style={{ width: luColWidths.unitLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Unit value per 1 space">
+                    <th style={{ width: luColWidths.unitLu, minWidth: luColWidths.unitLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Unit value per 1 space">
                       {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}
                       <div onMouseDown={(e) => handleResizeMouseDown("unitLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
-                    <th style={{ width: luColWidths.spaceQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Quantity of spaces per typical floor">
+                    <th style={{ width: luColWidths.spaceQty, minWidth: luColWidths.spaceQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Quantity of spaces per typical floor">
                       Space Qty
                       <div onMouseDown={(e) => handleResizeMouseDown("spaceQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
-                    <th style={{ width: luColWidths.floorsQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Number of typical floors">
+                    <th style={{ width: luColWidths.floorsQty, minWidth: luColWidths.floorsQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Number of typical floors">
                       No. of Floors
                       <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
-                    <th style={{ width: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
+                    <th style={{ width: luColWidths.totalLu, minWidth: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
                       {standardPreset === "dubai" || standardPreset === "iop_bs" ? "TOTAL LU" : "TOTAL WSFU"}
                       <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                     </th>
-                    <th style={{ width: luColWidths.actions }} rowSpan={2} className="p-2 text-center font-bold">
+                    <th style={{ width: luColWidths.actions, minWidth: luColWidths.actions }} rowSpan={2} className="p-2 text-center font-bold">
                       Actions
                     </th>
                   </tr>
@@ -2736,15 +2739,21 @@ function LoadingUnitPage() {
 
                       </tbody>
                     ))}
+                    {/* Bottom Padding Spacer Row for 100% full visibility of last space */}
+                    <tbody>
+                      <tr className="h-16 border-0 bg-transparent pointer-events-none">
+                        <td colSpan={25} className="p-0 border-0 bg-transparent" />
+                      </tr>
+                    </tbody>
                   </table>
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* Sizing & Report Tab View */}
           {activeTab === "report" && (
-            <div className="flex flex-col gap-5 animate-in fade-in-50 duration-200">
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5 custom-scrollbar pr-1 animate-in fade-in-50 duration-200">
               
               {/* Report Header Export Triggers */}
               <div className="flex flex-wrap items-center justify-between gap-3 bg-card border border-border p-4 rounded-2xl shadow-xs">

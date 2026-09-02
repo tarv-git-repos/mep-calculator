@@ -157,12 +157,16 @@ function logActivity(user, action_type, details) {
     formattedDetails = details.message || details.summary || JSON.stringify(details);
   }
 
+  const orgId = user.organization_id || (typeof details === 'object' ? (details.organization_id || details.org_id) : '');
+
   logs.unshift({
     id: `log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
     created_at: new Date().toISOString(),
     user_id: user.id || 'system',
     email: user.email || 'system',
     name: user.name || user.email || 'User',
+    organization_id: orgId,
+    org_id: orgId,
     action_type,
     details: formattedDetails
   });
