@@ -870,7 +870,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   ...c,
                   id: notifId,
                   targetId: item.id,
-                  targetName: item.desc || item.name || item.id,
+                  targetName: item.label || item.desc || item.name || item.id,
                   targetType: typeName,
                   projectName: projectName || "Project",
                   projectId: projectId || "current",
@@ -1988,13 +1988,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         }
       } catch (e) {}
     }
-    const isAdmin = ['SUPER_ADMIN', 'ORG_ADMIN'].includes(effRole || '') || (profile?.email && profile.email.toLowerCase().includes('kirtan'));
+    const isSuperAdmin = effRole === 'SUPER_ADMIN' || profile?.email === 'admin@tarv.ai';
+    const isOrgAdmin = effRole === 'ORG_ADMIN' || (profile?.email && profile.email.toLowerCase().includes('kirtan'));
+    const isAdmin = isSuperAdmin || isOrgAdmin;
+
     const rawNav = import.meta.env.VITE_APP_MODE === 'kfactor'
       ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
       : [
           ...NAV,
+          ...(!isSuperAdmin && isOrgAdmin ? [
+            { kind: "item" as const, label: "Company Hierarchy", to: "/company-hierarchy", icon: Network }
+          ] : []),
           ...(isAdmin ? [
-            { kind: "item" as const, label: "Company Hierarchy", to: "/company-hierarchy", icon: Network },
             { kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }
           ] : [])
         ];

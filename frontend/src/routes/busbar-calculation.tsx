@@ -104,6 +104,7 @@ interface BusbarSection {
   ratingId: string;
   volts: number | "";
   pf: number | "";
+  useMdForCurrent?: boolean;
   rows: BusbarRow[];
 }
 
@@ -881,18 +882,21 @@ function BusbarCalculationPage() {
         let currentRemainingTCL = totalLoad;
         let cumulativeVdPercent = 0;
 
+        const useMd = section.useMdForCurrent !== false;
+
         const calcRows = section.rows.map((r) => {
           const tcl = currentRemainingTCL;
           const md = tcl * (Number(r.div) || 0);
+          const loadForCurrent = useMd ? md : tcl;
           let current = 0;
           const volts = Number(section.volts) || 0;
           const isThreePhase = volts >= 300;
           const pf = Number(section.pf) || 0;
           if (volts > 0 && pf > 0) {
             if (isThreePhase) {
-              current = (md * 1000) / (Math.sqrt(3) * volts * pf);
+              current = (loadForCurrent * 1000) / (Math.sqrt(3) * volts * pf);
             } else {
-              current = (md * 1000) / (volts * pf);
+              current = (loadForCurrent * 1000) / (volts * pf);
             }
           }
 
@@ -1080,7 +1084,7 @@ function BusbarCalculationPage() {
       worksheet.getCell("G5").font = fontBold;
       worksheet.getCell("G6").value = "L = Length in meter";
       worksheet.getCell("G6").font = fontBold;
-      worksheet.getCell("G7").value = "I = Current in Amps";
+      worksheet.getCell("G7").value = section.useMdForCurrent !== false ? "I = Current in Amps (I = (MD x 1000) / (1.732 x V x PF))" : "I = Current in Amps (I = (TCL x 1000) / (1.732 x V x PF))";
       worksheet.getCell("G7").font = fontBold;
       worksheet.getCell("G8").value = "R = Resistance in mΩ/m";
       worksheet.getCell("G8").font = fontBold;
@@ -1344,7 +1348,8 @@ function BusbarCalculationPage() {
           doc.setFontSize(8.0);
           doc.setFont("helvetica", "normal");
           doc.setTextColor(60, 60, 60);
-          doc.text(`Selected Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit})  |  Voltage: ${section.volts}V  |  Power Factor: ${section.pf}`, 18, infoBoxStartY + 9);
+          const currentBasis = section.useMdForCurrent !== false ? "MD" : "TCL";
+          doc.text(`Selected Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit})  |  Voltage: ${section.volts}V  |  PF: ${section.pf}  |  Current Basis: ${currentBasis}`, 18, infoBoxStartY + 9);
 
           const tableData = (section.calcRows || []).map((r, idx) => [
             idx + 1,
@@ -1862,6 +1867,25 @@ function BusbarCalculationPage() {
                                 <span className="text-[10px] text-muted-foreground font-medium uppercase">R: <span className="text-foreground text-[11px] font-mono">{((unitSystem === "ip" ? ALL_BUSBAR_DATA[section.ratingId]?.r * 0.3048 : ALL_BUSBAR_DATA[section.ratingId]?.r) || 0).toFixed(4)}</span></span>
                                 <span className="text-[10px] text-muted-foreground font-medium uppercase">X: <span className="text-foreground text-[11px] font-mono">{((unitSystem === "ip" ? ALL_BUSBAR_DATA[section.ratingId]?.x * 0.3048 : ALL_BUSBAR_DATA[section.ratingId]?.x) || 0).toFixed(4)}</span></span>
                               </div>
+                              <div className="flex items-center gap-1.5 ml-1 bg-surface-1 px-2.5 py-1 rounded border border-border/50">
+                                <span className="text-[11px] font-semibold text-muted-foreground">Current Basis:</span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateSection(panel.id, section.id, "useMdForCurrent", !(section.useMdForCurrent !== false))}
+                                  className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-all cursor-pointer border ${
+                                    section.useMdForCurrent !== false
+                                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
+                                      : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+                                  }`}
+                                  title={
+                                    section.useMdForCurrent !== false
+                                      ? "Line Current uses Maximum Demand (MD). Click to switch to TCL."
+                                      : "Line Current uses Total Connected Load (TCL). Click to switch to MD."
+                                  }
+                                >
+                                  {section.useMdForCurrent !== false ? "MD (ON)" : "TCL (MD OFF)"}
+                                </button>
+                              </div>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                                 {section.totalCumulativeVd > 2.5 ? (
@@ -1936,8 +1960,29 @@ function BusbarCalculationPage() {
                                     Div
                                     <div onMouseDown={(e) => handleResizeMouseDown("div", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                                   </th>
-                                  <th style={{ width: busbarColWidths.mdKw }} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
-                                    MD (kW)
+                                  <th style={{ width: busbarColWidths.mdKw }} className="px-1 py-1.5 text-center bg-surface-2 text-foreground relative group select-none">
+                                    <div className="flex flex-col items-center justify-center gap-0.5">
+                                      <span className="text-[11.5px] font-bold">MD (kW)</span>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          updateSection(panel.id, section.id, "useMdForCurrent", !(section.useMdForCurrent !== false));
+                                        }}
+                                        className={`px-1.5 py-0.2 text-[9.5px] font-bold rounded border transition-all cursor-pointer ${
+                                          section.useMdForCurrent !== false
+                                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
+                                            : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+                                        }`}
+                                        title={
+                                          section.useMdForCurrent !== false
+                                            ? "Line Current uses MD. Click to toggle OFF (use TCL)."
+                                            : "Line Current uses TCL. Click to toggle ON (use MD)."
+                                        }
+                                      >
+                                        {section.useMdForCurrent !== false ? "ON" : "OFF (TCL)"}
+                                      </button>
+                                    </div>
                                     <div onMouseDown={(e) => handleResizeMouseDown("mdKw", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                                   </th>
                                   <th style={{ width: busbarColWidths.curA }} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
@@ -2385,6 +2430,8 @@ function BusbarCalculationPage() {
               x: data.x
             }))}
             unitSystem={unitSystem}
+            useMdForCurrent={panels.find(p => p.id === editingRow.panelId)?.sections.find(s => s.id === editingRow.sectionId)?.useMdForCurrent !== false}
+            onToggleMdForCurrent={(val) => updateSection(editingRow.panelId, editingRow.sectionId, "useMdForCurrent", val)}
             onClose={() => setEditingRow(null)}
             onSave={(updated) => {
               if (updated.desc !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "desc", updated.desc);

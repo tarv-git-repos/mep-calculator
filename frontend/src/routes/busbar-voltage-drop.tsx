@@ -67,7 +67,7 @@ const DEFAULT_RATINGS: BusbarRatingDef[] = [
   { rating: "4000 (Rt)", r: 0.0100, x: 0.0080 },
 ];
 
-const computeAllRows = (rows: BusbarVDRow[], globalR: number, globalX: number): BusbarVDRow[] => {
+const computeAllRows = (rows: BusbarVDRow[], globalR: number, globalX: number, useMdForCurrent: boolean = true): BusbarVDRow[] => {
   let currentGroupVd = 0;
 
   return rows.map((row) => {
@@ -82,8 +82,9 @@ const computeAllRows = (rows: BusbarVDRow[], globalR: number, globalX: number): 
     // Maximum Demand Load (KW) = TCL * Diversity Factor
     const maxDemand = row.tcl * row.df;
     
-    // Line Current (A) = (Max Demand * 1000) / (1.732 * Voltage * PF)
-    const lineCurrent = (maxDemand * 1000) / (1.732 * V * PF);
+    // Line Current (A) = (loadForCurrent * 1000) / (1.732 * Voltage * PF)
+    const loadForCurrent = useMdForCurrent ? maxDemand : row.tcl;
+    const lineCurrent = (loadForCurrent * 1000) / (1.732 * V * PF);
 
     // VOLTAGE DROP (Vd) = (1.732 * Line Current * Length * (R*CosPhi + X*SinPhi)) / 1000
     // CosPhi = PF, SinPhi = sin(arccos(PF))

@@ -29,6 +29,8 @@ export interface EditBusbarRowModalProps {
   panelName?: string;
   ratingOptions?: Array<{ id: string; label: string; r: number; x: number }>;
   unitSystem?: "si" | "ip";
+  useMdForCurrent?: boolean;
+  onToggleMdForCurrent?: (val: boolean) => void;
   onClose: () => void;
   onSave: (updatedFields: any) => void;
 }
@@ -41,6 +43,8 @@ export function EditBusbarRowModal({
   panelName = "LV PANEL-1",
   ratingOptions = [],
   unitSystem = "si",
+  useMdForCurrent = true,
+  onToggleMdForCurrent,
   onClose,
   onSave,
 }: EditBusbarRowModalProps) {
@@ -52,6 +56,7 @@ export function EditBusbarRowModal({
   const [pf, setPf] = useState<number | "">(row.pf ?? 0.8);
   const [ratingId, setRatingId] = useState<string>(row.ratingId || (ratingOptions[0]?.id || "2500_rt"));
   const [flagged, setFlagged] = useState<boolean>(Boolean(row.flagged));
+  const [useMd, setUseMd] = useState<boolean>(useMdForCurrent);
   
   // Show preview panel by default so user sees TCL & MD calculation live
   const [showPreview, setShowPreview] = useState(true);
@@ -108,14 +113,15 @@ export function EditBusbarRowModal({
 
     const tcl = tclBreakdown.sum;
     const md = tcl * divVal;
+    const loadForCurrent = useMd ? md : tcl;
 
     const isThreePhase = vVal > 250;
     let current = 0;
     if (vVal > 0 && pfVal > 0) {
       if (isThreePhase) {
-        current = (md * 1000) / (Math.sqrt(3) * vVal * pfVal);
+        current = (loadForCurrent * 1000) / (Math.sqrt(3) * vVal * pfVal);
       } else {
-        current = (md * 1000) / (vVal * pfVal);
+        current = (loadForCurrent * 1000) / (vVal * pfVal);
       }
     }
 
@@ -349,7 +355,7 @@ export function EditBusbarRowModal({
                     {calcDetails.current.toFixed(2)} A
                   </div>
                   <div className="text-[10px] font-mono text-neutral-500 mt-1">
-                    I = (MD × 1000) / ({calcDetails.isThreePhase ? "1.732 × V × PF" : "V × PF"})
+                    I = ({useMd ? "MD" : "TCL"} × 1000) / ({calcDetails.isThreePhase ? "1.732 × V × PF" : "V × PF"})
                   </div>
                 </div>
 
@@ -450,12 +456,30 @@ export function EditBusbarRowModal({
 
               {/* Step 3: Line Current */}
               <div className="p-3 bg-white/60 dark:bg-black/20 rounded-xl border border-black/5 dark:border-white/5 space-y-1">
-                <div className="text-[10px] font-bold uppercase text-neutral-400">3. Line Current (I)</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] font-bold uppercase text-neutral-400">3. Line Current (I)</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !useMd;
+                      setUseMd(next);
+                      if (onToggleMdForCurrent) onToggleMdForCurrent(next);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all border cursor-pointer ${
+                      useMd
+                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
+                        : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
+                    }`}
+                    title="Toggle whether Line Current uses Maximum Demand (MD) or Total Connected Load (TCL)"
+                  >
+                    {useMd ? "MD (ON)" : "TCL (MD OFF)"}
+                  </button>
+                </div>
                 <div className="text-[11px] font-mono text-neutral-500">
-                  I = (MD × 1000) / ({calcDetails.isThreePhase ? "√3 × V × PF" : "V × PF"})
+                  I = ({useMd ? "MD" : "TCL"} × 1000) / ({calcDetails.isThreePhase ? "√3 × V × PF" : "V × PF"})
                 </div>
                 <div className="text-xs font-mono text-neutral-700 dark:text-neutral-300">
-                  I = ({calcDetails.md.toFixed(2)} × 1000) / ({calcDetails.isThreePhase ? "1.732 × " : ""}{calcDetails.vVal} × {calcDetails.pfVal})
+                  I = ({(useMd ? calcDetails.md : calcDetails.tcl).toFixed(2)} × 1000) / ({calcDetails.isThreePhase ? "1.732 × " : ""}{calcDetails.vVal} × {calcDetails.pfVal})
                 </div>
                 <div className="text-xs font-mono text-primary font-bold">
                   Current = {calcDetails.current.toFixed(2)} A

@@ -122,9 +122,86 @@ export function SuperAdminDashboard() {
   const [newOrgUsers, setNewOrgUsers] = useState(5)
   const [selectedOrgForManagement, setSelectedOrgForManagement] = useState<any | null>(null)
   const [selectedExistingUserToAdd, setSelectedExistingUserToAdd] = useState<string>('')
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [selectedUserIds, setSelectedUserIdsState] = useState<string[]>([])
+  const [historyStack, setHistoryStack] = useState<string[][]>([[]])
+  const [historyIndex, setHistoryIndex] = useState<number>(0)
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null)
+
+  const updateSelection = (newSelection: string[]) => {
+    setSelectedUserIdsState(newSelection);
+    setHistoryStack(prev => [...prev.slice(0, historyIndex + 1), newSelection]);
+    setHistoryIndex(prev => prev + 1);
+  };
+
+  const setSelectedUserIds = (action: string[] | ((prev: string[]) => string[])) => {
+    const nextVal = typeof action === 'function' ? action(selectedUserIds) : action;
+    updateSelection(nextVal);
+  };
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      const prevIdx = historyIndex - 1;
+      setHistoryIndex(prevIdx);
+      setSelectedUserIdsState(historyStack[prevIdx]);
+      toast.info("Undo selection (Ctrl+Z)", { duration: 1200 });
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < historyStack.length - 1) {
+      const nextIdx = historyIndex + 1;
+      setHistoryIndex(nextIdx);
+      setSelectedUserIdsState(historyStack[nextIdx]);
+      toast.info("Redo selection (Ctrl+Y)", { duration: 1200 });
+    }
+  };
+
   const [bulkTargetOrgId, setBulkTargetOrgId] = useState<string>('')
   const [userSearchQuery, setUserSearchQuery] = useState<string>('')
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName);
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (e.key === 'Escape') {
+        if (selectedUserIds.length > 0) {
+          updateSelection([]);
+          toast.info("Deselected all users (Esc)", { duration: 1200 });
+        }
+        return;
+      }
+
+      if (cmdOrCtrl && !isTyping) {
+        const key = e.key.toLowerCase();
+        if (key === 'a') {
+          e.preventDefault();
+          const visibleIds = profiles.filter(p => {
+            if (selectedOrgFilter === 'ALL') return true;
+            if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+            return p.organization_id === selectedOrgFilter;
+          }).map(p => p.id);
+          updateSelection(visibleIds);
+          toast.info(`Selected all ${visibleIds.length} users (Ctrl+A)`, { duration: 1200 });
+        } else if (key === 'z') {
+          if (e.shiftKey) {
+            e.preventDefault();
+            handleRedo();
+          } else {
+            e.preventDefault();
+            handleUndo();
+          }
+        } else if (key === 'y') {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [profiles, selectedOrgFilter, historyIndex, historyStack, selectedUserIds]);
 
   const [editingSeatsForOrg, setEditingSeatsForOrg] = useState<boolean>(false)
   const [newSeatsValue, setNewSeatsValue] = useState<number>(5)
@@ -743,92 +820,109 @@ export function SuperAdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-8">
-      <div className="w-full px-4 md:px-8 mx-auto max-w-[1800px]">
-        <div className="flex items-center justify-between mb-8 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-4">
-            <Link 
-              to="/" 
-              className="p-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-colors cursor-pointer mr-2"
-              title="Back to Dashboard"
-            >
-              <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-            </Link>
-            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl">
-              <ShieldAlert className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Admin Control Panel</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">{user?.email}</p>
-            </div>
-          </div>
-          
-          <button 
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 dark:bg-red-500/10 rounded-lg hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+    <div className="min-h-screen bg-slate-50/60 dark:bg-slate-950 p-3 md:p-5 flex flex-col gap-3.5">
+      {/* Compact, Modern Header Bar */}
+      <div className="w-full flex items-center justify-between bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl shadow-xs border border-slate-200/80 dark:border-slate-800 shrink-0">
+        <div className="flex items-center gap-3">
+          <Link 
+            to="/" 
+            className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all cursor-pointer"
+            title="Back to Dashboard"
           >
-            <LogOut className="w-4 h-4" />
-            Sign Out
+            <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+          </Link>
+          <div className="p-1.5 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-100 dark:border-blue-800/40">
+            <ShieldAlert className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm md:text-base font-bold text-slate-900 dark:text-white tracking-tight">Admin Control Panel</h1>
+            <span className="text-xs text-slate-400 dark:text-slate-500 font-mono hidden sm:inline">({user?.email})</span>
+          </div>
+        </div>
+        
+        <button 
+          onClick={handleLogout}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 rounded-lg border border-red-200/60 dark:border-red-800/40 transition-all cursor-pointer shadow-2xs"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          Sign Out
+        </button>
+      </div>
+
+      {/* Main Full-Width Stretched Container */}
+      <div className="w-full flex-1 flex flex-col md:flex-row gap-3.5 items-stretch min-h-0">
+        {/* Sidebar Tabs */}
+        <div className="w-full md:w-60 shrink-0 flex flex-col gap-1.5 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs h-fit md:h-auto">
+          <button 
+            onClick={() => setActiveTab('users')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'users' 
+                ? 'bg-blue-600 text-white shadow-xs' 
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Users size={16} />
+              User Access
+            </div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('organizations')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'organizations' 
+                ? 'bg-indigo-600 text-white shadow-xs' 
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Building size={16} />
+              Organizations
+            </div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('projects')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'projects' 
+                ? 'bg-purple-600 text-white shadow-xs' 
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <FolderOpen size={16} />
+              Organization Projects
+            </div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('broadcasts')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'broadcasts' 
+                ? 'bg-blue-600 text-white shadow-xs' 
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Megaphone size={16} />
+              Broadcasts
+            </div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('licenses')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'licenses' 
+                ? 'bg-amber-600 text-white shadow-xs' 
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Key size={16} />
+              Key Manager & Licensing
+            </div>
           </button>
         </div>
 
-        <div className="flex gap-6">
-          {/* Sidebar Tabs */}
-          <div className="w-64 shrink-0 flex flex-col gap-2">
-            <button 
-              onClick={() => setActiveTab('users')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'users' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-            >
-              <Users size={18} />
-              User Access
-            </button>
-            <button 
-              onClick={() => setActiveTab('activity')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'activity' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-            >
-              <Activity size={18} />
-              Activity Logs
-            </button>
-            <button 
-              onClick={() => setActiveTab('organizations')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'organizations' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-            >
-              <Users size={18} />
-              Organizations
-            </button>
-            <button 
-              onClick={() => setActiveTab('projects')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'projects' ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-            >
-              <FolderOpen size={18} />
-              Organization Projects
-            </button>
-            <button 
-              onClick={() => setActiveTab('broadcasts')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'broadcasts' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-            >
-              <Megaphone size={18} />
-              Broadcasts
-            </button>
-            <button 
-              onClick={() => setActiveTab('licenses')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'licenses' ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-bold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-            >
-              <Key size={18} />
-              Key Manager & Licensing
-            </button>
-            <button 
-              onClick={() => setActiveTab('storage')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === 'storage' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-            >
-              <HardDrive size={18} />
-              Server & Sync
-            </button>
-          </div>
-
-          {/* Main Content Area */}
-          <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden min-h-[600px]">
-            {activeTab === 'users' && (
+        {/* Main Content Area */}
+        <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden flex flex-col min-h-[700px]">
+          {activeTab === 'users' && (
               <div className="p-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                   <div>
@@ -838,6 +932,18 @@ export function SuperAdminDashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
+                    <div className="hidden lg:flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3 py-1 rounded-lg">
+                      <span className="text-slate-400">⌨️ Shortcuts:</span>
+                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Ctrl+A</kbd> Select All
+                      <span className="text-slate-300 dark:text-slate-700">|</span>
+                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Shift+Click</kbd> Range
+                      <span className="text-slate-300 dark:text-slate-700">|</span>
+                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Ctrl+Z</kbd> Undo
+                      <span className="text-slate-300 dark:text-slate-700">|</span>
+                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Ctrl+Y</kbd> Redo
+                      <span className="text-slate-300 dark:text-slate-700">|</span>
+                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Esc</kbd> Clear
+                    </div>
                     <button onClick={fetchProfiles} className="text-sm text-blue-600 hover:underline font-medium">Refresh</button>
                     <button 
                       onClick={() => setShowAddUser(true)}
@@ -976,23 +1082,23 @@ export function SuperAdminDashboard() {
                   </div>
                 )}
                 
-                {/* Floating Bulk Assignment Bar */}
+                {/* Sleek Floating Dock Action Bar (Fixed at Bottom Center - Never shifts table layout) */}
                 {selectedUserIds.length > 0 && (
-                  <div className="mb-6 bg-slate-900 text-white border-2 border-indigo-500/60 p-4 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2">
+                  <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-950/95 backdrop-blur-md text-white border border-indigo-500/50 p-3 px-5 rounded-2xl shadow-2xl flex items-center justify-between gap-5 animate-in fade-in slide-in-from-bottom-6 duration-200 min-w-[650px] max-w-[90vw]">
                     <div className="flex items-center gap-3">
-                      <span className="px-3 py-1.5 rounded-xl bg-indigo-600 text-xs font-bold shadow-xs">
-                        {selectedUserIds.length} User(s) Selected
+                      <span className="px-3 py-1 rounded-lg bg-indigo-600 text-xs font-bold shadow-xs whitespace-nowrap">
+                        {selectedUserIds.length} Selected
                       </span>
-                      <p className="text-xs text-indigo-200 font-medium">
-                        Select target organization and click <strong className="text-emerald-400">"DONE (Confirm)"</strong> to complete.
+                      <p className="text-xs text-slate-300 font-medium hidden sm:block">
+                        Assign selected user(s) to target organization:
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5">
                       <select
                         value={bulkTargetOrgId}
                         onChange={(e) => setBulkTargetOrgId(e.target.value)}
-                        className="text-xs p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold cursor-pointer min-w-[220px] focus:ring-2 focus:ring-indigo-500"
+                        className="text-xs p-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-semibold cursor-pointer min-w-[200px] focus:ring-2 focus:ring-indigo-500"
                       >
                         <option value="">-- Select Target Organization --</option>
                         {organizations.map(org => (
@@ -1006,14 +1112,15 @@ export function SuperAdminDashboard() {
                           const orgObj = organizations.find(o => o.id === bulkTargetOrgId);
                           if (orgObj) handleBulkAssignToOrg(bulkTargetOrgId, orgObj.name);
                         }}
-                        className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-2 cursor-pointer border border-emerald-400/30 active:scale-95"
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-lg text-xs font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer border border-emerald-400/30 active:scale-95 whitespace-nowrap"
                       >
-                        <CheckCircle2 size={16} /> DONE (Confirm & Add to Org)
+                        <CheckCircle2 size={15} /> Confirm & Add
                       </button>
 
                       <button
                         onClick={() => setSelectedUserIds([])}
-                        className="text-slate-400 hover:text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                        className="text-slate-400 hover:text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                        title="Deselect All"
                       >
                         Cancel ✕
                       </button>
@@ -1054,22 +1161,36 @@ export function SuperAdminDashboard() {
                         return p.organization_id === selectedOrgFilter;
                       }).length === 0 ? (
                         <tr><td colSpan={7} className="py-8 text-center text-slate-500">No users found for this organization selection.</td></tr>
-                      ) : (
-                        profiles
-                          .filter(p => {
-                            if (selectedOrgFilter === 'ALL') return true;
-                            if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
-                            return p.organization_id === selectedOrgFilter;
-                          })
-                          .map((p) => (
+                      ) : (() => {
+                        const visibleProfiles = profiles.filter(p => {
+                          if (selectedOrgFilter === 'ALL') return true;
+                          if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+                          return p.organization_id === selectedOrgFilter;
+                        });
+
+                        return visibleProfiles.map((p, idx) => (
                           <tr key={p.id} className={`border-b border-slate-100 dark:border-slate-800/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${selectedUserIds.includes(p.id) ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''}`}>
                             <td className="py-4 px-2 text-center">
                               <input
                                 type="checkbox"
                                 checked={selectedUserIds.includes(p.id)}
-                                onChange={() => {
-                                  setSelectedUserIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]);
+                                onClick={(e) => {
+                                  if (e.shiftKey && lastSelectedIndex !== null && lastSelectedIndex !== idx) {
+                                    const start = Math.min(lastSelectedIndex, idx);
+                                    const end = Math.max(lastSelectedIndex, idx);
+                                    const rangeIds = visibleProfiles.slice(start, end + 1).map(item => item.id);
+                                    const combined = Array.from(new Set([...selectedUserIds, ...rangeIds]));
+                                    updateSelection(combined);
+                                    toast.info(`Selected range of ${rangeIds.length} users (Shift+Click)`, { duration: 1200 });
+                                  } else {
+                                    const next = selectedUserIds.includes(p.id)
+                                      ? selectedUserIds.filter(id => id !== p.id)
+                                      : [...selectedUserIds, p.id];
+                                    updateSelection(next);
+                                  }
+                                  setLastSelectedIndex(idx);
                                 }}
+                                onChange={() => {}}
                                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
                               />
                             </td>
@@ -1161,7 +1282,8 @@ export function SuperAdminDashboard() {
                               </button>
                             </td>
                           </tr>
-                        ))
+                        );
+                      })()
                       )}
                     </tbody>
                   </table>
@@ -1734,218 +1856,6 @@ export function SuperAdminDashboard() {
               </div>
             )}
 
-            {activeTab === 'activity' && (
-              <div className="p-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Organization & System Activity Audit Logs</h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Monitor team actions across organizations (calculations run, reports generated, login history, and admin actions).
-                    </p>
-                  </div>
-                  <button onClick={fetchActivityLogs} className="text-sm text-blue-600 hover:underline font-medium self-start md:self-auto">
-                    Refresh Logs
-                  </button>
-                </div>
-                
-                {/* Controls Bar: Organization Selector & Action Categories */}
-                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
-                  <div className="flex items-center gap-3">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
-                      <Building size={16} className="text-blue-600" />
-                      Filter Organization:
-                    </label>
-                    <select
-                      value={logOrgFilter}
-                      onChange={(e) => setLogOrgFilter(e.target.value)}
-                      className="text-xs p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold cursor-pointer max-w-xs text-slate-800 dark:text-slate-200 shadow-xs"
-                    >
-                      <option value="ALL">🏢 All Organizations & System Logs</option>
-                      <option value="UNASSIGNED">👤 Unassigned Users</option>
-                      {organizations.map(org => (
-                        <option key={org.id} value={org.id}>🏢 {org.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="relative flex-1 max-w-xs">
-                    <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
-                    <input
-                      type="text"
-                      value={logSearchQuery}
-                      onChange={e => setLogSearchQuery(e.target.value)}
-                      placeholder="Search by user or action..."
-                      className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
-                    />
-                  </div>
-                </div>
-
-                {/* Category Pills */}
-                <div className="flex items-center gap-2 flex-wrap mb-6">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-1 flex items-center gap-1">
-                    <Activity size={14} className="text-blue-600" /> Category:
-                  </span>
-                  {[
-                    { id: 'ALL', label: 'All Actions' },
-                    { id: 'LOGIN', label: '🔑 Logins' },
-                    { id: 'VIEWED', label: '👀 Viewed' },
-                    { id: 'UPDATED', label: '📝 Updated' },
-                    { id: 'REPORT_GENERATED', label: '📄 Reports' }
-                  ].map(cat => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setLogCategoryFilter(cat.id)}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition ${
-                        logCategoryFilter === cat.id
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs text-slate-500 uppercase">
-                        <tr>
-                          <th className="px-6 py-4 font-medium">Date/Time</th>
-                          <th className="px-6 py-4 font-medium">User Name</th>
-                          <th className="px-6 py-4 font-medium">Project Name</th>
-                          <th className="px-6 py-4 font-medium">Calculator</th>
-                          <th className="px-6 py-4 font-medium">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                        {loadingLogs ? (
-                          <tr>
-                            <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
-                              Loading audit logs...
-                            </td>
-                          </tr>
-                        ) : activityLogs.filter(log => {
-                          const userEmail = (log.profiles?.email || log.email || '').toLowerCase();
-                          const userProfile = profiles.find(p => p.email.toLowerCase() === userEmail);
-                          const userOrgId = userProfile?.organization_id;
-
-                          // Org filter
-                          if (logOrgFilter !== 'ALL') {
-                            if (logOrgFilter === 'UNASSIGNED') {
-                              if (userOrgId) return false;
-                            } else if (userOrgId !== logOrgFilter) {
-                              return false;
-                            }
-                          }
-
-                          // Category filter
-                          if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN' && log.action_type !== 'LOGGED_IN') return false;
-                          if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
-                          if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED') return false;
-                          if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
-
-                          // Search filter
-                          if (logSearchQuery.trim()) {
-                            const q = logSearchQuery.toLowerCase();
-                            const action = (log.action_type || '').toLowerCase();
-                            const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
-                            return userEmail.includes(q) || action.includes(q) || detailsStr.includes(q);
-                          }
-
-                          return true;
-                        }).length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="px-6 py-8 text-center text-slate-500 font-medium">
-                              No activity logs found for this filter.
-                            </td>
-                          </tr>
-                        ) : (
-                          activityLogs
-                            .filter(log => {
-                              const userEmail = (log.profiles?.email || log.email || '').toLowerCase();
-                              const userProfile = profiles.find(p => p.email.toLowerCase() === userEmail);
-                              const userOrgId = userProfile?.organization_id;
-
-                              if (logOrgFilter !== 'ALL') {
-                                if (logOrgFilter === 'UNASSIGNED') {
-                                  if (userOrgId) return false;
-                                } else if (userOrgId !== logOrgFilter) {
-                                  return false;
-                                }
-                              }
-
-                              if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN' && log.action_type !== 'LOGGED_IN') return false;
-                              if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
-                              if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED') return false;
-                              if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT')) return false;
-
-                              if (logSearchQuery.trim()) {
-                                const q = logSearchQuery.toLowerCase();
-                                const action = (log.action_type || '').toLowerCase();
-                                const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
-                                return userEmail.includes(q) || action.includes(q) || detailsStr.includes(q);
-                              }
-
-                              return true;
-                            })
-                            .map((log) => {
-                              const userEmail = log.profiles?.email || log.email || 'System User';
-                              const userProfile = profiles.find(p => p.email.toLowerCase() === userEmail.toLowerCase());
-                              const userName = log.name || userProfile?.name || log.profiles?.name || userEmail;
-                              
-                              const isLogin = log.action_type === 'LOGIN' || log.action_type === 'LOGGED_IN';
-                              const isUpdated = log.action_type === 'UPDATED' || log.action_type?.includes('UPDATE');
-                              const isViewed = log.action_type === 'VIEWED' || log.action_type === 'VIEW_CALCULATOR';
-                              const isReport = log.action_type?.includes('REPORT');
-
-                              let detailsObj: any = {};
-                              if (typeof log.details === 'string') {
-                                try { detailsObj = JSON.parse(log.details); } catch (e) { detailsObj = {}; }
-                              } else {
-                                detailsObj = log.details || {};
-                              }
-
-                              return (
-                                <tr key={log.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition">
-                                  <td className="px-6 py-4 text-xs font-mono text-slate-500 whitespace-nowrap">
-                                    {new Date(log.created_at).toLocaleString()}
-                                  </td>
-                                  <td className="px-6 py-4 font-semibold text-slate-900 dark:text-slate-100">
-                                    <div>{userName}</div>
-                                    {userEmail && userName !== userEmail && (
-                                      <div className="text-[11px] text-slate-400 font-normal">{userEmail}</div>
-                                    )}
-                                  </td>
-                                  <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">
-                                    {detailsObj.project_name || '-'}
-                                  </td>
-                                  <td className="px-6 py-4">
-                                    <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                      {detailsObj.calculator || '-'}
-                                    </span>
-                                  </td>
-                                  <td className="px-6 py-4">
-                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-extrabold tracking-wider uppercase ${
-                                      isLogin 
-                                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' 
-                                        : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                                    }`}>
-                                      {isLogin ? 'LOGIN' : 'UPDATED'}
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {activeTab === 'broadcasts' && (
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -2030,148 +1940,6 @@ export function SuperAdminDashboard() {
               </div>
             )}
             
-            {activeTab === 'storage' && (
-              <div className="p-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Server & Sync Settings</h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Configure organization-specific backup directories saved on the backend server.</p>
-                  </div>
-                  
-                  {/* Select Organization for Backup Settings */}
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500 shrink-0">Organization:</label>
-                    <select
-                      value={selectedOrgFilter}
-                      onChange={(e) => {
-                        setSelectedOrgFilter(e.target.value);
-                        fetchOrgBackupSettings(e.target.value);
-                      }}
-                      className="text-xs p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold cursor-pointer max-w-xs"
-                    >
-                      <option value="ALL">🏢 Global Default Settings</option>
-                      {organizations.map(org => (
-                        <option key={org.id} value={org.id}>🏢 {org.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                
-                <div className="space-y-8 max-w-2xl">
-                  {/* Local Backup */}
-                  <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg">
-                        <HardDrive className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg">10-Minute Local Backup (AppData)</h3>
-                        <p className="text-sm text-slate-500 mb-4">Automatically save project versions locally every 10 minutes to prevent data loss.</p>
-                        
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={localBackupPath} 
-                            onChange={(e) => setLocalBackupPath(e.target.value)}
-                            placeholder="C:\Users\Admin\AppData\Local\MEPCalc\Backups"
-                            className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm"
-                          />
-                          <button 
-                            onClick={() => handlePickFolder('local')}
-                            className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
-                          >
-                            <FolderOpen className="w-4 h-4" />
-                            Browse
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Server Backup */}
-                  <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                        <Save className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg">1-Hour Server Backup</h3>
-                        <p className="text-sm text-slate-500 mb-4">Automatically sync a major version of the project to your local server drive or cloud sync folder every hour.</p>
-                        
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={serverBackupPath} 
-                            onChange={(e) => setServerBackupPath(e.target.value)}
-                            placeholder="Z:/00 R&D Server/Backups"
-                            className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm"
-                          />
-                          <button 
-                            onClick={() => handlePickFolder('server')}
-                            className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
-                          >
-                            <FolderOpen className="w-4 h-4" />
-                            Browse
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Versions Backup */}
-                  <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-xl border border-slate-200 dark:border-slate-700">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg">
-                        <History className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg">Versions Path</h3>
-                        <p className="text-sm text-slate-500 mb-4">Designated path where calculator versions (V0, V1, etc.) will be stored for the organization.</p>
-                        
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={versionsPath} 
-                            onChange={(e) => setVersionsPath(e.target.value)}
-                            placeholder="Z:/00 R&D Server/Versions"
-                            className="flex-1 px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-sm"
-                          />
-                          <button 
-                            onClick={() => handlePickFolder('versions')}
-                            className="flex items-center gap-2 px-4 py-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
-                          >
-                            <FolderOpen className="w-4 h-4" />
-                            Browse
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
-                    <button 
-                      onClick={async () => {
-                        localStorage.setItem('localBackupPath', localBackupPath);
-                        localStorage.setItem('serverBackupPath', serverBackupPath);
-                        localStorage.setItem('versionsPath', versionsPath);
-                        toast.info("Saving backup settings to backend server...");
-                        const targetId = (selectedOrgFilter && selectedOrgFilter !== 'ALL' && selectedOrgFilter !== 'UNASSIGNED') ? selectedOrgFilter : 'GLOBAL';
-                        const res = await api.saveOrgBackupSettings(localBackupPath, serverBackupPath, targetId, versionsPath);
-                        if (res && res.success) {
-                          toast.success("Organization backup settings saved to backend successfully!");
-                        } else {
-                          toast.error(res.message || "Failed to save backup settings to backend");
-                        }
-                      }}
-                      className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
-                    >
-                      Save Backup Settings
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {activeTab === 'projects' && (
               <div className="p-6 space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2568,7 +2336,6 @@ export function SuperAdminDashboard() {
             )}
           </div>
         </div>
-      </div>
       
       {/* Permissions Modal */}
       {editingPermissionsFor && (
