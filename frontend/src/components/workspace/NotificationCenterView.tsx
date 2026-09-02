@@ -32,26 +32,26 @@ export function NotificationCenterView({
   const [searchQuery, setSearchQuery] = useState("");
 
   const unreadCount = useMemo(() => {
-    return myNotifications.filter((n) => n.id && !readNotifIds.includes(n.id)).length;
-  }, [myNotifications, readNotifIds]);
+    return myNotifications.filter((n) => n.id && !readNotifIds.includes(n.id) && !completedNotifIds.includes(n.id)).length;
+  }, [myNotifications, readNotifIds, completedNotifIds]);
 
   const completedCount = useMemo(() => {
     return myNotifications.filter((n) => n.id && completedNotifIds.includes(n.id)).length;
   }, [myNotifications, completedNotifIds]);
 
   const taskCount = useMemo(() => {
-    return myNotifications.filter((n) => !n.isCompletionNotif).length;
-  }, [myNotifications]);
+    return myNotifications.filter((n) => !n.isCompletionNotif && (!n.id || !completedNotifIds.includes(n.id))).length;
+  }, [myNotifications, completedNotifIds]);
 
   // Filtered Notifications based on Tab & Search
   const filteredNotifications = useMemo(() => {
     return myNotifications.filter((n) => {
-      const isUnread = n.id && !readNotifIds.includes(n.id);
-      const isCompleted = n.id && completedNotifIds.includes(n.id);
+      const isCompleted = Boolean(n.id && completedNotifIds.includes(n.id));
+      const isUnread = Boolean(n.id && !readNotifIds.includes(n.id) && !isCompleted);
 
-      if (activeTab === "unread" && !isUnread) return false;
+      if (activeTab === "unread" && (!isUnread || isCompleted)) return false;
       if (activeTab === "completed" && !isCompleted) return false;
-      if (activeTab === "tasks" && n.isCompletionNotif) return false;
+      if (activeTab === "tasks" && (n.isCompletionNotif || isCompleted)) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();

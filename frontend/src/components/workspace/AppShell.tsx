@@ -769,6 +769,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (updatedWdata.spaces) updatedWdata.spaces = removeCommentFromList(updatedWdata.spaces);
       if (updatedWdata.zones) updatedWdata.zones = removeCommentFromList(updatedWdata.zones);
       if (updatedWdata.equipment) updatedWdata.equipment = removeCommentFromList(updatedWdata.equipment);
+      if (updatedWdata.pcl_rows) updatedWdata.pcl_rows = removeCommentFromList(updatedWdata.pcl_rows);
+      if (updatedWdata.sprinklers) updatedWdata.sprinklers = removeCommentFromList(updatedWdata.sprinklers);
+      if (updatedWdata.sprinkler_rows) updatedWdata.sprinkler_rows = removeCommentFromList(updatedWdata.sprinkler_rows);
 
       const recipientUser = notif.authorEmail || notif.authorName || notif.authorId || "Comment Author";
       const completionNotif = {
@@ -1274,8 +1277,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds, persistentNotifs]);
 
   const unreadNotifications = useMemo(() => {
-    return myNotifications.filter(n => n.id && !readNotifIds.includes(n.id));
-  }, [myNotifications, readNotifIds]);
+    return myNotifications.filter(n => n.id && !readNotifIds.includes(n.id) && !completedNotifIds.includes(n.id));
+  }, [myNotifications, readNotifIds, completedNotifIds]);
 
   const unreadCount = unreadNotifications.length;
 

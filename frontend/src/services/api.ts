@@ -451,10 +451,17 @@ export const api = {
       if (cached) {
         const localOrgs = JSON.parse(cached);
         const map = new Map();
-        localOrgs.forEach((o: any) => { if (o.id) map.set(o.id, o); });
+        localOrgs.forEach((o: any) => { 
+          if (o.id) {
+            if (o.license_key === 'MEP-LIC-ORG-PRO' || o.license_key === 'MEP-LIC-CONS-2026' || (o.license_key && o.license_key.length < 25)) {
+              delete o.license_key;
+            }
+            map.set(o.id, o); 
+          }
+        });
         orgs = orgs.map(o => {
           const loc = map.get(o.id);
-          return loc ? { ...o, ...loc } : o;
+          return loc ? { ...loc, ...o } : o;
         });
         if (orgs.length === 0 && localOrgs.length > 0) orgs = localOrgs;
       }

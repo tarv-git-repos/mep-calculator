@@ -63,7 +63,7 @@ export function SuperAdminDashboard() {
   
   const [isAdmin, setIsAdmin] = useState(false)
   const [checking, setChecking] = useState(true)
-  const [activeTab, setActiveTab] = useState<'users' | 'organizations' | 'projects' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'organizations' | 'projects' | 'storage' | 'settings' | 'activity' | 'broadcasts' | 'licenses'>('organizations')
   
   // Projects Explorer State for Super Admin
   const [allProjectsList, setAllProjectsList] = useState<any[]>([])
@@ -204,10 +204,12 @@ export function SuperAdminDashboard() {
   }, [profiles, selectedOrgFilter, historyIndex, historyStack, selectedUserIds]);
 
   const [editingSeatsForOrg, setEditingSeatsForOrg] = useState<boolean>(false)
-  const [newSeatsValue, setNewSeatsValue] = useState<number>(5)
+  const [newSeatsValue, setNewSeatsValue] = useState<number | ''>(5)
   const [showAddUserModalForOrg, setShowAddUserModalForOrg] = useState<boolean>(false)
+  const [addUsersModalFilter, setAddUsersModalFilter] = useState<'unassigned' | 'all'>('unassigned')
 
-  const handleUpdateMaxSeats = async (orgId: string, newMax: number) => {
+  const handleUpdateMaxSeats = async (orgId: string, newMaxInput: number | '') => {
+    const newMax = typeof newMaxInput === 'number' ? newMaxInput : parseInt(String(newMaxInput), 10);
     const currentMemberCount = profiles.filter(p => p.organization_id === orgId).length;
     if (isNaN(newMax) || newMax < 1) {
       toast.error("Seats limit must be at least 1");
@@ -336,10 +338,10 @@ export function SuperAdminDashboard() {
     }
   };
 
-  const generate20CharKey = (orgName: string) => {
+  const generate25CharKey = (orgName: string) => {
     const clean = (orgName || 'ORG').replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase().padEnd(4, 'X');
     const rand = (len: number) => Array.from({ length: len }, () => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 36)]).join('');
-    return `MEP-${clean}-${rand(4)}-${rand(4)}-${rand(4)}`;
+    return `MEP-${clean}-${rand(4)}-${rand(4)}-${rand(4)}-${rand(4)}`;
   };
 
   const handleAddOrg = async (e: React.FormEvent) => {
@@ -347,7 +349,7 @@ export function SuperAdminDashboard() {
     if (!newOrgName || !newOrgName.trim()) return toast.error("Organization name is required");
     setIsAddingOrg(true);
     try {
-      const autoKey = generate20CharKey(newOrgName.trim());
+      const autoKey = generate25CharKey(newOrgName.trim());
       const res = await api.createOrganization({ name: newOrgName.trim(), subscription_plan: newOrgPlan, max_users: newOrgUsers, license_key: autoKey });
       if (res && res.success) {
         toast.success(`Organization created with License Key: ${autoKey}`);
@@ -867,19 +869,6 @@ export function SuperAdminDashboard() {
         {/* Sidebar Tabs */}
         <div className="w-full md:w-60 shrink-0 flex flex-col gap-1.5 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 shadow-xs h-fit md:h-auto">
           <button 
-            onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'users' 
-                ? 'bg-blue-600 text-white shadow-xs' 
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Users size={16} />
-              User Access
-            </div>
-          </button>
-          <button 
             onClick={() => setActiveTab('organizations')}
             className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               activeTab === 'organizations' 
@@ -890,6 +879,19 @@ export function SuperAdminDashboard() {
             <div className="flex items-center gap-2.5">
               <Building size={16} />
               Organizations
+            </div>
+          </button>
+          <button 
+            onClick={() => setActiveTab('users')}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === 'users' 
+                ? 'bg-blue-600 text-white shadow-xs' 
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Users size={16} />
+              User Access
             </div>
           </button>
           <button 
@@ -1346,7 +1348,14 @@ export function SuperAdminDashboard() {
                               type="number"
                               min={1}
                               value={newSeatsValue}
-                              onChange={(e) => setNewSeatsValue(parseInt(e.target.value) || 1)}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '') setNewSeatsValue('');
+                                else {
+                                  const parsed = parseInt(val, 10);
+                                  setNewSeatsValue(isNaN(parsed) ? '' : parsed);
+                                }
+                              }}
                               className="w-20 px-2.5 py-1 text-xs font-bold bg-background border border-border rounded-lg text-foreground outline-none focus:ring-2 focus:ring-primary/20"
                             />
                             <button
@@ -1419,11 +1428,13 @@ export function SuperAdminDashboard() {
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-extrabold uppercase text-slate-700 dark:text-slate-300">Assigned License Key String:</span>
                             <span className="font-mono font-extrabold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 px-3 py-1 rounded-lg text-xs tracking-wider shadow-2xs">
-                              {selectedOrgForManagement.license_key || "MEP-CONS-8F92-4A7B-9021"}
+                              {selectedOrgForManagement.license_key && selectedOrgForManagement.license_key !== "MEP-LIC-ORG-PRO"
+                                ? selectedOrgForManagement.license_key 
+                                : "MEP-CONS-8F92-4A7B-9021-X9K3"}
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            Unique 20-character license key assigned in database for this organization.
+                            Unique 25-character license key assigned in database for this organization.
                           </p>
                         </div>
                       </div>
@@ -1455,39 +1466,90 @@ export function SuperAdminDashboard() {
                             </button>
                           </div>
 
-                          {/* Search bar & Capacity indicator */}
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="relative flex-1">
-                              <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
-                              <input 
-                                type="text"
-                                placeholder="Search available users by email or role..."
-                                value={userSearchQuery}
-                                onChange={(e) => setUserSearchQuery(e.target.value)}
-                                className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white w-full outline-none focus:ring-2 focus:ring-blue-500"
-                              />
+                          {/* Filter Tabs & Search Bar */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setAddUsersModalFilter('unassigned')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                  addUsersModalFilter === 'unassigned'
+                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 border border-slate-200 dark:border-slate-700'
+                                }`}
+                              >
+                                👤 Unassigned Users ({profiles.filter(p => p.role !== 'SUPER_ADMIN' && (!p.organization_id || p.organization_id === '' || p.organization_id === 'UNASSIGNED' || p.organization_id === 'No Organization')).length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAddUsersModalFilter('all')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                                  addUsersModalFilter === 'all'
+                                    ? 'bg-blue-600 text-white shadow-2xs'
+                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 border border-slate-200 dark:border-slate-700'
+                                }`}
+                              >
+                                🏢 All Users Not in {selectedOrgForManagement.name.split(' ')[0]} ({profiles.filter(p => p.role !== 'SUPER_ADMIN' && p.organization_id !== selectedOrgForManagement.id).length})
+                              </button>
                             </div>
                             <span className="text-xs font-semibold text-slate-500 shrink-0">
                               {profiles.filter(p => p.organization_id === selectedOrgForManagement.id).length}/{selectedOrgForManagement.max_users || 5} Seats Used
                             </span>
                           </div>
 
+                          <div className="relative">
+                            <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                            <input 
+                              type="text"
+                              placeholder="Search users by email or role..."
+                              value={userSearchQuery}
+                              onChange={(e) => setUserSearchQuery(e.target.value)}
+                              className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white w-full outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+
                           {/* Multi-Select Grid */}
-                          <div className="flex-1 overflow-y-auto max-h-[50vh] pr-1 space-y-2">
+                          <div className="flex-1 overflow-y-auto max-h-[48vh] pr-1 space-y-2">
                             {(() => {
-                              const availableUsers = profiles.filter(p => 
-                                p.organization_id !== selectedOrgForManagement.id && 
-                                p.role !== 'SUPER_ADMIN' &&
-                                (userSearchQuery ? p.email.toLowerCase().includes(userSearchQuery.toLowerCase()) || p.role?.toLowerCase().includes(userSearchQuery.toLowerCase()) : true)
-                              );
+                              const availableUsers = profiles.filter(p => {
+                                if (p.role === 'SUPER_ADMIN') return false;
+                                if (p.organization_id === selectedOrgForManagement.id) return false;
+                                
+                                if (addUsersModalFilter === 'unassigned') {
+                                  const isUnassigned = !p.organization_id || p.organization_id === '' || p.organization_id === 'UNASSIGNED' || p.organization_id === 'No Organization' || p.organization_id === 'null' || !p.company || p.company === '' || p.company === 'No Organization';
+                                  if (!isUnassigned) return false;
+                                }
+
+                                if (userSearchQuery) {
+                                  const q = userSearchQuery.toLowerCase();
+                                  return p.email.toLowerCase().includes(q) || p.role?.toLowerCase().includes(q) || p.company?.toLowerCase().includes(q);
+                                }
+                                return true;
+                              });
 
                               const allAvailableSelected = availableUsers.length > 0 && availableUsers.every(u => selectedUserIds.includes(u.id));
 
                               if (availableUsers.length === 0) {
                                 return (
-                                  <p className="text-xs text-slate-500 italic py-8 text-center">
-                                    {userSearchQuery ? "No matching available users found." : "All application users are already members of this organization!"}
-                                  </p>
+                                  <div className="py-8 text-center space-y-3">
+                                    <p className="text-xs text-slate-500 italic">
+                                      {userSearchQuery
+                                        ? "No matching users found."
+                                        : addUsersModalFilter === 'unassigned'
+                                          ? "There are currently no unassigned users. All users are members of an organization."
+                                          : "All application users are already members of this organization!"
+                                      }
+                                    </p>
+                                    {addUsersModalFilter === 'unassigned' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setAddUsersModalFilter('all')}
+                                        className="px-3 py-1.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold text-xs rounded-lg hover:bg-blue-200 transition cursor-pointer"
+                                      >
+                                        Show All Application Users
+                                      </button>
+                                    )}
+                                  </div>
                                 );
                               }
 
