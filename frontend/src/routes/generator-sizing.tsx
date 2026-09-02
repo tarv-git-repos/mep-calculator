@@ -8,7 +8,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Download, FileSpreadsheet, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag } from "lucide-react";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditGeneratorRowModal } from "@/components/workspace/EditGeneratorRowModal";
 import { TaskComment } from "@/lib/ventilation-calc";
@@ -1152,22 +1152,34 @@ function GeneratorSizingPage() {
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Sections Navigation (Tabs) */}
-          <div className="flex px-4 border-b border-border gap-6 bg-surface-1 pt-1 shrink-0 select-none">
-            <button
-              onClick={() => setActiveTab("equipment")}
-              className={`py-2 text-[13px] font-semibold tracking-wide border-b-2 transition-colors ${activeTab === "equipment" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
-            >
-              Generator
-            </button>
-            <button
-              onClick={() => setActiveTab("report")}
-              className={`py-2 text-[13px] font-semibold tracking-wide border-b-2 transition-colors ${activeTab === "report" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"}`}
-            >
-              Report
-            </button>
+          <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center">
+            <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setActiveTab("equipment")}
+                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                  activeTab === "equipment"
+                    ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Generator
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("report")}
+                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                  activeTab === "report"
+                    ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Sizing &amp; Report
+              </button>
+            </div>
           </div>
 
-          {activeTab === "summary" && (
+          {activeTab === "report" && (
             <div className="flex-1 overflow-auto p-6 space-y-6">
               {/* Summary View Content */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

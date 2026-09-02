@@ -261,6 +261,38 @@ function SprinklerKFactorPage() {
     return () => window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
   }, []);
 
+  // Version History Restore Listener (Full parity with VersionManager)
+  useEffect(() => {
+    const handleVersionRestored = (e: any) => {
+      const pKey = `mep_sprinklers_${project?.id || "default"}`;
+      const lsCache = e?.detail?.localStorageCache;
+      let restoredRows: SprinklerRow[] | null = null;
+      if (lsCache && lsCache[pKey]) {
+        try {
+          restoredRows = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
+        } catch (err) {}
+      }
+      if (!restoredRows) {
+        const stored = localStorage.getItem(pKey);
+        if (stored) {
+          try {
+            restoredRows = JSON.parse(stored);
+          } catch (err) {}
+        }
+      }
+      if (restoredRows && Array.isArray(restoredRows)) {
+        setRows(restoredRows);
+        setUndoStack([]);
+        setRedoStack([]);
+        setSelected(new Set());
+        setLastSelectedId(null);
+        toast.success("Sprinkler schedule restored to selected version!");
+      }
+    };
+    window.addEventListener("mep_version_restored", handleVersionRestored as any);
+    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
+  }, [project?.id]);
+
   // Tabs
   const [tab, setTab] = useState<"solver" | "schedule" | "report">("solver");
   const [intelOpen, setIntelOpen] = useState(false);
