@@ -1779,10 +1779,10 @@ function BusbarCalculationPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto bg-surface-1/50 p-4 gap-6 flex flex-col min-h-0">
+        <div className="flex-1 overflow-auto bg-background p-4 md:p-6 gap-4 flex flex-col min-h-0">
           {calculatedPanels.map((panel, pIdx) => {
             return (
-              <div key={panel.id} className="flex flex-col bg-surface-2/30 border-2 border-border/60 rounded-2xl shadow-xl overflow-hidden shrink-0">
+              <div key={panel.id} className="flex flex-col bg-card border border-border rounded-2xl shadow-xs overflow-hidden shrink-0">
                 {/* Panel Header */}
                 <div className="bg-surface-2/80 border-b border-border/60 py-2 px-4 flex gap-4 items-center flex-wrap hover:bg-surface-2 transition-colors">
                   <button onClick={() => togglePanel(panel.id)} className="p-1 rounded hover:bg-black/5 flex items-center justify-center shrink-0">
@@ -1815,8 +1815,8 @@ function BusbarCalculationPage() {
                       const isAllSelected = section.calcRows.length > 0 && section.calcRows.every(r => selectedRows.has(r.id));
                       
                       return (
-                        <div key={section.id} className="flex flex-col bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] overflow-hidden shrink-0">
-                          <div className="bg-white/40 dark:bg-white/5 border-b border-white/40 dark:border-white/10 py-2 px-3 flex gap-4 items-center justify-between flex-wrap">
+                        <div key={section.id} className="flex flex-col bg-card border border-border rounded-2xl shadow-xs overflow-hidden shrink-0 transition-all">
+                          <div className="bg-surface-2/70 border-b border-border py-2.5 px-4 flex gap-4 items-center justify-between flex-wrap">
                             <div className="flex items-center gap-3 flex-wrap">
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-muted-foreground">Name:</span>

@@ -892,6 +892,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       addNotifs(wdata.zones, "Zone", p.name, p.id, "/ventilation");
       addNotifs(wdata.equipment, "Equipment", p.name, p.id, "/ventilation");
 
+      // Scan workspace_data for Preliminary Cooling Load & Sprinkler K-Factor
+      const pclFromWdata = wdata.pcl_rows || wdata.preliminary_cooling_load || wdata.cooling_spaces;
+      if (Array.isArray(pclFromWdata) && pclFromWdata.length > 0) {
+        addNotifs(pclFromWdata, "Cooling Space", p.name, p.id, "/preliminary-cooling-load");
+      }
+
+      const spkFromWdata = wdata.sprinklers || wdata.sprinkler_rows || wdata.sprinkler_kfactor;
+      if (Array.isArray(spkFromWdata) && spkFromWdata.length > 0) {
+        addNotifs(spkFromWdata, "Sprinkler Head", p.name, p.id, "/plumbing-sprinkler-kfactor");
+      }
+
       // Scan local calculation state for Loading Unit, Fixture Unit, Busbar, Preliminary Cooling Load, Sprinkler K-Factor, Lux & Cable Tray
       if (typeof localStorage !== 'undefined') {
         try {

@@ -60,6 +60,20 @@ const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
 try { if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
 
 const VERSIONS_FILE = path.join(DATA_DIR, 'project_versions.json');
+const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'notifications.json');
+function readNotificationsData() {
+  try {
+    if (fs.existsSync(NOTIFICATIONS_FILE)) {
+      return JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, 'utf8'));
+    }
+  } catch(e) {}
+  return [];
+}
+function writeNotificationsData(data) {
+  try {
+    fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch(e) {}
+}
 try { if (!fs.existsSync(VERSIONS_FILE)) fs.writeFileSync(VERSIONS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
 
 function readVersionsData() {
@@ -3461,7 +3475,7 @@ const server = http.createServer(async (req, res) => {
       const payload = await getRequestBody(req);
       const notifItem = {
         id: payload.metadata?.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        recipientId: payload.recipientId,
+        recipientId: String(payload.recipientId || ''),
         title: payload.title,
         message: payload.message,
         link: payload.link,
@@ -3469,6 +3483,13 @@ const server = http.createServer(async (req, res) => {
         createdAt: new Date().toISOString(),
         read: false
       };
+
+      try {
+        const localNotifs = readNotificationsData();
+        const filtered = localNotifs.filter(n => n.id !== notifItem.id);
+        filtered.unshift(notifItem);
+        writeNotificationsData(filtered.slice(0, 500));
+      } catch (err) {}
 
       try {
         await supabase.from('notifications').insert([notifItem]);
@@ -3486,8 +3507,23 @@ const server = http.createServer(async (req, res) => {
       const user = await getUserFromReq(req);
       let notifs = [];
       if (user) {
-        const { data } = await supabase.from('notifications').select('*').eq('recipientId', user.id);
-        if (data) notifs = data;
+        const uId = String(user.id || '').toLowerCase().trim();
+        const uEmail = String(user.email || '').toLowerCase().trim();
+        const localNotifs = readNotificationsData();
+        const userLocalNotifs = localNotifs.filter(n => {
+          const rec = String(n.recipientId || '').toLowerCase().trim();
+          return rec === uId || rec === uEmail || !rec;
+        });
+        notifs = userLocalNotifs;
+
+        try {
+          const { data } = await supabase.from('notifications').select('*').eq('recipientId', user.id);
+          if (data && Array.isArray(data)) {
+            data.forEach(d => {
+              if (!notifs.some(n => n.id === d.id)) notifs.push(d);
+            });
+          }
+        } catch(e) {}
       }
       return sendJSON(res, 200, { success: true, notifications: notifs });
     } catch (err) {

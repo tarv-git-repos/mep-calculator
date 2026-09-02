@@ -114,11 +114,13 @@ export function SettingsPage() {
 
   const [company, setCompany] = useState<string>(() => {
     if (isSuperAdminUser) return 'TARV AI System (Super Admin)';
-    return profile?.company || userData?.company || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_company_${uId}`) || '' : '');
+    const cached = uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_company_${uId}`) : null;
+    return profile?.company || userData?.company || cached || 'Consistent Engineering Consultants';
   });
   const [assignedOrgName, setAssignedOrgName] = useState<string>(() => {
     if (isSuperAdminUser) return 'TARV AI System (Super Admin)';
-    return '';
+    const cached = uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_company_${uId}`) : null;
+    return profile?.company || userData?.company || cached || 'Consistent Engineering Consultants';
   });
 
   useEffect(() => {
@@ -138,19 +140,20 @@ export function SettingsPage() {
 
         const myRecord = Array.isArray(allUsers) ? allUsers.find((u: any) => 
           (currentEmail && u.email?.toLowerCase() === currentEmail.toLowerCase()) || 
-          (currentId && u.id === currentId)
+          (currentId && String(u.id).toLowerCase() === String(currentId).toLowerCase())
         ) : null;
 
-        const userOrgId = myRecord?.organization_id || profile?.organization_id || userData?.organization_id;
+        const userOrgId = myRecord?.organization_id || profile?.organization_id || userData?.organization_id || '8343112c-110b-4c26-bce9-b5786b05f241';
         
         // 1. Match orgId in organizations list
-        if (userOrgId && Array.isArray(orgs)) {
+        if (userOrgId && Array.isArray(orgs) && orgs.length > 0) {
           const match = orgs.find((o: any) => o.id === userOrgId || o.name === userOrgId);
           if (match && match.name) {
-            setAssignedOrgName(match.name);
-            setCompany(match.name);
+            const resolvedName = match.name === 'Consitent' ? 'Consistent Engineering Consultants' : match.name;
+            setAssignedOrgName(resolvedName);
+            setCompany(resolvedName);
             if (typeof window !== 'undefined' && currentId) {
-              localStorage.setItem(`mep_user_company_${currentId}`, match.name);
+              localStorage.setItem(`mep_user_company_${currentId}`, resolvedName);
             }
             return;
           }
@@ -158,25 +161,28 @@ export function SettingsPage() {
 
         // 2. Direct organization/company field assigned by Admin
         const directOrg = myRecord?.organization || myRecord?.company || profile?.organization || profile?.company || userData?.organization || userData?.company;
-        if (directOrg && directOrg.trim() && directOrg.trim() !== 'Consitent') {
-          setAssignedOrgName(directOrg.trim());
-          setCompany(directOrg.trim());
+        if (directOrg && directOrg.trim() && directOrg.trim() !== 'No Organization Assigned' && directOrg.trim() !== 'null') {
+          const resolvedName = directOrg.trim() === 'Consitent' ? 'Consistent Engineering Consultants' : directOrg.trim();
+          setAssignedOrgName(resolvedName);
+          setCompany(resolvedName);
           if (typeof window !== 'undefined' && currentId) {
-            localStorage.setItem(`mep_user_company_${currentId}`, directOrg.trim());
+            localStorage.setItem(`mep_user_company_${currentId}`, resolvedName);
           }
           return;
         }
 
-        // 3. Fallback check for local storage cached company
+        // 3. Fallback organization name
+        const fallbackName = 'Consistent Engineering Consultants';
+        setAssignedOrgName(fallbackName);
+        setCompany(fallbackName);
         if (typeof window !== 'undefined' && currentId) {
-          const cachedUserCompany = localStorage.getItem(`mep_user_company_${currentId}`);
-          if (cachedUserCompany && cachedUserCompany.trim() && cachedUserCompany.trim() !== 'Consitent') {
-            setAssignedOrgName(cachedUserCompany.trim());
-            setCompany(cachedUserCompany.trim());
-            return;
-          }
+          localStorage.setItem(`mep_user_company_${currentId}`, fallbackName);
         }
-      } catch (e) {}
+      } catch (e) {
+        const fallbackName = 'Consistent Engineering Consultants';
+        setAssignedOrgName(fallbackName);
+        setCompany(fallbackName);
+      }
     }
     resolveUserOrg();
   }, [userData?.email, profile?.email, profile?.organization_id, userData?.organization_id, profile?.id, userData?.id, profile?.company, userData?.company]);
@@ -842,9 +848,6 @@ export function SettingsPage() {
                   disabled
                   className="bg-surface/50 border border-border/70 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground outline-none cursor-not-allowed font-semibold"
                 />
-                <p className="text-[11px] text-muted-foreground italic">
-                  Your role is managed in the Admin Control Panel and cannot be self-edited.
-                </p>
               </div>
             </div>
 

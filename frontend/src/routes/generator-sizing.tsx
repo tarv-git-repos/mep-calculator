@@ -1453,10 +1453,10 @@ function GeneratorSizingPage() {
               <div className="flex flex-col xl:flex-row flex-1 min-h-0 overflow-y-auto xl:overflow-hidden">
                 {/* Left Side: Table */}
                 <div className="flex flex-col flex-1 min-w-0 min-h-0 border-b xl:border-b-0 xl:border-r border-white/40 dark:border-white/10 overflow-y-auto bg-transparent">
-                  <div className="p-4 flex-1 overflow-x-auto w-full">
-                    <div className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl overflow-x-auto shadow-[0_20px_50px_rgba(0,0,0,0.1)] min-w-[1000px]">
+                  <div className="p-4 md:p-6 flex-1 overflow-x-auto w-full">
+                    <div className="bg-card border border-border rounded-2xl overflow-x-auto shadow-xs min-w-[1000px]">
                       <table id="generator-grid" className="w-full text-[12.5px] border-collapse">
-                        <thead className="bg-white/40 dark:bg-white/5 sticky top-0 border-b border-white/40 dark:border-white/10 z-10 font-semibold text-muted-foreground">
+                        <thead className="bg-header-bg sticky top-0 border-b border-border z-10 font-semibold text-muted-foreground">
                           <tr className="text-left font-semibold">
                             <th className="px-2 py-2 border-r border-border w-14 text-center">
                               <input

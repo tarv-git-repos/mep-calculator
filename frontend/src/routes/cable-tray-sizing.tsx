@@ -1155,7 +1155,7 @@ function CableTraySizingPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto flex flex-col p-4 gap-6 bg-surface-1/50">
+        <div className="flex-1 overflow-y-auto flex flex-col p-4 md:p-6 gap-4 bg-background">
         
         {(() => {
           let displayTrays = [...trays];
@@ -1210,11 +1210,11 @@ function CableTraySizingPage() {
           const isExpanded = expandedTrayId === null ? trayIndex === 0 : expandedTrayId === tray.id;
 
           return (
-            <div key={tray.id} className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex flex-col overflow-hidden shrink-0">
+            <div key={tray.id} className="bg-card border border-border rounded-2xl shadow-xs flex flex-col overflow-hidden shrink-0 transition-all">
               
               {/* Tray Header */}
               <div 
-                className="bg-surface-2/50 border-b border-border px-3 py-1.5 flex items-center justify-between gap-3 flex-wrap cursor-pointer select-none hover:bg-surface-2/80 transition-colors"
+                className="bg-surface-2/70 border-b border-border px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap cursor-pointer select-none hover:bg-surface-2 transition-colors"
                 onClick={() => setExpandedTrayId(isExpanded ? "NONE" : tray.id)}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-[200px]">
