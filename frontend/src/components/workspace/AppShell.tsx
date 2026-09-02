@@ -830,17 +830,38 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         if (item.comments && Array.isArray(item.comments)) {
           item.comments.forEach((c: any) => {
             const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
-            const isAssigned =
-              assignedUsers.length === 0 ||
-              assignedUsers.some((u: any) => {
-                const uStr = String(u).toLowerCase().trim();
-                return (
-                  uStr === String(currentId).toLowerCase() ||
-                  (currentName && uStr === currentName) ||
-                  (currentEmail && uStr === currentEmail)
-                );
-              }) ||
-              (c.authorId && String(c.authorId).toLowerCase().trim() === String(currentId).toLowerCase().trim());
+            const authorIdStr = String(c.authorId || "").toLowerCase().trim();
+            const currentIdStr = String(currentId || "").toLowerCase().trim();
+
+            let isAssigned = false;
+
+            if (c.isCompletionNotif) {
+              const origAuthor = String(c.originalAuthorId || c.authorId || "").toLowerCase().trim();
+              isAssigned = (origAuthor === currentIdStr || (currentEmail && origAuthor === currentEmail));
+            } else if (c.isReviewStateNotif) {
+              if (c.targetRole === 'discipline_coordinator') {
+                isAssigned = isCoordinatorOrAdmin;
+              } else if (c.targetRole === 'sr_design_engineer') {
+                isAssigned = isSrDesignEngineer;
+              } else {
+                isAssigned = Boolean(c.recipientEmail && currentEmail && c.recipientEmail.toLowerCase().trim() === currentEmail);
+              }
+            } else {
+              if (assignedUsers.length > 0) {
+                // Explicit assignees selected: deliver strictly to assigned recipients (not the sender)
+                isAssigned = assignedUsers.some((u: any) => {
+                  const uStr = String(u).toLowerCase().trim();
+                  return (
+                    uStr === currentIdStr ||
+                    (currentName && uStr === currentName) ||
+                    (currentEmail && uStr === currentEmail)
+                  );
+                });
+              } else {
+                // General project comment with no assignee: deliver to team members excluding author
+                isAssigned = (authorIdStr !== currentIdStr);
+              }
+            }
 
             if (isAssigned) {
               const notifId = c.id || `notif_${item.id}_${c.timestamp}`;
@@ -1629,7 +1650,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
   useEffect(() => {
-    const isEffectiveReadOnly = isReadOnly || isLockedByOther || isViewerRole;
+    const isNotificationsPage = pathname === '/notifications';
+    const isEffectiveReadOnly = !isNotificationsPage && (isReadOnly || isLockedByOther || isViewerRole);
     (window as any).__mep_is_readonly = isEffectiveReadOnly;
     
     if (!isEffectiveReadOnly) return;
@@ -2574,7 +2596,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             </div>
           )}
 
-          {isLockedByOther && (
+          {isLockedByOther && pathname !== '/notifications' && (
             <div className="absolute top-0 left-0 right-0 z-40 bg-red-500/10 border-b border-red-500/20 text-red-600 dark:text-red-400 px-4 py-3 flex items-center justify-center gap-2 shrink-0 shadow-sm backdrop-blur-md">
               <ShieldAlert className="w-5 h-5" />
               <span className="font-bold text-sm tracking-wide uppercase">
@@ -2583,7 +2605,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             </div>
           )}
 
-          <div className={`flex-1 min-h-0 w-full flex flex-col transition-opacity duration-300 ${isLockedByOther ? 'opacity-90 mt-10' : ''} ${
+          <div className={`flex-1 min-h-0 w-full flex flex-col transition-opacity duration-300 ${isLockedByOther && pathname !== '/notifications' ? 'opacity-90 mt-10' : ''} ${
             pathname === '/notifications' ? 'p-0 m-0 w-full' : (sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5")
           }`}>
             {isInitializing ? (

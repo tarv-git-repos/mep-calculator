@@ -838,7 +838,8 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {}
     }
 
-    if (hwid && user.active_hwid && user.active_hwid !== hwid && !force) {
+    const isLocalHost = req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1') || req.headers.host.includes('192.168.'));
+    if (hwid && user.active_hwid && user.active_hwid !== hwid && !force && !isLocalHost) {
       if (user.role !== 'SUPER_ADMIN') {
         return sendJSON(res, 200, { 
           success: false, 

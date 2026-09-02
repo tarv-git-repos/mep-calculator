@@ -2436,7 +2436,7 @@ function LoadingUnitPage() {
             </div>
 
             {/* Table with Resizable Columns (Steady header & scrollable space rows) */}
-            <div className="flex-1 min-h-[200px] max-h-[calc(100vh-350px)] overflow-x-auto overflow-y-auto border border-border rounded-xl w-full custom-scrollbar pb-6">
+            <div className="flex-1 min-h-[200px] max-h-[calc(100vh-420px)] overflow-x-auto overflow-y-auto border border-border rounded-xl w-full custom-scrollbar pb-6">
               <table className="w-full min-w-full border-collapse text-[11.5px] font-sans select-none">
                 <thead className="bg-slate-100 dark:bg-slate-900 sticky top-0 z-20 border-b border-border text-muted-foreground select-none">
                   <tr className="text-left text-[10.5px] font-bold uppercase tracking-wider">

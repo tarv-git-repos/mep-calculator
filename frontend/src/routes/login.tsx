@@ -174,14 +174,20 @@ function Login() {
         let res = await authService.login(email, password);
         
         if (res.requireForceLogout) {
-          const confirmForce = await confirm(
-            res.message + "\n\nDo you want to log out the other device and log in here?",
-            { title: "Multiple Sessions Detected", confirmText: "Yes, Log In Here", cancelText: "Cancel" }
-          );
+          setLoading(false);
+          let confirmForce = false;
+          try {
+            confirmForce = await confirm(
+              res.message + "\n\nDo you want to log out the other device and log in here?",
+              { title: "Multiple Sessions Detected", confirmText: "Yes, Log In Here", cancelText: "Cancel" }
+            );
+          } catch(e) {
+            confirmForce = window.confirm(res.message + "\n\nDo you want to log out the other device and log in here?");
+          }
           if (confirmForce) {
+            setLoading(true);
             res = await authService.login(email, password, true);
           } else {
-            setLoading(false);
             return;
           }
         }
@@ -216,11 +222,11 @@ function Login() {
     try {
       const res = await authService.verifyAccount(otpCode, email);
       if (res.success) {
-        clearAllAuthStorage();
-        toast.success('Email verified successfully! Please log in with your email and password.');
-        setMode('Login');
-        setOtpArray(Array(6).fill(''));
-        setPassword('');
+        if (res.userData) {
+          setUserData(res.userData);
+        }
+        toast.success('Email verified successfully! Welcome to MEP Calculator.');
+        navigate({ to: '/' });
       } else {
         toast.error(res.message || 'Invalid or expired OTP code.');
       }
