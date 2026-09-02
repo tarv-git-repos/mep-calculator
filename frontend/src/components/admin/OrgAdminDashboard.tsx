@@ -319,34 +319,86 @@ export function OrgAdminDashboard() {
   // Format log details cleanly into human readable sentences
   const formatLogDetail = (log: any) => {
     if (!log) return 'No details provided';
-    const d = log.details || {}
-    const isObj = typeof d === 'object' && d !== null
 
-    if (log.action_type === 'LOGIN') {
-      return 'User logged into platform'
+    let d: any = log.details;
+    if (typeof d === 'string') {
+      try {
+        const parsed = JSON.parse(d);
+        if (parsed && typeof parsed === 'object') d = parsed;
+      } catch (e) {
+        // Keep as string if not JSON
+      }
     }
 
-    if (log.action_type === 'VIEWED' || log.action_type === 'VIEW_CALCULATOR') {
-      const calcName = isObj ? (d.calculator_name || d.calculator || d.path || 'Calculator') : d
-      return `Viewed ${calcName}`
+    const isObj = typeof d === 'object' && d !== null;
+
+    if (isObj && d.message) return d.message;
+    if (isObj && d.summary) return d.summary;
+
+    if (log.action_type === 'LOGIN') {
+      return 'User logged into platform';
     }
 
     if (log.action_type === 'UPDATED') {
-      const calcName = isObj ? (d.calculator_name || d.calculator || 'calculator') : 'calculator'
-      const summary = isObj ? (d.summary || d.message || '') : String(d)
-      return `Changes occurred / updated values in ${calcName}${summary ? ` (${summary})` : ''}`
+      if (typeof d === 'string' && d.trim() && !d.startsWith('{')) return d;
+      const calcName = isObj ? (d.calculator_name || d.calculator || d.project_name || 'Calculation') : 'Calculation';
+      const projName = isObj ? (d.project_name || '') : '';
+      return `Calculation ${calcName} was updated and saved${projName ? ` in project ${projName}` : ''}`;
+    }
+
+    if (log.action_type === 'ADMIN_TOGGLE_ROLE') {
+      const role = isObj ? (d.newRole || d.role || '') : '';
+      return `Updated user role ${role ? `to ${role}` : ''}`;
+    }
+
+    if (log.action_type === 'UPDATE_ANNOUNCEMENT') {
+      const active = isObj ? d.is_active : undefined;
+      return `Global Announcement ${active === true ? 'Activated' : active === false ? 'Deactivated' : 'Updated'}`;
+    }
+
+    if (log.action_type === 'CREATE_ANNOUNCEMENT') {
+      return `Created global announcement: "${isObj ? (d.message || d.text || 'Notification') : String(d)}"`;
+    }
+
+    if (log.action_type === 'DELETE_ANNOUNCEMENT') {
+      return 'Deleted global announcement';
+    }
+
+    if (log.action_type === 'INVITE_USER') {
+      const email = isObj ? (d.invitedEmail || d.email || '') : '';
+      const role = isObj ? (d.role || '') : '';
+      return `Invited team member ${email ? `${email} ` : ''}${role ? `as ${role}` : ''}`;
+    }
+
+    if (log.action_type === 'ADMIN_DELETE_USER') {
+      return 'Removed team member from organization';
+    }
+
+    if (log.action_type === 'CREATE_TEAM') {
+      return `Created team "${isObj ? (d.name || d.teamName || 'Team') : String(d)}"`;
+    }
+
+    if (log.action_type === 'CALCULATION_APPROVED') {
+      return `Calculation approved${isObj && d.calculatorTitle ? `: ${d.calculatorTitle}` : ''}`;
+    }
+
+    if (log.action_type === 'CALCULATION_REVIEWED') {
+      return `Calculation reviewed${isObj && d.calculatorTitle ? `: ${d.calculatorTitle}` : ''}`;
+    }
+
+    if (log.action_type === 'CALCULATION_REJECTED') {
+      return `Calculation rejected${isObj && d.calculatorTitle ? `: ${d.calculatorTitle}` : ''}`;
     }
 
     if (isObj) {
-      if (d.message) return d.message
-      if (d.summary) return d.summary
-      return Object.entries(d)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(' | ')
+      const parts = Object.entries(d)
+        .filter(([k]) => k !== 'id' && k !== 'user_id' && k !== 'targetUser')
+        .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`);
+      if (parts.length > 0) return parts.join(' | ');
     }
 
-    return String(d || 'No details provided')
-  }
+    return String(d || 'No details provided');
+  };
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans">
