@@ -683,12 +683,87 @@ export function SuperAdminDashboard() {
     if (!newEmail || !newPassword) return
     setSignUpErrorDetails(null)
     setIsAddingUser(true)
-    
-    // Disabled during custom auth migration
-    toast.error("User creation via Admin panel temporarily disabled during backend migration")
-    
-    setIsAddingUser(false)
+
+    try {
+      let dateStr: string | null = null;
+      if (newExpiryDate) {
+        const exp = new Date(newExpiryDate);
+        exp.setHours(23, 59, 59, 999);
+        dateStr = exp.toISOString();
+      }
+
+      const res = await api.adminCreateUser({
+        name: newFullName || newEmail.split('@')[0],
+        email: newEmail,
+        password: newPassword,
+        role: newRole,
+        organization_id: newOrgId || null,
+        company: newCompanyName || 'Tarv',
+        designation: newRole,
+        subscription_expires: dateStr
+      });
+
+      if (res.success) {
+        toast.success("User created successfully!");
+        setShowAddUserModal(false);
+        setNewEmail("");
+        setNewPassword("");
+        setNewFullName("");
+        setNewOrgId("");
+        setNewExpiryDate("");
+        fetchProfiles();
+      } else {
+        toast.error(res.message || "Failed to create user");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Error creating user");
+    } finally {
+      setIsAddingUser(false);
+    }
   }
+
+  const getExpiryDisplay = (expStr?: string | null) => {
+    if (!expStr) return <span className="text-slate-500 font-medium">Never (Lifetime)</span>;
+    
+    const expDate = new Date(expStr);
+    if (isNaN(expDate.getTime())) return <span className="text-slate-500 font-medium">Never</span>;
+    
+    const now = new Date();
+    const diffMs = expDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    
+    const dateFormatted = expDate.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    
+    if (diffDays < 0) {
+      const pastDays = Math.abs(diffDays);
+      return (
+        <div className="flex flex-col">
+          <span className="font-semibold text-slate-700 dark:text-slate-300">{dateFormatted}</span>
+          <span className="text-[11px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-1.5 py-0.5 rounded w-fit mt-0.5">
+            Expired ({pastDays} day{pastDays === 1 ? '' : 's'} ago)
+          </span>
+        </div>
+      );
+    } else if (diffDays === 0) {
+      return (
+        <div className="flex flex-col">
+          <span className="font-semibold text-slate-700 dark:text-slate-300">{dateFormatted}</span>
+          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded w-fit mt-0.5">
+            Expires today
+          </span>
+        </div>
+      );
+    } else {
+      return (
+        <div className="flex flex-col">
+          <span className="font-semibold text-slate-700 dark:text-slate-300">{dateFormatted}</span>
+          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded w-fit mt-0.5">
+            {diffDays} day{diffDays === 1 ? '' : 's'} remaining
+          </span>
+        </div>
+      );
+    }
+  };
 
   const saveExpiry = async (profileId: string) => {
     let dateStr: string | null = null;
@@ -1463,7 +1538,7 @@ export function SuperAdminDashboard() {
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
-                                  <span>{p.subscription_expires ? new Date(p.subscription_expires).toLocaleDateString() : 'Never'}</span>
+                                  {getExpiryDisplay(p.subscription_expires)}
                                   <button 
                                     onClick={() => {
                                       setEditingExpiryFor(p.id);

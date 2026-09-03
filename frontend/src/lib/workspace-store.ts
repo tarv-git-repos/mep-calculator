@@ -788,7 +788,7 @@ export const workspaceStore = {
       targetType,
       calculatorTitle: 'Ventilation & Air Balance',
       calculatorPath: '/ventilation',
-      project: currentWorkspaceState.project,
+      project: currentProject || currentWorkspaceState.project,
       currentUserName: comment.authorName,
       currentUserId: comment.authorId
     }).catch(console.error);

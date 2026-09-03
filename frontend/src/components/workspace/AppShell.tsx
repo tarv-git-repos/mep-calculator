@@ -1087,6 +1087,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
     fetchBackendNotifs();
 
+    const intervalId = setInterval(fetchBackendNotifs, 15000);
+    const handleFocus = () => fetchBackendNotifs();
+
     const handleNotifAdded = (e?: any) => {
       setNotifTick(t => t + 1);
       if (e?.detail) {
@@ -1138,13 +1141,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
     if (typeof window !== 'undefined') {
+      window.addEventListener("focus", handleFocus);
       window.addEventListener("mep-notification-added", handleNotifAdded);
       window.addEventListener("mep_notification_received", handleNotifAdded);
       window.addEventListener("mep-review-state-updated", handleReviewStateUpdate);
       window.addEventListener("storage", handleNotifAdded);
     }
     return () => {
+      clearInterval(intervalId);
       if (typeof window !== 'undefined') {
+        window.removeEventListener("focus", handleFocus);
         window.removeEventListener("mep-notification-added", handleNotifAdded);
         window.removeEventListener("mep_notification_received", handleNotifAdded);
         window.removeEventListener("mep-review-state-updated", handleReviewStateUpdate);

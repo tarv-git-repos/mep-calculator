@@ -2037,7 +2037,7 @@ function SprinklerKFactorPage() {
 
                   <div className="ml-auto flex items-center gap-1">
                     <TBtn onClick={handleImportClick}><Upload className="size-3.5" /> Import</TBtn>
-                    <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export PDF</TBtn>
+                    <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export</TBtn>
                     <TBtn primary onClick={addSprinkler}><Plus className="size-3.5" /> Add Sprinkler</TBtn>
                     <input
                       type="file"
@@ -2125,7 +2125,7 @@ function SprinklerKFactorPage() {
                     <p className="text-[12.5px] text-muted-foreground mt-0.5">Review system compliance and download reports.</p>
                   </div>
                   <div className="flex items-center gap-1 no-print print:hidden">
-                    <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export PDF</TBtn>
+                    <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export</TBtn>
                     <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print Report</TBtn>
                   </div>
                 </div>

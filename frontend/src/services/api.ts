@@ -126,16 +126,19 @@ export const api = {
             finalOrgId = c.organization_id || c.features?.organization_id;
           }
           const finalRole = (u.role && u.role !== 'USER') ? u.role : (c?.role || u.features?.role || c?.features?.role || u.role);
+          const finalExpires = u.subscription_expires || u.features?.subscription_expires || c?.subscription_expires || c?.features?.subscription_expires || null;
           return {
             ...u,
             ...(c || {}),
             organization_id: finalOrgId,
             role: finalRole,
+            subscription_expires: finalExpires,
             features: {
               ...(u.features || {}),
               ...(c?.features || {}),
               organization_id: finalOrgId,
-              role: finalRole
+              role: finalRole,
+              subscription_expires: finalExpires
             }
           };
         });
@@ -227,12 +230,14 @@ export const api = {
           const updatedOrg = updates.organization_id !== undefined ? (updates.organization_id || '') : (u.organization_id || u.features?.organization_id || '');
           const updatedComp = updates.company || updates.organization || u.company || u.organization || u.features?.company || '';
           const updatedRole = updates.role || u.role || u.features?.role;
+          const updatedExpires = updates.subscription_expires !== undefined ? updates.subscription_expires : (u.subscription_expires || u.features?.subscription_expires || null);
           return {
             ...u,
             ...updates,
             organization_id: updatedOrg,
             company: updatedComp,
             organization: updatedComp,
+            subscription_expires: updatedExpires,
             ...(updatedRole ? { role: updatedRole } : {}),
             features: {
               ...(u.features || {}),
@@ -240,8 +245,8 @@ export const api = {
               organization_id: updatedOrg,
               company: updatedComp,
               organization: updatedComp,
-              ...(updatedRole ? { role: updatedRole } : {}),
-              ...(updates.subscription_expires ? { subscription_expires: updates.subscription_expires } : {})
+              subscription_expires: updatedExpires,
+              ...(updatedRole ? { role: updatedRole } : {})
             }
           };
         }
@@ -263,6 +268,27 @@ export const api = {
       console.warn('adminUpdateProfile backend warning:', error);
     }
     return { success: true };
+  },
+
+  async adminCreateUser(payload: {
+    name: string;
+    email: string;
+    password: string;
+    role?: string;
+    organization_id?: string | null;
+    company?: string;
+    designation?: string;
+    subscription_expires?: string | null;
+  }) {
+    try {
+      const response = await axios.post(`${getBackendUrl()}/api/admin/create-user`, payload, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (e: any) {
+      if (e.response && e.response.data) return e.response.data;
+      return { success: false, message: e.message || 'Failed to create user' };
+    }
   },
 
   // ACTIVITY LOGS

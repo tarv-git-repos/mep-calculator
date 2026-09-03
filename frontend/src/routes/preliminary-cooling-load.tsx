@@ -2634,8 +2634,7 @@ function PreliminaryCoolingLoadPage() {
                       
                       <div className="ml-auto flex items-center gap-1">
                         <TBtn onClick={() => setSourceModalOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
-                        <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export PDF</TBtn>
-                        <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
+                        <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export</TBtn>
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
 
@@ -2778,8 +2777,7 @@ function PreliminaryCoolingLoadPage() {
                 <div className="flex-1 flex flex-col min-h-0">
                   {/* Fixed Toolbar at the top */}
                   <div className="relative flex items-center justify-end gap-2 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
-                    <TBtn onClick={handlePrintPDF} primary><FileText className="size-3.5" /> Export PDF</TBtn>
-                    <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
+                    <TBtn onClick={handlePrintPDF} primary><FileText className="size-3.5" /> Export</TBtn>
                   </div>
                   
                   {/* Scrollable Report Content */}

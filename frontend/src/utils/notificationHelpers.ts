@@ -44,18 +44,18 @@ export async function notifyCommentAssigned(options: {
   }
 
   // Determine recipients: assigned users, or all project members (excluding author) if unassigned
-  let recipients: string[] = Array.isArray(comment.assignedUsers) ? comment.assignedUsers : [];
+  let recipients: string[] = Array.isArray(comment.assignedUsers) ? comment.assignedUsers.filter(Boolean) : [];
   if (recipients.length === 0 && project) {
     const memberSet = new Set<string>();
     if (Array.isArray(project.project_users)) {
       project.project_users.forEach((pu: any) => {
-        const idVal = pu?.user_id || pu?.id || pu?.user?.id || (typeof pu === 'string' ? pu : '');
+        const idVal = pu?.user_id || pu?.id || pu?.user?.id || pu?.email || (typeof pu === 'string' ? pu : '');
         if (idVal) memberSet.add(String(idVal));
       });
     }
     if (Array.isArray(project.members)) {
       project.members.forEach((m: any) => {
-        const idVal = m?.id || m?.user_id || (typeof m === 'string' ? m : '');
+        const idVal = m?.id || m?.user_id || m?.email || (typeof m === 'string' ? m : '');
         if (idVal) memberSet.add(String(idVal));
       });
     }
@@ -63,30 +63,33 @@ export async function notifyCommentAssigned(options: {
     recipients = Array.from(memberSet);
   }
 
-  if (recipients.length > 0) {
-    for (const uId of recipients) {
-      try {
-        await api.sendNotification({
-          recipientId: uId,
-          title: `💬 New Task / Comment on ${targetName}`,
-          message: `${currentUserName} commented on ${targetType} "${targetName}" (${calculatorTitle}): "${comment.text}"`,
-          link: `${calculatorPath}?commentTargetType=${encodeURIComponent(targetType)}&commentTargetId=${encodeURIComponent(targetId)}&commentTargetName=${encodeURIComponent(targetName)}`,
-          metadata: {
-            id: comment.id,
-            projectId: projId,
-            projectName: projName,
-            calculatorPath,
-            targetId,
-            targetName,
-            targetType,
-            authorName: currentUserName,
-            text: comment.text,
-            createdAt: comment.timestamp || new Date().toISOString(),
-          }
-        });
-      } catch (e) {
-        console.error("Failed to send notification to user", uId, e);
-      }
+  // Default to broadcast 'all' if no specific recipients identified
+  if (recipients.length === 0) {
+    recipients = ["all"];
+  }
+
+  for (const uId of recipients) {
+    try {
+      await api.sendNotification({
+        recipientId: uId,
+        title: `💬 New Task / Comment on ${targetName}`,
+        message: `${currentUserName} commented on ${targetType} "${targetName}" (${calculatorTitle}): "${comment.text}"`,
+        link: `${calculatorPath}?commentTargetType=${encodeURIComponent(targetType)}&commentTargetId=${encodeURIComponent(targetId)}&commentTargetName=${encodeURIComponent(targetName)}`,
+        metadata: {
+          id: comment.id,
+          projectId: projId,
+          projectName: projName,
+          calculatorPath,
+          targetId,
+          targetName,
+          targetType,
+          authorName: currentUserName,
+          text: comment.text,
+          createdAt: comment.timestamp || new Date().toISOString(),
+        }
+      });
+    } catch (e) {
+      console.error("Failed to send notification to user", uId, e);
     }
   }
 }

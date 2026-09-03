@@ -270,10 +270,10 @@ async function readUsers(forceRefresh = false) {
 
         const u = dbMap.get(locId) || dbMap.get(locEmail) || {};
         const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
-        const expDate = u.subscription_expires || loc.subscription_expires || u.features?.subscription_expires || loc.features?.subscription_expires || null;
+        const expDate = loc.subscription_expires || loc.features?.subscription_expires || u.subscription_expires || u.features?.subscription_expires || null;
         const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
-        const orgId = u.organization_id || u.features?.organization_id || loc.organization_id || loc.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null);
-        const comp = u.company || u.organization || loc.company || loc.organization || u.features?.company || loc.features?.company || u.features?.organization || loc.features?.organization || '';
+        const orgId = loc.organization_id || loc.features?.organization_id || u.organization_id || u.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null);
+        const comp = loc.company || loc.organization || loc.features?.company || loc.features?.organization || u.company || u.organization || u.features?.company || u.features?.organization || '';
 
         return {
           ...loc,
@@ -1297,7 +1297,7 @@ const server = http.createServer(async (req, res) => {
         email: u.email, 
         role: effRole,
         features: u.features,
-        subscription_expires: u.subscription_expires,
+        subscription_expires: u.subscription_expires || u.features?.subscription_expires || null,
         isAccountVerified: u.isAccountVerified,
         organization_id: orgId,
         company: resolvedCompany,
@@ -1973,6 +1973,81 @@ const server = http.createServer(async (req, res) => {
 
     logActivity(adminUser, 'ADMIN_DELETE_USER', { targetUser: profileId });
     return sendJSON(res, 200, { success: true, message: 'User deleted successfully' });
+  }
+
+  if (req.method === 'POST' && url === '/api/admin/create-user') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { name, email, password, role, organization_id, company, designation, subscription_expires } = await getRequestBody(req);
+    if (!name || !email || !password) {
+      return sendJSON(res, 400, { success: false, message: 'Name, email, and password are required' });
+    }
+
+    const emailLower = email.trim().toLowerCase();
+    const users = await readUsers(true);
+    const existing = users.find(u => u.email && u.email.toLowerCase() === emailLower);
+    if (existing) {
+      return sendJSON(res, 400, { success: false, message: 'User with this email already exists' });
+    }
+
+    // Check organization capacity if specified
+    if (organization_id) {
+      const localOrgs = readLocalOrgs();
+      const targetOrg = localOrgs.find(o => o.id === organization_id);
+      if (targetOrg) {
+        const maxUsers = targetOrg.max_users || 5;
+        const currentMembers = users.filter(u => u.organization_id === targetOrg.id || u.features?.organization_id === targetOrg.id);
+        if (currentMembers.length >= maxUsers) {
+          return sendJSON(res, 400, {
+            success: false,
+            message: `Cannot assign user to organization "${targetOrg.name}": maximum limit of ${maxUsers} seat${maxUsers === 1 ? '' : 's'} has been reached.`
+          });
+        }
+      }
+    }
+
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    const newUserId = `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const effRole = role || 'Jr. Design Engineer';
+    const effCompany = company || 'Tarv';
+    const expDate = subscription_expires || null;
+
+    const newUser = {
+      id: newUserId,
+      name: name.trim(),
+      email: emailLower,
+      password: hashedPassword,
+      verifyOtp: '',
+      verifyOtpExpireAt: 0,
+      isAccountVerified: true,
+      role: effRole,
+      status: 'active',
+      company: effCompany,
+      organization: effCompany,
+      organization_id: organization_id || null,
+      designation: designation || '',
+      subscription_expires: expDate,
+      resetOtp: '',
+      resetOtpExpireAt: 0,
+      createdAt: new Date().toISOString(),
+      active_hwid: null,
+      features: {
+        organization_id: organization_id || null,
+        company: effCompany,
+        organization: effCompany,
+        role: effRole,
+        designation: designation || '',
+        subscription_expires: expDate
+      }
+    };
+
+    users.push(newUser);
+    await writeUsers(users);
+
+    logActivity(adminUser, 'ADMIN_CREATE_USER', { newUser: emailLower, role: effRole, organization_id });
+    return sendJSON(res, 200, { success: true, message: 'User created successfully', user: newUser });
   }
 
   if (req.method === 'POST' && url === '/api/admin/clean-unverified') {
