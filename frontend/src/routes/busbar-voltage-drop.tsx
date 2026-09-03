@@ -871,7 +871,6 @@ function BusbarVoltageDropPage() {
       subtitle="Calculate busbar voltage drop with resistive and reactive components."
       actions={
         <div className="flex gap-2">
-          <CalculationReviewBar calculatorPath="/busbar-voltage-drop" calculatorTitle="Busbar Voltage Drop" onReviewStateChange={setCalcReviewState} />
           <ImportExcelBtn
             columnMapping={{
               "Busbar Ref": "busbarRef",

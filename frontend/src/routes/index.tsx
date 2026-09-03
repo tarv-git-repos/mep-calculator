@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -19,6 +19,7 @@ import { exportVentilationPDF } from "@/lib/exportVentilationPDF";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
+import { getProjectIfcFile } from "@/lib/projectIfcStorage";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -93,6 +94,7 @@ export function VentilationModule() {
     return <Navigate to="/plumbing-sprinkler-kfactor" />;
   }
 
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>("spaces");
   const [intelOpen, setIntelOpen] = useState(false);
   const { project, spaces, zones, equipment, activeProjectId, roundOffPreset, setRoundOffPreset } = useWorkspace();
@@ -547,7 +549,22 @@ function SpacesView() {
   const [lastClickedPendingIndex, setLastClickedPendingIndex] = useState<number | null>(null);
 
   const handleSelect3DViewer = async () => {
-    const extracted = extractSpacesFromActiveViewer();
+    let extracted = extractSpacesFromActiveViewer();
+
+    if (extracted.length === 0) {
+      const savedFile = await getProjectIfcFile(activeProjectId);
+      if (savedFile) {
+        try {
+          toast.loading("Extracting 3D spaces from active project IFC model...", { id: "ifc-extract" });
+          extracted = await extractSpacesFromIFCFile(savedFile);
+          toast.dismiss("ifc-extract");
+        } catch (err) {
+          toast.dismiss("ifc-extract");
+          console.warn("Failed to extract spaces from project IFC file:", err);
+        }
+      }
+    }
+
     if (extracted.length > 0) {
       setPendingRecords(extracted);
       setSelectedPending(new Set(extracted.map((p) => p.id)));
@@ -555,15 +572,15 @@ function SpacesView() {
       toast.success(`Extracted ${extracted.length} spaces from 3D BIM Viewer!`);
     } else {
       const answer = await confirm(
-        "No active 3D model spaces detected in memory. Would you like to select an IFC model file to parse spaces?",
+        "No 3D IFC model is currently loaded in the 3D Viewer. Please go to the 3D BIM Viewer page and load an IFC model first.",
         {
-          title: "Import from 3D BIM Model",
-          confirmText: "Select IFC File",
+          title: "3D Model Required",
+          confirmText: "Go to 3D BIM Viewer",
           cancelText: "Cancel",
         }
       );
-      if (answer && ifcFileInputRef.current) {
-        ifcFileInputRef.current.click();
+      if (answer) {
+        navigate({ to: "/bim-viewer" });
       }
     }
   };

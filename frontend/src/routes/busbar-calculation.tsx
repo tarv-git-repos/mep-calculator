@@ -1893,7 +1893,6 @@ function BusbarCalculationPage() {
             >
               <Plus className="size-3.5" /> Add LV Panel
             </button>
-            <CalculationReviewBar calculatorPath="/busbar-calculation" calculatorTitle="Busbar Calculation" />
           </div>
         </div>
 

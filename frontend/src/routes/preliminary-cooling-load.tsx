@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -37,6 +37,7 @@ import { PclCategorySelect } from "@/components/workspace/PclCategorySelect";
 import { exportPreliminaryCoolingLoadPDF } from "@/lib/exportPreliminaryCoolingLoadPDF";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
+import { getProjectIfcFile } from "@/lib/projectIfcStorage";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/preliminary-cooling-load")({
@@ -706,6 +707,7 @@ function PclIntelligenceDrawer({
 
 
 function PreliminaryCoolingLoadPage() {
+  const navigate = useNavigate();
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
@@ -858,24 +860,39 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const handleSelect3DViewer = async () => {
-    const extracted = extractSpacesFromActiveViewer();
+    let extracted = extractSpacesFromActiveViewer();
+
+    if (extracted.length === 0) {
+      const savedFile = await getProjectIfcFile(activeProjectId);
+      if (savedFile) {
+        try {
+          toast.loading("Extracting 3D spaces from active project IFC model...", { id: "ifc-extract" });
+          extracted = await extractSpacesFromIFCFile(savedFile);
+          toast.dismiss("ifc-extract");
+        } catch (err) {
+          toast.dismiss("ifc-extract");
+          console.warn("Failed to extract spaces from project IFC file:", err);
+        }
+      }
+    }
+
     if (extracted.length > 0) {
       const parsedPcl = extracted.map((sp, idx) => mapExtracted3DSpaceToPcl(sp, idx));
       setPendingRecords(parsedPcl);
       setSelectedPending(new Set(parsedPcl.map((p) => p.id)));
       setImportOpen(true);
-      toast.success(`Extracted ${parsedPcl.length} spaces from 3D BIM Viewer!`);
+      toast.success(`Extracted ${parsedPcl.length} spaces from 3D BIM Model!`);
     } else {
       const answer = await confirm(
-        "No active 3D model spaces detected in memory. Would you like to select an IFC model file to parse spaces?",
+        "No 3D IFC model is currently loaded in the 3D Viewer. Please go to the 3D BIM Viewer page and load an IFC model first.",
         {
-          title: "Import from 3D BIM Model",
-          confirmText: "Select IFC File",
+          title: "3D Model Required",
+          confirmText: "Go to 3D BIM Viewer",
           cancelText: "Cancel",
         }
       );
-      if (answer && ifcFileInputRef.current) {
-        ifcFileInputRef.current.click();
+      if (answer) {
+        navigate({ to: "/bim-viewer" });
       }
     }
   };
