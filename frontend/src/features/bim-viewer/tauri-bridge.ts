@@ -13,8 +13,15 @@ const isElectron = typeof window !== 'undefined' && (window as any).api && typeo
 
 const webFileStore = new Map<string, File>();
 const webMemoryCache = new Map<string, Uint8Array>();
+const webConvertedCache = new Map<string, { frag: string; json: string }>();
 
 async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: string }> {
+  const cacheKey = `${file.name}_${file.size}_${file.lastModified}`;
+  if (webConvertedCache.has(cacheKey)) {
+    console.log(`⚡ Instant load: Using cached converted 3D geometry for "${file.name}"`);
+    return webConvertedCache.get(cacheKey)!;
+  }
+
   const arrayBuffer = await file.arrayBuffer();
   const fileBytes = new Uint8Array(arrayBuffer);
   const localWasmPath = typeof window !== 'undefined' ? `${window.location.origin}/` : './';
@@ -58,13 +65,16 @@ async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: st
   const jsonStr = JSON.stringify({ project: projectTree, elements }, null, 2);
   const jsonBytes = new TextEncoder().encode(jsonStr);
 
-  const fragId = `web-cache-${Date.now()}.frag`;
-  const jsonId = `web-cache-${Date.now()}.json`;
+  const fragId = `web-cache-${cacheKey}.frag`;
+  const jsonId = `web-cache-${cacheKey}.json`;
 
   webMemoryCache.set(fragId, fragBytes);
   webMemoryCache.set(jsonId, jsonBytes);
 
-  return { frag: fragId, json: jsonId };
+  const result = { frag: fragId, json: jsonId };
+  webConvertedCache.set(cacheKey, result);
+
+  return result;
 }
 
 if (isElectron) {

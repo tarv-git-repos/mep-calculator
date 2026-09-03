@@ -159,12 +159,12 @@ const loadIfcFile = async (file: File) => {
     store().setLoadingText('Converting IFC (this may take a moment)...');
 };
 
-(window as any).loadIfcFile = async (file: File) => {
+(window as any).loadIfcFile = async (file: File, isPreload: boolean = false) => {
     if (!file?.name.toLowerCase().endsWith('.ifc')) return;
 
     (window as any)._currentLoadedFile = file;
     const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
-    if (activeProjId) {
+    if (activeProjId && !isPreload) {
       saveProjectIfcFile(activeProjId, file);
     }
 
@@ -186,7 +186,7 @@ const loadIfcFile = async (file: File) => {
     tags = [];
 
     store().setIsLoading(true);
-    store().setLoadingText('Converting IFC (this may take a moment)...');
+    store().setLoadingText(isPreload ? 'Loading 3D Model...' : 'Converting IFC (this may take a moment)...');
 
     try {
         const fileKey = (window as any).api.getFilePath(file);
@@ -1576,7 +1576,7 @@ ui.viewport.addEventListener('drop', (e: DragEvent) => {
         getProjectIfcFile(activeProjId).then((savedFile) => {
           if (savedFile && (window as any).loadIfcFile) {
             console.log(`Preloading saved project IFC file: "${savedFile.name}" for project "${activeProjId}"...`);
-            (window as any).loadIfcFile(savedFile);
+            (window as any).loadIfcFile(savedFile, true);
           } else {
             console.log(`No saved IFC file found for project "${activeProjId}". Displaying clean upload state.`);
             (window as any)._currentLoadedFile = null;

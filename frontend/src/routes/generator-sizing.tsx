@@ -222,7 +222,16 @@ function GeneratorSizingPage() {
   const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({});
 
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
-  const [calcReviewState, setCalcReviewState] = useState<any>(null);
+  const activeProject = workspaceStore.getState().project;
+  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`mep_calc_review_${activeProject?.id || "default"}_/generator-sizing`);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return { status: "DRAFT" };
+  });
   const isLocked = calcReviewState?.status === "APPROVED";
   const isApprovedLocked = isLocked;
   const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);

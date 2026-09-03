@@ -131,7 +131,7 @@ document.addEventListener('drop', async e => {
 
     
             store().setIsLoading(true);
-            store().setLoadingText('Converting IFC (this may take a moment)...');
+            store().setLoadingText(typeof isPreload !== 'undefined' && isPreload ? 'Loading 3D Model...' : 'Converting IFC (this may take a moment)...');
         
     try {
         const { frag, json } = await (window as any).api.processIfc((window as any).api.getFilePath(file));
