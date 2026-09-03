@@ -269,7 +269,9 @@ export function OrgAdminDashboard() {
       return
     }
     toast.info(`Updating role for ${user.email} to ${newRole}...`)
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole as Role, designation: newRole } : u));
     const res = await api.adminToggleRole(user.id, newRole)
+    await api.adminUpdateProfile(user.id, { role: newRole, designation: newRole });
     if (res && res.success) {
       toast.success(`Role for ${user.name || user.email} updated to ${newRole}`)
       fetchUsers()

@@ -637,7 +637,7 @@ function SprinklerKFactorPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [rows, selected, tab, undoStack, redoStack]);
+  }, [rows, selected, tab, undoStack, redoStack, isApprovedLocked]);
 
   // Quick Solver Math
   const solverResult = useMemo(() => {

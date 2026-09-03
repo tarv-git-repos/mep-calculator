@@ -344,3 +344,23 @@ body.modal-open-blur .modal-blur-bg {
 }
 
 
+
+/* Number inputs spin button removal */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* Calculator Approved Locked Protection */
+.calc-approved-locked input:not([type=checkbox]),
+.calc-approved-locked select,
+.calc-approved-locked [role="combobox"] {
+  pointer-events: none !important;
+  user-select: text !important;
+  cursor: default !important;
+}

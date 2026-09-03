@@ -466,6 +466,7 @@ async function writeUsers(users) {
       const orgId = u.organization_id !== undefined ? u.organization_id : (u.features?.organization_id || null);
       const comp = company || u.company || u.organization || u.features?.company || u.features?.organization || '';
       const effRole = u.role || u.features?.role || 'Jr. Design Engineer';
+      const effDesignation = designation || u.designation || u.features?.designation || effRole;
       const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
       const features = {
         ...(u.features || {}),
@@ -475,7 +476,7 @@ async function writeUsers(users) {
         company: comp,
         organization: comp,
         role: effRole,
-        designation: designation || u.features?.designation || '',
+        designation: effDesignation,
         profile_photo: profile_photo !== undefined ? profile_photo : (u.features?.profile_photo || ''),
         settings: settings || u.features?.settings || {},
         subscription_expires: expDate
@@ -486,6 +487,7 @@ async function writeUsers(users) {
       return {
         ...u,
         role: effRole,
+        designation: effDesignation,
         plan: userPlan,
         subscription_status: userPlan,
         organization_id: orgId,
@@ -569,7 +571,7 @@ async function formatUser(user, allUsers = null) {
     subscription_expires: user.subscription_expires || user.features?.subscription_expires || null,
     organization_id: user.organization_id,
     company: user.company || '',
-    designation: user.designation || '',
+    designation: user.designation || user.features?.designation || effectiveRole || '',
     profile_photo: user.profile_photo || '',
     settings: user.settings || {},
     status: user.status,
@@ -2007,17 +2009,22 @@ const server = http.createServer(async (req, res) => {
     if (targetUserIndex === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
     
     users[targetUserIndex].role = newRole;
+    users[targetUserIndex].designation = newRole;
     if (!users[targetUserIndex].features) users[targetUserIndex].features = {};
     users[targetUserIndex].features.role = newRole;
+    users[targetUserIndex].features.designation = newRole;
     await writeUsers(users);
 
     try {
       const existing = users[targetUserIndex];
-      if (existing.id) await supabase.from('custom_users').update({ role: newRole, features: existing.features }).eq('id', existing.id);
-      if (existing.email) await supabase.from('custom_users').update({ role: newRole, features: existing.features }).eq('email', existing.email);
+      const dbPayload = toSupabaseUserPayload(existing);
+      if (existing.id) await supabase.from('custom_users').update(dbPayload).eq('id', existing.id);
+      if (existing.email) await supabase.from('custom_users').update(dbPayload).eq('email', existing.email);
     } catch (e) {
       console.error('Supabase update role error:', e);
     }
+
+    invalidateUserCache();
 
     logActivity(adminUser, 'ADMIN_TOGGLE_ROLE', { targetUser: profileId, newRole });
     return sendJSON(res, 200, { success: true, message: 'Role updated successfully' });

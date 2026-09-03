@@ -722,11 +722,12 @@ export function SuperAdminDashboard() {
     }
     
     // 1. INSTANT STATE UPDATE (0ms delay)
-    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, role: newRole } : p));
+    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, role: newRole, designation: newRole } : p));
     toast.success(`Role updated to ${newRole}`);
     
     // 2. Async API update
     await api.adminToggleRole(profileId, newRole);
+    await api.adminUpdateProfile(profileId, { role: newRole, designation: newRole });
   }
 
   const handlePlanChange = async (profileId: string, newPlan: string) => {

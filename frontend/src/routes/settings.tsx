@@ -190,7 +190,7 @@ export function SettingsPage() {
   // Requirement 8: Designation / Role
   const [designation, setDesignation] = useState<string>(() => {
     if (isSuperAdminUser) return 'Super Admin';
-    return profile?.role || profile?.designation || userData?.role || userData?.designation || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_designation_${uId}`) || 'Design Engineer' : 'Design Engineer');
+    return userData?.designation || userData?.role || profile?.designation || profile?.role || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_designation_${uId}`) || 'Design Engineer' : 'Design Engineer');
   });
 
   useEffect(() => {
@@ -202,14 +202,23 @@ export function SettingsPage() {
       }
       try {
         const allUsers = await api.getUsers();
-        const myRecord = Array.isArray(allUsers) ? allUsers.find((u: any) => u.email?.toLowerCase() === currentEmail?.toLowerCase()) : null;
-        if (myRecord?.role) {
-          setDesignation(myRecord.role);
+        const myRecord = Array.isArray(allUsers) ? allUsers.find((u: any) => 
+          (currentEmail && u.email?.toLowerCase() === currentEmail.toLowerCase()) ||
+          (uId && String(u.id).toLowerCase() === String(uId).toLowerCase())
+        ) : null;
+        if (myRecord) {
+          const resRole = myRecord.designation || myRecord.role;
+          if (resRole) {
+            setDesignation(resRole);
+            if (typeof window !== 'undefined' && uId) {
+              localStorage.setItem(`mep_user_designation_${uId}`, resRole);
+            }
+          }
         }
       } catch (e) {}
     }
     resolveUserRole();
-  }, [userData?.email, profile?.email, profile?.role, userData?.role]);
+  }, [userData?.email, profile?.email, profile?.role, userData?.role, userData?.id, profile?.id, uId]);
 
   // Requirement 12: Auto save
   const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(() => {

@@ -403,7 +403,7 @@ function BusbarVoltageDropPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [rows, selected, history, redoStack, activeRowId]);
+  }, [rows, selected, history, redoStack, activeRowId, isApprovedLocked]);
 
   const handleImportRatings = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

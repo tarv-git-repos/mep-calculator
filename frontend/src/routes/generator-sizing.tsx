@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -121,6 +121,8 @@ function GeneratorSizingPage() {
   const confirm = useConfirm();
   const prompt = usePrompt();
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/generator-sizing", project?.id);
+  const isLocked = isApprovedLocked;
 
   const [projects, setProjects] = useState<Record<string, GenRow[]>>({ "Default Project": [] });
   const [currentProject, setCurrentProject] = useState<string>("Default Project");
@@ -235,7 +237,6 @@ function GeneratorSizingPage() {
   const [userSelectedSize, setUserSelectedSize] = useState<number | null>(null);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({});
-
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
   const activeProject = workspaceStore.getState().project;
   const [calcReviewState, setCalcReviewState] = useState<any>(() => {
@@ -247,103 +248,6 @@ function GeneratorSizingPage() {
     }
     return { status: "DRAFT" };
   });
-  const isLocked = calcReviewState?.status === "APPROVED";
-  const isApprovedLocked = isLocked;
-  const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
-  const [editingRow, setEditingRow] = useState<{ row: GenRow; index: number } | null>(null);
-  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
-  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
-  // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handleScrollToItem = (e: any) => {
-      const { id, name } = e.detail || {};
-      if (!id && !name) return;
-      setActiveTab("equipment");
-      const targetRow = rows.find(r => r.id === id || r.desc === name);
-      if (targetRow) {
-        toggleSelection(targetRow.id, false, false);
-        setCommentTarget({
-          id: targetRow.id,
-          name: targetRow.desc || "Generator Load",
-          type: "space"
-        });
-        setAssignCommentOpen(true);
-        setTimeout(() => {
-          const el = document.getElementById(`gen-row-${targetRow.id}`) || document.getElementById(`row-${targetRow.id}`);
-          if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "center" });
-            el.classList.add("ring-2", "ring-primary", "bg-primary/10");
-            setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
-          }
-        }, 150);
-      }
-    };
-    window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
-
-    const params = new URLSearchParams(window.location.search);
-    const targetId = params.get("commentTargetId") || params.get("targetId");
-    const targetName = params.get("commentTargetName") || params.get("targetName");
-    if (targetId || targetName) {
-      setActiveTab("equipment");
-      setTimeout(() => {
-        handleScrollToItem({ detail: { id: targetId, name: targetName } });
-      }, 500);
-    }
-
-    return () => window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
-  }, [rows]);
-
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!project?.id) return;
-    try {
-      const saved = window.localStorage.getItem(`mep_gen_projects_${project.id}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.projects) { // New format
-           setProjects(parsed.projects);
-           setCurrentProject(parsed.currentProject || "Default Project");
-           if (parsed.pf) setPf(parsed.pf);
-           if (parsed.lf) setLf(parsed.lf);
-           if (parsed.userSelectedSize) setUserSelectedSize(parsed.userSelectedSize);
-           if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
-           if (parsed.manualOverrides) setManualOverrides(parsed.manualOverrides);
-           
-           if (parsed.projects[parsed.currentProject || "Default Project"]) {
-             pushState(parsed.projects[parsed.currentProject || "Default Project"]);
-           }
-        } else { // Old format fallback
-           setProjects(parsed);
-           if (parsed["Default Project"]) {
-             pushState(parsed["Default Project"]);
-           }
-        }
-      }
-      setTimeout(() => dirtyStore.set(false), 50);
-    } catch {
-      console.error("Failed to load generator sizing data");
-    }
-    setLoadedProjectId(project.id);
-    setIsLoaded(true);
-  }, [project?.id]);
-
-  useEffect(() => {
-    if (project?.id && loadedProjectId === project.id) {
-      const dataToSave = {
-        projects,
-        currentProject,
-        pf,
-        lf,
-        userSelectedSize,
-        unitSystem,
-        manualOverrides
-      };
-      window.localStorage.setItem(`mep_gen_projects_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    }
-  }, [project?.id, loadedProjectId, projects, currentProject, pf, lf, userSelectedSize, unitSystem, manualOverrides]);
 
   // Version History Restore Listener
   useEffect(() => {
@@ -1307,12 +1211,6 @@ function GeneratorSizingPage() {
                   Sizing &amp; Report
                 </button>
               </div>
-              <CalculationReviewBar
-                projectId={activeProjectId || project?.id || "default"}
-                calculatorPath="/generator-sizing"
-                calculatorTitle="Generator Sizing"
-                onReviewStateChange={setCalcReviewState}
-              />
             </div>
           </div>
 

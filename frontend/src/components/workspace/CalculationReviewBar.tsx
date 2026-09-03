@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { 
   CheckCircle2, XCircle, Clock, AlertTriangle, MessageSquare, 
   Send, UserCheck, ShieldCheck, ChevronDown, User, Sparkles, RefreshCw, FileText, Lock, Unlock, Info, History
@@ -136,13 +137,15 @@ export function CalculationReviewBar({
       roleUpper === "SUPER_ADMIN" || 
       roleUpper === "ADMIN" ||
       roleUpper === "PROJECT_MANAGER" ||
-      roleUpper === "VIEWER" ||
       metaUpper === "ORG_ADMIN" ||
       metaUpper === "SUPER_ADMIN" ||
       metaUpper === "ADMIN" ||
-      metaUpper === "PROJECT_MANAGER" ||
-      metaUpper === "VIEWER"
+      metaUpper === "PROJECT_MANAGER"
     ) {
+      return "Discipline Coordinator";
+    }
+
+    if (roleUpper === "VIEWER" || metaUpper === "VIEWER") {
       return "Jr. / Design Engineer";
     }
 
@@ -649,8 +652,8 @@ export function CalculationReviewBar({
       )}
 
       {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
-      {showReviewModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
+      {showReviewModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
             <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
               <ShieldCheck className="size-5 text-indigo-500" />
@@ -682,12 +685,13 @@ export function CalculationReviewBar({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL 2: Discipline Coordinator Approve Modal */}
-      {showApproveModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
+      {showApproveModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
             <h3 className="text-base font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2 mb-2">
               <CheckCircle2 className="size-5 text-emerald-500" />
@@ -719,12 +723,13 @@ export function CalculationReviewBar({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL 3: Discipline Coordinator Reject Modal */}
-      {showRejectModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
+      {showRejectModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
             <h3 className="text-base font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-2">
               <AlertTriangle className="size-5 text-red-500" />
@@ -756,12 +761,13 @@ export function CalculationReviewBar({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL 4: Discipline Coordinator Unlock Confirmation Modal */}
-      {showUnlockModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
+      {showUnlockModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
             <h3 className="text-base font-bold text-amber-600 dark:text-amber-400 flex items-center gap-2 mb-2">
               <Unlock className="size-5 text-amber-500" />
@@ -786,12 +792,13 @@ export function CalculationReviewBar({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL 5: Full Audit & Details Modal */}
-      {showDetailsModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
+      {showDetailsModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-lg p-6 animate-scale-in">
             <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-3">
               <ShieldCheck className="size-5 text-primary" />
@@ -887,7 +894,8 @@ export function CalculationReviewBar({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

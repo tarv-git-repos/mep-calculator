@@ -2101,7 +2101,7 @@ function SpacesView() {
               <MessageSquare className="size-3.5" />
             </span>
           )}
-          <InlineInput
+          <InlineInput disabled={isEffectiveReadOnly}
             value={displayName}
             onCommit={(val) => {
               const cleanVal = val.trim();
@@ -2118,7 +2118,7 @@ function SpacesView() {
       const matchingZone = zones.find((z) => z.id === r.zone || z.name === r.zone);
       const zoneName = matchingZone ? matchingZone.name : (r.zone || "");
       return (
-        <InlineInput
+        <InlineInput disabled={isEffectiveReadOnly}
           value={zoneName}
           onCommit={(val) => {
             const trimmed = val.trim();
@@ -2340,7 +2340,7 @@ function SpacesView() {
     } },
 
     { key: "area", header: "Area (m²)", width: 90, align: "center", mono: true, editable: true, render: (r) => (
-      <InlineInput
+      <InlineInput disabled={isEffectiveReadOnly}
         type="number"
         step="0.1"
         min={0}
@@ -2360,7 +2360,7 @@ function SpacesView() {
         {!r.isOccupancyCustomized && (
           <span title="Default occupancy value" className="size-1.5 rounded-full bg-blue-500 shrink-0" />
         )}
-        <InlineInput
+        <InlineInput disabled={isEffectiveReadOnly}
           type="number"
           min={0}
           value={r.occupancy}
@@ -4782,7 +4782,7 @@ function ZonesView() {
       align: "center",
       render: (z) => (
         <div onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <InlineInput
+          <InlineInput disabled={isEffectiveReadOnly}
             value={z.multiplier || 1}
             type="number"
             min={1}
@@ -5131,7 +5131,7 @@ function ZonesView() {
             <header className="px-6 py-3.5 flex items-center justify-between border-b border-border/80 shrink-0 bg-muted/20 select-none">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Spaces in Zone</span>
-                <InlineInput
+                <InlineInput disabled={isEffectiveReadOnly}
                   value={opened.name}
                   onCommit={(val) => renameZoneById(opened.id, val)}
                   className="font-semibold text-foreground text-[14px] bg-background border border-border/80 hover:border-border px-2.5 py-1 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary font-mono shadow-xs"
@@ -5222,7 +5222,7 @@ function ZonesView() {
                         className="hover:bg-muted/30 select-none text-[12px] transition-colors"
                       >
                         <td className="px-5 py-2.5 font-medium text-foreground">
-                          <InlineInput
+                          <InlineInput disabled={isEffectiveReadOnly}
                             value={s.name}
                             onCommit={(val) => bulkUpdateSpaces([s.id], { name: val.trim() || s.name })}
                             className="font-medium text-[12px] hover:bg-muted/50 focus:bg-background px-1.5 py-0.5 rounded border border-transparent focus:border-border"
@@ -5341,7 +5341,7 @@ function ZonesView() {
                           </span>
                         </td>
                         <td className="px-5 py-2.5 text-right font-mono tabular">
-                          <InlineInput
+                          <InlineInput disabled={isEffectiveReadOnly}
                             type="number"
                             step="0.1"
                             min={0}

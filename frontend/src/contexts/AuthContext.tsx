@@ -203,6 +203,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 if (updated.company && updated.company !== 'Consitent' && updated.id) {
                   localStorage.setItem(`mep_user_company_${updated.id}`, updated.company);
                 }
+                if (updated.id) {
+                  const resDesig = updated.designation || updated.role;
+                  if (resDesig) {
+                    localStorage.setItem(`mep_user_designation_${updated.id}`, resDesig);
+                  }
+                }
               }
               return updated;
             });

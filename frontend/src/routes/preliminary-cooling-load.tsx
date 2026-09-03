@@ -1318,7 +1318,7 @@ function PreliminaryCoolingLoadPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [importOpen, pendingRecords, filteredRows, selected, selectedPending, rows, clipboard]);
+  }, [importOpen, pendingRecords, filteredRows, selected, selectedPending, rows, clipboard, isApprovedLocked]);
 
   // DataGrid callbacks
   const toggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
@@ -2090,7 +2090,7 @@ function PreliminaryCoolingLoadPage() {
               <MessageSquare className="size-3.5 fill-blue-500/20" />
             </button>
           )}
-          <InlineInput
+          <InlineInput disabled={isApprovedLocked} readOnly={isApprovedLocked}
             value={r.name}
             onCommit={(newName) => {
               const editIds = getSpaceEditIds(r.id);
@@ -2146,7 +2146,7 @@ function PreliminaryCoolingLoadPage() {
       mono: true,
       editable: true,
       render: (r) => (
-        <InlineInput
+        <InlineInput disabled={isApprovedLocked} readOnly={isApprovedLocked}
           type="number"
           min={1}
           value={r.area}

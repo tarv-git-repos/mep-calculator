@@ -637,7 +637,7 @@ function BusbarCalculationPage() {
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [panels, selectedRows, undoStack, redoStack]);
+  }, [panels, selectedRows, undoStack, redoStack, isApproved]);
 
   const togglePanel = (id: string) => {
     setCollapsedPanels(prev => {
