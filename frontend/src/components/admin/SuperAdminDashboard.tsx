@@ -32,6 +32,7 @@ type Profile = {
   email: string
   role: string
   subscription_status: string
+  plan?: string
   subscription_expires: string
   features?: any
   organization_id?: string
@@ -314,17 +315,17 @@ export function SuperAdminDashboard() {
   const [addUsersModalFilter, setAddUsersModalFilter] = useState<'unassigned' | 'all'>('unassigned')
 
   // User Sorting States with localStorage Persistence
-  const [userSortField, setUserSortFieldState] = useState<'email' | 'role' | 'organization' | 'created_at' | 'expires'>(() => {
+  const [userSortField, setUserSortFieldState] = useState<'email' | 'role' | 'organization' | 'created_at' | 'expires' | 'plan'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('mep_user_sort_field');
-      if (saved && ['email', 'role', 'organization', 'created_at', 'expires'].includes(saved)) {
+      if (saved && ['email', 'role', 'organization', 'created_at', 'expires', 'plan'].includes(saved)) {
         return saved as any;
       }
     }
     return 'email';
   });
 
-  const setUserSortField = (field: 'email' | 'role' | 'organization' | 'created_at' | 'expires' | ((prev: any) => any)) => {
+  const setUserSortField = (field: 'email' | 'role' | 'organization' | 'created_at' | 'expires' | 'plan' | ((prev: any) => any)) => {
     setUserSortFieldState(prev => {
       const next = typeof field === 'function' ? field(prev) : field;
       if (typeof window !== 'undefined') {
@@ -577,6 +578,8 @@ export function SuperAdminDashboard() {
       name: u.name,
       subscription_expires: u.subscription_expires || null,
       status: u.isAccountVerified ? 'ACTIVE' : 'TRIAL',
+      plan: u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (u.organization_id ? 'ENTERPRISE' : 'PRO'),
+      subscription_status: u.subscription_status || u.plan || u.features?.subscription_status || u.features?.plan || (u.organization_id ? 'ENTERPRISE' : 'PRO'),
       features: u.features || {},
       organization_id: u.organization_id
     }));
@@ -725,6 +728,30 @@ export function SuperAdminDashboard() {
     // 2. Async API update
     await api.adminToggleRole(profileId, newRole);
   }
+
+  const handlePlanChange = async (profileId: string, newPlan: string) => {
+    const currentProfile = profiles.find(p => p.id === profileId);
+    
+    // 1. Instant optimistic state update
+    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, plan: newPlan, subscription_status: newPlan } : p));
+    
+    const displayLabel = newPlan === 'FREE_TRIAL' ? 'Free Trial' : (newPlan === 'ENTERPRISE' ? 'Enterprise' : 'Pro');
+    toast.success(`Plan assigned: ${displayLabel}`);
+    
+    // 2. Async API update
+    const res = await api.adminUpdateProfile(profileId, {
+      plan: newPlan,
+      subscription_status: newPlan,
+      email: currentProfile?.email
+    });
+    
+    if (!res.success) {
+      toast.error("Failed to update plan: " + (res.message || 'Unknown error'));
+      await fetchProfiles();
+    } else {
+      await fetchProfiles();
+    }
+  };
 
   const deleteUser = async (profileId: string, email: string) => {
     const currentId = userData?.id || profile?.id;
@@ -1306,6 +1333,7 @@ export function SuperAdminDashboard() {
                               {userSortField === 'email' && (userSortOrder === 'asc' ? 'Email (A-Z ↑)' : 'Email (Z-A ↓)')}
                               {userSortField === 'role' && (userSortOrder === 'asc' ? 'Role (High-Low ↑)' : 'Role (Low-High ↓)')}
                               {userSortField === 'organization' && (userSortOrder === 'asc' ? 'Org (A-Z ↑)' : 'Org (Z-A ↓)')}
+                              {userSortField === 'plan' && (userSortOrder === 'asc' ? 'Plan (A-Z ↑)' : 'Plan (Z-A ↓)')}
                               {userSortField === 'created_at' && (userSortOrder === 'desc' ? 'Date (Newest ↓)' : 'Date (Oldest ↑)')}
                               {userSortField === 'expires' && (userSortOrder === 'asc' ? 'Expiry (Soonest ↑)' : 'Expiry (Latest ↓)')}
                             </span>
@@ -1327,6 +1355,8 @@ export function SuperAdminDashboard() {
                           <option value="role_desc">Sort By: Role Priority (Low to High ↓)</option>
                           <option value="organization_asc">Sort By: Organization Name (A to Z ↑)</option>
                           <option value="organization_desc">Sort By: Organization Name (Z to A ↓)</option>
+                          <option value="plan_asc">Sort By: Plan (A to Z ↑)</option>
+                          <option value="plan_desc">Sort By: Plan (Z to A ↓)</option>
                           <option value="created_at_desc">Sort By: Creation Date (Newest First ↓)</option>
                           <option value="created_at_asc">Sort By: Creation Date (Oldest First ↑)</option>
                           <option value="expires_asc">Sort By: Subscription Expiry (Soonest First ↑)</option>
@@ -1592,6 +1622,19 @@ export function SuperAdminDashboard() {
                         </th>
                         <th 
                           onClick={() => {
+                            if (userSortField === 'plan') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                            else { setUserSortField('plan'); setUserSortOrder('asc'); }
+                          }}
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-center"
+                          title="Click to sort by Subscription Plan"
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <span>Plan</span>
+                            <span className="text-xs text-blue-600 font-bold">{userSortField === 'plan' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
+                          </div>
+                        </th>
+                        <th 
+                          onClick={() => {
                             if (userSortField === 'expires') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                             else { setUserSortField('expires'); setUserSortOrder('asc'); }
                           }}
@@ -1608,7 +1651,7 @@ export function SuperAdminDashboard() {
                     </thead>
                     <tbody className="text-sm">
                       {loadingProfiles ? (
-                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">Loading...</td></tr>
+                        <tr><td colSpan={7} className="py-8 text-center text-slate-500">Loading...</td></tr>
                       ) : (() => {
                         const visibleProfiles = profiles.filter(p => {
                           if (selectedOrgFilter === 'ALL') return true;
@@ -1621,7 +1664,8 @@ export function SuperAdminDashboard() {
                           const name = ((p as any).name || (p as any).username || '').toLowerCase();
                           const role = (p.role || '').toLowerCase();
                           const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
-                          return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
+                          const plan = (p.plan || p.subscription_status || '').toLowerCase();
+                          return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q) || plan.includes(q);
                         }).sort((a, b) => {
                           let res = 0;
                           if (userSortField === 'email') {
@@ -1635,6 +1679,10 @@ export function SuperAdminDashboard() {
                             const nameA = organizations.find(o => o.id === a.organization_id)?.name || a.company || 'Unassigned';
                             const nameB = organizations.find(o => o.id === b.organization_id)?.name || b.company || 'Unassigned';
                             res = nameA.localeCompare(nameB);
+                          } else if (userSortField === 'plan') {
+                            const planA = a.plan || a.subscription_status || 'PRO';
+                            const planB = b.plan || b.subscription_status || 'PRO';
+                            res = planA.localeCompare(planB);
                           } else if (userSortField === 'created_at') {
                             const timeA = new Date((a as any).created_at || 0).getTime();
                             const timeB = new Date((b as any).created_at || 0).getTime();
@@ -1650,7 +1698,7 @@ export function SuperAdminDashboard() {
                         if (visibleProfiles.length === 0) {
                           return (
                             <tr>
-                              <td colSpan={6} className="py-12 text-center text-slate-500">
+                              <td colSpan={7} className="py-12 text-center text-slate-500">
                                 <div className="flex flex-col items-center justify-center gap-2">
                                   <Search size={24} className="text-slate-400 mb-1" />
                                   <p className="font-semibold text-slate-700 dark:text-slate-300 text-sm">

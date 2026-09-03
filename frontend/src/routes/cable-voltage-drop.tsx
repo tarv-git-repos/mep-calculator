@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -943,11 +943,7 @@ function CableVoltageDropPage() {
       subtitle="Calculate electrical cable voltage drop."
       actions={
         <div className="flex gap-2">
-      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Cable Voltage Drop Calculations</div>
-        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/cable-voltage-drop" calculatorTitle="Cable Voltage Drop" />
-      </div>
-          
+          <CalculationReviewBar calculatorPath="/cable-voltage-drop" calculatorTitle="Cable Voltage Drop" />
           <ImportExcelBtn
             columnMapping={{
               "Load Ref": "loadRef",

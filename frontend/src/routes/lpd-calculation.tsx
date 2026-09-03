@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -458,10 +458,6 @@ function LPDCalculationPage() {
 
   return (
     <AppShell title="LPD Calculation" hideSubHeader={true}>
-      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">LPD Calculation Calculations</div>
-        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/lpd-calculation" calculatorTitle="LPD Calculation" />
-      </div>
       <div className="flex flex-col h-full overflow-hidden pt-4 gap-4 bg-slate-50/30 dark:bg-slate-950/30 relative">
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
@@ -473,7 +469,7 @@ function LPDCalculationPage() {
             <div className="flex items-center gap-3 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">LPD Calculation</h1>
-              
+              <CalculationReviewBar calculatorPath="/lpd-calculation" calculatorTitle="LPD Calculation" />
               </div>
             </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">

@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1069,10 +1069,6 @@ function CableTraySizingPage() {
 
   return (
     <AppShell title="Cable Tray Sizing" subtitle="Calculate cable tray containment sizes">
-      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Cable Tray Sizing Calculations</div>
-        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/cable-tray-sizing" calculatorTitle="Cable Tray Sizing" />
-      </div>
       
       <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
         {/* Subtle Grid Background */}

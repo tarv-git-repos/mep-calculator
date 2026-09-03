@@ -153,15 +153,21 @@ export const api = {
                     ? c.subscription_expires
                     : (c?.features?.subscription_expires || null)));
 
+          const finalPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || c?.plan || c?.subscription_status || c?.features?.plan || (finalOrgId ? 'ENTERPRISE' : 'PRO');
+
           return {
             ...(c || {}),
             ...u,
             organization_id: finalOrgId,
             role: finalRole,
+            plan: finalPlan,
+            subscription_status: finalPlan,
             subscription_expires: finalExpires,
             features: {
               ...(c?.features || {}),
               ...(u.features || {}),
+              plan: finalPlan,
+              subscription_status: finalPlan,
               organization_id: finalOrgId,
               role: finalRole,
               subscription_expires: finalExpires
@@ -260,6 +266,7 @@ export const api = {
           const updatedComp = updates.company || updates.organization || u.company || u.organization || u.features?.company || '';
           const updatedRole = updates.role || u.role || u.features?.role;
           const updatedExpires = updates.subscription_expires !== undefined ? updates.subscription_expires : (u.subscription_expires || u.features?.subscription_expires || null);
+          const updatedPlan = updates.plan || updates.subscription_status || u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status;
           return {
             ...u,
             ...updates,
@@ -267,6 +274,7 @@ export const api = {
             company: updatedComp,
             organization: updatedComp,
             subscription_expires: updatedExpires,
+            ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
             ...(updatedRole ? { role: updatedRole } : {}),
             features: {
               ...(u.features || {}),
@@ -275,6 +283,7 @@ export const api = {
               company: updatedComp,
               organization: updatedComp,
               subscription_expires: updatedExpires,
+              ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
               ...(updatedRole ? { role: updatedRole } : {})
             }
           };

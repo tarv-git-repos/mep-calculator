@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1056,10 +1056,6 @@ function ProjectLoadSchedulePage() {
 
   return (
     <AppShell>
-      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Project Load Schedule Calculations</div>
-        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/project-load-schedule" calculatorTitle="Project Load Schedule" />
-      </div>
       <div className="flex flex-col h-full bg-slate-50 text-slate-800 font-sans">
         
         {/* Top Header */}
@@ -1068,7 +1064,7 @@ function ProjectLoadSchedulePage() {
             <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               Load Schedule <span className="text-xs font-normal text-slate-500">Hierarchical MEP Load Distribution Manager</span>
             </h1>
-              
+              <CalculationReviewBar calculatorPath="/project-load-schedule" calculatorTitle="Project Load Schedule" />
           </div>
           <div className="flex items-center gap-3">
             <button onClick={globalNetworkBalance} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#3178c6] text-white rounded hover:bg-[#2968ad] transition shadow-sm">

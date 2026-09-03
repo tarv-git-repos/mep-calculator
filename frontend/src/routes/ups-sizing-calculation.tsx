@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -602,10 +602,6 @@ function UpsSizingCalculationPage() {
       title="UPS Sizing" 
       hideSubHeader={true}
     >
-      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">UPS Sizing Calculation Calculations</div>
-        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing Calculation" />
-      </div>
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6">
           
@@ -618,7 +614,7 @@ function UpsSizingCalculationPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">UPS Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{loadRows.length} items</span>
                 </div>
-                
+                <CalculationReviewBar calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Simplified preliminary electrical capacity sizing based on socket load schedule.

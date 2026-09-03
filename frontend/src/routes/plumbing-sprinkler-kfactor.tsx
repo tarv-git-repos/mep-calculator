@@ -787,10 +787,6 @@ function SprinklerKFactorPage() {
 
   // Grid editing helpers
   const updateRow = (id: string, field: keyof SprinklerRow, val: any) => {
-    if (calcReviewState?.status === "APPROVED") {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
-      return;
-    }
     pushToUndo(rows);
     setRows(prev =>
       prev.map(row => {
@@ -803,10 +799,6 @@ function SprinklerKFactorPage() {
   };
 
   const addSprinkler = () => {
-    if (calcReviewState?.status === "APPROVED") {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to add sprinklers.", { id: "calc-locked" });
-      return;
-    }
     pushToUndo(rows);
     const newSprink: SprinklerRow = {
       id: `sprink_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -824,10 +816,6 @@ function SprinklerKFactorPage() {
   };
 
   const duplicateSelected = () => {
-    if (calcReviewState?.status === "APPROVED") {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to duplicate.", { id: "calc-locked" });
-      return;
-    }
     if (selected.size === 0) return;
     pushToUndo(rows);
     const duplicated: SprinklerRow[] = [];
@@ -845,10 +833,6 @@ function SprinklerKFactorPage() {
   };
 
   const confirmDeleteSelected = async () => {
-    if (calcReviewState?.status === "APPROVED") {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to delete.", { id: "calc-locked" });
-      return;
-    }
     const proceed = await confirm(`Are you sure you want to delete ${selected.size} selected sprinkler(s)?`);
     if (proceed) {
       pushToUndo(rows);
@@ -860,10 +844,6 @@ function SprinklerKFactorPage() {
 
   // Bulk Edit Handler
   const handleBulkEditSave = () => {
-    if (calcReviewState?.status === "APPROVED") {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
-      return;
-    }
     if (selected.size === 0) return;
     pushToUndo(rows);
     setRows(prev =>

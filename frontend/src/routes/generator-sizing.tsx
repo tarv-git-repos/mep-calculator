@@ -1,5 +1,1262 @@
-import {/* Sections Navigation (Tabs) */}
-          <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center flex items-center justify-between gap-3">
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addExcelSignatureBlock } from "@/lib/excelHelpers";
+import { downloadFile } from "@/lib/download";
+import { createFileRoute } from "@tanstack/react-router";
+import React, { useState, useMemo, useEffect } from "react";
+import { AppShell } from "@/components/workspace/AppShell";
+import { TBtn } from "@/components/workspace/Button";
+import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { Download, FileSpreadsheet, FileText, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag } from "lucide-react";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { EditGeneratorRowModal } from "@/components/workspace/EditGeneratorRowModal";
+import { TaskComment } from "@/lib/ventilation-calc";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+} from "@/components/ui/context-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
+import saveAsPkg from "file-saver";
+const saveAs: any = (saveAsPkg as any).saveAs || saveAsPkg;
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { useEditableGrid, useGridNavigation } from "@/core/gridEngine";
+import { toast } from "@/core/notifications";
+import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
+
+export const Route = createFileRoute("/generator-sizing")({
+  head: () => ({
+    meta: [
+      { title: "Generator Sizing — MEP Calc" },
+      {
+        name: "description",
+        content: "Calculate DG set size based on connected and emergency loads.",
+      },
+    ],
+  }),
+  component: GeneratorSizingPage,
+});
+
+type StarterType = "DOL" | "SD" | "Soft Starter" | "VFD" | "None";
+
+interface GenRow {
+  id: string;
+  desc: string;
+  unit: number | string;
+  kwPerUnit: number | string;
+  starter: StarterType;
+  multiplier: number | string;
+  standby: number | string;
+  emergency: number | string;
+  powerFail: number | string;
+  remark: string;
+  excludeEmergency?: boolean;
+  flagged?: boolean;
+  comments?: TaskComment[];
+}
+
+export function getGenRowValidation(r?: Partial<GenRow>) {
+  const warnings: string[] = [];
+  if (!r) return { isAutoFlagged: false, isFlagged: false, warnings: [] };
+
+  const descEmpty = !r.desc || String(r.desc).trim() === "";
+  const unitEmpty = r.unit === "" || r.unit === undefined || r.unit === null || Number(r.unit) === 0;
+  const kwEmpty = r.kwPerUnit === "" || r.kwPerUnit === undefined || r.kwPerUnit === null || Number(r.kwPerUnit) === 0;
+
+  // Don't auto-flag brand new completely blank rows
+  const isCompletelyEmpty = descEmpty && unitEmpty && kwEmpty;
+
+  if (!isCompletelyEmpty) {
+    if (descEmpty) {
+      warnings.push("description");
+    }
+    if (r.unit === "" || r.unit === undefined || r.unit === null || isNaN(Number(r.unit)) || Number(r.unit) <= 0) {
+      warnings.push("unit count (0 or missing)");
+    }
+    if (r.kwPerUnit === "" || r.kwPerUnit === undefined || r.kwPerUnit === null || isNaN(Number(r.kwPerUnit)) || Number(r.kwPerUnit) <= 0) {
+      warnings.push("kW/unit (0 or missing)");
+    }
+  }
+
+  const isAutoFlagged = warnings.length > 0;
+  const isFlagged = r.flagged !== undefined ? Boolean(r.flagged) : isAutoFlagged;
+  return { isAutoFlagged, isFlagged, warnings };
+}
+
+const STARTER_MULTIPLIERS: Record<StarterType, number> = {
+  DOL: 7,
+  SD: 3,
+  "Soft Starter": 2,
+  VFD: 1,
+  None: 0,
+};
+
+const STANDARD_SIZES = [
+  5, 7.5, 10, 12.5, 15, 20, 25, 30, 35, 40, 45, 50, 62.5, 75, 82.5, 100,
+  125, 160, 200, 250, 320, 400, 500, 625, 750, 800, 1000, 1250, 1500, 1600, 2000, 2500,
+  2750, 3000, 3250, 3500, 3750, 4000, 4250, 4500, 4750, 5000
+];
+
+function GeneratorSizingPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+
+  const confirm = useConfirm();
+  const prompt = usePrompt();
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+
+  const [projects, setProjects] = useState<Record<string, GenRow[]>>({ "Default Project": [] });
+  const [currentProject, setCurrentProject] = useState<string>("Default Project");
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStarter, setFilterStarter] = useState<string>("all");
+  const [filterEmergency, setFilterEmergency] = useState<string>("all");
+  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
+  const [sortBy, setSortBy] = useState<"none" | "desc" | "kw">("none");
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterStarter !== "all") count++;
+    if (filterEmergency !== "all") count++;
+    return count;
+  }, [filterStarter, filterEmergency]);
+
+  const handleResetFilters = () => {
+    setFilterStarter("all");
+    setFilterEmergency("all");
+  };
+
+  const {
+    rows,
+    selectedIds: selectedRows,
+    toggleSelection,
+    clearSelection,
+    selectAll,
+    updateRow: baseUpdateRow,
+    addRow: baseAddRow,
+    removeRow: baseRemoveRow,
+    bulkDelete,
+    bulkDuplicate,
+    pushState,
+    undo: handleUndo,
+    redo: handleRedo,
+    canUndo,
+    canRedo,
+  } = useEditableGrid<GenRow>({
+    initialRows: projects[currentProject] || [],
+    onStateChange: (newRows) => {
+      setProjects((prev) => {
+        if (prev[currentProject] === newRows) return prev;
+        return { ...prev, [currentProject]: newRows };
+      });
+    },
+    onNewRow: () => addRow(),
+    onSave: () => saveProject(),
+    onPrint: () => exportPdf(),
+    onExportPdf: () => exportPdf(),
+  });
+
+  const flagStats = useMemo(() => {
+    let totalCount = 0;
+    let flaggedCount = 0;
+    (rows || []).forEach((r) => {
+      totalCount++;
+      const { isFlagged } = getGenRowValidation(r);
+      if (isFlagged) flaggedCount++;
+    });
+    return { totalCount, flaggedCount };
+  }, [rows]);
+
+  const toggleFlagRows = (targetRowId: string, currentFlagged: boolean) => {
+    const targetIds = selectedRows.has(targetRowId) && selectedRows.size > 1
+      ? Array.from(selectedRows)
+      : [targetRowId];
+    
+    const nextState = !currentFlagged;
+    const newRows = (rows || []).map((r) =>
+      targetIds.includes(r.id) ? { ...r, flagged: nextState } : r
+    );
+    pushState(newRows);
+
+    toast.info(nextState ? `Flagged ${targetIds.length} load(s) for review` : `Unflagged ${targetIds.length} load(s)`);
+  };
+
+  useGridNavigation({ gridId: "generator-grid" });
+
+  const saveProject = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projects));
+    const dlAnchorElem = document.createElement("a");
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", "mep_gen_projects.json");
+    dlAnchorElem.click();
+    toast.success("Project saved successfully");
+  };
+
+  const toggleRowSelect = (rowId: string, isShift: boolean, isCtrl: boolean) => {
+    toggleSelection(rowId, isCtrl, isShift);
+  };
+
+  const [pf, setPf] = useState<number>(0.8);
+  const [lf, setLf] = useState<number>(0.9);
+  const [userSelectedSize, setUserSelectedSize] = useState<number | null>(null);
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({});
+
+  const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
+  const [calcReviewState, setCalcReviewState] = useState<any>(null);
+  const isLocked = calcReviewState?.status === "APPROVED";
+  const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
+  const [editingRow, setEditingRow] = useState<{ row: GenRow; index: number } | null>(null);
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
+  // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleScrollToItem = (e: any) => {
+      const { id, name } = e.detail || {};
+      if (!id && !name) return;
+      setActiveTab("equipment");
+      const targetRow = rows.find(r => r.id === id || r.desc === name);
+      if (targetRow) {
+        toggleSelection(targetRow.id, false, false);
+        setCommentTarget({
+          id: targetRow.id,
+          name: targetRow.desc || "Generator Load",
+          type: "space"
+        });
+        setAssignCommentOpen(true);
+        setTimeout(() => {
+          const el = document.getElementById(`gen-row-${targetRow.id}`) || document.getElementById(`row-${targetRow.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("ring-2", "ring-primary", "bg-primary/10");
+            setTimeout(() => el.classList.remove("ring-2", "ring-primary", "bg-primary/10"), 3000);
+          }
+        }, 150);
+      }
+    };
+    window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get("commentTargetId") || params.get("targetId");
+    const targetName = params.get("commentTargetName") || params.get("targetName");
+    if (targetId || targetName) {
+      setActiveTab("equipment");
+      setTimeout(() => {
+        handleScrollToItem({ detail: { id: targetId, name: targetName } });
+      }, 500);
+    }
+
+    return () => window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+  }, [rows]);
+
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!project?.id) return;
+    try {
+      const saved = window.localStorage.getItem(`mep_gen_projects_${project.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.projects) { // New format
+           setProjects(parsed.projects);
+           setCurrentProject(parsed.currentProject || "Default Project");
+           if (parsed.pf) setPf(parsed.pf);
+           if (parsed.lf) setLf(parsed.lf);
+           if (parsed.userSelectedSize) setUserSelectedSize(parsed.userSelectedSize);
+           if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
+           if (parsed.manualOverrides) setManualOverrides(parsed.manualOverrides);
+           
+           if (parsed.projects[parsed.currentProject || "Default Project"]) {
+             pushState(parsed.projects[parsed.currentProject || "Default Project"]);
+           }
+        } else { // Old format fallback
+           setProjects(parsed);
+           if (parsed["Default Project"]) {
+             pushState(parsed["Default Project"]);
+           }
+        }
+      }
+      setTimeout(() => dirtyStore.set(false), 50);
+    } catch {
+      console.error("Failed to load generator sizing data");
+    }
+    setLoadedProjectId(project.id);
+    setIsLoaded(true);
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = {
+        projects,
+        currentProject,
+        pf,
+        lf,
+        userSelectedSize,
+        unitSystem,
+        manualOverrides
+      };
+      window.localStorage.setItem(`mep_gen_projects_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [project?.id, loadedProjectId, projects, currentProject, pf, lf, userSelectedSize, unitSystem, manualOverrides]);
+
+  // Version History Restore Listener
+  useEffect(() => {
+    const handleVersionRestored = (e: any) => {
+      const pKey = `mep_gen_projects_${project?.id || "default"}`;
+      const lsCache = e?.detail?.localStorageCache;
+      let restoredData: any = null;
+      if (lsCache && lsCache[pKey]) {
+        try {
+          restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
+        } catch (err) {}
+      }
+      if (!restoredData) {
+        const stored = localStorage.getItem(pKey);
+        if (stored) {
+          try {
+            restoredData = JSON.parse(stored);
+          } catch (err) {}
+        }
+      }
+      if (restoredData) {
+        if (restoredData.projects) {
+          setProjects(restoredData.projects);
+          const curProj = restoredData.currentProject || "Default Project";
+          setCurrentProject(curProj);
+          if (restoredData.pf !== undefined) setPf(restoredData.pf);
+          if (restoredData.lf !== undefined) setLf(restoredData.lf);
+          if (restoredData.userSelectedSize !== undefined) setUserSelectedSize(restoredData.userSelectedSize);
+          if (restoredData.unitSystem) setUnitSystem(restoredData.unitSystem);
+          if (restoredData.manualOverrides) setManualOverrides(restoredData.manualOverrides);
+          if (restoredData.projects[curProj]) {
+            pushState(restoredData.projects[curProj]);
+          }
+        } else {
+          setProjects(restoredData);
+          if (restoredData["Default Project"]) {
+            pushState(restoredData["Default Project"]);
+          }
+        }
+        toast.success("Generator sizing restored to selected version!");
+      }
+    };
+    window.addEventListener("mep_version_restored", handleVersionRestored as any);
+    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
+  }, [project?.id]);
+
+  const setOverride = (key: string, val: string) => {
+    setManualOverrides((prev) => ({ ...prev, [key]: val }));
+  };
+
+  const clearOverrides = () => {
+    setManualOverrides({});
+  };
+
+  const handleUnitToggle = (newSystem: "si" | "ip") => {
+    if (newSystem === unitSystem) return;
+    setUnitSystem(newSystem);
+    clearOverrides();
+    const newRows = rows.map((r) => {
+      const kw = Number(r.kwPerUnit) || 0;
+      const sb = Number(r.standby) || 0;
+      const em = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
+      const pf = Number(r.powerFail) || 0;
+      return {
+        ...r,
+        kwPerUnit:
+          newSystem === "ip" ? Number((kw / 0.746).toFixed(2)) : Number((kw * 0.746).toFixed(2)),
+        standby:
+          newSystem === "ip" ? Number((sb / 0.746).toFixed(2)) : Number((sb * 0.746).toFixed(2)),
+        emergency:
+          newSystem === "ip" ? Number((em / 0.746).toFixed(2)) : Number((em * 0.746).toFixed(2)),
+        powerFail:
+          newSystem === "ip" ? Number((pf / 0.746).toFixed(2)) : Number((pf * 0.746).toFixed(2)),
+      };
+    });
+    pushState(newRows);
+  };
+
+  const addRow = () => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
+    const newRow: GenRow = {
+      id: `gen_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      desc: "",
+      unit: "",
+      kwPerUnit: "",
+      starter: "DOL",
+      multiplier: STARTER_MULTIPLIERS["DOL"],
+      standby: "",
+      emergency: "",
+      powerFail: "",
+      remark: "",
+    };
+    baseAddRow(newRow);
+  };
+
+  const removeRow = async (id: string) => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
+    baseRemoveRow(id);
+  };
+
+  const updateRow = (id: string, field: keyof GenRow, val: any) => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
+    const targetIds = selectedRows.has(id) ? Array.from(selectedRows) : [id];
+
+    const newRows = rows.map((row) => {
+      if (!targetIds.includes(row.id)) return row;
+
+      const newRow = { ...row, [field]: val };
+
+      if (field === "starter") {
+        newRow.multiplier = STARTER_MULTIPLIERS[val as StarterType] || 1;
+      }
+
+      if (field === "kwPerUnit" || field === "unit" || field === "standby") {
+        const u = Number(newRow.unit) || 0;
+        const kw = Number(newRow.kwPerUnit) || 0;
+        const sb = Number(newRow.standby) || 0;
+        const tc = u * kw;
+        const ac = tc - sb;
+        newRow.emergency = ac > 0 ? ac : "";
+      }
+
+      return newRow;
+    });
+    pushState(newRows);
+  };
+
+  const setPowerFailPercent = (id: string, percentStr: string) => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
+    const percent = parseFloat(percentStr);
+    if (!percent || isNaN(percent)) return;
+
+    const newRows = rows.map((row) => {
+      if (row.id !== id) return row;
+      const u = Number(row.unit) || 0;
+      const kw = Number(row.kwPerUnit) || 0;
+      const sb = Number(row.standby) || 0;
+      const actualKw = u * kw - sb;
+      const emKw = row.excludeEmergency ? 0 : Number(row.emergency);
+      const baseLoad = (!isNaN(emKw) && emKw > 0) ? emKw : (actualKw > 0 ? actualKw : 0);
+      return { ...row, powerFail: parseFloat((baseLoad * (percent / 100)).toFixed(2)) };
+    });
+    pushState(newRows);
+  };
+
+  const clearRows = async () => {
+    if (rows.length === 0) return;
+    if (await confirm("Are you sure you want to clear all loads?")) {
+      pushState([]);
+    }
+  };
+
+  const handleImportExcelRows = (mappedRows: any[]) => {
+    const newGenRows: GenRow[] = mappedRows.map(mr => ({
+      id: `gen_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+      desc: mr.desc || "",
+      unit: mr.unit || "",
+      kwPerUnit: mr.kwPerUnit || "",
+      starter: (mr.starter as StarterType) || "DOL",
+      multiplier: mr.multiplier || "",
+      standby: mr.standby || "",
+      emergency: mr.emergency || "",
+      powerFail: mr.powerFail || "",
+      remark: mr.remark || "",
+    }));
+    pushState([...rows, ...newGenRows]);
+  };
+
+  const deleteSelectedRows = () => {
+    bulkDelete();
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedRowIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/html", e.currentTarget.outerHTML);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedRowIndex === null || draggedRowIndex === index) return;
+
+    const newRows = [...rows];
+    const draggedRow = newRows[draggedRowIndex];
+    newRows.splice(draggedRowIndex, 1);
+    newRows.splice(index, 0, draggedRow);
+
+    setDraggedRowIndex(index);
+    pushState(newRows);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectedRows.size > 0) {
+          e.preventDefault();
+          clearSelection();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedRows, clearSelection]);
+
+  const handleDrop = () => setDraggedRowIndex(null);
+
+  // Calculations
+  const calc = useMemo(() => {
+    let totalAcl = 0;
+    let totalEmergency = 0;
+    let maxStartCur = 0;
+    let largestMotorKw = 0;
+    let largestMotorStarter = "-";
+
+    rows.forEach((r) => {
+      const rKw = Number(r.kwPerUnit) || 0;
+      const rSb = Number(r.standby) || 0;
+      const rEm = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
+      const rUnit = Number(r.unit) || 0;
+      const rMult = Number(r.multiplier) || 0;
+
+      const kwPerUnit = unitSystem === "ip" ? rKw * 0.746 : rKw;
+      const standby = unitSystem === "ip" ? rSb * 0.746 : rSb;
+      const emergency = unitSystem === "ip" ? rEm * 0.746 : rEm;
+
+      const totalKw = rUnit * kwPerUnit;
+      const actualKw = totalKw - standby;
+      totalAcl += actualKw;
+      totalEmergency += emergency;
+
+      const startCur = kwPerUnit * 1.739 * rMult;
+
+      if (startCur > maxStartCur) {
+        maxStartCur = startCur;
+      }
+
+      if (kwPerUnit > largestMotorKw) {
+        largestMotorKw = kwPerUnit;
+        largestMotorStarter = r.starter;
+      }
+    });
+
+    const getEffective = (key: string, computed: number) => {
+      if (manualOverrides[key] !== undefined && manualOverrides[key] !== "") {
+        return parseFloat(manualOverrides[key]) || 0;
+      }
+      return computed;
+    };
+
+    const baseAcl = getEffective("acl", unitSystem === "ip" ? totalAcl / 0.746 : totalAcl);
+    const baseEm = getEffective(
+      "em",
+      unitSystem === "ip" ? totalEmergency / 0.746 : totalEmergency,
+    );
+
+    const aclKw = unitSystem === "ip" ? baseAcl * 0.746 : baseAcl;
+    const emKw = unitSystem === "ip" ? baseEm * 0.746 : baseEm;
+
+    const demandLoadAcl = getEffective("demandAcl", aclKw / pf);
+    const demandLoadEm = getEffective("demandEm", emKw / pf);
+
+    const calcSizeAcl = getEffective("calcAcl", demandLoadAcl / lf);
+    const calcSizeEm = getEffective("calcEm", demandLoadEm / lf);
+
+    const effectiveMaxStart = getEffective("maxStart", maxStartCur);
+
+    const maxCalcSize = Math.max(calcSizeAcl, calcSizeEm);
+    let autoSize: number;
+    const matchingStandard = STANDARD_SIZES.find((size) => size >= maxCalcSize);
+    if (matchingStandard) {
+      autoSize = matchingStandard;
+    } else if (maxCalcSize > 0) {
+      autoSize = Math.ceil(maxCalcSize / 50) * 50;
+    } else {
+      autoSize = STANDARD_SIZES[0] || 5;
+    }
+
+    const selectedSize = userSelectedSize !== null ? userSelectedSize : autoSize;
+
+    return {
+      totalAcl: baseAcl,
+      totalEmergency: baseEm,
+      demandLoadAcl,
+      demandLoadEm,
+      calcSizeAcl,
+      calcSizeEm,
+      autoSize,
+      selectedSize,
+      maxStartCur: effectiveMaxStart,
+      largestMotorKw,
+      largestMotorStarter,
+    };
+  }, [rows, pf, lf, unitSystem, userSelectedSize, manualOverrides]);
+
+  const exportExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Generator Sizing", {
+      views: [{ showGridLines: false }],
+    });
+
+    // Styles
+    const fontNormal = { name: "Cambria", size: 10, bold: false };
+    const fontBold = { name: "Cambria", size: 10, bold: true };
+    const fontTitle = { name: "Cambria", size: 11, bold: true };
+    const alignCenter = { horizontal: "center", vertical: "middle", wrapText: true } as any;
+    const alignLeft = { horizontal: "left", vertical: "middle", wrapText: true } as any;
+    const alignRight = { horizontal: "right", vertical: "middle", wrapText: true } as any;
+
+    const bgGray = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } } as any;
+    const bgYellow = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF00" } } as any;
+    const bgGreen = { type: "pattern", pattern: "solid", fgColor: { argb: "FFC6E0B4" } } as any;
+
+    const borderThin = {
+      top: { style: "thin" },
+      left: { style: "thin" },
+      bottom: { style: "thin" },
+      right: { style: "thin" },
+    } as any;
+
+    // Define columns and widths
+    worksheet.columns = [
+      { width: 8 }, // A: S.NO
+      { width: 40 }, // B: DESCRIPTION
+      { width: 8 }, // C: QTY
+      { width: 12 }, // D: kW / UNIT
+      { width: 15 }, // E: STARTER TYPE
+      { width: 15 }, // F: STARTING CURRENT
+      { width: 12 }, // G: TOTAL
+      { width: 12 }, // H: STANDBY
+      { width: 15 }, // I: ACL
+      { width: 15 }, // J: EMERGENCY
+      { width: 15 }, // K: POWER FAIL
+      { width: 30 }, // L: REMARKS
+    ];
+
+    const setBorder = (cell: any) => {
+      cell.border = borderThin;
+    };
+
+    // --- Top Headers ---
+    worksheet.mergeCells("A1:F1");
+    const r1c1 = worksheet.getCell("A1");
+    r1c1.value = "Calculation No:";
+    r1c1.font = fontBold;
+    r1c1.alignment = alignLeft;
+    setBorder(r1c1);
+
+    worksheet.mergeCells("G1:L1");
+    const r1c2 = worksheet.getCell("G1");
+    r1c2.value = "Date     :";
+    r1c2.font = fontBold;
+    r1c2.alignment = alignLeft;
+    setBorder(r1c2);
+
+    worksheet.mergeCells("A2:F2");
+    const r2c1 = worksheet.getCell("A2");
+    r2c1.value = "Project No   :";
+    r2c1.font = fontBold;
+    r2c1.alignment = alignLeft;
+    setBorder(r2c1);
+
+    worksheet.mergeCells("G2:L2");
+    const r2c2 = worksheet.getCell("G2");
+    r2c2.value = "Client   :";
+    r2c2.font = fontBold;
+    r2c2.alignment = alignLeft;
+    setBorder(r2c2);
+
+    worksheet.mergeCells("A3:F3");
+    const r3c1 = worksheet.getCell("A3");
+    r3c1.value = "Project Name :";
+    r3c1.font = fontBold;
+    r3c1.alignment = alignLeft;
+    setBorder(r3c1);
+
+    worksheet.mergeCells("G3:L3");
+    const r3c2 = worksheet.getCell("G3");
+    r3c2.value = "End User :";
+    r3c2.font = fontBold;
+    r3c2.alignment = alignLeft;
+    setBorder(r3c2);
+
+    // Apply borders to the merged cells properly
+    for (let i = 1; i <= 3; i++) {
+      for (let j = 1; j <= 12; j++) {
+        setBorder(worksheet.getCell(i, j));
+      }
+    }
+
+    // --- Table Headers ---
+    const h1 = worksheet.addRow([
+      "Sr. No.",
+      "Description",
+      "Unit",
+      "kW / UNIT",
+      "Starter Types",
+      "Starting Current",
+      "Total Connected Load",
+      "Total Standby Load",
+      "Actual Connected Load",
+      "Emergency Load",
+      "Power Failure Load",
+      "Remarks",
+    ]);
+    const h2 = worksheet.addRow(["", "", "", "", "", "Amps", "kW", "kW", "kW", "kW", "kW", ""]);
+
+    ["A", "B", "C", "D", "E", "L"].forEach((col) => {
+      worksheet.mergeCells(`${col}4:${col}5`);
+    });
+
+    [h1, h2].forEach((r) => {
+      r.eachCell((cell, colNumber) => {
+        cell.font = fontBold;
+        cell.alignment = alignCenter;
+        setBorder(cell);
+        if (colNumber === 10 || colNumber === 11) {
+          cell.fill = bgYellow;
+        } else {
+          cell.fill = bgGray;
+        }
+      });
+    });
+
+    // Row 6: GENERATOR LOAD - CALCULATION
+    worksheet.mergeCells("A6:L6");
+    const titleRow = worksheet.getCell("A6");
+    titleRow.value = "GENERATOR LOAD - CALCULATION";
+    titleRow.font = fontTitle;
+    titleRow.alignment = alignCenter;
+    setBorder(titleRow);
+    for (let j = 1; j <= 12; j++) setBorder(worksheet.getCell(6, j));
+
+    let rowIndex = 7; // Data starts at row 7
+
+    rows.forEach((r, idx) => {
+      const rUnit = Number(r.unit) || 0;
+      const rKw = Number(r.kwPerUnit) || 0;
+      const rSb = Number(r.standby) || 0;
+      const rMult = Number(r.multiplier) || 1;
+      const startCur = rKw * 1.739 * rMult;
+      const totalKw = rUnit * rKw;
+      const actualKw = totalKw - rSb;
+      const emergency = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
+
+      const row = worksheet.addRow([
+        idx + 1, // A: Sr. No.
+        r.desc, // B: Description
+        rUnit, // C: Unit
+        rKw, // D: kW / UNIT
+        r.starter, // E: Starter Types
+        { formula: `D${rowIndex}*1.739*${rMult}`, result: startCur }, // F: Starting Current
+        { formula: `C${rowIndex}*D${rowIndex}`, result: totalKw }, // G: Total Connected Load
+        rSb, // H: Total Standby Load
+        { formula: `G${rowIndex}-H${rowIndex}`, result: actualKw }, // I: Actual Connected Load
+        emergency, // J: Emergency Load
+        Number(r.powerFail) || 0, // K: Power Failure Load
+        r.remark || "", // L: Remarks
+      ]);
+
+      row.eachCell((cell, colNumber) => {
+        cell.font = fontNormal;
+        setBorder(cell);
+        cell.alignment = colNumber === 2 ? alignLeft : alignCenter;
+        if (colNumber === 10 || colNumber === 11) {
+          cell.fill = bgYellow;
+        }
+      });
+      rowIndex++;
+    });
+
+    // --- Footer Summary ---
+    // Add a blank row space between data and footer
+    rowIndex++;
+
+    const addFooterRow = (
+      title: string,
+      aclVal: any,
+      emVal: any,
+      extra1: string = "",
+      extra2: string = "",
+    ) => {
+      worksheet.mergeCells(`A${rowIndex}:H${rowIndex}`);
+      const titleCell = worksheet.getCell(`A${rowIndex}`);
+      titleCell.value = title;
+      titleCell.alignment = alignRight;
+      titleCell.font = fontNormal;
+      for (let col = 1; col <= 8; col++) setBorder(worksheet.getCell(rowIndex, col));
+
+      const aclCell = worksheet.getCell(`I${rowIndex}`);
+      aclCell.value = aclVal !== null ? aclVal : "";
+      aclCell.alignment = alignCenter;
+      aclCell.font = fontNormal;
+      setBorder(aclCell);
+      if (aclVal !== null) aclCell.fill = bgYellow;
+
+      const emCell = worksheet.getCell(`J${rowIndex}`);
+      emCell.value = emVal !== null ? emVal : "";
+      emCell.alignment = alignCenter;
+      emCell.font = fontNormal;
+      setBorder(emCell);
+      if (emVal !== null) emCell.fill = bgYellow;
+
+      const x1Cell = worksheet.getCell(`K${rowIndex}`);
+      x1Cell.value = extra1;
+      x1Cell.font = fontBold;
+      setBorder(x1Cell);
+
+      const x2Cell = worksheet.getCell(`L${rowIndex}`);
+      x2Cell.value = extra2;
+      x2Cell.font = fontNormal;
+      setBorder(x2Cell);
+
+      rowIndex++;
+    };
+
+    addFooterRow(
+      "Total Actual Connected Load in kW (ACL)",
+      Number(calc.totalAcl.toFixed(2)),
+      Number(calc.totalEmergency.toFixed(2)),
+      "Type of Starter",
+      "Starting current",
+    );
+    worksheet.getCell(`L${rowIndex - 1}`).font = fontBold; // Bold "Starting current"
+
+    addFooterRow(
+      "Consider power factor (PF Lagging)",
+      pf,
+      pf,
+      "Direct On Line (DOL)",
+      "Full load current x 7",
+    );
+    addFooterRow(
+      "Demand load in KVA ( DL = ACL / PF ) kVA",
+      Number(calc.demandLoadAcl.toFixed(2)),
+      Number(calc.demandLoadEm.toFixed(2)),
+      "Star Delta Starter (SD)",
+      "Full load current x 3",
+    );
+    addFooterRow(
+      "Consider 90% loading for standby OR 80% loading for Prime Generators (If Standby DG )",
+      lf,
+      lf,
+      "Variable Frequency Drive (VFD)",
+      "Full load current",
+    );
+    addFooterRow(
+      "Calculated size for DG set ( DL / LF ) kVA",
+      Number(calc.calcSizeAcl.toFixed(2)),
+      Number(calc.calcSizeEm.toFixed(2)),
+    );
+    addFooterRow(
+      "Maximum Starting Current for Motor (Amp)",
+      Number(calc.maxStartCur.toFixed(2)),
+      "",
+    );
+    worksheet.getCell(`J${rowIndex - 1}`).fill = bgYellow; // Make empty emergency cell yellow
+    addFooterRow(
+      "Calculated DG Set Size in kVA",
+      Math.max(calc.calcSizeAcl, calc.calcSizeEm).toFixed(2),
+      "",
+    );
+    worksheet.getCell(`J${rowIndex - 1}`).fill = bgYellow; // Make empty emergency cell yellow
+
+    // Selected size row
+    worksheet.mergeCells(`A${rowIndex}:H${rowIndex}`);
+    const selTitle = worksheet.getCell(`A${rowIndex}`);
+    selTitle.value = "Selected size of DG Set Size in kVA";
+    selTitle.font = fontBold;
+    selTitle.alignment = alignRight;
+    for (let col = 1; col <= 8; col++) {
+      const c = worksheet.getCell(rowIndex, col);
+      setBorder(c);
+      c.fill = bgGray;
+    }
+
+    worksheet.mergeCells(`I${rowIndex}:J${rowIndex}`);
+    const selVal = worksheet.getCell(`I${rowIndex}`);
+    selVal.value = calc.selectedSize;
+    selVal.font = fontBold;
+    selVal.alignment = alignCenter;
+    setBorder(worksheet.getCell(`I${rowIndex}`));
+    setBorder(worksheet.getCell(`J${rowIndex}`));
+    selVal.fill = bgYellow;
+    worksheet.getCell(`J${rowIndex}`).fill = bgYellow;
+
+    worksheet.mergeCells(`K${rowIndex}:L${rowIndex}`);
+    for (let col = 11; col <= 12; col++) {
+      const c = worksheet.getCell(rowIndex, col);
+      setBorder(c);
+      c.fill = bgGray;
+    }
+    rowIndex++;
+
+    
+    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "generator-sizing");
+    const buffer = await workbook.xlsx.writeBuffer();
+    await downloadFile(new Uint8Array(buffer), "Generator_Sizing_Calculation.xlsx", "Excel Document", ["xlsx"]);
+  };
+
+  const exportPdf = () => {
+    try {
+      const doc = new jsPDF("l", "mm", "a4");
+      const primaryFill: [number, number, number] = [217, 217, 217];
+
+      const runAutoTable = (options: any) => {
+        if (typeof autoTable === 'function') {
+          autoTable(doc, options);
+        } else if (typeof (autoTable as any)?.default === 'function') {
+          (autoTable as any).default(doc, options);
+        } else if ((doc as any).autoTable) {
+          (doc as any).autoTable(options);
+        }
+      };
+
+      const headerStartY = addPdfHeader(doc, "Generator Sizing Calculation Report");
+
+      const sizeHeader = unitSystem === "ip" ? "HP /\nUnit" : "kW /\nUnit";
+      const totalHeader = unitSystem === "ip" ? "Total Conn\n(HP)" : "Total Conn\n(kW)";
+      const aclHeader = unitSystem === "ip" ? "Actual Conn\n(HP)" : "Actual Conn\n(kW)";
+      const emHeader = unitSystem === "ip" ? "Emerg\n(HP)" : "Emerg\n(kW)";
+      const pfHeader = unitSystem === "ip" ? "Power Fail\n(HP)" : "Power Fail\n(kW)";
+
+      const getSanitizedVal = (val: any): string => {
+        if (val === undefined || val === null || val === "undefined" || val === "null") return "";
+        return String(val);
+      };
+
+      const tableData = rows.map((r, idx) => {
+        const unit = Number(r.unit) || 0;
+        const kwPerUnit = Number(r.kwPerUnit) || 0;
+        const totalConn = unit * kwPerUnit;
+        const standby = Number(r.standby) || 0;
+        const acl = totalConn - standby;
+        const em = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
+        const pwrFailNum = Number(r.powerFail);
+        const pwrFail = !isNaN(pwrFailNum) && r.powerFail !== "" && r.powerFail !== null && r.powerFail !== undefined
+          ? pwrFailNum.toFixed(2)
+          : (r.powerFail ? String(r.powerFail) : "0.00");
+        const mult = Number(r.multiplier) || 1;
+        const startCur = kwPerUnit * 1.739 * mult;
+
+        const remarkVal = r.remark || (r as any).remarks || "";
+
+        return [
+          idx + 1,
+          getSanitizedVal(r.desc),
+          unit.toString(),
+          kwPerUnit.toFixed(2),
+          getSanitizedVal(r.starter || "DOL"),
+          startCur.toFixed(2),
+          totalConn.toFixed(2),
+          standby.toFixed(2),
+          acl.toFixed(2),
+          em.toFixed(2),
+          pwrFail,
+          getSanitizedVal(remarkVal)
+        ];
+      });
+
+      // Dynamic Column Widths (Printable width: 269mm)
+      // Col 0: Sr. No (12mm), Col 1: Description (45mm), Col 11: Remarks (28mm)
+      // Remaining 9 numerical cols (269 - 12 - 45 - 28) / 9 = 20.44mm each
+      const columnStyles: Record<number, any> = {
+        0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
+        1: { cellWidth: 45, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
+        2: { cellWidth: 20.44, halign: "center" },
+        3: { cellWidth: 20.44, halign: "center" },
+        4: { cellWidth: 20.44, halign: "center" },
+        5: { cellWidth: 20.44, halign: "center" },
+        6: { cellWidth: 20.44, halign: "center" },
+        7: { cellWidth: 20.44, halign: "center" },
+        8: { cellWidth: 20.44, halign: "center" },
+        9: { cellWidth: 20.44, halign: "center" },
+        10: { cellWidth: 20.44, halign: "center" },
+        11: { cellWidth: 28, halign: "center" }
+      };
+
+      runAutoTable({
+        head: [["Sr. No.", "Description", "Unit", sizeHeader, "Starter\nTypes", "Start Cur\n(A)", totalHeader, "Standby", aclHeader, emHeader, pfHeader, "Remarks"]],
+        body: tableData,
+        startY: headerStartY + 4,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 7.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+          minCellHeight: 8.5
+        },
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 7.5,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.0, right: 1.0 },
+          minCellHeight: 8.5
+        },
+        bodyStyles: {
+          fontSize: 7.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
+          minCellHeight: 8.5
+        },
+        columnStyles: columnStyles,
+        margin: { left: 14, right: 14 }
+      });
+
+      const finalY1 = (doc as any).lastAutoTable?.finalY || (headerStartY + 30);
+
+      // Summary Table matching Excel Export (Spanning full 269mm width)
+      const pfVal = Number(pf) || 0.8;
+      const lfVal = Number(lf) || 0.9;
+      const dgTypeStr = "Standby DG";
+
+      const summaryHead = [["Summary Calculation Parameter", "Connected Load (kW)", "Emergency Load (kW)"]];
+      const summaryBody = [
+        ["Total Actual Connected Load in kW (ACL)", calc.totalAcl.toFixed(2), calc.totalEmergency.toFixed(2)],
+        ["Consider power factor (PF Lagging)", pfVal.toFixed(2), pfVal.toFixed(2)],
+        ["Demand load in kVA (DL = ACL / PF)", calc.demandLoadAcl.toFixed(2), calc.demandLoadEm.toFixed(2)],
+        [`Consider loading factor (${dgTypeStr})`, `${(lfVal * 100).toFixed(0)}%`, `${(lfVal * 100).toFixed(0)}%`],
+        ["Calculated size for DG set (DL / LF) kVA", calc.calcSizeAcl.toFixed(2), calc.calcSizeEm.toFixed(2)],
+        ["Maximum Starting Current for Motor (Amp)", calc.maxStartCur.toFixed(2), "-"],
+        ["Calculated DG Set Size in kVA", Math.max(calc.calcSizeAcl, calc.calcSizeEm).toFixed(2), "-"],
+      ];
+
+      runAutoTable({
+        head: summaryHead,
+        body: summaryBody,
+        startY: finalY1 + 6,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.0,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 2.0, right: 2.0 },
+          minCellHeight: 8.5
+        },
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.0,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.0, bottom: 3.0, left: 2.0, right: 2.0 },
+          minCellHeight: 8.5
+        },
+        columnStyles: {
+          0: { cellWidth: 149, fontStyle: "bold", halign: "left", cellPadding: { left: 3.5, right: 2.0, top: 3.0, bottom: 3.0 } },
+          1: { cellWidth: 60, halign: "center" },
+          2: { cellWidth: 60, halign: "center" },
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      const finalY2 = (doc as any).lastAutoTable?.finalY || (finalY1 + 45);
+
+      // Yellow Callout Box for Selected Size (Spanning full 269mm width)
+      doc.setFillColor(254, 240, 138); // Yellow-200
+      doc.setDrawColor(234, 179, 8); // Yellow-600
+      doc.roundedRect(14, finalY2 + 5, 269, 12, 2, 2, "FD");
+      doc.setFontSize(9.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(161, 98, 7);
+      doc.text(`SELECTED SIZE OF DG SET: ${calc.selectedSize} kVA`, 18, finalY2 + 12.5);
+
+      // Add Signature Block matching Full Page Width (269mm)
+      const sigFinalY = finalY2 + 23;
+      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(project?.id || "default", "generator-sizing", currentUserName);
+
+      runAutoTable({
+        startY: sigFinalY,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        headStyles: {
+          fillColor: [255, 230, 204],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        bodyStyles: {
+          fontSize: 8.5,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
+          minCellHeight: 9.0
+        },
+        head: [
+          [
+            { content: "" },
+            { content: "Originated by" },
+            { content: "Reviewed by" },
+            { content: "Approved by" }
+          ]
+        ],
+        body: [
+          [
+            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedName, styles: { halign: "center" } },
+            { content: reviewerName, styles: { halign: "center" } },
+            { content: approverName, styles: { halign: "center" } }
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate, styles: { halign: "center" } },
+            { content: reviewerDate, styles: { halign: "center" } },
+            { content: approverDate, styles: { halign: "center" } }
+          ]
+        ],
+        columnStyles: {
+          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
+          1: { cellWidth: 77, halign: "center" },
+          2: { cellWidth: 77, halign: "center" },
+          3: { cellWidth: 77, halign: "center" }
+        }
+      });
+
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), "Generator_Sizing_Calculation.pdf", "PDF Document", ["pdf"]);
+      toast.success("Generator sizing PDF exported successfully!");
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+      toast.error("Failed to export Generator sizing PDF.");
+    }
+  };
+
+  const duplicateRow = (id: string) => {
+    const rowToDup = rows.find((r) => r.id === id);
+    if (!rowToDup) return;
+    const newRow = { ...rowToDup, id: `gen_${Date.now()}_${Math.floor(Math.random() * 1000)}` };
+    const rowIndex = rows.findIndex((r) => r.id === id);
+    const newRows = [...rows];
+    newRows.splice(rowIndex + 1, 0, newRow);
+    pushState(newRows);
+  };
+
+  const createNewProject = async () => {
+    const name = await prompt("Enter new project name:", "", { title: "New Project" });
+    if (name && !projects[name]) {
+      setProjects((p) => ({ ...p, [name]: [] }));
+      setCurrentProject(name);
+      pushState([]);
+    }
+  };
+
+  const displayRows = useMemo(() => {
+    let result = rows || [];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(r => (r.desc || "").toLowerCase().includes(q) || (r.remark || "").toLowerCase().includes(q));
+    }
+
+    if (showFlaggedOnly) {
+      result = result.filter(r => getGenRowValidation(r).isFlagged);
+    }
+
+    if (filterStarter !== "all") {
+      result = result.filter(r => r.starter === filterStarter);
+    }
+
+    if (filterEmergency === "emergency") {
+      result = result.filter(r => !r.excludeEmergency);
+    } else if (filterEmergency === "excluded") {
+      result = result.filter(r => r.excludeEmergency);
+    }
+
+    if (sortBy === "desc") {
+      result = [...result].sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
+    } else if (sortBy === "kw") {
+      result = [...result].sort((a, b) => (Number(b.kwPerUnit) || 0) - (Number(a.kwPerUnit) || 0));
+    }
+
+    return result;
+  }, [rows, searchQuery, showFlaggedOnly, filterStarter, filterEmergency, sortBy]);
+
+  return (
+    <AppShell
+      title="Generator Sizing"
+      subtitle="Calculate DG set size based on connected and emergency loads"
+    >
+      
+      <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
+        {/* Subtle Grid Background */}
+        <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
+        <div className="relative z-10 flex flex-col h-full w-full">
+          {/* Sections Navigation (Tabs) */}
+          <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between gap-3">
             <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
               <button
                 type="button"

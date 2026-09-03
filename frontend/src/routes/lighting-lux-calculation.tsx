@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1022,11 +1022,7 @@ function LightingLuxCalculationPage() {
       subtitle="Design and calculate lighting levels for different spaces"
       actions={
         <div className="flex items-center gap-2">
-      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Lighting Lux Calculation Calculations</div>
-        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/lighting-lux-calculation" calculatorTitle="Lighting Lux Calculation" />
-      </div>
-          
+          <CalculationReviewBar calculatorPath="/lighting-lux-calculation" calculatorTitle="Lighting LUX Calculation" />
           <ImportExcelBtn
             columnMapping={{
               "Location": "location",

@@ -331,8 +331,6 @@ function CompanyHierarchyPage() {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<HierarchyUser | null>(null);
-  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   // Form State
   const [formName, setFormName] = useState("");
@@ -375,12 +373,10 @@ function CompanyHierarchyPage() {
     }
   };
 
-  const handleConfirmClearAll = () => {
-    if (deleteConfirmText.trim().toUpperCase() === "DELETE") {
+  const handleClearAllHierarchy = () => {
+    if (confirm("Are you sure you want to delete the entire hierarchy? You can create a new hierarchy anytime.")) {
       saveHierarchy([]);
-      setIsClearModalOpen(false);
-      setDeleteConfirmText("");
-      toast.success("Organization hierarchy has been cleared.");
+      toast.success("All hierarchy data has been deleted.");
     }
   };
 
@@ -595,6 +591,43 @@ function CompanyHierarchyPage() {
     <AppShell 
       title="Company Hierarchy" 
       subtitle={currentRole === "ORG_ADMIN" ? "Organization Admin & Team Hierarchy Builder" : "Super Admin & Organization Hierarchy Builder"}
+      actions={
+        <div className="flex items-center gap-2">
+          {visibleMembers.length === 0 ? (
+            <button
+              onClick={handleCreateOrgHierarchy}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer animate-pulse"
+            >
+              <Sparkles className="size-3.5" /> Create Hierarchy
+            </button>
+          ) : (
+            <button
+              onClick={handleCreateOrgHierarchy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 text-xs font-bold transition-all cursor-pointer"
+              title="Generate / re-apply standard hierarchy structure"
+            >
+              <Sparkles className="size-3.5" /> Create Hierarchy
+            </button>
+          )}
+
+          <button
+            onClick={() => handleOpenAddModal(null)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs cursor-pointer"
+          >
+            <UserPlus className="size-3.5" /> Add Member
+          </button>
+
+          <button
+            onClick={() => {
+              saveHierarchy([...members]);
+              toast.success("Company hierarchy configuration saved!");
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-surface-2 border border-border text-foreground hover:bg-surface-3 text-xs font-bold transition-all cursor-pointer"
+          >
+            <Save className="size-3.5 text-primary" /> Save Changes
+          </button>
+        </div>
+      }
     >
       <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-50/40 dark:bg-zinc-950/20 overflow-y-auto custom-scrollbar p-6 space-y-6">
         
@@ -652,24 +685,28 @@ function CompanyHierarchyPage() {
             </div>
 
             <button
-              onClick={() => handleOpenAddModal(null)}
-              className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-all shadow-xs cursor-pointer shrink-0"
-              title="Add Team Member"
-              aria-label="Add Team Member"
+              onClick={handleCreateOrgHierarchy}
+              className="px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-full transition-all cursor-pointer flex items-center gap-1"
+              title="Create new hierarchy structure"
             >
-              <UserPlus className="size-4" />
+              <Sparkles className="size-3.5" /> Create Hierarchy
+            </button>
+
+            <button
+              onClick={handleResetDefault}
+              className="px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground border border-border rounded-full hover:bg-surface-2 transition-all cursor-pointer"
+              title="Reset to default organization structure"
+            >
+              <RefreshCw className="size-3.5 inline mr-1" /> Reset
             </button>
 
             {visibleMembers.length > 0 && (
               <button
-                onClick={() => {
-                  setDeleteConfirmText("");
-                  setIsClearModalOpen(true);
-                }}
-                className="px-3.5 py-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:bg-rose-500/10 rounded-full transition-all cursor-pointer flex items-center gap-1.5"
+                onClick={handleClearAllHierarchy}
+                className="px-3 py-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:bg-rose-500/10 rounded-full transition-all cursor-pointer"
                 title="Clear all hierarchy data"
               >
-                <Trash2 className="size-3.5" /> Clear All
+                <Trash2 className="size-3.5 inline mr-1" /> Clear All
               </button>
             )}
           </div>
@@ -1034,60 +1071,6 @@ function CompanyHierarchyPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* CLEAR ALL CONFIRMATION MODAL */}
-      {isClearModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-start gap-4">
-              <div className="size-12 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
-                <ShieldAlert className="size-6" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-base font-bold text-foreground">Clear Entire Hierarchy?</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Are you sure you want to delete all team members and reset your organization hierarchy? This action cannot be undone.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2 bg-rose-500/5 border border-rose-500/20 p-3.5 rounded-2xl">
-              <label className="text-xs font-semibold text-foreground block">
-                To confirm, please type <span className="font-mono font-bold text-rose-600 dark:text-rose-400">DELETE</span> below:
-              </label>
-              <input
-                type="text"
-                placeholder="DELETE"
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                autoFocus
-                className="w-full bg-surface-2 border border-border/80 focus:border-rose-500 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold outline-none uppercase tracking-wider text-foreground placeholder:text-muted-foreground/50"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border/60">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsClearModalOpen(false);
-                  setDeleteConfirmText("");
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-surface-2 transition-all cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deleteConfirmText.trim().toUpperCase() !== "DELETE"}
-                onClick={handleConfirmClearAll}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
-              >
-                <Trash2 className="size-3.5" /> Clear Hierarchy
-              </button>
-            </div>
           </div>
         </div>
       )}

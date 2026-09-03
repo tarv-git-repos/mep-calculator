@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -677,10 +677,6 @@ function CentralBatterySizingPage() {
       title="Central Battery Sizing" 
       hideSubHeader={true}
     >
-      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
-        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Central Battery Sizing Calculations</div>
-        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/central-battery-sizing" calculatorTitle="Central Battery Sizing" />
-      </div>
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6">
           
@@ -694,7 +690,7 @@ function CentralBatterySizingPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Central Battery Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} areas</span>
                 </div>
-                
+                <CalculationReviewBar calculatorPath="/central-battery-sizing" calculatorTitle="Central Battery Sizing" />
               </div>
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
