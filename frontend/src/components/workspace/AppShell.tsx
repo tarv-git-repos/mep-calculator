@@ -554,15 +554,57 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return [];
   });
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const uId = userData?.id || profile?.id;
+      if (uId) {
+        try {
+          const saved1 = localStorage.getItem("mep_deleted_notif_ids");
+          const list1 = saved1 ? JSON.parse(saved1) : [];
+          const saved2 = localStorage.getItem(`mep_deleted_notif_ids_${uId}`);
+          const list2 = saved2 ? JSON.parse(saved2) : [];
+          setDeletedNotifIds(Array.from(new Set([...list1, ...list2])));
+
+          const savedComp = localStorage.getItem("mep_completed_notif_ids");
+          if (savedComp) setCompletedNotifIds(JSON.parse(savedComp));
+
+          const savedRead = localStorage.getItem("mep_read_notif_ids");
+          if (savedRead) setReadNotifIds(JSON.parse(savedRead));
+        } catch (e) {}
+      }
+    }
+  }, [userData?.id, profile?.id]);
+
   const markNotifAsRead = (id: string) => {
+    if (!id) return;
+    const notif = myNotifications.find((n: any) => n.id === id);
+    const notifText = notif?.text || "";
+    const targetId = notif?.targetId || "";
+
+    const keysToMark = Array.from(new Set([
+      id,
+      notifText,
+      targetId ? `${targetId}_${notifText}` : null,
+      targetId && notif?.timestamp ? `notif_${targetId}_${notif.timestamp}` : null,
+      targetId && notif?.timestamp ? `${targetId}_${notif.timestamp}` : null
+    ].filter(Boolean) as string[]));
+
+    workspaceStore.markCommentReadInWorkspace(keysToMark);
+
     setReadNotifIds(prev => {
-      if (prev.includes(id)) return prev;
-      const updated = [...prev, id];
+      const set = new Set([...prev, ...keysToMark]);
+      const updated = Array.from(set);
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_read_notif_ids", JSON.stringify(updated));
       }
       return updated;
     });
+
+    fetch("/api/notifications/read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: keysToMark })
+    }).catch(() => null);
   };
 
   const deleteNotification = (id: string, e?: React.MouseEvent) => {
@@ -572,9 +614,75 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
     if (!id) return;
 
-    // 0. Update persistent notifications state & storage
+    // Collect ALL matching notifications from myNotifications and persistentNotifs
+    const matchingNotifs = [
+      ...(myNotifications || []),
+      ...(persistentNotifs || [])
+    ].filter((n: any) => {
+      if (!n) return false;
+      return (
+        n.id === id ||
+        n.text === id ||
+        n.message === id ||
+        n.metadata?.id === id ||
+        n.metadata?.targetId === id ||
+        (n.targetId && n.text && `${n.targetId}_${n.text}` === id)
+      );
+    });
+
+    const keysToDeleteSet = new Set<string>();
+    keysToDeleteSet.add(id);
+
+    // Add all aliases from matching notifications
+    const processNotifItem = (notif: any) => {
+      if (!notif) return;
+      if (notif.id) keysToDeleteSet.add(notif.id);
+      if (notif.text) keysToDeleteSet.add(notif.text);
+      if (notif.message) keysToDeleteSet.add(notif.message);
+      if (notif.targetId) keysToDeleteSet.add(notif.targetId);
+      if (notif.timestamp) keysToDeleteSet.add(notif.timestamp);
+      if (notif.createdAt) keysToDeleteSet.add(notif.createdAt);
+
+      if (notif.metadata) {
+        if (notif.metadata.id) keysToDeleteSet.add(notif.metadata.id);
+        if (notif.metadata.targetId) keysToDeleteSet.add(notif.metadata.targetId);
+        if (notif.metadata.text) keysToDeleteSet.add(notif.metadata.text);
+      }
+
+      const notifText = notif.text || notif.message || notif.metadata?.text || "";
+      const targetId = notif.targetId || notif.metadata?.targetId || "";
+      const timestamp = notif.timestamp || notif.createdAt || "";
+
+      if (targetId && notifText) {
+        keysToDeleteSet.add(`${targetId}_${notifText}`);
+      }
+      if (targetId && timestamp) {
+        keysToDeleteSet.add(`notif_${targetId}_${timestamp}`);
+        keysToDeleteSet.add(`${targetId}_${timestamp}`);
+      }
+    };
+
+    matchingNotifs.forEach(processNotifItem);
+
+    // Fallback lookup if id wasn't directly in array
+    const fallbackNotif = (myNotifications || []).find((n: any) => n && n.id === id);
+    if (fallbackNotif) processNotifItem(fallbackNotif);
+
+    const keysToDelete = Array.from(keysToDeleteSet);
+
+    // 0. Update active in-memory workspace store
+    workspaceStore.deleteCommentFromWorkspace(keysToDelete);
+
+    // 1. Update persistent notifications state & storage
     setPersistentNotifs(prev => {
-      const updated = prev.filter((n: any) => n.id !== id);
+      const updated = prev.filter((n: any) => {
+        if (!n) return false;
+        if (keysToDelete.includes(n.id)) return false;
+        if (n.text && keysToDelete.includes(n.text)) return false;
+        if (n.message && keysToDelete.includes(n.message)) return false;
+        if (n.metadata?.id && keysToDelete.includes(n.metadata.id)) return false;
+        return true;
+      });
       if (typeof window !== "undefined") {
         const uId = userId || userData?.id;
         const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
@@ -583,9 +691,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return updated;
     });
 
-    // 1. Update state & localStorage permanently
+    // 2. Update state & localStorage permanently with ALL matching keys
     setDeletedNotifIds(prev => {
-      const updated = Array.from(new Set([...prev, id]));
+      const updated = Array.from(new Set([...prev, ...keysToDelete]));
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
         if (userId) {
@@ -595,23 +703,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return updated;
     });
 
-    // 2. Remove from LocalStorage caches (coord & rejection notifs)
-    if (typeof localStorage !== "undefined") {
-      ['mep_calc_coord_notifs', 'mep_calc_rejection_notifs'].forEach(key => {
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-              const filtered = parsed.filter((n: any) => n.id !== id);
-              localStorage.setItem(key, JSON.stringify(filtered));
-            }
-          } catch(err) {}
-        }
-      });
-    }
+    // 3. Send backend delete request
+    fetch("/api/notifications/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: keysToDelete })
+    }).catch(() => null);
 
-    // 3. Remove from ALL projects' workspace_data on backend DB and state
+    // 4. Remove comment from ALL projects' workspace_data on backend DB and state
     const allProjects = useWorkspace.getState().projects || [];
     allProjects.forEach(proj => {
       if (proj.workspace_data) {
@@ -622,17 +721,62 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         }
         const updatedWdata = { ...wdata };
 
-        if (Array.isArray(wdata.rejection_notifs) && wdata.rejection_notifs.some((n: any) => n.id === id)) {
-          updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => n.id !== id);
-          changed = true;
+        const removeCommentFromList = (list: any[]) => {
+          if (!Array.isArray(list)) return list;
+          return list.map((item: any) => {
+            if (Array.isArray(item.comments)) {
+              const nextComments = item.comments.filter((c: any) => {
+                if (!c) return false;
+                const isMatch = Boolean(
+                  keysToDelete.includes(c.id) ||
+                  keysToDelete.includes(c.text) ||
+                  (c.timestamp && keysToDelete.includes(`notif_${item.id}_${c.timestamp}`)) ||
+                  (c.timestamp && keysToDelete.includes(`${item.id}_${c.timestamp}`)) ||
+                  (c.text && keysToDelete.includes(`${item.id}_${c.text}`)) ||
+                  (c.metadata?.id && keysToDelete.includes(c.metadata.id)) ||
+                  c.deleted === true
+                );
+                if (isMatch) changed = true;
+                return !isMatch;
+              });
+              return { ...item, comments: nextComments };
+            }
+            return item;
+          });
+        };
+
+        if (updatedWdata.spaces) updatedWdata.spaces = removeCommentFromList(updatedWdata.spaces);
+        if (updatedWdata.zones) updatedWdata.zones = removeCommentFromList(updatedWdata.zones);
+        if (updatedWdata.equipment) updatedWdata.equipment = removeCommentFromList(updatedWdata.equipment);
+        if (updatedWdata.pcl_rows) updatedWdata.pcl_rows = removeCommentFromList(updatedWdata.pcl_rows);
+        if (updatedWdata.sprinklers) updatedWdata.sprinklers = removeCommentFromList(updatedWdata.sprinklers);
+        if (updatedWdata.sprinkler_rows) updatedWdata.sprinkler_rows = removeCommentFromList(updatedWdata.sprinkler_rows);
+
+        if (Array.isArray(wdata.notifications)) {
+          const origLen = wdata.notifications.length;
+          updatedWdata.notifications = wdata.notifications.filter((n: any) => 
+            !keysToDelete.includes(n.id) && 
+            !keysToDelete.includes(n.text) &&
+            !keysToDelete.includes(n.message) &&
+            !(n.metadata?.id && keysToDelete.includes(n.metadata.id))
+          );
+          if (updatedWdata.notifications.length !== origLen) changed = true;
         }
-        if (Array.isArray(wdata.coord_notifs) && wdata.coord_notifs.some((n: any) => n.id === id)) {
-          updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => n.id !== id);
-          changed = true;
+
+        if (Array.isArray(wdata.rejection_notifs)) {
+          const origLen = wdata.rejection_notifs.length;
+          updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => !keysToDelete.includes(n.id));
+          if (updatedWdata.rejection_notifs.length !== origLen) changed = true;
         }
-        if (Array.isArray(wdata.task_completion_notifs) && wdata.task_completion_notifs.some((n: any) => n.id === id)) {
-          updatedWdata.task_completion_notifs = wdata.task_completion_notifs.filter((n: any) => n.id !== id);
-          changed = true;
+        if (Array.isArray(wdata.coord_notifs)) {
+          const origLen = wdata.coord_notifs.length;
+          updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => !keysToDelete.includes(n.id));
+          if (updatedWdata.coord_notifs.length !== origLen) changed = true;
+        }
+        if (Array.isArray(wdata.task_completion_notifs)) {
+          const origLen = wdata.task_completion_notifs.length;
+          updatedWdata.task_completion_notifs = wdata.task_completion_notifs.filter((n: any) => !keysToDelete.includes(n.id));
+          if (updatedWdata.task_completion_notifs.length !== origLen) changed = true;
         }
 
         if (changed) {
@@ -641,6 +785,50 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         }
       }
     });
+
+    // 5. Purge comment from ALL localStorage calculation stores
+    if (typeof localStorage !== "undefined") {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (
+          k.startsWith("mep_spaces_") ||
+          k.startsWith("mep_pcl_rows_") ||
+          k.startsWith("mep_sprinklers_") ||
+          k.startsWith("mep_sprinkler_rows_") ||
+          k.startsWith("mep_loading_unit_calc_") ||
+          k.startsWith("mep_busbar_calc_") ||
+          k.startsWith("mep_gen_projects_") ||
+          k.startsWith("mep_cable_tray_")
+        )) {
+          try {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const data = JSON.parse(raw);
+              let modified = false;
+              if (Array.isArray(data)) {
+                data.forEach((item: any) => {
+                  if (Array.isArray(item.comments)) {
+                    const filtered = item.comments.filter((c: any) => {
+                      if (!c) return false;
+                      const isMatch = Boolean(
+                        keysToDelete.includes(c.id) ||
+                        keysToDelete.includes(c.text) ||
+                        (c.timestamp && keysToDelete.includes(`notif_${item.id}_${c.timestamp}`)) ||
+                        (c.timestamp && keysToDelete.includes(`${item.id}_${c.timestamp}`))
+                      );
+                      if (isMatch) modified = true;
+                      return !isMatch;
+                    });
+                    item.comments = filtered;
+                  }
+                });
+                if (modified) localStorage.setItem(k, JSON.stringify(data));
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
   };
 
   const clearAllNotifications = (e?: React.MouseEvent) => {
@@ -648,10 +836,47 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.preventDefault();
       e.stopPropagation();
     }
-    const allIds = myNotifications.map((n: any) => n.id).filter(Boolean);
-    if (allIds.length === 0) return;
+    const keysToDeleteSet = new Set<string>();
 
-    // 0. Clear persistent notifications store
+    const processItem = (n: any) => {
+      if (!n) return;
+      if (n.id) keysToDeleteSet.add(n.id);
+      if (n.text) keysToDeleteSet.add(n.text);
+      if (n.message) keysToDeleteSet.add(n.message);
+      if (n.targetId) keysToDeleteSet.add(n.targetId);
+      if (n.timestamp) keysToDeleteSet.add(n.timestamp);
+      if (n.createdAt) keysToDeleteSet.add(n.createdAt);
+
+      if (n.metadata) {
+        if (n.metadata.id) keysToDeleteSet.add(n.metadata.id);
+        if (n.metadata.targetId) keysToDeleteSet.add(n.metadata.targetId);
+        if (n.metadata.text) keysToDeleteSet.add(n.metadata.text);
+      }
+
+      const nText = n.text || n.message || n.metadata?.text || "";
+      const nTargetId = n.targetId || n.metadata?.targetId || "";
+      const nTimestamp = n.timestamp || n.createdAt || "";
+
+      if (nTargetId && nText) {
+        keysToDeleteSet.add(`${nTargetId}_${nText}`);
+      }
+      if (nTargetId && nTimestamp) {
+        keysToDeleteSet.add(`notif_${nTargetId}_${nTimestamp}`);
+        keysToDeleteSet.add(`${nTargetId}_${nTimestamp}`);
+      }
+    };
+
+    (myNotifications || []).forEach(processItem);
+    (persistentNotifs || []).forEach(processItem);
+
+    const keysToDelete = Array.from(keysToDeleteSet);
+
+    if (keysToDelete.length === 0) return;
+
+    // 0. Instantly clear active workspace store comments
+    workspaceStore.clearAllCommentsFromWorkspace();
+
+    // 1. Clear persistent notifications store
     setPersistentNotifs([]);
     if (typeof window !== "undefined") {
       const uId = userId || userData?.id;
@@ -659,9 +884,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       localStorage.removeItem(key);
     }
 
-    // 1. Update state & localStorage permanently
+    // 2. Update state & localStorage permanently
     setDeletedNotifIds(prev => {
-      const updated = Array.from(new Set([...prev, ...allIds]));
+      const updated = Array.from(new Set([...prev, ...keysToDelete]));
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
         if (userId) {
@@ -671,7 +896,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return updated;
     });
 
-    // 2. Clear LocalStorage notification caches
+    // 3. Notify backend to clear
+    fetch("/api/notifications/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: keysToDelete })
+    }).catch(() => null);
+
+    // 4. Clear LocalStorage notification caches
     if (typeof localStorage !== "undefined") {
       ['mep_calc_coord_notifs', 'mep_calc_rejection_notifs'].forEach(key => {
         const saved = localStorage.getItem(key);
@@ -679,7 +911,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           try {
             const parsed = JSON.parse(saved);
             if (Array.isArray(parsed)) {
-              const filtered = parsed.filter((n: any) => !allIds.includes(n.id));
+              const filtered = parsed.filter((n: any) => !keysToDelete.includes(n.id) && !keysToDelete.includes(n.text));
               localStorage.setItem(key, JSON.stringify(filtered));
             }
           } catch(err) {}
@@ -687,7 +919,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       });
     }
 
-    // 3. Purge from ALL projects' workspace_data on backend DB and state
+    // 5. Purge from ALL projects' workspace_data on backend DB and state
     const allProjects = useWorkspace.getState().projects || [];
     allProjects.forEach(proj => {
       if (proj.workspace_data) {
@@ -698,18 +930,27 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         }
         const updatedWdata = { ...wdata };
 
-        if (Array.isArray(wdata.rejection_notifs) && wdata.rejection_notifs.some((n: any) => allIds.includes(n.id))) {
-          updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => !allIds.includes(n.id));
-          changed = true;
-        }
-        if (Array.isArray(wdata.coord_notifs) && wdata.coord_notifs.some((n: any) => allIds.includes(n.id))) {
-          updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => !allIds.includes(n.id));
-          changed = true;
-        }
-        if (Array.isArray(wdata.task_completion_notifs) && wdata.task_completion_notifs.some((n: any) => allIds.includes(n.id))) {
-          updatedWdata.task_completion_notifs = wdata.task_completion_notifs.filter((n: any) => !allIds.includes(n.id));
-          changed = true;
-        }
+        const removeAllComments = (list: any[]) => {
+          if (!Array.isArray(list)) return list;
+          return list.map((item: any) => {
+            if (Array.isArray(item.comments) && item.comments.length > 0) {
+              changed = true;
+              return { ...item, comments: [] };
+            }
+            return item;
+          });
+        };
+
+        if (updatedWdata.spaces) updatedWdata.spaces = removeAllComments(updatedWdata.spaces);
+        if (updatedWdata.zones) updatedWdata.zones = removeAllComments(updatedWdata.zones);
+        if (updatedWdata.equipment) updatedWdata.equipment = removeAllComments(updatedWdata.equipment);
+        if (updatedWdata.pcl_rows) updatedWdata.pcl_rows = removeAllComments(updatedWdata.pcl_rows);
+        if (updatedWdata.sprinklers) updatedWdata.sprinklers = removeAllComments(updatedWdata.sprinklers);
+        if (updatedWdata.sprinkler_rows) updatedWdata.sprinkler_rows = removeAllComments(updatedWdata.sprinkler_rows);
+
+        if (Array.isArray(wdata.rejection_notifs)) { updatedWdata.rejection_notifs = []; changed = true; }
+        if (Array.isArray(wdata.coord_notifs)) { updatedWdata.coord_notifs = []; changed = true; }
+        if (Array.isArray(wdata.task_completion_notifs)) { updatedWdata.task_completion_notifs = []; changed = true; }
 
         if (changed) {
           api.saveWorkspace(proj.id, updatedWdata).catch(console.error);
@@ -730,17 +971,36 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const currentUserName = userData?.name || profile?.name || "Design Engineer";
     const currentUserEmail = userData?.email || profile?.email || myEmail;
     const currentUserId = userId || userData?.id;
+    const notifText = notif.text || "";
+    const targetId = notif.targetId || "";
+
+    const keysToMark = Array.from(new Set([
+      notif.id,
+      notifText,
+      targetId ? `${targetId}_${notifText}` : null,
+      targetId && notif.timestamp ? `notif_${targetId}_${notif.timestamp}` : null,
+      targetId && notif.timestamp ? `${targetId}_${notif.timestamp}` : null
+    ].filter(Boolean) as string[]));
+
+    // 0. Update active in-memory workspace store
+    workspaceStore.markCommentCompletedInWorkspace(keysToMark);
+
+    setCompletedNotifIds(prev => {
+      const set = new Set([...prev, ...keysToMark]);
+      const updated = Array.from(set);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("mep_completed_notif_ids", JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     if (notif.id) {
-      setCompletedNotifIds(prev => {
-        const set = new Set([...prev, notif.id]);
-        const updated = Array.from(set);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("mep_completed_notif_ids", JSON.stringify(updated));
-        }
-        return updated;
-      });
       markNotifAsRead(notif.id);
+      fetch("/api/notifications/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: keysToMark })
+      }).catch(() => null);
     }
 
     const targetProjId = notif.projectId || project?.id;
@@ -755,23 +1015,28 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
       const updatedWdata = { ...wdata };
 
-      const removeCommentFromList = (list: any[]) => {
+      const markCommentCompleted = (list: any[]) => {
         if (!Array.isArray(list)) return list;
         return list.map((item: any) => {
-          if (item.id === notif.targetId && Array.isArray(item.comments)) {
-            const nextComments = item.comments.filter((c: any) => c.id !== notif.id && c.text !== notif.text);
+          if (Array.isArray(item.comments)) {
+            const nextComments = item.comments.map((c: any) => {
+              if (c.id === notif.id || `notif_${item.id}_${c.timestamp}` === notif.id || c.text === notifText || keysToMark.includes(c.id) || keysToMark.includes(c.text)) {
+                return { ...c, completed: true, read: true };
+              }
+              return c;
+            });
             return { ...item, comments: nextComments };
           }
           return item;
         });
       };
 
-      if (updatedWdata.spaces) updatedWdata.spaces = removeCommentFromList(updatedWdata.spaces);
-      if (updatedWdata.zones) updatedWdata.zones = removeCommentFromList(updatedWdata.zones);
-      if (updatedWdata.equipment) updatedWdata.equipment = removeCommentFromList(updatedWdata.equipment);
-      if (updatedWdata.pcl_rows) updatedWdata.pcl_rows = removeCommentFromList(updatedWdata.pcl_rows);
-      if (updatedWdata.sprinklers) updatedWdata.sprinklers = removeCommentFromList(updatedWdata.sprinklers);
-      if (updatedWdata.sprinkler_rows) updatedWdata.sprinkler_rows = removeCommentFromList(updatedWdata.sprinkler_rows);
+      if (updatedWdata.spaces) updatedWdata.spaces = markCommentCompleted(updatedWdata.spaces);
+      if (updatedWdata.zones) updatedWdata.zones = markCommentCompleted(updatedWdata.zones);
+      if (updatedWdata.equipment) updatedWdata.equipment = markCommentCompleted(updatedWdata.equipment);
+      if (updatedWdata.pcl_rows) updatedWdata.pcl_rows = markCommentCompleted(updatedWdata.pcl_rows);
+      if (updatedWdata.sprinklers) updatedWdata.sprinklers = markCommentCompleted(updatedWdata.sprinklers);
+      if (updatedWdata.sprinkler_rows) updatedWdata.sprinkler_rows = markCommentCompleted(updatedWdata.sprinkler_rows);
 
       const recipientUser = notif.authorEmail || notif.authorName || notif.authorId || "Comment Author";
       const completionNotif = {
@@ -801,7 +1066,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     }
 
-    toast.success(`Task completed! Comment box removed & notification sent to ${notif.authorName || "author"}.`);
+    toast.success(`Task completed! Marked done & notification sent to ${notif.authorName || "author"}.`);
   };
 
   const myNotifications = useMemo(() => {
@@ -830,7 +1095,26 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       items.forEach(item => {
         if (item && item.comments && Array.isArray(item.comments)) {
           item.comments.forEach((c: any) => {
-            if (!c) return;
+            if (!c || c.deleted === true) return;
+
+            const cText = String(c.text || "").trim();
+            if (!cText) return; // Reject empty/blank comment cards!
+
+            const notifId = c.id || `notif_${item.id}_${c.timestamp}`;
+            const targetIdText = item.id ? `${item.id}_${cText}` : "";
+
+            if (
+              deletedNotifIds.includes(notifId) ||
+              (c.id && deletedNotifIds.includes(c.id)) ||
+              (cText && deletedNotifIds.includes(cText)) ||
+              (targetIdText && deletedNotifIds.includes(targetIdText)) ||
+              (c.timestamp && deletedNotifIds.includes(`notif_${item.id}_${c.timestamp}`)) ||
+              (c.timestamp && deletedNotifIds.includes(`${item.id}_${c.timestamp}`)) ||
+              (c.metadata?.id && deletedNotifIds.includes(c.metadata.id))
+            ) {
+              return;
+            }
+
             const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
             const authorIdStr = String(c.authorId || "").toLowerCase().trim();
             const currentIdStr = String(currentId || "").toLowerCase().trim();
@@ -845,6 +1129,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 isAssigned = isCoordinatorOrAdmin;
               } else if (c.targetRole === 'sr_design_engineer') {
                 isAssigned = isSrDesignEngineer;
+              } else if (c.targetRole === 'all_engineers') {
+                isAssigned = !isCoordinatorOrAdmin;
               } else {
                 isAssigned = Boolean(c.recipientEmail && currentEmail && c.recipientEmail.toLowerCase().trim() === currentEmail);
               }
@@ -855,14 +1141,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 const isTargeted = assignedUsers.some((u: any) => {
                   const uStr = String(u).toLowerCase().trim();
                   return (
-                    uStr === currentIdStr ||
+                    (currentIdStr && uStr === currentIdStr) ||
                     (currentName && uStr === currentName) ||
                     (currentEmail && uStr === currentEmail)
                   );
                 });
-                isAssigned = isTargeted || (authorIdStr === currentIdStr);
+                isAssigned = isTargeted; // STRICTLY TARGETED ASSIGNEES ONLY!
               } else {
-                isAssigned = true;
+                // Unassigned comment: deliver to other project members EXCEPT the author
+                isAssigned = Boolean(
+                  (authorIdStr !== currentIdStr) &&
+                  (!currentEmail || authorIdStr !== currentEmail) &&
+                  (!currentName || authorIdStr !== currentName)
+                );
               }
             }
 
@@ -925,6 +1216,65 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (wdata.loading_unit_calc) {
         const spaces = wdata.loading_unit_calc.iopSpaces || (Array.isArray(wdata.loading_unit_calc) ? wdata.loading_unit_calc : null);
         if (spaces) addNotifs(spaces, "Loading Unit Space", p.name, p.id, "/plumbing-loading-unit");
+      }
+
+      // Scan wdata.notifications[] — where CalculationReviewBar stores review/rejection notifs
+      if (Array.isArray(wdata.notifications)) {
+        wdata.notifications.forEach((wn: any) => {
+          if (!wn || !wn.id || !wn.text) return;
+          const wnId = wn.id;
+
+          // Skip deleted notifications
+          if (
+            deletedNotifIds.includes(wnId) ||
+            (wn.text && deletedNotifIds.includes(wn.text))
+          ) return;
+
+          // Skip duplicates
+          if (notifs.some(n => n.id === wnId)) return;
+
+          // Determine if this notification is meant for the current user
+          let isForMe = false;
+          if (wn.isReviewStateNotif) {
+            if (wn.targetRole === 'discipline_coordinator') {
+              isForMe = isCoordinatorOrAdmin;
+            } else if (wn.targetRole === 'sr_design_engineer') {
+              isForMe = isSrDesignEngineer;
+            } else if (wn.targetRole === 'all_engineers') {
+              // All non-coordinator engineers
+              isForMe = !isCoordinatorOrAdmin;
+            } else if (wn.recipientEmail) {
+              isForMe = Boolean(currentEmail && wn.recipientEmail.toLowerCase().trim() === currentEmail);
+            }
+          } else if (Array.isArray(wn.assignedUsers) && wn.assignedUsers.length > 0) {
+            const currentId = userId || userData?.id || profile?.id || "";
+            isForMe = wn.assignedUsers.some((u: any) => {
+              const uStr = String(u).toLowerCase().trim();
+              return (
+                (currentId && uStr === String(currentId).toLowerCase()) ||
+                (currentName && uStr === currentName) ||
+                (currentEmail && uStr === currentEmail)
+              );
+            });
+          } else {
+            // Unassigned: deliver to all project members except author
+            const authorIdStr = String(wn.authorId || "").toLowerCase().trim();
+            const currentId = String(userId || userData?.id || profile?.id || "").toLowerCase();
+            isForMe = Boolean(
+              authorIdStr !== currentId &&
+              (!currentEmail || authorIdStr !== currentEmail) &&
+              (!currentName || authorIdStr !== currentName)
+            );
+          }
+
+          if (isForMe) {
+            notifs.push({
+              ...wn,
+              projectName: p.name,
+              projectId: p.id,
+            });
+          }
+        });
       }
     });
 
@@ -1041,10 +1391,70 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
     const combinedList = Array.from(combinedMap.values());
 
-    const filtered = combinedList.filter(n => !n.id || !deletedNotifIds.includes(n.id));
-    filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    return filtered;
-  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds, persistentNotifs]);
+    const filtered = combinedList.filter(n => {
+      if (!n || !n.id) return false;
+      const nId = String(n.id);
+      const nText = String(n.text || n.message || n.metadata?.text || "").trim();
+      if (!nText) return false; // Reject empty/blank notification cards!
+
+      const nMetaId = n.metadata?.id ? String(n.metadata.id) : "";
+      const nTargetId = n.targetId || n.metadata?.targetId || "";
+      const nTimestamp = n.timestamp || n.createdAt || "";
+
+      const isDel = Boolean(
+        deletedNotifIds.includes(nId) ||
+        (nText && deletedNotifIds.includes(nText)) ||
+        (nMetaId && deletedNotifIds.includes(nMetaId)) ||
+        (nTargetId && nText && deletedNotifIds.includes(`${nTargetId}_${nText}`)) ||
+        (nTargetId && nTimestamp && deletedNotifIds.includes(`notif_${nTargetId}_${nTimestamp}`)) ||
+        (nTargetId && nTimestamp && deletedNotifIds.includes(`${nTargetId}_${nTimestamp}`)) ||
+        n.deleted === true
+      );
+      if (isDel) return false;
+      return true;
+    });
+
+    const mapped = filtered.map(n => {
+      const isCompleted = Boolean(
+        completedNotifIds.includes(n.id) ||
+        (n.text && completedNotifIds.includes(n.text)) ||
+        (n.targetId && n.text && completedNotifIds.includes(`${n.targetId}_${n.text}`)) ||
+        (n.targetId && n.timestamp && completedNotifIds.includes(`notif_${n.targetId}_${n.timestamp}`)) ||
+        n.completed === true
+      );
+      const isRead = Boolean(
+        readNotifIds.includes(n.id) ||
+        (n.text && readNotifIds.includes(n.text)) ||
+        (n.targetId && n.text && readNotifIds.includes(`${n.targetId}_${n.text}`)) ||
+        (n.targetId && n.timestamp && readNotifIds.includes(`notif_${n.targetId}_${n.timestamp}`)) ||
+        n.read === true
+      );
+
+      const resolvedText = String(n.text || n.message || n.metadata?.text || "").trim();
+      const resolvedTargetType = String(n.targetType || n.metadata?.targetType || "Location").trim();
+      const resolvedTargetName = String(n.targetName || n.metadata?.targetName || n.targetId || "").trim();
+      const resolvedProjectName = String(n.projectName || n.metadata?.projectName || "Active Project").trim();
+      const resolvedAuthorName = String(n.authorName || n.metadata?.authorName || "Design Engineer").trim();
+      const resolvedTimestamp = n.timestamp || n.createdAt || n.metadata?.createdAt || new Date().toISOString();
+      const resolvedCalcPath = n.calculatorPath || n.metadata?.calculatorPath || "/ventilation";
+
+      return {
+        ...n,
+        text: resolvedText,
+        targetType: resolvedTargetType,
+        targetName: resolvedTargetName,
+        projectName: resolvedProjectName,
+        authorName: resolvedAuthorName,
+        timestamp: resolvedTimestamp,
+        calculatorPath: resolvedCalcPath,
+        completed: isCompleted,
+        read: isRead
+      };
+    });
+
+    mapped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return mapped;
+  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds, persistentNotifs, completedNotifIds, readNotifIds]);
 
   const unreadNotifications = useMemo(() => {
     return myNotifications.filter(n => n.id && !readNotifIds.includes(n.id) && !completedNotifIds.includes(n.id));
@@ -1069,11 +1479,42 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       try {
         const remoteNotifs = await api.getNotifications();
         if (Array.isArray(remoteNotifs) && remoteNotifs.length > 0) {
+          // Read the current deletedNotifIds from localStorage to filter out already-deleted notifications
+          let currentDeletedIds: string[] = [];
+          if (typeof window !== "undefined") {
+            try {
+              const d1 = localStorage.getItem("mep_deleted_notif_ids");
+              const list1 = d1 ? JSON.parse(d1) : [];
+              const uId = userData?.id || profile?.id;
+              const d2 = uId ? localStorage.getItem(`mep_deleted_notif_ids_${uId}`) : null;
+              const list2 = d2 ? JSON.parse(d2) : [];
+              currentDeletedIds = Array.from(new Set([...list1, ...list2]));
+            } catch (e) {}
+          }
+
+          // Filter out any remote notifications that the user has already deleted
+          const allowedRemote = remoteNotifs.filter(n => {
+            if (!n || !n.id) return false;
+            if (currentDeletedIds.includes(n.id)) return false;
+            const nText = String(n.text || n.message || "");
+            if (nText && currentDeletedIds.includes(nText)) return false;
+            if (n.metadata?.id && currentDeletedIds.includes(n.metadata.id)) return false;
+            return true;
+          });
+
+          if (allowedRemote.length === 0) return;
+
           setPersistentNotifs(prev => {
             const map = new Map();
             prev.forEach(n => n.id && map.set(n.id, n));
-            remoteNotifs.forEach(n => n.id && map.set(n.id, n));
-            const merged = Array.from(map.values());
+            allowedRemote.forEach(n => n.id && map.set(n.id, n));
+            const merged = Array.from(map.values()).filter(n => {
+              // Final safeguard: strip deleted items even from prev
+              if (currentDeletedIds.includes(n.id)) return false;
+              const nText = String(n.text || n.message || "");
+              if (nText && currentDeletedIds.includes(nText)) return false;
+              return true;
+            });
             if (typeof window !== "undefined") {
               const uId = userId || userData?.id;
               const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
@@ -1091,11 +1532,47 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const handleFocus = () => fetchBackendNotifs();
 
     const handleNotifAdded = (e?: any) => {
-      setNotifTick(t => t + 1);
       if (e?.detail) {
+        const item = e.detail;
+        if (!item || !item.id) return;
+
+        const cId = String(userId || userData?.id || profile?.id || "").toLowerCase().trim();
+        const cEmail = String(userData?.email || profile?.email || "").toLowerCase().trim();
+        const cName = String(userData?.name || profile?.name || "").toLowerCase().trim();
+
+        const authorIdStr = String(item.authorId || item.metadata?.authorId || "").toLowerCase().trim();
+        const assignedUsers = Array.isArray(item.assignedUsers) ? item.assignedUsers : (item.metadata?.assignedUsers || []);
+        const itemTargetRole = item.targetRole || item.metadata?.targetRole || "";
+        const itemIsReviewNotif = Boolean(item.isReviewStateNotif || item.metadata?.isReviewStateNotif);
+
+        let isForMe = false;
+
+        // Review state notifications: route by role first
+        if (itemIsReviewNotif && itemTargetRole) {
+          if (itemTargetRole === 'discipline_coordinator') {
+            isForMe = isCoordinatorOrAdmin;
+          } else if (itemTargetRole === 'sr_design_engineer') {
+            isForMe = isSrDesignEngineer;
+          } else if (itemTargetRole === 'all_engineers') {
+            isForMe = !isCoordinatorOrAdmin;
+          }
+        } else if (assignedUsers.length > 0) {
+          isForMe = assignedUsers.some((u: any) => {
+            const uStr = String(u).toLowerCase().trim();
+            return (cId && uStr === cId) || (cEmail && uStr === cEmail) || (cName && uStr === cName);
+          });
+        } else {
+          isForMe = Boolean(
+            (authorIdStr !== cId) &&
+            (!cEmail || authorIdStr !== cEmail) &&
+            (!cName || authorIdStr !== cName)
+          );
+        }
+
+        if (!isForMe) return;
+
+        setNotifTick(t => t + 1);
         setPersistentNotifs(prev => {
-          const item = e.detail;
-          if (!item || !item.id) return prev;
           if (prev.some(n => n.id === item.id)) return prev;
           const updated = [item, ...prev];
           if (typeof window !== "undefined") {
@@ -1129,7 +1606,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
       if (!isMember()) return;
 
-      if (e?.detail?.status === "REJECTED" && isSrDesignEngineer) {
+      if (e?.detail?.status === "REJECTED" && !isCoordinatorOrAdmin) {
         toast.error(`⚠️ CALCULATION REJECTED: Reason from ${e.detail.rejectedBy || "Discipline Coordinator"}: "${e.detail.rejectionDescription || "Revision required"}"`, {
           duration: 7000
         });
@@ -1775,10 +2252,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
       : [
           ...NAV,
-          ...(!isSuperAdmin && isOrgAdmin ? [
-            { kind: "item" as const, label: "Company Hierarchy", to: "/company-hierarchy", icon: Network }
-          ] : []),
           ...(isAdmin ? [
+            { kind: "item" as const, label: "Company Hierarchy", to: "/company-hierarchy", icon: Network },
             { kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }
           ] : [])
         ];
@@ -1822,18 +2297,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const activePlan = licenseInfo?.plan || (profile?.role === 'ORG_ADMIN' || profile?.role === 'SUPER_ADMIN' ? 'ENTERPRISE' : null);
   const isPaidPlan = activePlan === 'ENTERPRISE' || activePlan === 'PRO';
 
-  const rawExpiry = userData?.subscription_expires || profile?.subscription_expires;
+  const rawExpiry = userData?.subscription_expires || profile?.subscription_expires || (licenseInfo?.expiresAt ? new Date(licenseInfo.expiresAt).toISOString() : null);
   let computedRemainingDays = licenseInfo?.remainingDays ?? 30;
   let computedStatus = licenseInfo?.status || (isPaidPlan ? 'ACTIVE' : 'FREE_TRIAL');
 
-  if (rawExpiry && !isPaidPlan) {
+  if (rawExpiry) {
     const expDate = new Date(rawExpiry);
     if (!isNaN(expDate.getTime())) {
       const diff = Math.ceil((expDate.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
       computedRemainingDays = Math.max(0, diff);
-      if (diff <= 0) {
+      if (diff <= 0 && !isPaidPlan) {
         computedStatus = 'EXPIRED_TRIAL';
-      } else {
+      } else if (!isPaidPlan) {
         computedStatus = 'FREE_TRIAL';
       }
     }
@@ -2136,7 +2611,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 type="button"
                 onClick={() => setPricingModalOpen(true)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold transition-all shadow-sm cursor-pointer border ${
-                  licenseInfo?.plan === 'PRO' || licenseInfo?.plan === 'ENTERPRISE'
+                  isPaidPlan
                     ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
                     : computedStatus === 'EXPIRED_TRIAL'
                     ? "bg-red-500/10 text-red-500 border-red-500/30 hover:bg-red-500/20 animate-pulse"
@@ -2146,9 +2621,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               >
                 <Zap className="size-3.5" />
                 <span>
-                  {!licenseInfo ? 'CHECKING LICENSE...' :
-                   licenseInfo.plan === 'PRO' ? `PRO (${computedRemainingDays} DAYS LEFT)` :
-                   licenseInfo.plan === 'ENTERPRISE' ? `ENTERPRISE (${computedRemainingDays} DAYS LEFT)` :
+                  {!licenseInfo && !profile ? 'CHECKING LICENSE...' :
+                   activePlan === 'PRO' ? `PRO (${computedRemainingDays} DAYS LEFT)` :
+                   activePlan === 'ENTERPRISE' ? `ENTERPRISE (${computedRemainingDays} DAYS LEFT)` :
                    computedStatus === 'EXPIRED_TRIAL' ? 'TRIAL EXPIRED - UPGRADE' :
                    `TRIAL: ${computedRemainingDays} DAYS LEFT`}
                 </span>

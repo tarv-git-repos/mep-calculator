@@ -183,7 +183,7 @@ export function CalculationReviewBar({
       return "Sr. Design Engineer";
     }
 
-    return "Jr. / Design Engineer";
+    return "Discipline Coordinator";
   }, [profile, userData]);
 
   const storageKey = `mep_calc_review_${effectiveProjectId}_${calculatorPath || "ventilation"}`;
@@ -206,6 +206,24 @@ export function CalculationReviewBar({
     }
     return { status: "DRAFT" };
   });
+
+  // Active Workflow Role (supports switching/testing and official role detection)
+  const [activeRole, setActiveRole] = useState<WorkflowRole>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("mep_workflow_active_role");
+      if (saved === "Discipline Coordinator" || saved === "Sr. Design Engineer" || saved === "Jr. / Design Engineer") {
+        return saved;
+      }
+    }
+    return userRole;
+  });
+
+  const handleRoleChange = (newRole: WorkflowRole) => {
+    setActiveRole(newRole);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("mep_workflow_active_role", newRole);
+    }
+  };
 
   // Modal States
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -349,9 +367,85 @@ export function CalculationReviewBar({
         };
         api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
         workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+
+        // Directly notify all Discipline Coordinators via notification API
+        try {
+          const allUsers = await api.getUsers().catch(() => []);
+          const projectUsers: any[] = (currentProj as any)?.project_users || (currentProj as any)?.members || [];
+          
+          const memberUserIds = new Set<string>();
+          if (currentProj?.created_by) memberUserIds.add(String(currentProj.created_by).toLowerCase().trim());
+          
+          projectUsers.forEach((pu: any) => {
+            if (!pu) return;
+            const uId = String(pu.user_id || pu.id || pu.user?.id || pu.email || '').toLowerCase().trim();
+            if (uId) memberUserIds.add(uId);
+          });
+
+          // Resolve target coordinators
+          const targetCoordinators: any[] = [];
+          const seenCoordIds = new Set<string>();
+
+          const addCoordCandidate = (u: any) => {
+            if (!u) return;
+            const uId = String(u.id || u.user_id || u.user?.id || u.email || '').trim();
+            if (!uId || seenCoordIds.has(uId.toLowerCase())) return;
+
+            const uRole = String(u.role || u.user_metadata?.role || u.designation || '').toLowerCase();
+            const isCoord = (
+              uRole === 'discipline coordinator' ||
+              uRole.includes('coordinator') ||
+              uRole.includes('discipline') ||
+              uRole.includes('org_admin') ||
+              uRole.includes('super_admin') ||
+              uRole.includes('admin') ||
+              uRole.includes('project_manager')
+            );
+
+            if (isCoord) {
+              seenCoordIds.add(uId.toLowerCase());
+              targetCoordinators.push(u);
+            }
+          };
+
+          // Check all system users
+          (allUsers || []).forEach(addCoordCandidate);
+          // Check project users
+          (projectUsers || []).forEach(addCoordCandidate);
+
+          const notifLink = `${calculatorPath}`;
+
+          targetCoordinators.forEach((coord: any) => {
+            const recipientId = String(coord.id || coord.user_id || coord.email);
+            if (!recipientId) return;
+
+            api.sendNotification({
+              recipientId,
+              title: `\u2705 CALCULATION REVIEWED: ${calculatorTitle}`,
+              message: `${currentUserName} (Sr. Design Engineer) has reviewed "${calculatorTitle}" and it is ready for your approval. Notes: "${commentText}"`,
+              link: notifLink,
+              metadata: {
+                id: coordNotifRecord.id,
+                projectId: effectiveProjectId,
+                calculatorPath,
+                targetId: coordNotifRecord.targetId,
+                targetName: calculatorTitle,
+                targetType: "Calculation Review",
+                authorName: currentUserName,
+                text: coordNotifRecord.text,
+                isReviewStateNotif: true,
+                targetRole: "discipline_coordinator",
+                createdAt: coordNotifRecord.timestamp,
+              }
+            }).catch(e => console.error("Failed to notify coordinator", recipientId, e));
+          });
+        } catch (err) {
+          console.error("Failed to send review notifications to coordinators:", err);
+        }
       }
 
-      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+      window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: coordNotifRecord }));
+      window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: coordNotifRecord }));
       window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
         detail: {
           status: "SR_REVIEW_SUBMITTED",
@@ -375,7 +469,7 @@ export function CalculationReviewBar({
       });
     } catch (e) {}
 
-    toast.success("Review submitted! Revision instructions sent to Design Engineers.");
+    toast.success("Review submitted! Discipline Coordinator has been notified to check for approval.");
   };
 
   // Action 2: Discipline Coordinator Hits "Approve"
@@ -462,6 +556,7 @@ export function CalculationReviewBar({
     setShowRejectModal(false);
 
     try {
+      // targetRole: "all_engineers" so ALL non-coordinator engineers see this in their notification center
       const notifRecord = {
         id: `reject_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         targetId: `calc_${calculatorPath || "review"}`,
@@ -472,7 +567,7 @@ export function CalculationReviewBar({
         authorName: currentUserName,
         timestamp: new Date().toISOString(),
         isReviewStateNotif: true,
-        targetRole: "sr_design_engineer",
+        targetRole: "all_engineers",
         projectId: effectiveProjectId,
         calculatorPath
       };
@@ -487,6 +582,40 @@ export function CalculationReviewBar({
         };
         api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
         workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+
+        // Send direct API notification to ALL engineers in the project
+        const projectUsers: any[] = (currentProj as any).project_users || [];
+        const coordinatorUserId = String(profile?.id || userData?.id || "");
+        const notifLink = `${calculatorPath}`;
+
+        projectUsers.forEach((pu: any) => {
+          if (!pu) return;
+          const puId = pu.user_id || pu.id || pu.user?.id || pu.email || pu.user?.email;
+          if (!puId) return;
+          const puIdStr = String(puId);
+          if (coordinatorUserId && puIdStr === coordinatorUserId) return; // skip self
+          api.sendNotification({
+            recipientId: puIdStr,
+            title: `\u274C CALCULATION REJECTED: ${calculatorTitle}`,
+            message: `"${calculatorTitle}" was REJECTED by ${currentUserName} (Discipline Coordinator). Reason: "${rejectReason.trim()}"`,
+            link: notifLink,
+            metadata: {
+              id: notifRecord.id,
+              projectId: effectiveProjectId,
+              calculatorPath,
+              targetId: notifRecord.targetId,
+              targetName: calculatorTitle,
+              targetType: "Calculation Rejection",
+              authorName: currentUserName,
+              text: notifRecord.text,
+              isReviewStateNotif: true,
+              targetRole: "all_engineers",
+              rejectedBy: currentUserName,
+              rejectionDescription: rejectReason.trim(),
+              createdAt: notifRecord.timestamp,
+            }
+          }).catch(e => console.error("Failed to notify engineer", puIdStr, e));
+        });
       }
 
       window.dispatchEvent(new CustomEvent("mep-notification-added"));
@@ -511,7 +640,7 @@ export function CalculationReviewBar({
       });
     } catch (e) {}
 
-    toast.error("Calculation REJECTED and rejection notification sent to Sr. Design Engineer.");
+    toast.error("Calculation REJECTED. All engineers in the project have been notified.");
   };
 
   // Action 4: Discipline Coordinator Hits "Unlock"
@@ -596,8 +725,8 @@ export function CalculationReviewBar({
 
       {/* 2. ROLE-BASED ACTION CONTROLS */}
       
-      {/* A. DISCIPLINE COORDINATOR */}
-      {userRole === "Discipline Coordinator" && (
+      {/* A. DISCIPLINE COORDINATOR (Approve / Reject / Unlock only) */}
+      {activeRole === "Discipline Coordinator" && (
         <div className="inline-flex items-center gap-1.5 shrink-0">
           {isApproved ? (
             <button
@@ -629,8 +758,8 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* B. SR. DESIGN ENGINEER */}
-      {userRole === "Sr. Design Engineer" && !isApproved && (
+      {/* B. SR. DESIGN ENGINEER (Review only) */}
+      {activeRole === "Sr. Design Engineer" && !isApproved && (
         <button
           onClick={() => setShowReviewModal(true)}
           className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
@@ -641,7 +770,7 @@ export function CalculationReviewBar({
       )}
 
       {/* C. JR / DESIGN ENGINEER NOTES BUTTON (Only when Reviewed by Sr. Engineer and NOT Rejected/Approved) */}
-      {userRole === "Jr. / Design Engineer" && isReviewed && reviewState.reviewerComments && !isApproved && !isRejected && (
+      {activeRole === "Jr. / Design Engineer" && isReviewed && reviewState.reviewerComments && !isApproved && !isRejected && (
         <button
           onClick={() => setShowDetailsModal(true)}
           className="px-3 py-1 bg-surface-2 hover:bg-surface-3 text-foreground/80 border border-border/70 text-xs font-semibold rounded-full transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
@@ -650,6 +779,21 @@ export function CalculationReviewBar({
           <span>Review Notes</span>
         </button>
       )}
+
+      {/* D. ROLE SELECTOR SWITCHER (Discipline Coordinator / Sr. Design Engineer / Jr. Engineer) */}
+      <div className="relative inline-flex items-center ml-1">
+        <select
+          value={activeRole}
+          onChange={(e) => handleRoleChange(e.target.value as WorkflowRole)}
+          className="bg-surface-2 hover:bg-surface-3 text-[11px] font-semibold text-foreground/80 py-1 pl-2.5 pr-6 rounded-full border border-border/70 appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors shadow-2xs"
+          title="Switch Active Engineering Role"
+        >
+          <option value="Discipline Coordinator">👑 Discipline Coordinator</option>
+          <option value="Sr. Design Engineer">🛡️ Sr. Design Engineer</option>
+          <option value="Jr. / Design Engineer">📐 Jr. / Design Engineer</option>
+        </select>
+        <ChevronDown className="size-3 text-muted-foreground absolute right-2 pointer-events-none" />
+      </div>
 
       {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
       {showReviewModal && typeof document !== "undefined" && createPortal(

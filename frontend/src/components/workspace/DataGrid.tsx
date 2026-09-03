@@ -306,7 +306,7 @@ export function DataGrid<T extends { id: string }>({
           style={{ gridTemplateColumns: gridTemplate }}
         >
           <div className="px-2 grid place-items-center">
-            <input type="checkbox" checked={allSelected} onChange={onToggleAll} className="size-3 accent-primary" />
+            <input type="checkbox" checked={allSelected} disabled={isReadOnly} onChange={onToggleAll} className="size-3 accent-primary disabled:cursor-not-allowed disabled:opacity-60" />
           </div>
           {columns.map((c) => {
             const k = String(c.key);
@@ -449,7 +449,7 @@ export function DataGrid<T extends { id: string }>({
               const renderRowContent = () => (
                 <>
                   <div className="px-2 grid place-items-center" onClick={(e) => { e.stopPropagation(); blurActiveInput(); onToggle(row.id, e.shiftKey, true); }}>
-                    <input type="checkbox" checked={sel} onChange={() => {}} className="size-3 accent-primary cursor-pointer" />
+                    <input type="checkbox" checked={sel} disabled={isReadOnly} onChange={() => {}} className="size-3 accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-60" />
                   </div>
                   {columns.map((c) => {
                     const isEditable = c.editable;
@@ -509,7 +509,9 @@ export function DataGrid<T extends { id: string }>({
                             return;
                           }
                           if (!selected.has(row.id)) {
-                            onToggle(row.id, false, false);
+                            setTimeout(() => {
+                              onToggle(row.id, false, false);
+                            }, 0);
                           }
                         }}
                         className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${

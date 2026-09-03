@@ -625,12 +625,22 @@ function BusbarCalculationPage() {
       }
 
       if (isCmdOrCtrl && e.key.toLowerCase() === 'x' && selectedRows.size > 0) {
+        if (isApproved) {
+          e.preventDefault();
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to cut rows.", { id: "readonly-notice" });
+          return;
+        }
         e.preventDefault();
         cutRows(Array.from(selectedRows));
         setSelectedRows(new Set());
       }
 
       if (isCmdOrCtrl && e.key.toLowerCase() === 'v') {
+        if (isApproved) {
+          e.preventDefault();
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to paste rows.", { id: "readonly-notice" });
+          return;
+        }
         e.preventDefault();
         pasteRows();
       }

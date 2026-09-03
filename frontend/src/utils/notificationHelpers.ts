@@ -36,13 +36,6 @@ export async function notifyCommentAssigned(options: {
     calculatorPath,
   };
 
-  // Instant notification event dispatch
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
-    window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
-    window.dispatchEvent(new Event("storage"));
-  }
-
   // Determine recipients: assigned users, or all project members (excluding author) if unassigned
   let recipients: string[] = Array.isArray(comment.assignedUsers) ? comment.assignedUsers.filter(Boolean) : [];
   if (recipients.length === 0 && project) {
@@ -59,18 +52,31 @@ export async function notifyCommentAssigned(options: {
         if (idVal) memberSet.add(String(idVal));
       });
     }
-    if (currentUserId) memberSet.delete(String(currentUserId));
     recipients = Array.from(memberSet);
   }
 
-  // Default to broadcast 'all' if no specific recipients identified
-  if (recipients.length === 0) {
-    recipients = ["all"];
+  // Author MUST NOT be notified of their own comment/task assignment
+  if (currentUserId) {
+    const authorIdStr = String(currentUserId).toLowerCase().trim();
+    recipients = recipients.filter(r => String(r).toLowerCase().trim() !== authorIdStr);
+  }
+  if (currentUserName) {
+    const authorNameStr = String(currentUserName).toLowerCase().trim();
+    recipients = recipients.filter(r => String(r).toLowerCase().trim() !== authorNameStr);
   }
 
-  for (const uId of recipients) {
-    try {
-      await api.sendNotification({
+  // 1. Instant local window event dispatch
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
+    window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
+    window.dispatchEvent(new CustomEvent("mep_notif_tick"));
+    window.dispatchEvent(new Event("storage"));
+  }
+
+  // 2. Non-blocking asynchronous background notification delivery
+  if (recipients.length > 0) {
+    Promise.all(recipients.map(uId => 
+      api.sendNotification({
         recipientId: uId,
         title: `💬 New Task / Comment on ${targetName}`,
         message: `${currentUserName} commented on ${targetType} "${targetName}" (${calculatorTitle}): "${comment.text}"`,
@@ -87,9 +93,7 @@ export async function notifyCommentAssigned(options: {
           text: comment.text,
           createdAt: comment.timestamp || new Date().toISOString(),
         }
-      });
-    } catch (e) {
-      console.error("Failed to send notification to user", uId, e);
-    }
+      }).catch(e => console.error("Failed to send notification to user", uId, e))
+    ));
   }
 }

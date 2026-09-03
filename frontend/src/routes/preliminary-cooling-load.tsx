@@ -1044,6 +1044,10 @@ function PreliminaryCoolingLoadPage() {
 
   // Save to local storage and sync on rows change
   const saveRows = (newRows: PclRow[]) => {
+    if (isApprovedLocked || (typeof window !== "undefined" && Boolean((window as any).__mep_approved_readonly))) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
     setRows(newRows);
     try {
       const projId = activeProjectId || project?.id || "default";
@@ -1300,6 +1304,11 @@ function PreliminaryCoolingLoadPage() {
 
       // 2. Delete / Backspace
       if (e.key === "Delete" || e.key === "Backspace") {
+        if (isApprovedLocked || (typeof window !== "undefined" && Boolean((window as any).__mep_approved_readonly))) {
+          e.preventDefault();
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
+          return;
+        }
         if (importOpen && selectedPending.size > 0) {
           e.preventDefault();
           confirm(`Are you sure you want to remove the ${selectedPending.size} selected pending spaces?`).then((ok) => {
@@ -1321,7 +1330,6 @@ function PreliminaryCoolingLoadPage() {
         }
         return;
       }
-
       // 3. Copy: Ctrl+C
       if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
         if (!importOpen && selected.size > 0) {
@@ -1371,6 +1379,10 @@ function PreliminaryCoolingLoadPage() {
 
   // DataGrid callbacks
   const toggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Row selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected((prev) => {
       const clickedIndex = orderedRows.findIndex((r) => r.id === id);
       if (clickedIndex === -1) return prev;
@@ -1419,6 +1431,10 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const toggleAll = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Row selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected((prev) => (prev.size === filteredRows.length ? new Set() : new Set(filteredRows.map((r) => r.id))));
   };
 

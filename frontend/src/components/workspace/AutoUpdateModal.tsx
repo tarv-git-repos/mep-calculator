@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, Download, X, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import pkg from "../../../package.json";
 
 interface UpdateInfo {
   version: string;
@@ -10,7 +11,7 @@ interface UpdateInfo {
   mandatory?: boolean;
 }
 
-const CURRENT_VERSION = "0.0.4";
+const CURRENT_VERSION = pkg.version || "0.0.6";
 
 export const AutoUpdateModal: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -19,7 +20,7 @@ export const AutoUpdateModal: React.FC = () => {
   useEffect(() => {
     const checkForUpdates = async () => {
       try {
-        // Check if user dismissed update within last 24 hours
+        const lastDownloaded = localStorage.getItem("mep_last_downloaded_update");
         const dismissedUntil = localStorage.getItem("mep_update_dismissed_until");
         if (dismissedUntil && Date.now() < parseInt(dismissedUntil)) {
           return;
@@ -29,10 +30,14 @@ export const AutoUpdateModal: React.FC = () => {
         if (!res || !res.ok) {
           res = await fetch("https://mep-calculator.onrender.com/update.json").catch(() => null);
         }
+        if (!res || !res.ok) {
+          res = await fetch("https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/update.json").catch(() => null);
+        }
         if (!res || !res.ok) return;
         const data: UpdateInfo = await res.json();
 
         if (data && data.version && isNewerVersion(CURRENT_VERSION, data.version)) {
+          if (lastDownloaded === data.version) return;
           setUpdateInfo(data);
           setIsOpen(true);
         }
@@ -64,6 +69,12 @@ export const AutoUpdateModal: React.FC = () => {
   const handleDownload = () => {
     if (!updateInfo?.url) return;
     toast.info(`Opening download for MEP Calculator v${updateInfo.version}...`);
+    const next12h = Date.now() + 12 * 60 * 60 * 1000;
+    localStorage.setItem("mep_update_dismissed_until", next12h.toString());
+    if (updateInfo.version) {
+      localStorage.setItem("mep_last_downloaded_update", updateInfo.version);
+    }
+    setIsOpen(false);
     if (typeof window !== "undefined") {
       window.open(updateInfo.url, "_blank");
     }

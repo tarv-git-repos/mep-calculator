@@ -77,57 +77,48 @@ async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: st
   return result;
 }
 
-if (isElectron) {
-  console.log('✅ Electron API bridge active.');
-} else if (isTauri) {
-  (window as any).api = {
-    getFilePath: (file: File): string => {
-      const key = (file as any).path || file.name;
-      webFileStore.set(key, file);
-      webFileStore.set(file.name, file);
-      return key;
-    },
-    processIfc: async (fp: string): Promise<{ frag: string; json: string }> => {
-      try {
-        return await invoke<{ frag: string; json: string }>('process_ifc', { filePath: fp });
-      } catch (err) {
-        console.warn('⚠️ Native IPC converter unavailable in Tauri, using full WebAssembly metadata parser:', err);
-        const file = webFileStore.get(fp);
-        if (file) {
-          return await convertIfcInBrowser(file);
-        }
-        throw err;
-      }
-    },
-    readFile: async (fp: string): Promise<Uint8Array> => {
-      if (webMemoryCache.has(fp)) {
-        return webMemoryCache.get(fp)!;
-      }
-      const bytes = await invoke<number[]>('read_file', { filePath: fp });
-      return new Uint8Array(bytes);
-    }
-  };
-  console.log('✅ Tauri API bridge initialized with full metadata extraction.');
-} else {
-  // Web Browser Fallback (e.g. http://localhost:5174 or public website)
-  (window as any).api = {
-    getFilePath: (file: File): string => {
-      const key = (file as any).path || file.name || "project_model.ifc";
+export function ensureApiBridge() {
+  if (typeof window === 'undefined') return;
+
+  if (!(window as any).api) {
+    (window as any).api = {};
+  }
+
+  const api = (window as any).api;
+
+  if (typeof api.getFilePath !== 'function') {
+    api.getFilePath = (file: File): string => {
+      if (!file) return 'project_model.ifc';
+      const key = (file as any).path || file.name || 'project_model.ifc';
       webFileStore.set(key, file);
       if (file.name) webFileStore.set(file.name, file);
       (window as any)._currentLoadedFile = file;
       return key;
-    },
-    processIfc: async (key: string): Promise<{ frag: string; json: string }> => {
+    };
+  }
+
+  if (typeof api.processIfc !== 'function') {
+    api.processIfc = async (key: string): Promise<{ frag: string; json: string }> => {
       let file = webFileStore.get(key) || (key ? webFileStore.get(key.split('/').pop() || '') : null) || (window as any)._currentLoadedFile;
       if (!file) throw new Error(`File reference not found for key: ${key}`);
       return await convertIfcInBrowser(file);
-    },
-    readFile: async (cacheKey: string): Promise<Uint8Array> => {
+    };
+  }
+
+  if (typeof api.readFile !== 'function') {
+    api.readFile = async (cacheKey: string): Promise<Uint8Array> => {
       const cached = webMemoryCache.get(cacheKey);
-      if (!cached) throw new Error(`Memory cache miss for key: ${cacheKey}`);
-      return cached;
-    }
-  };
-  console.log('🌐 Web Browser Fallback API bridge initialized with full metadata extraction.');
+      if (cached) return cached;
+      if (typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) {
+        try {
+          const bytes = await invoke<number[]>('read_file', { filePath: cacheKey });
+          return new Uint8Array(bytes);
+        } catch (e) {}
+      }
+      throw new Error(`Memory cache miss for key: ${cacheKey}`);
+    };
+  }
 }
+
+// Auto-initialize API bridge on module import
+ensureApiBridge();

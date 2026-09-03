@@ -39,6 +39,16 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
 
   const rawKey = path.startsWith('/') ? path.substring(1) : path;
   const routeKey = rawKey.split('?')[0].toLowerCase().replace(/\/$/, '');
+
+  // Keep Loading Unit & Fixture Unit Calculators in Plumbing unlocked for everyone right now
+  if (
+    routeKey === 'plumbing-loading-unit' ||
+    routeKey === 'loading-unit' ||
+    routeKey === 'plumbing-fixture-unit' ||
+    routeKey === 'fixture-unit'
+  ) {
+    return false;
+  }
   const features = profile?.features || {};
 
   // Check if explicitly set in user features (from SuperAdmin App Permissions toggle)

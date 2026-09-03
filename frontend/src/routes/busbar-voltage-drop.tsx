@@ -351,6 +351,11 @@ function BusbarVoltageDropPage() {
       }
 
       if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
+        if (isApprovedLocked) {
+          e.preventDefault();
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete rows.", { id: "readonly-notice" });
+          return;
+        }
         e.preventDefault();
         deleteSelected();
       }

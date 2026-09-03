@@ -56,88 +56,106 @@ export function AssignCommentModal({
         setIsLoading(true);
       }
       try {
-        // Fetch all users and teams
         const [allUsers, allTeams] = await Promise.all([
-          api.getUsers(),
-          api.getTeams()
+          api.getUsers().catch(() => []),
+          api.getTeams().catch(() => [])
         ]);
 
-        // Filter to only those assigned to the current project
-        const projectUsers: any[] = (project as any)?.project_users || [];
-        const projectTeams: any[] = (project as any)?.project_teams || [];
+        const activeProj = project || (useWorkspace.getState().projects || []).find((p: any) => p.id === (project as any)?.id);
+        const projectUsers: any[] = (activeProj as any)?.project_users || (project as any)?.project_users || [];
+        const projectTeams: any[] = (activeProj as any)?.project_teams || (project as any)?.project_teams || [];
 
         const assignedUserIds = new Set<string>();
-        const directProjectUsersMap = new Map<string, any>();
+        const assignedUserEmails = new Set<string>();
+        const directUserObjects: any[] = [];
 
         projectUsers.forEach((pu: any) => {
           if (!pu) return;
-          const uid = String(pu.user_id || pu.id || pu.user?.id || (typeof pu === 'string' ? pu : '')).trim().toLowerCase();
-          const email = String(pu.email || pu.user?.email || (typeof pu === 'string' && pu.includes('@') ? pu : '')).trim().toLowerCase();
-          if (uid) assignedUserIds.add(uid);
-          if (email) assignedUserIds.add(email);
-
-          if (typeof pu === 'object') {
-            const resolvedName = pu.name || pu.user?.name || (email ? email.split('@')[0] : '');
-            if (resolvedName) {
-              const uObj = {
-                id: pu.id || pu.user_id || uid,
-                name: resolvedName,
-                email: pu.email || pu.user?.email || '',
-                role: pu.role || 'Design Engineer'
-              };
-              if (uid) directProjectUsersMap.set(uid, uObj);
-              if (email) directProjectUsersMap.set(email, uObj);
-            }
+          if (typeof pu === 'string') {
+            const clean = pu.trim().toLowerCase();
+            if (clean.includes('@')) assignedUserEmails.add(clean);
+            else if (clean) assignedUserIds.add(clean);
+          } else if (typeof pu === 'object') {
+            const uId = String(pu.id || pu.user_id || pu.user?.id || '').trim().toLowerCase();
+            const uEmail = String(pu.email || pu.user?.email || '').trim().toLowerCase();
+            if (uId) assignedUserIds.add(uId);
+            if (uEmail) assignedUserEmails.add(uEmail);
+            directUserObjects.push(pu);
           }
         });
 
-        const assignedTeamIds = new Set<string>(projectTeams.map((pt: any) => String(pt.team_id || pt.id || pt).toLowerCase()));
+        const assignedTeamIds = new Set<string>((projectTeams || []).map((pt: any) => String(pt.team_id || pt.id || pt).trim().toLowerCase()));
+        const filteredTeams = (allTeams || []).filter((t: any) => assignedTeamIds.has(String(t.id).toLowerCase()));
 
-        const filteredTeams = allTeams.filter((t: any) => assignedTeamIds.has(String(t.id).toLowerCase()));
-
-        // Add members of assigned teams to the individual users list
-        allTeams.forEach((t: any) => {
+        (allTeams || []).forEach((t: any) => {
           if (assignedTeamIds.has(String(t.id).toLowerCase()) && Array.isArray(t.team_members)) {
             t.team_members.forEach((m: any) => {
-              const mId = String(m.user_id || m.id || m).trim().toLowerCase();
-              if (mId) assignedUserIds.add(mId);
+              const mId = String(m.user_id || m.id || m.email || m).trim().toLowerCase();
+              if (mId.includes('@')) assignedUserEmails.add(mId);
+              else if (mId) assignedUserIds.add(mId);
             });
           }
         });
 
-        let rawFilteredUsers: any[] = [];
-        if (assignedUserIds.size > 0) {
-          rawFilteredUsers = allUsers.filter((u: any) => {
-            const uId = String(u.id || '').trim().toLowerCase();
-            const uEmail = String(u.email || '').trim().toLowerCase();
-            const uName = String(u.name || '').trim().toLowerCase();
-            return assignedUserIds.has(uId) || (uEmail && assignedUserIds.has(uEmail)) || assignedUserIds.has(uName);
-          });
-          
-          directProjectUsersMap.forEach((uObj) => {
-            const alreadyIn = rawFilteredUsers.some((u: any) => 
-              String(u.id).toLowerCase() === String(uObj.id).toLowerCase() ||
-              (u.email && String(u.email).toLowerCase() === String(uObj.email).toLowerCase())
-            );
-            if (!alreadyIn) {
-              rawFilteredUsers.push(uObj);
-            }
-          });
-        }
-
-        if (rawFilteredUsers.length === 0) {
-          rawFilteredUsers = allUsers;
-        }
-
-        const seenKeys = new Set<string>();
         const uniqueUsers: any[] = [];
-        rawFilteredUsers.forEach((u: any) => {
-          const key = String(u.name || u.email || u.id).trim().toLowerCase();
-          if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            uniqueUsers.push(u);
+        const seenUniqueKeys = new Set<string>();
+
+        const registerUser = (u: any) => {
+          if (!u) return;
+          const rawId = String(u.id || u.user_id || u.user?.id || '').trim();
+          const rawEmail = String(u.email || u.user?.email || '').trim();
+          const rawName = String(u.name || u.user?.name || u.userName || u.user_name || '').trim();
+
+          const uniqueKey = (rawId || rawEmail || rawName).toLowerCase();
+          if (!uniqueKey || seenUniqueKeys.has(uniqueKey)) return;
+          seenUniqueKeys.add(uniqueKey);
+
+          let displayName = rawName;
+          if (!displayName || displayName.startsWith('usr_') || displayName.startsWith('User #')) {
+            if (rawEmail) displayName = rawEmail.split('@')[0];
+            else displayName = rawId || 'User';
+          }
+
+          const emailHandle = rawEmail ? rawEmail.split('@')[0] : '';
+          const displayLabel = (emailHandle && !displayName.includes('(')) ? `${displayName} (${emailHandle})` : displayName;
+
+          uniqueUsers.push({
+            id: rawId || rawEmail || uniqueKey,
+            name: displayLabel,
+            rawName: displayName,
+            email: rawEmail,
+            role: u.role || 'Design Engineer'
+          });
+        };
+
+        // 1. Add matching users from allUsers
+        (allUsers || []).forEach((u: any) => {
+          const uId = String(u.id || '').trim().toLowerCase();
+          const uEmail = String(u.email || '').trim().toLowerCase();
+          if (assignedUserIds.has(uId) || (uEmail && assignedUserEmails.has(uEmail))) {
+            registerUser(u);
           }
         });
+
+        // 2. Add direct user objects from projectUsers that might not be in allUsers
+        directUserObjects.forEach((pu: any) => {
+          const puId = String(pu.id || pu.user_id || pu.user?.id || '').trim().toLowerCase();
+          const puEmail = String(pu.email || pu.user?.email || '').trim().toLowerCase();
+          const matchInAll = (allUsers || []).find((u: any) => 
+            (puId && String(u.id || '').trim().toLowerCase() === puId) ||
+            (puEmail && String(u.email || '').trim().toLowerCase() === puEmail)
+          );
+          if (matchInAll) {
+            registerUser(matchInAll);
+          } else {
+            registerUser(pu);
+          }
+        });
+
+        // Fallback: If projectUsers was empty or filter yielded 0 users, show allUsers
+        if (uniqueUsers.length === 0 && Array.isArray(allUsers) && allUsers.length > 0) {
+          allUsers.forEach((u: any) => registerUser(u));
+        }
 
         setAvailableUsers(uniqueUsers);
         setAvailableTeams(filteredTeams);
@@ -168,10 +186,23 @@ export function AssignCommentModal({
 
     const finalDescription = commentText.trim() || "Assigned task for review";
 
+    const allAssignedUserIds = new Set<string>();
+    selectedUsers.forEach(uKey => {
+      if (uKey) allAssignedUserIds.add(uKey);
+      const matchU = availableUsers.find(u => 
+        String(u.id) === uKey || String(u.email) === uKey || String(u.name) === uKey
+      );
+      if (matchU) {
+        if (matchU.id) allAssignedUserIds.add(String(matchU.id));
+        if (matchU.email) allAssignedUserIds.add(String(matchU.email));
+        if (matchU.name) allAssignedUserIds.add(String(matchU.name));
+      }
+    });
+
     const newComment: TaskComment = {
       id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       text: finalDescription,
-      assignedUsers: selectedUsers,
+      assignedUsers: Array.from(allAssignedUserIds),
       assignedTeams: selectedTeams,
       authorId: profile?.id || userData?.id || 'unknown',
       authorName: userData?.name || profile?.name || 'SystemAdmin',
@@ -185,6 +216,62 @@ export function AssignCommentModal({
     } finally {
       onClose();
     }
+  };
+
+  const formatAssignedUsers = (assignedList: string[]) => {
+    if (!Array.isArray(assignedList) || assignedList.length === 0) return '';
+    
+    const resolvedNames = assignedList.map((uKey: string) => {
+      if (!uKey) return '';
+      const cleanKey = String(uKey).trim().toLowerCase();
+
+      const matchedUser = availableUsers.find((u: any) => {
+        const uId = String(u.id || '').trim().toLowerCase();
+        const uEmail = String(u.email || '').trim().toLowerCase();
+        const uName = String(u.name || '').trim().toLowerCase();
+        const uRawName = String(u.rawName || '').trim().toLowerCase();
+        return uId === cleanKey || uEmail === cleanKey || uName === cleanKey || uRawName === cleanKey;
+      });
+      if (matchedUser) return matchedUser.name;
+
+      const matchedTeam = availableTeams.find((t: any) => {
+        const tId = String(t.id || '').trim().toLowerCase();
+        const tName = String(t.name || '').trim().toLowerCase();
+        return tId === cleanKey || tName === cleanKey;
+      });
+      if (matchedTeam) return matchedTeam.name;
+
+      if (cleanKey.includes('@')) {
+        return cleanKey.split('@')[0];
+      }
+
+      if (typeof localStorage !== 'undefined') {
+        try {
+          const rawLocal = localStorage.getItem('mep_local_users') || localStorage.getItem('cachedAllUsers');
+          if (rawLocal) {
+            const parsed = JSON.parse(rawLocal);
+            if (Array.isArray(parsed)) {
+              const foundInCache = parsed.find((lu: any) => 
+                String(lu.id || '').trim().toLowerCase() === cleanKey ||
+                String(lu.email || '').trim().toLowerCase() === cleanKey
+              );
+              if (foundInCache?.name) {
+                const handle = foundInCache.email ? ` (${foundInCache.email.split('@')[0]})` : '';
+                return `${foundInCache.name}${handle}`;
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (cleanKey.startsWith('usr_')) {
+        return 'Project Member';
+      }
+
+      return uKey;
+    }).filter(Boolean);
+
+    return resolvedNames.join(', ');
   };
 
   const toggleUser = (uId: any) => {
@@ -248,7 +335,7 @@ export function AssignCommentModal({
                     {Array.isArray(c.assignedUsers) && c.assignedUsers.length > 0 && (
                       <div className="mt-1.5 pt-1 border-t border-border/40 text-[10.5px] text-primary font-medium flex items-center gap-1">
                         <Users className="size-3" />
-                        <span>Assigned to: {c.assignedUsers.join(', ')}</span>
+                        <span>Assigned to: {formatAssignedUsers(c.assignedUsers)}</span>
                       </div>
                     )}
                   </div>

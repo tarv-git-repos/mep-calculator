@@ -2444,6 +2444,10 @@ function SpacesView() {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
 
   const toggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Row selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected((prev) => {
       const clickedIndex = orderedRows.findIndex((r) => r.id === id);
       if (clickedIndex === -1) return prev;
@@ -2491,6 +2495,10 @@ function SpacesView() {
     });
   };
   const toggleAll = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Row selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id))));
   };
 

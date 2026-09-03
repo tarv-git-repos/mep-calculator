@@ -794,6 +794,137 @@ export const workspaceStore = {
     }).catch(console.error);
   },
 
+  deleteCommentFromWorkspace(keys: string | string[]) {
+    const keySet = new Set(Array.isArray(keys) ? keys : [keys]);
+    if (keySet.size === 0) return;
+
+    const removeMatchingComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          const filtered = item.comments.filter((c: any) => {
+            if (!c || c.deleted === true) return false;
+            if (c.id && keySet.has(c.id)) return false;
+            if (c.text && keySet.has(c.text)) return false;
+            if (c.message && keySet.has(c.message)) return false;
+            if (c.metadata?.id && keySet.has(c.metadata.id)) return false;
+            if (item.id && c.text && keySet.has(`${item.id}_${c.text}`)) return false;
+            if (item.id && c.message && keySet.has(`${item.id}_${c.message}`)) return false;
+            if (item.id && c.timestamp && keySet.has(`notif_${item.id}_${c.timestamp}`)) return false;
+            if (item.id && c.timestamp && keySet.has(`${item.id}_${c.timestamp}`)) return false;
+            return true;
+          });
+          return { ...item, comments: filtered };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: removeMatchingComments(currentWorkspaceState.spaces),
+      zones: removeMatchingComments(currentWorkspaceState.zones),
+      equipment: removeMatchingComments(currentWorkspaceState.equipment),
+    };
+    saveState(true);
+    notify();
+  },
+
+  markCommentCompletedInWorkspace(keys: string | string[]) {
+    const keySet = new Set(Array.isArray(keys) ? keys : [keys]);
+    if (keySet.size === 0) return;
+
+    const markMatchingComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          const updated = item.comments.map((c: any) => {
+            if (!c) return c;
+            const isMatch = Boolean(
+              (c.id && keySet.has(c.id)) ||
+              (c.text && keySet.has(c.text)) ||
+              (item.id && c.text && keySet.has(`${item.id}_${c.text}`)) ||
+              (item.id && c.timestamp && keySet.has(`notif_${item.id}_${c.timestamp}`))
+            );
+            if (isMatch) {
+              return { ...c, completed: true, read: true };
+            }
+            return c;
+          });
+          return { ...item, comments: updated };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: markMatchingComments(currentWorkspaceState.spaces),
+      zones: markMatchingComments(currentWorkspaceState.zones),
+      equipment: markMatchingComments(currentWorkspaceState.equipment),
+    };
+    saveState(true);
+    notify();
+  },
+
+  markCommentReadInWorkspace(keys: string | string[]) {
+    const keySet = new Set(Array.isArray(keys) ? keys : [keys]);
+    if (keySet.size === 0) return;
+
+    const markMatchingComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          const updated = item.comments.map((c: any) => {
+            if (!c) return c;
+            const isMatch = Boolean(
+              (c.id && keySet.has(c.id)) ||
+              (c.text && keySet.has(c.text)) ||
+              (item.id && c.text && keySet.has(`${item.id}_${c.text}`)) ||
+              (item.id && c.timestamp && keySet.has(`notif_${item.id}_${c.timestamp}`))
+            );
+            if (isMatch) {
+              return { ...c, read: true };
+            }
+            return c;
+          });
+          return { ...item, comments: updated };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: markMatchingComments(currentWorkspaceState.spaces),
+      zones: markMatchingComments(currentWorkspaceState.zones),
+      equipment: markMatchingComments(currentWorkspaceState.equipment),
+    };
+    saveState(true);
+    notify();
+  },
+
+  clearAllCommentsFromWorkspace() {
+    const clearComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          return { ...item, comments: [] };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: clearComments(currentWorkspaceState.spaces),
+      zones: clearComments(currentWorkspaceState.zones),
+      equipment: clearComments(currentWorkspaceState.equipment),
+    };
+    saveState(true);
+    notify();
+  },
+
   addSpace(newSpace: Space) {
     if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
@@ -1553,6 +1684,10 @@ export function useWorkspace() {
     isReadOnly: state.isReadOnly,
     setReadOnly: (val: boolean) => workspaceStore.setReadOnly(val),
     saveAsRevision: (name: string) => workspaceStore.saveAsRevision(name),
+    deleteCommentFromWorkspace: (keys: string | string[]) => workspaceStore.deleteCommentFromWorkspace(keys),
+    markCommentCompletedInWorkspace: (keys: string | string[]) => workspaceStore.markCommentCompletedInWorkspace(keys),
+    markCommentReadInWorkspace: (keys: string | string[]) => workspaceStore.markCommentReadInWorkspace(keys),
+    clearAllCommentsFromWorkspace: () => workspaceStore.clearAllCommentsFromWorkspace(),
   };
 }
 

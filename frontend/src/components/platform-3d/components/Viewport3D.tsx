@@ -9,6 +9,8 @@ import { useViewerStore } from '../store/viewer-store';
 import { Toolbar } from './Toolbar';
 import { DropOverlay } from './DropOverlay';
 
+import { ensureApiBridge } from '../../../features/bim-viewer/tauri-bridge';
+
 export function Viewport3D() {
     const viewportRef = useRef<HTMLDivElement>(null);
     const isInitialized = useRef(false);
@@ -134,10 +136,29 @@ document.addEventListener('drop', async e => {
             store().setLoadingText(typeof isPreload !== 'undefined' && isPreload ? 'Loading 3D Model...' : 'Converting IFC (this may take a moment)...');
         
     try {
-        const { frag, json } = await (window as any).api.processIfc((window as any).api.getFilePath(file));
+        ensureApiBridge();
+        const api = (window as any).api || {};
+        const getFilePathFn = typeof api.getFilePath === 'function' 
+            ? api.getFilePath 
+            : ((f: File) => (f as any).path || f.name || "project_model.ifc");
+        
+        const fileKey = getFilePathFn(file);
+        
+        const processIfcFn = typeof api.processIfc === 'function' ? api.processIfc : null;
+        if (!processIfcFn) {
+            throw new Error("3D IFC Converter Engine bridge unavailable.");
+        }
+
+        const { frag, json } = await processIfcFn(fileKey);
+
+        const readFileFn = typeof api.readFile === 'function' ? api.readFile : null;
+        if (!readFileFn) {
+            throw new Error("3D Geometry Cache Reader bridge unavailable.");
+        }
+
         const [rawFrag, rawJson] = await Promise.all([
-            (window as any).api.readFile(frag),
-            (window as any).api.readFile(json)
+            readFileFn(frag),
+            readFileFn(json)
         ]);
         const fragBytes = new Uint8Array(rawFrag.buffer ?? rawFrag);
         const jsonData = JSON.parse(new TextDecoder().decode(new Uint8Array(rawJson.buffer ?? rawJson)));

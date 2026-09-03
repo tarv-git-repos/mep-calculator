@@ -306,7 +306,17 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
 
 function CompanyHierarchyPage() {
   const { profile, userData } = useAuth();
-  const currentRole = userData?.role || profile?.role || "SUPER_ADMIN";
+  let effRole = userData?.role || profile?.role;
+  if (!effRole && typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem("mep_calculator_user_data") || localStorage.getItem("mep_user_data") || localStorage.getItem("mep_profile");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        effRole = parsed?.role;
+      }
+    } catch (e) {}
+  }
+  const currentRole = effRole || "SUPER_ADMIN";
   const currentUserName = userData?.name || profile?.name || "David Vance";
   const currentUserEmail = userData?.email || profile?.email || "david.vance@mep-calc.com";
   

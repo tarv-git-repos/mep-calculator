@@ -3680,6 +3680,100 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.method === 'POST' && url === '/api/notifications/delete') {
+    try {
+      const { id, ids } = await getRequestBody(req);
+      const targetIds = new Set(Array.isArray(ids) ? ids : (id ? [id] : []));
+      if (targetIds.size > 0) {
+        const targetArray = Array.from(targetIds);
+
+        // 1. Filter local notifications file
+        const localNotifs = readNotificationsData();
+        const filtered = localNotifs.filter(n => {
+          if (!n) return false;
+          if (targetIds.has(n.id)) return false;
+          if (n.text && targetIds.has(n.text)) return false;
+          if (n.message && targetIds.has(n.message)) return false;
+          if (n.metadata?.id && targetIds.has(n.metadata.id)) return false;
+          if (n.metadata?.targetId && targetIds.has(n.metadata.targetId)) return false;
+          return true;
+        });
+        writeNotificationsData(filtered);
+
+        // 2. Delete from Supabase notifications table comprehensively
+        try {
+          await supabase.from('notifications').delete().in('id', targetArray);
+          // Also try deleting by metadata->>id
+          for (const tId of targetArray) {
+            if (tId && typeof tId === 'string') {
+              await supabase.from('notifications').delete().eq('metadata->>id', tId);
+              await supabase.from('notifications').delete().eq('metadata->>targetId', tId);
+            }
+          }
+        } catch (e) {}
+      }
+      return sendJSON(res, 200, { success: true });
+    } catch (err) {
+      return sendJSON(res, 200, { success: true });
+    }
+  }
+
+  if (req.method === 'POST' && url === '/api/notifications/read') {
+    try {
+      const { id, ids } = await getRequestBody(req);
+      const targetIds = new Set(Array.isArray(ids) ? ids : (id ? [id] : []));
+      if (targetIds.size > 0) {
+        const localNotifs = readNotificationsData();
+        const updated = localNotifs.map(n => {
+          if (!n) return n;
+          const isMatch = Boolean(
+            targetIds.has(n.id) ||
+            (n.text && targetIds.has(n.text)) ||
+            (n.message && targetIds.has(n.message)) ||
+            (n.metadata?.id && targetIds.has(n.metadata.id)) ||
+            (n.metadata?.targetId && targetIds.has(n.metadata.targetId))
+          );
+          return isMatch ? { ...n, read: true } : n;
+        });
+        writeNotificationsData(updated);
+        try {
+          await supabase.from('notifications').update({ read: true }).in('id', Array.from(targetIds));
+        } catch (e) {}
+      }
+      return sendJSON(res, 200, { success: true });
+    } catch (err) {
+      return sendJSON(res, 200, { success: true });
+    }
+  }
+
+  if (req.method === 'POST' && url === '/api/notifications/complete') {
+    try {
+      const { id, ids } = await getRequestBody(req);
+      const targetIds = new Set(Array.isArray(ids) ? ids : (id ? [id] : []));
+      if (targetIds.size > 0) {
+        const localNotifs = readNotificationsData();
+        const updated = localNotifs.map(n => {
+          if (!n) return n;
+          const isMatch = Boolean(
+            targetIds.has(n.id) ||
+            (n.text && targetIds.has(n.text)) ||
+            (n.message && targetIds.has(n.message)) ||
+            (n.metadata?.id && targetIds.has(n.metadata.id)) ||
+            (n.metadata?.targetId && targetIds.has(n.metadata.targetId))
+          );
+          return isMatch ? { ...n, completed: true, read: true } : n;
+        });
+        writeNotificationsData(updated);
+        try {
+          await supabase.from('notifications').update({ completed: true, read: true }).in('id', Array.from(targetIds));
+        } catch (e) {}
+      }
+      return sendJSON(res, 200, { success: true });
+    } catch (err) {
+      return sendJSON(res, 200, { success: true });
+    }
+  }
+
   if (req.method === 'GET' && url.startsWith('/api/notifications')) {
     try {
       const user = await getUserFromReq(req);
@@ -3687,10 +3781,12 @@ const server = http.createServer(async (req, res) => {
       if (user) {
         const uId = String(user.id || '').toLowerCase().trim();
         const uEmail = String(user.email || '').toLowerCase().trim();
+        const uName = String(user.name || '').toLowerCase().trim();
         const localNotifs = readNotificationsData();
         const userLocalNotifs = localNotifs.filter(n => {
           const rec = String(n.recipientId || '').toLowerCase().trim();
-          return rec === uId || rec === uEmail || !rec;
+          if (!rec || rec === 'all') return false;
+          return rec === uId || (uEmail && rec === uEmail) || (uName && rec === uName);
         });
         notifs = userLocalNotifs;
 

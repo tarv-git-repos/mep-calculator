@@ -242,9 +242,18 @@ export function NotificationCenterView({
             filteredNotifications.map((notif, index) => {
               const isCompleted = Boolean(notif.id && completedNotifIds.includes(notif.id));
               const isUnread = Boolean(notif.id && !readNotifIds.includes(notif.id) && !isCompleted);
-              const formattedDate = isNaN(new Date(notif.timestamp).getTime())
-                ? notif.timestamp
-                : `${new Date(notif.timestamp).toLocaleDateString()}, ${new Date(notif.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}`;
+
+              const rawText = notif.text || notif.message || notif.metadata?.text || "";
+              const rawAuthor = notif.authorName || notif.metadata?.authorName || "Design Engineer";
+              const rawTargetType = notif.targetType || notif.metadata?.targetType || "Location";
+              const rawTargetName = notif.targetName || notif.metadata?.targetName || notif.targetId || "";
+              const rawProjectName = notif.projectName || notif.metadata?.projectName || "Active Project";
+              const rawDate = notif.timestamp || notif.metadata?.createdAt || notif.createdAt || "";
+
+              const dateObj = new Date(rawDate);
+              const formattedDate = (!rawDate || isNaN(dateObj.getTime()))
+                ? (rawDate || "Just now")
+                : `${dateObj.toLocaleDateString()}, ${dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}`;
 
               return (
                 <div
@@ -288,7 +297,7 @@ export function NotificationCenterView({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="font-bold text-[13.5px] text-foreground">
-                            {notif.authorName || "Design Engineer"}
+                            {rawAuthor}
                           </span>
 
                           {isUnread && (
@@ -310,29 +319,38 @@ export function NotificationCenterView({
                         </div>
 
                         {/* Comment Message */}
-                        <p className={`text-[12.5px] font-medium text-foreground/90 leading-relaxed mb-2.5 text-left break-words ${
-                          isCompleted ? "line-through text-muted-foreground/70" : ""
-                        }`}>
-                          {notif.text}
-                        </p>
+                        {rawText && (
+                          <p className={`text-[12.5px] font-medium text-foreground/90 leading-relaxed mb-2.5 text-left break-words ${
+                            isCompleted ? "line-through text-muted-foreground/70" : ""
+                          }`}>
+                            {rawText}
+                          </p>
+                        )}
 
                         {/* Location & Project Pills */}
                         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
-                          <span className="px-2 py-0.5 bg-primary/10 text-primary font-extrabold rounded-md text-[9.5px] uppercase tracking-wider flex items-center gap-1 border border-primary/20">
-                            <Layers className="size-3" />
-                            {notif.targetType}
-                          </span>
+                          {rawTargetType && (
+                            <span className="px-2 py-0.5 bg-primary/10 text-primary font-extrabold rounded-md text-[9.5px] uppercase tracking-wider flex items-center gap-1 border border-primary/20">
+                              <Layers className="size-3" />
+                              {rawTargetType}
+                            </span>
+                          )}
 
-                          <span className={`text-foreground/90 font-bold truncate max-w-[240px] ${isCompleted ? "line-through" : ""}`}>
-                            {notif.targetName}
-                          </span>
+                          {rawTargetName && (
+                            <span className={`text-foreground/90 font-bold truncate max-w-[240px] ${isCompleted ? "line-through" : ""}`}>
+                              {rawTargetName}
+                            </span>
+                          )}
 
-                          <span className="text-muted-foreground/70 text-[11px]">in</span>
-
-                          <span className="font-bold text-primary truncate max-w-[220px] flex items-center gap-1 bg-primary/5 px-2 py-0.5 rounded-md border border-primary/15" title={notif.projectName}>
-                            <FolderKanban className="size-3 text-primary/80" />
-                            {notif.projectName}
-                          </span>
+                          {rawProjectName && (
+                            <>
+                              <span className="text-muted-foreground/70 text-[11px]">in</span>
+                              <span className="font-bold text-primary truncate max-w-[220px] flex items-center gap-1 bg-primary/5 px-2 py-0.5 rounded-md border border-primary/15" title={rawProjectName}>
+                                <FolderKanban className="size-3 text-primary/80" />
+                                {rawProjectName}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

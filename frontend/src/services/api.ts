@@ -2,12 +2,18 @@ import axios from 'axios';
 import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
   if (typeof window !== 'undefined') {
+    if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
+      return 'https://mep-calculator.onrender.com';
+    }
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return 'http://localhost:4000';
     }
   }
-  return import.meta.env.VITE_API_URL || 'http://localhost:4000';
+  return 'https://mep-calculator.onrender.com';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header

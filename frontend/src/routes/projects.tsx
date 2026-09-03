@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, UserPlus, FileCode,
   MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search, ShieldCheck,
-  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, Pin, Check
+  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, ChevronDown, ChevronUp, Pin, Check
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -599,6 +599,19 @@ function ProjectsPage() {
   const [editingProj, setEditingProj] = useState<Project | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
+
+  const toggleExpandMembers = (projId: string) => {
+    setExpandedMembers(prev => {
+      const next = new Set(prev);
+      if (next.has(projId)) {
+        next.delete(projId);
+      } else {
+        next.add(projId);
+      }
+      return next;
+    });
+  };
   
   const openCreateModal = async () => {
     await loadUsersAndTeams();
@@ -999,47 +1012,71 @@ function ProjectsPage() {
                     </div>
 
                     {/* Assignments (Users/Teams) */}
-                    {((p as any).project_users?.length > 0 || (p as any).project_teams?.length > 0) && (
-                      <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50">
-                        {(p as any).project_teams?.map((pt: any) => {
-                          const team = allTeams.find(t => String(t.id) === String(pt.team_id) || String(t.id) === String(pt.id));
-                          const teamName = team?.name || pt.teams?.name || pt.team_name || pt.name || 'Team';
-                          return (
-                            <span key={`t-${pt.team_id || pt.id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
-                              <Users className="size-3" /> {teamName}
-                              {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
-                                <button onClick={() => handleRemoveTeamFromProject(p.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
-                                  <X className="size-2.5" />
-                                </button>
-                              )}
-                            </span>
-                          );
-                        })}
-                        {(() => {
-                          const seenUserIds = new Set<string>();
-                          return (p as any).project_users?.map((pu: any) => {
-                            if (!pu) return null;
-                            const rawId = (typeof pu === 'object' && pu !== null) ? (pu.user_id || pu.id || pu.user?.id || pu.email || '') : pu;
-                            const puId = String(rawId || (typeof pu === 'string' ? pu : '')).toLowerCase();
-                            if (!puId || seenUserIds.has(puId)) return null;
-                            seenUserIds.add(puId);
+                    {((p as any).project_users?.length > 0 || (p as any).project_teams?.length > 0) && (() => {
+                      const isExpanded = expandedMembers.has(p.id);
+                      const totalUsers = (p as any).project_users?.length || 0;
+                      const totalTeams = (p as any).project_teams?.length || 0;
+                      const totalCount = totalUsers + totalTeams;
 
-                            const userName = getUserDisplayName(pu, allUsers);
+                      return (
+                        <div className="pt-2 border-t border-border/50 flex flex-col items-start gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpandMembers(p.id);
+                            }}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 border border-border/60 px-2.5 py-1 rounded-md transition-all cursor-pointer select-none"
+                          >
+                            <Users className="size-3 text-primary" />
+                            <span>{isExpanded ? "Hide Members" : `Show Assigned Members (${totalCount})`}</span>
+                            {isExpanded ? <ChevronUp className="size-3 ml-0.5" /> : <ChevronDown className="size-3 ml-0.5" />}
+                          </button>
 
-                            return (
-                              <span key={`u-${puId}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
-                                <User className="size-3 text-muted-foreground" /> {userName}
-                                {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
-                                  <button onClick={() => handleRemoveUserFromProject(p.id, String(rawId || puId))} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
-                                    <X className="size-2.5" />
-                                  </button>
-                                )}
-                              </span>
-                            );
-                          });
-                        })()}
-                      </div>
-                    )}
+                          {isExpanded && (
+                            <div className="flex flex-wrap gap-1.5 pt-1 w-full animate-in fade-in duration-150">
+                              {(p as any).project_teams?.map((pt: any) => {
+                                const team = allTeams.find(t => String(t.id) === String(pt.team_id) || String(t.id) === String(pt.id));
+                                const teamName = team?.name || pt.teams?.name || pt.team_name || pt.name || 'Team';
+                                return (
+                                  <span key={`t-${pt.team_id || pt.id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
+                                    <Users className="size-3" /> {teamName}
+                                    {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
+                                      <button onClick={() => handleRemoveTeamFromProject(p.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
+                                        <X className="size-2.5" />
+                                      </button>
+                                    )}
+                                  </span>
+                                );
+                              })}
+                              {(() => {
+                                const seenUserIds = new Set<string>();
+                                return (p as any).project_users?.map((pu: any) => {
+                                  if (!pu) return null;
+                                  const rawId = (typeof pu === 'object' && pu !== null) ? (pu.user_id || pu.id || pu.user?.id || pu.email || '') : pu;
+                                  const puId = String(rawId || (typeof pu === 'string' ? pu : '')).toLowerCase();
+                                  if (!puId || seenUserIds.has(puId)) return null;
+                                  seenUserIds.add(puId);
+
+                                  const userName = getUserDisplayName(pu, allUsers);
+
+                                  return (
+                                    <span key={`u-${puId}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
+                                      <User className="size-3 text-muted-foreground" /> {userName}
+                                      {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
+                                        <button onClick={() => handleRemoveUserFromProject(p.id, String(rawId || puId))} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
+                                          <X className="size-2.5" />
+                                        </button>
+                                      )}
+                                    </span>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="mt-5 pt-3.5 border-t border-border/50 flex items-center justify-end gap-1.5">

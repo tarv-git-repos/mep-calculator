@@ -1027,6 +1027,10 @@ function LoadingUnitPage() {
       if (!isInput && (e.key === "Delete" || e.key === "Backspace")) {
         if (selectedIds.length > 0) {
           e.preventDefault();
+          if (isApprovedLocked || (typeof window !== "undefined" && Boolean((window as any).__mep_approved_readonly))) {
+            toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
+            return;
+          }
           pushToUndo(iopSpaces);
           handleBulkDelete();
         }
@@ -1225,6 +1229,10 @@ function LoadingUnitPage() {
   };
 
   const handleBulkDelete = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
+      return;
+    }
     if (selectedIds.length === 0) return;
     const count = selectedIds.length;
     setIopSpaces(iopSpaces.filter(s => !selectedIds.includes(s.id)));
