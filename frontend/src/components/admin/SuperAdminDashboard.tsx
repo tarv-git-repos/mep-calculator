@@ -765,11 +765,21 @@ export function SuperAdminDashboard() {
     }
   };
 
+  const formatLocalDateForInput = (expStr?: string | null) => {
+    if (!expStr) return '';
+    const d = new Date(expStr);
+    if (isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const saveExpiry = async (profileId: string) => {
     let dateStr: string | null = null;
     if (newExpiryDate) {
-      const exp = new Date(newExpiryDate);
-      exp.setHours(23, 59, 59, 999);
+      const cleanDate = newExpiryDate.split('T')[0];
+      const exp = new Date(`${cleanDate}T23:59:59`);
       dateStr = exp.toISOString();
     }
     
@@ -1542,8 +1552,7 @@ export function SuperAdminDashboard() {
                                   <button 
                                     onClick={() => {
                                       setEditingExpiryFor(p.id);
-                                      const d = p.subscription_expires ? new Date(p.subscription_expires) : null;
-                                      setNewExpiryDate(d && !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : '');
+                                      setNewExpiryDate(formatLocalDateForInput(p.subscription_expires));
                                     }}
                                     className="text-blue-600 text-[10px] uppercase font-bold tracking-wider hover:underline opacity-60 hover:opacity-100"
                                   >
