@@ -381,13 +381,6 @@ function BusbarVoltageDropPage() {
         navigator.clipboard.writeText(JSON.stringify(selectedRows));
       }
 
-      if (isCmdOrCtrl && e.key.toLowerCase() === "x" && selected.size > 0) {
-        e.preventDefault();
-        const selectedRows = rows.filter(r => selected.has(r.id));
-        navigator.clipboard.writeText(JSON.stringify(selectedRows));
-        deleteSelected();
-      }
-
       if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
         e.preventDefault();
         navigator.clipboard.readText().then(text => {

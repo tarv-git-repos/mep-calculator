@@ -671,74 +671,10 @@ function LoadingUnitPage() {
 
   // Selection states for Bulk Editing
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
   const [editingSpace, setEditingSpace] = useState<{ space: LUSpace; floor: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' } | null>(null);
-
-  // History & Clipboard States
-  const [undoStack, setUndoStack] = useState<IOPSpace[][]>([]);
-  const [redoStack, setRedoStack] = useState<IOPSpace[][]>([]);
-  const [clipboard, setClipboard] = useState<IOPSpace[]>([]);
-
-  const pushToUndo = (currentSpaces: IOPSpace[]) => {
-    setUndoStack(prev => [...prev.slice(-30), currentSpaces]);
-    setRedoStack([]);
-  };
-
-  const handleUndo = () => {
-    if (undoStack.length === 0) return;
-    const previous = undoStack[undoStack.length - 1];
-    setRedoStack(prev => [...prev, iopSpaces]);
-    setIopSpaces(previous);
-    setUndoStack(prev => prev.slice(0, -1));
-  };
-
-  const handleRedo = () => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    setUndoStack(prev => [...prev, iopSpaces]);
-    setIopSpaces(next);
-    setRedoStack(prev => prev.slice(0, -1));
-  };
-
-  const handleCopy = () => {
-    if (selectedIds.length === 0) return;
-    const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
-    setClipboard(toCopy);
-    localStorage.setItem("mep_clipboard_loading_units", JSON.stringify(toCopy));
-    toast.info(`${toCopy.length} space(s) copied`);
-  };
-
-  const handleCut = () => {
-    if (selectedIds.length === 0) return;
-    const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
-    setClipboard(toCopy);
-    localStorage.setItem("mep_clipboard_loading_units", JSON.stringify(toCopy));
-    pushToUndo(iopSpaces);
-    setIopSpaces(prev => prev.filter(s => !selectedIds.includes(s.id)));
-    setSelectedIds([]);
-    toast.info(`${toCopy.length} space(s) cut`);
-  };
-
-  const handlePaste = () => {
-    try {
-      const stored = localStorage.getItem("mep_clipboard_loading_units");
-      const source = (clipboard.length > 0 ? clipboard : (stored ? JSON.parse(stored) : [])) as IOPSpace[];
-      if (source.length > 0) {
-        const pasted = source.map((sp, idx) => ({
-          ...sp,
-          id: Date.now() + idx + Math.floor(Math.random() * 1000),
-          name: `${sp.name} (Copy)`
-        }));
-        pushToUndo(iopSpaces);
-        setIopSpaces(prev => [...prev, ...pasted]);
-        setSelectedIds(pasted.map(p => p.id));
-        toast.success(`${pasted.length} space(s) pasted`);
-      }
-    } catch (e) {}
-  };
   // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -958,7 +894,34 @@ function LoadingUnitPage() {
     return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
   }, [project?.id]);
 
-  // Keyboard Shortcuts (Ctrl+A, Esc, Ctrl+D, Ctrl+S, Delete)
+  const [undoStack, setUndoStack] = useState<any[][]>([]);
+  const [redoStack, setRedoStack] = useState<any[][]>([]);
+  const [clipboard, setClipboard] = useState<any[]>([]);
+
+  const pushToUndo = (currentSpaces: any[]) => {
+    setUndoStack((prev) => [...prev, currentSpaces]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack((prev) => [...prev, iopSpaces]);
+    setIopSpaces(previous);
+    setUndoStack((prev) => prev.slice(0, -1));
+    toast.success("Undo successful");
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((prev) => [...prev, iopSpaces]);
+    setIopSpaces(next);
+    setRedoStack((prev) => prev.slice(0, -1));
+    toast.success("Redo successful");
+  };
+
+  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A, Esc, Ctrl+D, Ctrl+S, Delete)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName);
@@ -977,41 +940,7 @@ function LoadingUnitPage() {
         return;
       }
 
-      // 2. Ctrl+S / Cmd+S: Save calculation
-      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        handleSaveCurrent();
-        return;
-      }
-
-      // 3. Ctrl+A / Cmd+A: Select All spaces (when not inside a text field)
-      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
-        if (!isInput && iopSpaces.length > 0) {
-          e.preventDefault();
-          setSelectedIds(iopSpaces.map(s => s.id));
-        }
-        return;
-      }
-
-      // 4. Ctrl+D / Cmd+D: Duplicate selected space(s)
-      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
-        if (!isInput && selectedIds.length > 0) {
-          e.preventDefault();
-          handleBulkDuplicate();
-        }
-        return;
-      }
-
-      // 5. Delete / Backspace: Delete selected space(s)
-      if (!isInput && (e.key === "Delete" || e.key === "Backspace")) {
-        if (selectedIds.length > 0) {
-          e.preventDefault();
-          handleBulkDelete();
-        }
-        return;
-      }
-
-      // 6. Ctrl+Z / Cmd+Z: Undo
+      // 2. Undo / Redo: Ctrl+Z / Ctrl+Y
       if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
         if (!isInput) {
           e.preventDefault();
@@ -1019,8 +948,6 @@ function LoadingUnitPage() {
         }
         return;
       }
-
-      // 7. Ctrl+Y / Cmd+Y / Ctrl+Shift+Z: Redo
       if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
         if (!isInput) {
           e.preventDefault();
@@ -1029,29 +956,79 @@ function LoadingUnitPage() {
         return;
       }
 
-      // 8. Ctrl+C / Cmd+C: Copy
+      // 3. Copy: Ctrl+C
       if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
         if (!isInput && selectedIds.length > 0) {
           e.preventDefault();
-          handleCopy();
+          const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
+          setClipboard(toCopy);
+          toast.success(`${toCopy.length} space(s) copied`);
         }
         return;
       }
 
-      // 9. Ctrl+X / Cmd+X: Cut
+      // 4. Cut: Ctrl+X
       if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
         if (!isInput && selectedIds.length > 0) {
           e.preventDefault();
-          handleCut();
+          const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
+          setClipboard(toCopy);
+          pushToUndo(iopSpaces);
+          setIopSpaces(prev => prev.filter(s => !selectedIds.includes(s.id)));
+          setSelectedIds([]);
+          toast.success(`${toCopy.length} space(s) cut`);
         }
         return;
       }
 
-      // 10. Ctrl+V / Cmd+V: Paste
+      // 5. Paste: Ctrl+V
       if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
-        if (!isInput) {
+        if (!isInput && clipboard.length > 0) {
           e.preventDefault();
-          handlePaste();
+          const pasted = clipboard.map((s, idx) => ({
+            ...s,
+            id: Date.now() + idx + Math.floor(Math.random() * 1000),
+            name: `${s.name} (Copy)`
+          }));
+          pushToUndo(iopSpaces);
+          setIopSpaces(prev => [...prev, ...pasted]);
+          setSelectedIds(pasted.map(p => p.id));
+          toast.success(`${pasted.length} space(s) pasted`);
+        }
+        return;
+      }
+
+      // 6. Ctrl+S / Cmd+S: Save calculation
+      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleSaveCurrent();
+        return;
+      }
+
+      // 7. Ctrl+A / Cmd+A: Select All spaces
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        if (!isInput && iopSpaces.length > 0) {
+          e.preventDefault();
+          setSelectedIds(iopSpaces.map(s => s.id));
+        }
+        return;
+      }
+
+      // 8. Ctrl+D / Cmd+D: Duplicate selected space(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (!isInput && selectedIds.length > 0) {
+          e.preventDefault();
+          handleBulkDuplicate();
+        }
+        return;
+      }
+
+      // 9. Delete / Backspace: Delete selected space(s)
+      if (!isInput && (e.key === "Delete" || e.key === "Backspace")) {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          pushToUndo(iopSpaces);
+          handleBulkDelete();
         }
         return;
       }
@@ -1059,7 +1036,7 @@ function LoadingUnitPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu, undoStack, redoStack, clipboard]);
+  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu, clipboard, undoStack, redoStack]);
 
   // Click Outside to Close Context Menu
   useEffect(() => {
@@ -1192,35 +1169,12 @@ function LoadingUnitPage() {
     }
   };
 
-  const handleToggleSelect = (id: number, checked: boolean, e?: React.MouseEvent) => {
-    const isShift = e?.shiftKey || false;
-    const isCtrl = e?.ctrlKey || e?.metaKey || false;
-    if (isShift && lastSelectedId !== null) {
-      const lastIdx = iopSpaces.findIndex(s => s.id === lastSelectedId);
-      const currIdx = iopSpaces.findIndex(s => s.id === id);
-      if (lastIdx !== -1 && currIdx !== -1) {
-        const start = Math.min(lastIdx, currIdx);
-        const end = Math.max(lastIdx, currIdx);
-        const rangeIds = iopSpaces.slice(start, end + 1).map(s => s.id);
-        if (isCtrl) {
-          setSelectedIds(prev => Array.from(new Set([...prev, ...rangeIds])));
-        } else {
-          setSelectedIds(rangeIds);
-        }
-        setLastSelectedId(id);
-        return;
-      }
-    }
+  const handleToggleSelect = (id: number, checked: boolean) => {
     if (checked) {
-      if (isCtrl) {
-        setSelectedIds(prev => Array.from(new Set([...prev, id])));
-      } else {
-        setSelectedIds([id]);
-      }
+      setSelectedIds([...selectedIds, id]);
     } else {
-      setSelectedIds(prev => prev.filter(x => x !== id));
+      setSelectedIds(selectedIds.filter(x => x !== id));
     }
-    setLastSelectedId(id);
   };
 
   // Bulk Edit Actions

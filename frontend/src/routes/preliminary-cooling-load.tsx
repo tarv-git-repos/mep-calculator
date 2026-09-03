@@ -423,12 +423,9 @@ interface InlineInputProps {
   step?: string;
   min?: number;
   placeholder?: string;
-  disabled?: boolean;
-  readOnly?: boolean;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, readOnly }: InlineInputProps) {
-  const isEffectivelyDisabled = disabled || readOnly;
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder }: InlineInputProps) {
   const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
 
   useEffect(() => {
@@ -436,10 +433,6 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (isEffectivelyDisabled) {
-      e.preventDefault();
-      return;
-    }
     if (e.key === "Enter") {
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
@@ -453,16 +446,10 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
-      disabled={isEffectivelyDisabled}
-      readOnly={isEffectivelyDisabled}
       value={localVal}
       placeholder={placeholder}
-      onChange={(e) => {
-        if (isEffectivelyDisabled) return;
-        setLocalVal(e.target.value);
-      }}
+      onChange={(e) => setLocalVal(e.target.value)}
       onBlur={() => {
-        if (isEffectivelyDisabled) return;
         if (localVal !== (value === "" ? "" : String(value))) {
           onCommit(localVal);
         }
@@ -470,7 +457,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isEffectivelyDisabled ? "cursor-default select-text pointer-events-none opacity-90" : "cursor-text"} ${className}`}
+      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text placeholder:text-muted-foreground/45 placeholder:font-normal ${className}`}
     />
   );
 }
@@ -1232,6 +1219,32 @@ function PreliminaryCoolingLoadPage() {
     return flat;
   }, [filteredRows, sortedFloorsForGrid]);
 
+  const [undoStack, setUndoStack] = useState<PclRow[][]>([]);
+  const [redoStack, setRedoStack] = useState<PclRow[][]>([]);
+
+  const pushToUndo = (currentRows: PclRow[]) => {
+    setUndoStack((prev) => [...prev, currentRows]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack((prev) => [...prev, rows]);
+    saveRows(previous);
+    setUndoStack((prev) => prev.slice(0, -1));
+    toast.success("Undo successful");
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((prev) => [...prev, rows]);
+    saveRows(next);
+    setRedoStack((prev) => prev.slice(0, -1));
+    toast.success("Redo successful");
+  };
+
   // Keyboard Shortcuts Hook matching Ventilation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1258,6 +1271,22 @@ function PreliminaryCoolingLoadPage() {
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
+      // 0. Undo / Redo: Ctrl+Z / Ctrl+Y
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        if (!importOpen) {
+          e.preventDefault();
+          handleUndo();
+        }
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        if (!importOpen) {
+          e.preventDefault();
+          handleRedo();
+        }
+        return;
+      }
+
       // 1. Ctrl+A (Select All)
       if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
         e.preventDefault();
@@ -1271,10 +1300,6 @@ function PreliminaryCoolingLoadPage() {
 
       // 2. Delete / Backspace
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (isApprovedLocked) {
-          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
-          return;
-        }
         if (importOpen && selectedPending.size > 0) {
           e.preventDefault();
           confirm(`Are you sure you want to remove the ${selectedPending.size} selected pending spaces?`).then((ok) => {
@@ -1288,6 +1313,7 @@ function PreliminaryCoolingLoadPage() {
           confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`).then((ok) => {
             if (ok) {
               const selectedIds = Array.from(selected);
+              pushToUndo(rows);
               saveRows(rows.filter((s) => !selectedIds.includes(s.id)));
               setSelected(new Set());
             }
@@ -1302,32 +1328,27 @@ function PreliminaryCoolingLoadPage() {
           e.preventDefault();
           const selectedRows = rows.filter((r) => selected.has(r.id));
           setClipboard(selectedRows);
+          toast.success(`${selectedRows.length} space(s) copied`);
         }
         return;
       }
 
       // 4. Cut: Ctrl+X
       if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
-        if (isApprovedLocked) {
-          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to cut spaces.", { id: "readonly-notice" });
-          return;
-        }
         if (!importOpen && selected.size > 0) {
           e.preventDefault();
           const selectedRows = rows.filter((r) => selected.has(r.id));
           setClipboard(selectedRows);
+          pushToUndo(rows);
           saveRows(rows.filter((r) => !selected.has(r.id)));
           setSelected(new Set());
+          toast.success(`${selectedRows.length} space(s) cut`);
         }
         return;
       }
 
       // 5. Paste: Ctrl+V
       if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
-        if (isApprovedLocked) {
-          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to paste spaces.", { id: "readonly-notice" });
-          return;
-        }
         if (!importOpen && clipboard.length > 0) {
           e.preventDefault();
           const pasted = clipboard.map((r, idx) => ({
@@ -1335,8 +1356,10 @@ function PreliminaryCoolingLoadPage() {
             id: `pcl-${Date.now()}-${idx}-${Math.random()}`,
             name: `${r.name} (Copy)`
           }));
+          pushToUndo(rows);
           saveRows([...rows, ...pasted]);
           setSelected(new Set(pasted.map((s) => s.id)));
+          toast.success(`${pasted.length} space(s) pasted`);
         }
         return;
       }
@@ -1344,7 +1367,7 @@ function PreliminaryCoolingLoadPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [importOpen, pendingRecords, filteredRows, selected, selectedPending, rows, clipboard, isApprovedLocked]);
+  }, [importOpen, pendingRecords, filteredRows, selected, selectedPending, rows, clipboard, isApprovedLocked, undoStack, redoStack]);
 
   // DataGrid callbacks
   const toggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
@@ -1412,6 +1435,7 @@ function PreliminaryCoolingLoadPage() {
   };
 
   // Table operations
+
   const handleAddNewSpace = () => {
     if (isApprovedLocked) {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add spaces.", { id: "readonly-notice" });
@@ -2224,15 +2248,10 @@ function PreliminaryCoolingLoadPage() {
         return (
           <div className="flex items-center justify-between gap-1 w-full h-full pr-1" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
             <PclCategorySelect
-              disabled={isApprovedLocked}
               value={r.type || ""}
               densities={SPACE_DENSITIES}
               hideChevron={isCustom}
               onChange={(nextType) => {
-                if (isApprovedLocked) {
-                  toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to change space type.", { id: "readonly-notice" });
-                  return;
-                }
                 const editIds = getSpaceEditIds(r.id);
                 const editSet = new Set(editIds);
 
@@ -2716,7 +2735,7 @@ function PreliminaryCoolingLoadPage() {
     }}
   ><Download className="size-3.5" /> Import</TBtn>
                         <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export</TBtn>
-                        <TBtn primary disabled={isApprovedLocked} onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
+                        <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
 
                       {/* Bulk actions bar overlay matching Ventilation */}

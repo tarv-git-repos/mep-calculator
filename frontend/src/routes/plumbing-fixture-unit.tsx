@@ -274,18 +274,130 @@ function FixtureUnitPage() {
     };
   }, [fuSpaces, headerStd, weightOverrides, ip]);
 
+  const [undoStack, setUndoStack] = useState<any[][]>([]);
+  const [redoStack, setRedoStack] = useState<any[][]>([]);
+  const [clipboard, setClipboard] = useState<any[]>([]);
+
+  const pushToUndo = (currentSpaces: any[]) => {
+    setUndoStack((prev) => [...prev, currentSpaces]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack((prev) => [...prev, fuSpaces]);
+    setFuSpaces(previous);
+    setUndoStack((prev) => prev.slice(0, -1));
+    toast.success("Undo successful");
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((prev) => [...prev, fuSpaces]);
+    setFuSpaces(next);
+    setRedoStack((prev) => prev.slice(0, -1));
+    toast.success("Redo successful");
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName);
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
       if (e.key === "Escape") {
         if (selectedIds.length > 0) {
           e.preventDefault();
           setSelectedIds([]);
         }
+        return;
+      }
+
+      // Undo / Redo: Ctrl+Z / Ctrl+Y
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        if (!isInput) {
+          e.preventDefault();
+          handleUndo();
+        }
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        if (!isInput) {
+          e.preventDefault();
+          handleRedo();
+        }
+        return;
+      }
+
+      // Select All: Ctrl+A
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        if (!isInput && fuSpaces.length > 0) {
+          e.preventDefault();
+          setSelectedIds(fuSpaces.map(s => s.id));
+        }
+        return;
+      }
+
+      // Copy: Ctrl+C
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (!isInput && selectedIds.length > 0) {
+          e.preventDefault();
+          const toCopy = fuSpaces.filter(s => selectedIds.includes(s.id));
+          setClipboard(toCopy);
+          toast.success(`${toCopy.length} row(s) copied`);
+        }
+        return;
+      }
+
+      // Cut: Ctrl+X
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (!isInput && selectedIds.length > 0) {
+          e.preventDefault();
+          const toCopy = fuSpaces.filter(s => selectedIds.includes(s.id));
+          setClipboard(toCopy);
+          pushToUndo(fuSpaces);
+          setFuSpaces(prev => prev.filter(s => !selectedIds.includes(s.id)));
+          setSelectedIds([]);
+          toast.success(`${toCopy.length} row(s) cut`);
+        }
+        return;
+      }
+
+      // Paste: Ctrl+V
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (!isInput && clipboard.length > 0) {
+          e.preventDefault();
+          const pasted = clipboard.map((s, idx) => ({
+            ...s,
+            id: Date.now() + idx + Math.floor(Math.random() * 1000),
+            desc: `${s.desc} (Copy)`
+          }));
+          pushToUndo(fuSpaces);
+          setFuSpaces(prev => [...prev, ...pasted]);
+          setSelectedIds(pasted.map(p => p.id));
+          toast.success(`${pasted.length} row(s) pasted`);
+        }
+        return;
+      }
+
+      // Delete / Backspace
+      if (!isInput && (e.key === "Delete" || e.key === "Backspace")) {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          pushToUndo(fuSpaces);
+          setFuSpaces(prev => prev.filter(s => !selectedIds.includes(s.id)));
+          setSelectedIds([]);
+          toast.success(`${selectedIds.length} row(s) deleted`);
+        }
+        return;
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds]);
+  }, [selectedIds, fuSpaces, clipboard, undoStack, redoStack]);
 
   // Handlers
   const handleAddSpace = () => {

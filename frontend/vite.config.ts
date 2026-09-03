@@ -59,7 +59,7 @@ export default defineConfig({
         ignored: [
           "**/src-tauri/**",
           "**/dist/**",
-          "**/dist-nitro-3/**",
+          "**/dist-nitro-2/**",
           "**/dist-electron/**",
           "**/scratch/**",
           "**/MEP_Calculator_App/**",
@@ -102,9 +102,9 @@ export default defineConfig({
     clean: false,
     prerender: { routes: ['/'] },
     output: {
-      dir: path.resolve(__dirname, 'dist-nitro-3'),
-      serverDir: path.resolve(__dirname, 'dist-nitro-3/server'),
-      publicDir: path.resolve(__dirname, 'dist-nitro-3/public')
+      dir: path.resolve(__dirname, 'dist-nitro-2'),
+      serverDir: path.resolve(__dirname, 'dist-nitro-2/server'),
+      publicDir: path.resolve(__dirname, 'dist-nitro-2/public')
     }
   },
   tanstackStart: {
