@@ -1,4 +1,4 @@
-import { addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr, getExporterUserName } from "@/lib/pdfHelpers";
+import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
@@ -34,8 +34,7 @@ export interface SprinklerProjectMetaData {
 
 export const exportSprinklerKFactorPDF = async (
   rows: SprinklerExportRow[],
-  meta: SprinklerProjectMetaData = {},
-  liveReviewState?: any
+  meta: SprinklerProjectMetaData = {}
 ) => {
   if (!rows || rows.length === 0) {
     toast.error("No sprinkler rows available to export.");
@@ -77,222 +76,275 @@ export const exportSprinklerKFactorPDF = async (
     const flowUnit = isSI ? "L/min" : "GPM";
     const areaUnit = isSI ? "m²" : "ft²";
 
-    const today = meta.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-CAL-SKF-001";
+    const today = meta.date || new Date().toLocaleDateString("en-GB");
+    const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Sprinkler Hydraulic Calculation";
-    const clientName = meta.client || activeProj?.client || "Consistent Engineering Consultants";
+    const clientName = meta.client || activeProj?.client || "";
+    const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
 
-    const leftMargin = 14;
-    const contentWidth = 182; // 210 - 28
+    // 1. Header Title (Matching Ventilation)
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Sprinkler K-Factor Calculation Report", 14, 14);
 
-    // 1. Calculate Summary Stats
-    let totalFlow = 0;
-    let maxPressure = 0;
-    let minPressure = Infinity;
-    let totalCoverage = 0;
-    let hoseAllowance = isSI ? 950 : 250;
+    // 2. Metadata Block (Exact Ventilation 2-column format)
+    doc.setFontSize(9);
+    doc.setLineWidth(0.3);
+    doc.rect(14, 18, 182, 18); // Outer box (182mm width)
 
-    rows.forEach((r) => {
-      totalFlow += (r.flow || 0);
-      totalCoverage += (r.coverage || 0);
-      if (r.pressure > maxPressure) maxPressure = r.pressure;
-      if (r.pressure < minPressure && r.pressure > 0) minPressure = r.pressure;
+    // Vertical line
+    doc.line(105, 18, 105, 36);
+
+    // Horizontal lines
+    doc.line(14, 24, 196, 24);
+    doc.line(14, 30, 196, 30);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Calculation No.:", 16, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(calcNo, 45, 22);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", 107, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(today, 120, 22);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Project No.:", 16, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(projectNo, 40, 28);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Client:", 107, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(clientName, 120, 28);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Project Name:", 16, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(projectName, 42, 34);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("End User:", 107, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(endUser, 125, 34);
+
+    // 3. Group sprinklers by floor
+    const sortedRows = [...rows].sort((a, b) => {
+      const floorA = (a.floor || "GF").toLowerCase();
+      const floorB = (b.floor || "GF").toLowerCase();
+      if (floorA !== floorB) return floorA.localeCompare(floorB);
+      return (a.label || "").localeCompare(b.label || "");
     });
 
-    if (minPressure === Infinity) minPressure = 0;
-    const avgPressure = rows.length > 0 ? (rows.reduce((sum, r) => sum + (r.pressure || 0), 0) / rows.length) : 0;
-    const systemDemand = totalFlow + hoseAllowance;
+    const rowsByFloor: { [floor: string]: SprinklerExportRow[] } = {};
+    const floorOrder: string[] = [];
 
-    // 2. Title Banner: SPRINKLER K-FACTOR & FLOW REPORT
-    doc.setFillColor(10, 123, 199); // Primary Blue #0A7BC7
-    doc.rect(leftMargin, 12, contentWidth, 10, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("NFPA 13 SPRINKLER K-FACTOR & HYDRAULIC CALCULATION", 105, 18.5, { align: "center" });
+    sortedRows.forEach((r) => {
+      const fl = r.floor || "GF";
+      if (!rowsByFloor[fl]) {
+        rowsByFloor[fl] = [];
+        floorOrder.push(fl);
+      }
+      rowsByFloor[fl].push(r);
+    });
 
-    // 3. Company & Date Line
-    doc.setTextColor(20, 20, 20);
-    doc.setFontSize(9.5);
-    doc.setFont("helvetica", "bold");
-    doc.text(clientName, leftMargin, 27);
-    doc.setFont("helvetica", "normal");
-    doc.text("Date: " + today, leftMargin + contentWidth, 27, { align: "right" });
+    const body: any[] = [];
+    let globalSrNo = 1;
 
-    // 4. PROJECT SUMMARY STATS Table
+    let grandFlow = 0;
+    let grandCoverage = 0;
+
+    floorOrder.forEach((floorName) => {
+      const floorRows = rowsByFloor[floorName];
+      let floorFlow = 0;
+      let floorCoverage = 0;
+
+      floorRows.forEach((r) => {
+        const flowVal = Number(r.flow || 0);
+        const covVal = Number(r.coverage || 0);
+        const presVal = Number(r.pressure || 0);
+
+        floorFlow += flowVal;
+        floorCoverage += covVal;
+
+        body.push([
+          globalSrNo++,
+          r.floor || "GF",
+          r.label || "-",
+          r.hazard || "Ordinary Hazard",
+          r.kFactor ? `K-${Number(r.kFactor).toFixed(1)}` : "K-5.6",
+          r.solveFor === "P" ? "Solve (P)" : "Solve (Q)",
+          presVal.toFixed(2),
+          covVal.toFixed(1),
+          flowVal.toFixed(2),
+          r.notes || "-"
+        ]);
+      });
+
+      // Floor Total Row
+      const floorTotalRow = [
+        "",
+        floorName,
+        `TOTAL (${floorName})`,
+        "",
+        "",
+        "",
+        "",
+        floorCoverage.toFixed(1),
+        floorFlow.toFixed(2),
+        ""
+      ];
+      (floorTotalRow as any)._isFloorTotal = true;
+      body.push(floorTotalRow);
+
+      grandFlow += floorFlow;
+      grandCoverage += floorCoverage;
+    });
+
+    // Grand Total Row if multiple floors
+    if (floorOrder.length > 1) {
+      const grandTotalRow = [
+        "",
+        "ALL",
+        "GRAND TOTAL",
+        "",
+        "",
+        "",
+        "",
+        grandCoverage.toFixed(1),
+        grandFlow.toFixed(2),
+        ""
+      ];
+      (grandTotalRow as any)._isGrandTotal = true;
+      body.push(grandTotalRow);
+    }
+
+    const primaryFill = [217, 217, 217] as [number, number, number]; // Clean gray from Ventilation
+
     callAutoTable(doc, {
-      startY: 30,
-      margin: { left: leftMargin, right: leftMargin },
-      theme: "plain",
+      startY: 42,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: {
+        fontSize: 7,
+        halign: "center",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 },
+        minCellHeight: 6.5
+      },
+      headStyles: {
+        fillColor: primaryFill,
+        textColor: 0,
+        fontStyle: "bold",
+        cellPadding: { top: 2, bottom: 2, left: 0.5, right: 0.5 }
+      },
+      columnStyles: {
+        0: { cellWidth: 8 },                 // Sr. No.
+        1: { cellWidth: 14 },                // Floor
+        2: { halign: "left", cellWidth: 26 },// Label / ID
+        3: { halign: "left", cellWidth: 28 },// Hazard Category
+        4: { cellWidth: 15 },                // K-Factor
+        5: { cellWidth: 18 },                // Mode
+        6: { cellWidth: 18 },                // Pressure
+        7: { cellWidth: 18 },                // Coverage
+        8: { cellWidth: 18 },                // Flow Rate
+        9: { halign: "left", cellWidth: 19 } // Notes / Remarks
+      },
       head: [
         [
-          {
-            content: "FIRE FIGHTING DESIGN SUMMARY STATS (NFPA 13)",
-            colSpan: 4,
-            styles: {
-              fillColor: [6, 69, 111], // Deep Navy #06456F
-              textColor: [255, 255, 255],
-              fontStyle: "bold",
-              fontSize: 9,
-              halign: "left",
-              cellPadding: 2,
-            },
-          },
+          { content: "Sr. No.", rowSpan: 2, styles: { fillColor: primaryFill } },
+          { content: "Sprinkler Specification", colSpan: 3, styles: { fillColor: primaryFill } },
+          { content: "Hydraulic Parameters", colSpan: 3, styles: { fillColor: primaryFill } },
+          { content: "Discharge & Flow Results", colSpan: 3, styles: { fillColor: primaryFill } }
         ],
+        [
+          { content: "Floor" },
+          { content: "Sprinkler ID" },
+          { content: "Hazard Class" },
+          { content: "K-Factor" },
+          { content: "Calc Mode" },
+          { content: `Pressure\n(${pressureUnit})` },
+          { content: `Coverage\n(${areaUnit})` },
+          { content: `Flow Rate\n(${flowUnit})` },
+          { content: "Remarks" }
+        ]
+      ],
+      body: body,
+      didParseCell: function(data: any) {
+        const rawRow = data.row.raw;
+        if (data.section === "body") {
+          const isTotalRow = rawRow && (rawRow._isFloorTotal || rawRow._isGrandTotal);
+          if (isTotalRow) {
+            data.cell.styles.fontStyle = "bold";
+          }
+        }
+      }
+    });
+
+    const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
+
+    const {
+      originatedName,
+      originatedDate,
+      reviewerName,
+      reviewerDate,
+      approverName,
+      approverDate
+    } = getSignatureBlockDetails(activeProj?.id || "default", "/plumbing-sprinkler-kfactor", meta.userName || "");
+
+    // 4. Signature Block (Exact warm peach header from Ventilation)
+    callAutoTable(doc, {
+      startY: finalY + 8,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: {
+        fontSize: 8,
+        halign: "center",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
+      },
+      headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
+      head: [
+        [
+          { content: "" },
+          { content: "Originated by" },
+          { content: "Reviewed by" },
+          { content: "Approved by" }
+        ]
       ],
       body: [
         [
-          { content: "Total Sprinklers:", styles: { fontStyle: "bold", halign: "left", cellWidth: 45 } },
-          { content: String(rows.length), styles: { fontStyle: "bold", halign: "right", cellWidth: 45 } },
-          { content: "Total Demand Flow:", styles: { fontStyle: "bold", halign: "left", cellWidth: 46 } },
-          { content: `${totalFlow.toFixed(2)} ${flowUnit}`, styles: { fontStyle: "bold", halign: "right", cellWidth: 46 } },
+          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedName, styles: { halign: "center" } },
+          { content: reviewerName, styles: { halign: "center" } },
+          { content: approverName, styles: { halign: "center" } }
         ],
         [
-          { content: "Total System Demand (with Hose):", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${systemDemand.toFixed(2)} ${flowUnit}`, styles: { fontStyle: "bold", halign: "right" } },
-          { content: "Max Operating Pressure:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${maxPressure.toFixed(2)} ${pressureUnit}`, styles: { fontStyle: "bold", halign: "right" } },
-        ],
-        [
-          { content: "Hose Stream Allowance:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: `${hoseAllowance} ${flowUnit}`, styles: { fontStyle: "bold", halign: "right" } },
-          { content: "Design Standard / Code:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: "NFPA 13 Standard", styles: { fontStyle: "bold", halign: "right" } },
-        ],
+          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedDate, styles: { halign: "center" } },
+          { content: reviewerDate, styles: { halign: "center" } },
+          { content: approverDate, styles: { halign: "center" } }
+        ]
       ],
-      styles: {
-        fontSize: 8,
-        textColor: [30, 30, 30],
-        cellPadding: 1.5,
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1,
-      },
+      columnStyles: {
+        0: { cellWidth: 32 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 50 }
+      }
     });
 
-    const statsEndY = (doc as any).lastAutoTable.finalY;
-
-    // 5. Build Schedule Body with Floor Groupings
-    const floorGroups = new Map<string, SprinklerExportRow[]>();
-    rows.forEach((r) => {
-      const f = r.floor || "Ground Floor";
-      if (!floorGroups.has(f)) floorGroups.set(f, []);
-      floorGroups.get(f)!.push(r);
-    });
-
-    const scheduleBody: any[] = [];
-    let sNo = 1;
-    const totalRowFill = [220, 239, 251] as [number, number, number];
-    const groupHeaderFill = [242, 244, 247] as [number, number, number];
-
-    floorGroups.forEach((floorRows, floorName) => {
-      // Floor header row in table
-      scheduleBody.push([
-        {
-          content: `📍 ${floorName} (${floorRows.length} sprinkler heads)`,
-          colSpan: 7,
-          styles: {
-            fontStyle: "bold",
-            halign: "left",
-            fillColor: groupHeaderFill,
-            textColor: [6, 69, 111],
-            fontSize: 7.5
-          }
-        }
-      ]);
-
-      floorRows.forEach((r) => {
-        scheduleBody.push([
-          { content: String(sNo++), styles: { halign: "center" } },
-          { content: r.label || "Sprinkler Head", styles: { halign: "left" } },
-          { content: Number(r.kFactor || 5.6).toFixed(1), styles: { halign: "center" } },
-          { content: r.hazard || "Ordinary Hazard", styles: { halign: "left" } },
-          { content: Number(r.coverage || 0).toFixed(1), styles: { halign: "right" } },
-          { content: Number(r.pressure || 0).toFixed(2), styles: { halign: "right" } },
-          { content: Number(r.flow || 0).toFixed(2), styles: { halign: "right" } },
-        ]);
-      });
-    });
-
-    // TOTAL Summary Row
-    scheduleBody.push([
-      { content: "TOTAL / SYSTEM DEMAND", colSpan: 4, styles: { fontStyle: "bold", halign: "left", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalCoverage.toFixed(1), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: `Max: ${maxPressure.toFixed(2)}`, styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalFlow.toFixed(2), styles: { fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-    ]);
-
-    // 6. SPRINKLER DESIGN SCHEDULE Banner (Draws on Page 1 above table)
-    const scheduleBannerY = statsEndY + 3;
-    doc.setFillColor(6, 69, 111); // Deep Navy #06456F
-    doc.rect(leftMargin, scheduleBannerY, contentWidth, 6, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(8.5);
-    doc.setFont("helvetica", "bold");
-    doc.text("SPRINKLER HYDRAULIC SIZING SCHEDULE", leftMargin + 3, scheduleBannerY + 4.2);
-
-    // 7. Schedule Table (Only Column Headers repeat on page breaks)
-    callAutoTable(doc, {
-      startY: scheduleBannerY + 6,
-      margin: { top: 14, left: leftMargin, right: leftMargin },
-      head: [
-        [
-          { content: "S.No", styles: { halign: "center", cellWidth: 12 } },
-          { content: "Sprinkler Label / Location", styles: { halign: "left", cellWidth: 50 } },
-          { content: "K-Factor", styles: { halign: "center", cellWidth: 18 } },
-          { content: "Hazard Class", styles: { halign: "left", cellWidth: 38 } },
-          { content: `Coverage (${areaUnit})`, styles: { halign: "right", cellWidth: 22 } },
-          { content: `Pressure (${pressureUnit})`, styles: { halign: "right", cellWidth: 21 } },
-          { content: `Flow (${flowUnit})`, styles: { halign: "right", cellWidth: 21 } },
-        ],
-      ],
-      body: scheduleBody,
-      theme: "grid",
-      headStyles: {
-        fillColor: [10, 123, 199], // Primary Blue #0A7BC7
-        textColor: [255, 255, 255],
-        fontStyle: "bold",
-        fontSize: 7.5,
-        valign: "middle",
-      },
-      styles: {
-        fontSize: 7.5,
-        textColor: [20, 20, 20],
-        cellPadding: 1.5,
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1,
-      },
-      didDrawPage: (data: any) => {
-        // Footer: Page Numbers
-        const pageCount = (doc as any).internal.getNumberOfPages();
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(100, 100, 100);
-        doc.text(
-          `Page ${data.pageNumber} of ${pageCount}`,
-          105,
-          290,
-          { align: "center" }
-        );
-      },
-    });
-
-    const tableEndY = (doc as any).lastAutoTable.finalY;
-
-    // 8. 3-Tier Signature Block
-    const sigDetails = getSignatureBlockDetails(
-      activeProjectId,
-      "/plumbing-sprinkler-kfactor",
-      getExporterUserName(currentUserName),
-      liveReviewState
-    );
-
-    addPdfSignatureBlock(doc, tableEndY + 6, sigDetails);
-
-    // Save and download
-    const fileName = `${(projectName || "Sprinkler_K_Factor_Calculation").replace(/\s+/g, "_")}_report.pdf`;
-    downloadFile(doc.output("blob"), fileName);
-    toast.success("Sprinkler K-Factor PDF report exported successfully!");
+    const pdfBuffer = doc.output("arraybuffer");
+    await downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+    toast.success("Sprinkler K-Factor PDF exported successfully!");
   } catch (error: any) {
-    console.error("PDF Export error:", error);
-    toast.error(`Failed to export PDF: ${error.message || "Unknown error"}`);
+    console.error("exportSprinklerKFactorPDF error:", error);
+    toast.error(`Export PDF failed: ${error?.message || String(error)}`);
   }
 };

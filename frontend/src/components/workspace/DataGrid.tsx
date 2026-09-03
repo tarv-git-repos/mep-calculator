@@ -51,15 +51,16 @@ export function DataGrid<T extends { id: string }>({
   stickyHeaderTop?: number | string;
   gridId?: string;
 }) {
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
   const onToggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
-    if ((window as any).__mep_is_readonly) {
+    if (isReadOnly) {
        toast.info("Workspace is in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
        return;
     }
     onToggleProp(id, isShift, isCtrl);
   };
   const onToggleAll = () => {
-    if ((window as any).__mep_is_readonly) {
+    if (isReadOnly) {
        toast.info("Workspace is in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
        return;
     }

@@ -567,19 +567,6 @@ function CompanyHierarchyPage() {
     return map;
   }, [visibleMembers]);
 
-  // KPI Metrics scoped to visible members
-  const kpiTotalMembers = visibleMembers.length;
-  const kpiLeaders = visibleMembers.filter((m) => 
-    ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(m.role)
-  ).length;
-  const kpiStaff = visibleMembers.filter((m) => 
-    !["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(m.role)
-  ).length;
-  const kpiDepartments = useMemo(() => {
-    if (visibleMembers.length === 0) return 0;
-    return new Set(visibleMembers.map((m) => m.department)).size;
-  }, [visibleMembers]);
-
   if (!isAuthorized) {
     return (
       <AppShell title="Company Hierarchy" subtitle="Organization Role & Reporting Hierarchy">
@@ -644,53 +631,6 @@ function CompanyHierarchyPage() {
     >
       <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-50/40 dark:bg-zinc-950/20 overflow-y-auto custom-scrollbar p-6 space-y-6">
         
-        {/* KPI Banner Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-card border border-border p-4.5 rounded-2xl shadow-xs flex items-center gap-4">
-            <div className="size-11 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 font-bold">
-              <Users className="size-5" />
-            </div>
-            <div>
-              <span className="text-xs font-semibold text-muted-foreground">Total Members</span>
-              <div className="text-xl font-extrabold text-foreground">{kpiTotalMembers} Users</div>
-            </div>
-          </div>
-
-          <div className="bg-card border border-border p-4.5 rounded-2xl shadow-xs flex items-center gap-4">
-            <div className="size-11 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 font-bold">
-              <Crown className="size-5" />
-            </div>
-            <div>
-              <span className="text-xs font-semibold text-muted-foreground">Admins & PMs</span>
-              <div className="text-xl font-extrabold text-foreground">
-                {kpiLeaders} Leaders
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-card border border-border p-4.5 rounded-2xl shadow-xs flex items-center gap-4">
-            <div className="size-11 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 font-bold">
-              <Briefcase className="size-5" />
-            </div>
-            <div>
-              <span className="text-xs font-semibold text-muted-foreground">Engineers & Staff</span>
-              <div className="text-xl font-extrabold text-foreground">
-                {kpiStaff} Staff
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-card border border-border p-4.5 rounded-2xl shadow-xs flex items-center gap-4">
-            <div className="size-11 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 font-bold">
-              <Layers className="size-5" />
-            </div>
-            <div>
-              <span className="text-xs font-semibold text-muted-foreground">Departments</span>
-              <div className="text-xl font-extrabold text-foreground">{kpiDepartments} Disciplines</div>
-            </div>
-          </div>
-        </div>
-
         {/* Toolbar & Filter Options */}
         <div className="bg-card border border-border p-3.5 rounded-2xl shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3 w-full md:w-auto flex-1">

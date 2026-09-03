@@ -59,7 +59,11 @@ export function OrgAdminDashboard() {
   const [activityLogs, setActivityLogs] = useState<any[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [logCategoryFilter, setLogCategoryFilter] = useState<string>('ALL')
+  const [logProjectFilter, setLogProjectFilter] = useState<string>('ALL')
+  const [logPageFilter, setLogPageFilter] = useState<string>('ALL')
   const [logSearchQuery, setLogSearchQuery] = useState<string>('')
+  const [logSortField, setLogSortField] = useState<'timestamp' | 'project' | 'page' | 'user' | 'action'>('timestamp')
+  const [logSortOrder, setLogSortOrder] = useState<'asc' | 'desc'>('desc')
 
   // Storage State
   const [localBackupPath, setLocalBackupPath] = useState(localStorage.getItem('localBackupPath') || '')
@@ -400,6 +404,174 @@ export function OrgAdminDashboard() {
     return String(d || 'No details provided');
   };
 
+  const getLogProject = (log: any): string => {
+    if (!log) return 'Global / System';
+    let d: any = log.details;
+    if (typeof d === 'string') {
+      try {
+        const parsed = JSON.parse(d);
+        if (parsed && typeof parsed === 'object') d = parsed;
+      } catch (e) {}
+    }
+    const isObj = typeof d === 'object' && d !== null;
+    
+    if (log.project_name) return log.project_name;
+    if (log.projectName) return log.projectName;
+    if (log.project) return log.project;
+    
+    if (isObj) {
+      if (d.project_name) return d.project_name;
+      if (d.projectName) return d.projectName;
+      if (d.project) return d.project;
+      if (d.project_code) return `Project ${d.project_code}`;
+      if (d.projectCode) return `Project ${d.projectCode}`;
+      if (d.orgName || d.org_name) return d.orgName || d.org_name;
+    }
+    
+    if (typeof d === 'string') {
+      const projMatch = d.match(/in project\s+([^,\|]+)/i) || d.match(/project\s+([^,\|]+)/i);
+      if (projMatch && projMatch[1]) return projMatch[1].trim();
+    }
+
+    if (log.action_type === 'LOGIN' || log.action_type === 'LOGOUT') return 'System / Account';
+    if (log.action_type?.includes('ANNOUNCEMENT')) return 'Global Broadcasts';
+    if (log.action_type?.includes('TEAM') || log.action_type?.includes('ROLE') || log.action_type?.includes('USER')) return 'Organization Admin';
+    if (log.action_type?.includes('BACKUP') || log.action_type?.includes('SETTING')) return 'System Settings';
+
+    return 'Global / System';
+  };
+
+  const getLogPage = (log: any): string => {
+    if (!log) return 'Dashboard Page';
+    let d: any = log.details;
+    if (typeof d === 'string') {
+      try {
+        const parsed = JSON.parse(d);
+        if (parsed && typeof parsed === 'object') d = parsed;
+      } catch (e) {}
+    }
+    const isObj = typeof d === 'object' && d !== null;
+    
+    if (log.page) return log.page;
+    if (isObj && d.page) return d.page;
+    if (log.calculator_name) return log.calculator_name;
+    if (log.calculatorName) return log.calculatorName;
+    if (log.calculator) return log.calculator;
+    
+    if (isObj) {
+      if (d.calculator_name) return d.calculator_name;
+      if (d.calculatorName) return d.calculatorName;
+      if (d.calculator) return d.calculator;
+      if (d.calculatorTitle) return d.calculatorTitle;
+      if (d.section) return d.section;
+      if (d.module) return d.module;
+    }
+
+    const action = log.action_type || '';
+    if (action === 'LOGIN' || action === 'LOGOUT') return 'Login Page';
+    if (action.includes('ANNOUNCEMENT')) return 'Global Broadcasts';
+    if (action === 'INVITE_USER' || action === 'ADMIN_TOGGLE_ROLE' || action === 'ADMIN_DELETE_USER' || action.includes('TEAM')) return 'Team Members Admin';
+    if (action.includes('BACKUP') || action.includes('SETTING')) return 'Server & Sync Settings';
+    if (action.includes('ORGANIZATION')) return 'Organization Manager';
+    if (action === 'VIEW_CALCULATOR' || action === 'VIEWED' || action === 'UPDATED' || action.includes('CALCULATION')) return 'Calculator Workspace';
+    if (action.includes('REPORT') || action === 'EXPORT') return 'Reports & Exports';
+
+    return 'Dashboard Page';
+  };
+
+  const availableProjects = useMemo(() => {
+    const set = new Set<string>();
+    activityLogs.forEach(l => {
+      const proj = getLogProject(l);
+      if (proj) set.add(proj);
+    });
+    return Array.from(set).sort();
+  }, [activityLogs]);
+
+  const availablePages = useMemo(() => {
+    const set = new Set<string>();
+    activityLogs.forEach(l => {
+      const pg = getLogPage(l);
+      if (pg) set.add(pg);
+    });
+    return Array.from(set).sort();
+  }, [activityLogs]);
+
+  const handleSortLog = (field: 'timestamp' | 'project' | 'page' | 'user' | 'action') => {
+    if (logSortField === field) {
+      setLogSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setLogSortField(field);
+      setLogSortOrder('asc');
+    }
+  };
+
+  const processedLogs = useMemo(() => {
+    return activityLogs
+      .filter(log => {
+        // Category Filter
+        if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
+        if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
+        if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED' && !log.action_type?.includes('UPDATE')) return false;
+        if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
+        if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT') && log.action_type !== 'EXPORT') return false;
+        if (logCategoryFilter === 'USER_MGMT' && (log.action_type === 'LOGIN' || log.action_type === 'VIEWED' || log.action_type === 'UPDATED' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
+
+        // Project Filter
+        const proj = getLogProject(log);
+        if (logProjectFilter !== 'ALL' && proj.toLowerCase() !== logProjectFilter.toLowerCase()) return false;
+
+        // Page Filter
+        const pg = getLogPage(log);
+        if (logPageFilter !== 'ALL' && pg.toLowerCase() !== logPageFilter.toLowerCase()) return false;
+
+        // Search Query
+        if (logSearchQuery.trim()) {
+          const q = logSearchQuery.toLowerCase();
+          const name = (log.name || log.profiles?.name || log.user_name || '').toLowerCase();
+          const email = (log.profiles?.email || log.email || '').toLowerCase();
+          const action = (log.action_type || '').toLowerCase();
+          const formattedDate = new Date(log.created_at).toLocaleString().toLowerCase();
+          const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
+          return (
+            name.includes(q) ||
+            email.includes(q) ||
+            action.includes(q) ||
+            proj.toLowerCase().includes(q) ||
+            pg.toLowerCase().includes(q) ||
+            formattedDate.includes(q) ||
+            detailsStr.includes(q)
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        let valA: any = '';
+        let valB: any = '';
+
+        if (logSortField === 'timestamp') {
+          valA = new Date(a.created_at).getTime();
+          valB = new Date(b.created_at).getTime();
+        } else if (logSortField === 'project') {
+          valA = getLogProject(a).toLowerCase();
+          valB = getLogProject(b).toLowerCase();
+        } else if (logSortField === 'page') {
+          valA = getLogPage(a).toLowerCase();
+          valB = getLogPage(b).toLowerCase();
+        } else if (logSortField === 'user') {
+          valA = (a.name || a.email || '').toLowerCase();
+          valB = (b.name || b.email || '').toLowerCase();
+        } else if (logSortField === 'action') {
+          valA = (a.action_type || '').toLowerCase();
+          valB = (b.action_type || '').toLowerCase();
+        }
+
+        if (valA < valB) return logSortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return logSortOrder === 'asc' ? 1 : -1;
+        return 0;
+      });
+  }, [activityLogs, logCategoryFilter, logProjectFilter, logPageFilter, logSearchQuery, logSortField, logSortOrder]);
+
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-hidden font-sans">
       
@@ -730,43 +902,90 @@ export function OrgAdminDashboard() {
               </div>
 
               {/* Filter Controls Bar */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-1 flex items-center gap-1">
-                    <Filter size={14} className="text-slate-700 dark:text-slate-300" /> Filter:
-                  </span>
-                  {[
-                    { id: 'ALL', label: 'All Actions' },
-                    { id: 'LOGIN', label: '🔑 Logins' },
-                    { id: 'VIEWED', label: '👁️ Views' },
-                    { id: 'UPDATED', label: '✏️ Changes / Updates' },
-                    { id: 'CALCULATION_RUN', label: '🧮 Calculations' },
-                    { id: 'REPORT_GENERATED', label: '📄 Reports' },
-                    { id: 'USER_MGMT', label: '👥 Team Mgmt' }
-                  ].map(cat => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setLogCategoryFilter(cat.id)}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${
-                        logCategoryFilter === cat.id
-                          ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
-                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
+              <div className="p-4 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500 mr-1 flex items-center gap-1">
+                      <Filter size={14} className="text-slate-700 dark:text-slate-300" /> Action:
+                    </span>
+                    {[
+                      { id: 'ALL', label: 'All Actions' },
+                      { id: 'LOGIN', label: '🔑 Logins' },
+                      { id: 'VIEWED', label: '👁️ Views' },
+                      { id: 'UPDATED', label: '✏️ Changes / Updates' },
+                      { id: 'CALCULATION_RUN', label: '🧮 Calculations' },
+                      { id: 'REPORT_GENERATED', label: '📄 Reports' },
+                      { id: 'USER_MGMT', label: '👥 Team Mgmt' }
+                    ].map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setLogCategoryFilter(cat.id)}
+                        className={`text-xs px-3 py-1.5 rounded-lg font-bold transition ${
+                          logCategoryFilter === cat.id
+                            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-2xs'
+                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative min-w-[280px]">
+                    <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={logSearchQuery}
+                      onChange={e => setLogSearchQuery(e.target.value)}
+                      placeholder="Search timestamp, project, page, user, or action..."
+                      className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
                 </div>
 
-                <div className="relative min-w-[240px]">
-                  <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    value={logSearchQuery}
-                    onChange={e => setLogSearchQuery(e.target.value)}
-                    placeholder="Search by user name, email, or action..."
-                    className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                  />
+                {/* Sub-Filters for Project and Page */}
+                <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-200/80 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Project:</span>
+                    <select
+                      value={logProjectFilter}
+                      onChange={e => setLogProjectFilter(e.target.value)}
+                      className="text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[200px]"
+                    >
+                      <option value="ALL">All Projects ({availableProjects.length})</option>
+                      {availableProjects.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Page / Module:</span>
+                    <select
+                      value={logPageFilter}
+                      onChange={e => setLogPageFilter(e.target.value)}
+                      className="text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer max-w-[220px]"
+                    >
+                      <option value="ALL">All Pages ({availablePages.length})</option>
+                      {availablePages.map(pg => (
+                        <option key={pg} value={pg}>{pg}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {(logCategoryFilter !== 'ALL' || logProjectFilter !== 'ALL' || logPageFilter !== 'ALL' || logSearchQuery) && (
+                    <button
+                      onClick={() => {
+                        setLogCategoryFilter('ALL');
+                        setLogProjectFilter('ALL');
+                        setLogPageFilter('ALL');
+                        setLogSearchQuery('');
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-bold ml-auto cursor-pointer"
+                    >
+                      Reset Filters
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -776,100 +995,119 @@ export function OrgAdminDashboard() {
                   <div className="flex items-center justify-center p-12">
                     <Loader2 className="w-8 h-8 animate-spin text-slate-600 dark:text-slate-400" />
                   </div>
-                ) : activityLogs.filter(log => {
-                  if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
-                  if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
-                  if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED' && !log.action_type?.includes('UPDATE')) return false;
-                  if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
-                  if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT') && log.action_type !== 'EXPORT') return false;
-                  if (logCategoryFilter === 'USER_MGMT' && (log.action_type === 'LOGIN' || log.action_type === 'VIEWED' || log.action_type === 'UPDATED' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
-
-                  if (logSearchQuery.trim()) {
-                    const q = logSearchQuery.toLowerCase();
-                    const name = (log.name || log.profiles?.name || '').toLowerCase();
-                    const email = (log.profiles?.email || log.email || '').toLowerCase();
-                    const action = (log.action_type || '').toLowerCase();
-                    const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
-                    return name.includes(q) || email.includes(q) || action.includes(q) || detailsStr.includes(q);
-                  }
-                  return true;
-                }).length === 0 ? (
+                ) : processedLogs.length === 0 ? (
                   <div className="p-12 text-center text-slate-500">
                     <Activity className="w-12 h-12 mx-auto mb-4 opacity-20" />
                     <p className="font-semibold text-sm">No activity logs found for this filter.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800">
+                    <table className="w-full text-sm text-left border-collapse">
+                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 select-none">
                         <tr>
-                          <th className="px-6 py-4 font-bold">Timestamp</th>
-                          <th className="px-6 py-4 font-bold">Team Member (Name & Email)</th>
-                          <th className="px-6 py-4 font-bold">Action Type</th>
-                          <th className="px-6 py-4 font-bold">Activity Summary & Details</th>
+                          <th 
+                            className="px-5 py-3.5 font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+                            onClick={() => handleSortLog('timestamp')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Timestamp</span>
+                              {logSortField === 'timestamp' && (<span>{logSortOrder === 'asc' ? '▲' : '▼'}</span>)}
+                            </div>
+                          </th>
+                          <th 
+                            className="px-5 py-3.5 font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+                            onClick={() => handleSortLog('project')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Project</span>
+                              {logSortField === 'project' && (<span>{logSortOrder === 'asc' ? '▲' : '▼'}</span>)}
+                            </div>
+                          </th>
+                          <th 
+                            className="px-5 py-3.5 font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+                            onClick={() => handleSortLog('page')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Page</span>
+                              {logSortField === 'page' && (<span>{logSortOrder === 'asc' ? '▲' : '▼'}</span>)}
+                            </div>
+                          </th>
+                          <th 
+                            className="px-5 py-3.5 font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+                            onClick={() => handleSortLog('user')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Team Member (Name & Email)</span>
+                              {logSortField === 'user' && (<span>{logSortOrder === 'asc' ? '▲' : '▼'}</span>)}
+                            </div>
+                          </th>
+                          <th 
+                            className="px-5 py-3.5 font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+                            onClick={() => handleSortLog('action')}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>Action Type</span>
+                              {logSortField === 'action' && (<span>{logSortOrder === 'asc' ? '▲' : '▼'}</span>)}
+                            </div>
+                          </th>
+                          <th className="px-5 py-3.5 font-bold">Activity Summary & Details</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {activityLogs
-                          .filter(log => {
-                            if (logCategoryFilter === 'LOGIN' && log.action_type !== 'LOGIN') return false;
-                            if (logCategoryFilter === 'VIEWED' && log.action_type !== 'VIEWED' && log.action_type !== 'VIEW_CALCULATOR') return false;
-                            if (logCategoryFilter === 'UPDATED' && log.action_type !== 'UPDATED' && !log.action_type?.includes('UPDATE')) return false;
-                            if (logCategoryFilter === 'CALCULATION_RUN' && !log.action_type?.includes('CALCULATION')) return false;
-                            if (logCategoryFilter === 'REPORT_GENERATED' && !log.action_type?.includes('REPORT') && log.action_type !== 'EXPORT') return false;
-                            if (logCategoryFilter === 'USER_MGMT' && (log.action_type === 'LOGIN' || log.action_type === 'VIEWED' || log.action_type === 'UPDATED' || log.action_type?.includes('CALCULATION') || log.action_type?.includes('REPORT'))) return false;
+                        {processedLogs.map((log) => {
+                          const userName = log.name || log.profiles?.name || log.user_name || log.email || 'Team User';
+                          const userEmail = log.profiles?.email || log.email || '';
+                          const isLogin = log.action_type === 'LOGIN';
+                          const isView = log.action_type === 'VIEWED' || log.action_type === 'VIEW_CALCULATOR';
+                          const isUpdate = log.action_type === 'UPDATED' || log.action_type?.includes('UPDATE');
+                          const isReport = log.action_type?.includes('REPORT') || log.action_type === 'EXPORT';
 
-                            if (logSearchQuery.trim()) {
-                              const q = logSearchQuery.toLowerCase();
-                              const name = (log.name || log.profiles?.name || '').toLowerCase();
-                              const email = (log.profiles?.email || log.email || '').toLowerCase();
-                              const action = (log.action_type || '').toLowerCase();
-                              const detailsStr = typeof log.details === 'string' ? log.details.toLowerCase() : JSON.stringify(log.details || {}).toLowerCase();
-                              return name.includes(q) || email.includes(q) || action.includes(q) || detailsStr.includes(q);
-                            }
-                            return true;
-                          })
-                          .map((log) => {
-                            const userName = log.name || log.profiles?.name || log.user_name || log.email || 'Team User';
-                            const userEmail = log.profiles?.email || log.email || '';
-                            const isLogin = log.action_type === 'LOGIN';
-                            const isView = log.action_type === 'VIEWED' || log.action_type === 'VIEW_CALCULATOR';
-                            const isUpdate = log.action_type === 'UPDATED' || log.action_type?.includes('UPDATE');
-                            const isReport = log.action_type?.includes('REPORT') || log.action_type === 'EXPORT';
+                          const projName = getLogProject(log);
+                          const pageName = getLogPage(log);
 
-                            return (
-                              <tr key={log.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
-                                <td className="px-6 py-4 text-xs font-mono text-slate-500 whitespace-nowrap">
-                                  {new Date(log.created_at).toLocaleString()}
-                                </td>
-                                <td className="px-6 py-4">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 border border-slate-200 dark:border-slate-700">
-                                      {(userName || 'U')[0].toUpperCase()}
-                                    </div>
-                                    <div>
-                                      <div className="font-extrabold text-slate-900 dark:text-slate-100 text-xs">
-                                        {userName}
-                                      </div>
-                                      {userEmail && <div className="text-[11px] text-slate-500">{userEmail}</div>}
-                                    </div>
+                          return (
+                            <tr key={log.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition">
+                              <td className="px-5 py-4 text-xs font-mono text-slate-500 whitespace-nowrap">
+                                {new Date(log.created_at).toLocaleString()}
+                              </td>
+                              <td className="px-5 py-4 text-xs font-bold text-slate-800 dark:text-slate-200">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50">
+                                  📁 {projName}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4 text-xs font-bold text-slate-800 dark:text-slate-200">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  📄 {pageName}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-extrabold flex items-center justify-center text-xs shrink-0 border border-slate-200 dark:border-slate-700">
+                                    {(userName || 'U')[0].toUpperCase()}
                                   </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
-                                    {isLogin && <Key size={12} />}
-                                    {isView && <Eye size={12} />}
-                                    {isUpdate && <Edit3 size={12} />}
-                                    {isReport && <FileText size={12} />}
-                                    {isUpdate ? 'UPDATED / CHANGES' : log.action_type}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 text-xs font-medium text-slate-700 dark:text-slate-300">
-                                  {formatLogDetail(log)}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                                  <div>
+                                    <div className="font-extrabold text-slate-900 dark:text-slate-100 text-xs">
+                                      {userName}
+                                    </div>
+                                    {userEmail && <div className="text-[11px] text-slate-500">{userEmail}</div>}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                                  {isLogin && <Key size={12} />}
+                                  {isView && <Eye size={12} />}
+                                  {isUpdate && <Edit3 size={12} />}
+                                  {isReport && <FileText size={12} />}
+                                  {isUpdate ? 'UPDATED / CHANGES' : log.action_type}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4 text-xs font-medium text-slate-700 dark:text-slate-300">
+                                {formatLogDetail(log)}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

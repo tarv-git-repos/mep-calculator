@@ -1,10 +1,10 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import { AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle } from "lucide-react";
+import { AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle, Lock } from "lucide-react";
 import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/duct-sizer")({
@@ -37,6 +37,7 @@ function colebrook(Re: number, relR: number): number {
 type DuctShape = "round" | "rect";
 
 function DuctSizerPage() {
+  const isApproved = useCalculationLock("/duct-sizer");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
   const [airflow, setAirflow] = useState<number | "">("");
   const [targetFr, setTargetFr] = useState<number | "">(""); // in w.g./100ft (IP) or Pa/m (SI)
@@ -249,8 +250,8 @@ function DuctSizerPage() {
             {/* Left inputs */}
             <div className="lg:col-span-5 flex flex-col gap-5">
               <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 self-start select-none">
-                <button type="button" onClick={() => handleUnitSystemChange("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
-                <button type="button" onClick={() => handleUnitSystemChange("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
+                <button type="button" disabled={isApproved} onClick={() => handleUnitSystemChange("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
+                <button type="button" disabled={isApproved} onClick={() => handleUnitSystemChange("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
               </div>
 
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
@@ -262,22 +263,28 @@ function DuctSizerPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   {/* Airflow */}
                   <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Airflow (Q) ({ip ? "CFM" : "L/s"})</label>
-                    <input type="number" step="any" value={airflow} onChange={(e) => { setAirflow(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "2500" : "1180"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
+                    <label className="font-semibold text-foreground flex items-center justify-between">
+                      <span>Airflow (Q) ({ip ? "CFM" : "L/s"})</span>
+                      {isApproved && <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1"><Lock className="size-3" /> Locked</span>}
+                    </label>
+                    <input type="number" step="any" disabled={isApproved} value={airflow} onChange={(e) => { setAirflow(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "2500" : "1180"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-200/50 dark:disabled:bg-slate-900/60" />
                   </div>
 
                   {/* Target Friction Rate */}
                   <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Target Friction Rate ({ip ? "in w.g./100ft" : "Pa/m"})</label>
-                    <input type="number" step="any" value={targetFr} onChange={(e) => { setTargetFr(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "0.08" : "0.65"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal" />
+                    <label className="font-semibold text-foreground flex items-center justify-between">
+                      <span>Target Friction Rate ({ip ? "in w.g./100ft" : "Pa/m"})</span>
+                      {isApproved && <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1"><Lock className="size-3" /> Locked</span>}
+                    </label>
+                    <input type="number" step="any" disabled={isApproved} value={targetFr} onChange={(e) => { setTargetFr(e.target.value === "" ? "" : Number(e.target.value)); setHasCalculated(false); }} placeholder={ip ? "0.08" : "0.65"} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-200/50 dark:disabled:bg-slate-900/60" />
                   </div>
 
                   {/* Shape */}
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Duct Shape</label>
                     <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-1 border border-border/60 select-none">
-                      <button type="button" onClick={() => { setDuctShape("round"); setHasCalculated(false); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ductShape === "round" ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Round</button>
-                      <button type="button" onClick={() => { setDuctShape("rect"); setHasCalculated(false); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ductShape === "rect" ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Rectangular</button>
+                      <button type="button" disabled={isApproved} onClick={() => { setDuctShape("round"); setHasCalculated(false); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${ductShape === "round" ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Round</button>
+                      <button type="button" disabled={isApproved} onClick={() => { setDuctShape("rect"); setHasCalculated(false); }} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${ductShape === "rect" ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Rectangular</button>
                     </div>
                   </div>
 
@@ -285,7 +292,7 @@ function DuctSizerPage() {
                   {ductShape === "rect" && (
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-foreground">Aspect Ratio (W:H)</label>
-                      <select value={aspectRatio} onChange={(e) => { setAspectRatio(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]">
+                      <select disabled={isApproved} value={aspectRatio} onChange={(e) => { setAspectRatio(Number(e.target.value)); setHasCalculated(false); }} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] disabled:opacity-60 disabled:cursor-not-allowed">
                         <option value="1.0">1:1 - Square</option>
                         <option value="1.5">1.5:1 - Low profile</option>
                         <option value="2.0">2:1 - Standard</option>
@@ -297,8 +304,12 @@ function DuctSizerPage() {
                 </div>
               </div>
 
-              <button type="button" onClick={handleCalculate} className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs">
-                ⚡ Calculate Duct Size
+              <button type="button" disabled={isApproved} onClick={handleCalculate} className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-500">
+                {isApproved ? (
+                  <>🔒 Calculation Approved (Read-Only)</>
+                ) : (
+                  <>⚡ Calculate Duct Size</>
+                )}
               </button>
             </div>
 

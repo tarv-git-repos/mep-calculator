@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
@@ -14,7 +14,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
-import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal } from "lucide-react";
+import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal, Lock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
@@ -664,6 +664,10 @@ function BusbarCalculationPage() {
   };
 
   const addPanel = () => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
     pushToUndo(panels);
     const num = panels.length + 1;
     setPanels([...panels, {
@@ -681,6 +685,10 @@ function BusbarCalculationPage() {
   };
 
   const removePanel = async (id: string) => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
     if (panels.length === 1) {
       if (await confirm("Are you sure you want to clear the only panel?")) {
         pushToUndo(panels);
@@ -695,11 +703,16 @@ function BusbarCalculationPage() {
   };
 
   const updatePanel = (id: string, field: keyof LVPanel, val: any) => {
+    if (isApproved) return;
     pushToUndo(panels);
     setPanels(panels.map(p => p.id === id ? { ...p, [field]: val } : p));
   };
 
   const addSection = (panelId: string) => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
     pushToUndo(panels);
     setPanels(panels.map(p => {
       if (p.id === panelId) {
@@ -710,9 +723,9 @@ function BusbarCalculationPage() {
             id: `sec_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
             name: `BB-${num}`,
             ratingId: "2500_rt",
-        volts: 415,
-        pf: 0.8,
-        rows: []
+            volts: 415,
+            pf: 0.8,
+            rows: []
           }]
         };
       }
@@ -721,6 +734,10 @@ function BusbarCalculationPage() {
   };
 
   const removeSection = async (panelId: string, sectionId: string) => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
     pushToUndo(panels);
     setPanels(panels.map(p => {
       if (p.id === panelId) {
@@ -731,6 +748,7 @@ function BusbarCalculationPage() {
   };
 
   const updateSection = (panelId: string, sectionId: string, field: keyof BusbarSection, val: any) => {
+    if (isApproved) return;
     pushToUndo(panels);
     setPanels(panels.map(p => {
       if (p.id === panelId) {
@@ -826,6 +844,10 @@ function BusbarCalculationPage() {
   };
 
   const addRow = (panelId: string, sectionId: string) => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
     pushToUndo(panels);
     setPanels(panels.map(p => {
       if (p.id === panelId) {
@@ -853,6 +875,10 @@ function BusbarCalculationPage() {
   };
 
   const removeRow = (panelId: string, sectionId: string, rowId: string) => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
     pushToUndo(panels);
     setPanels(panels.map(p => {
       if (p.id === panelId) {
@@ -871,6 +897,7 @@ function BusbarCalculationPage() {
   };
 
   const updateRow = (panelId: string, sectionId: string, rowId: string, field: keyof BusbarRow, val: any) => {
+    if (isApproved) return;
     pushToUndo(panels);
     const isBulkEdit = selectedRows.has(rowId);
     
@@ -899,6 +926,10 @@ function BusbarCalculationPage() {
   };
 
   const clearAll = async () => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
     if (await confirm("Are you sure you want to clear all data?")) {
       pushToUndo(panels);
       setPanels([{
@@ -1834,9 +1865,9 @@ function BusbarCalculationPage() {
               {showFlaggedOnly && <span className="text-[9px] bg-red-500 text-white px-1.5 rounded-full font-bold uppercase">Active</span>}
             </button>
 
-            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all">
+            <label className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground transition-all ${isApproved ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer hover:bg-surface-3"}`}>
               <Upload className="size-3.5" /> Import Ratings
-              <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
+              <input type="file" disabled={isApproved} accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
             </label>
 
             <button
@@ -1847,15 +1878,17 @@ function BusbarCalculationPage() {
             </button>
 
             <button
+              disabled={isApproved}
               onClick={clearAll}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 hover:text-red-500 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 hover:text-red-500 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Trash2 className="size-3.5" /> Clear All
             </button>
 
             <button
+              disabled={isApproved}
               onClick={addPanel}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="size-3.5" /> Add LV Panel
             </button>
@@ -1875,16 +1908,17 @@ function BusbarCalculationPage() {
                     <span className="text-[13px] font-bold text-foreground uppercase tracking-wider">Panel Name:</span>
                     <input 
                       type="text" 
+                      disabled={isApproved}
                       value={panel.name} 
                       onChange={e => updatePanel(panel.id, "name", e.target.value)}
-                      className="h-8 px-2 border border-border rounded bg-background focus:bg-white outline-none font-bold w-48 text-[13px]"
+                      className="h-8 px-2 border border-border rounded bg-background focus:bg-white outline-none font-bold w-48 text-[13px] disabled:opacity-60 disabled:cursor-not-allowed"
                       onClick={(e) => e.stopPropagation()}
                     />
                   </div>
                   
                   <div className="ml-auto flex items-center gap-3">
-                      <TBtn onClick={(e) => { e.stopPropagation(); addSection(panel.id); }} primary><Plus className="size-3.5" /> Add Busbar</TBtn>
-                      <TBtn onClick={(e) => { e.stopPropagation(); removePanel(panel.id); }}><Trash2 className="size-3.5" /> Remove Panel</TBtn>
+                      <TBtn disabled={isApproved} onClick={(e) => { e.stopPropagation(); addSection(panel.id); }} primary><Plus className="size-3.5" /> Add Busbar</TBtn>
+                      <TBtn disabled={isApproved} onClick={(e) => { e.stopPropagation(); removePanel(panel.id); }}><Trash2 className="size-3.5" /> Remove Panel</TBtn>
                   </div>
                 </div>
 
@@ -1905,34 +1939,38 @@ function BusbarCalculationPage() {
                                 <span className="text-xs font-semibold text-muted-foreground">Name:</span>
                                 <input 
                                   type="text" 
+                                  disabled={isApproved}
                                   value={section.name} 
                                   onChange={e => updateSection(panel.id, section.id, "name", e.target.value)}
-                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-24 text-sm"
+                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-24 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-muted-foreground">Volts:</span>
                                 <input 
                                   type="number" 
+                                  disabled={isApproved}
                                   value={section.volts} 
                                   onChange={e => updateSection(panel.id, section.id, "volts", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-60 disabled:cursor-not-allowed"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-muted-foreground">PF:</span>
                                 <input 
                                   type="number" 
+                                  disabled={isApproved}
                                   step="0.01" max="1"
                                   value={section.pf} 
                                   onChange={e => updateSection(panel.id, section.id, "pf", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium w-16 text-center text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-60 disabled:cursor-not-allowed"
                                 />
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-muted-foreground">Rating:</span>
                                 <select
-                                    className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium cursor-pointer text-sm"
+                                    disabled={isApproved}
+                                    className="h-7 px-2 border border-border rounded bg-surface-2 text-foreground focus:bg-surface-3 focus:ring-1 focus:ring-primary outline-none font-medium cursor-pointer text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                                     value={section.ratingId}
                                     onChange={(e) => updateSection(panel.id, section.id, "ratingId", e.target.value)}
                                 >
@@ -1949,8 +1987,9 @@ function BusbarCalculationPage() {
                                 <span className="text-[11px] font-semibold text-muted-foreground">Current Basis:</span>
                                 <button
                                   type="button"
+                                  disabled={isApproved}
                                   onClick={() => updateSection(panel.id, section.id, "useMdForCurrent", !(section.useMdForCurrent !== false))}
-                                  className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-all cursor-pointer border ${
+                                  className={`px-2 py-0.5 rounded text-[10.5px] font-bold transition-all cursor-pointer border disabled:opacity-50 disabled:cursor-not-allowed ${
                                     section.useMdForCurrent !== false
                                       ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
                                       : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/25"
@@ -1978,6 +2017,7 @@ function BusbarCalculationPage() {
                                   </div>
                                 )}
                                 <ImportExcelBtn
+                                  disabled={isApproved}
                                   columnMapping={{
                                     from: ["From", "Source", "Panel", "From Panel"],
                                     desc: ["Description of connection", "Description", "Tap Off Points", "Tap Off Point", "Tap Off", "Connection", "Name", "Desc"],
@@ -1987,10 +2027,10 @@ function BusbarCalculationPage() {
                                     div: ["Diversity Factor", "Diversity", "DF", "Div"]
                                   }}
                                   onImport={(rows) => handleImportExcelRows(panel.id, section.id, rows)}
-                                  className="h-7 px-3 text-xs bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-md transition-colors"
+                                  className="h-7 px-3 text-xs bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
-                                <TBtn onClick={() => addRow(panel.id, section.id)} primary className="h-7 px-3 text-xs"><Plus className="size-3" /> Tap Off</TBtn>
-                                <TBtn onClick={() => removeSection(panel.id, section.id)} className="h-7 px-3 text-xs"><Trash2 className="size-3" /> Remove</TBtn>
+                                <TBtn disabled={isApproved} onClick={() => addRow(panel.id, section.id)} primary className="h-7 px-3 text-xs"><Plus className="size-3" /> Tap Off</TBtn>
+                                <TBtn disabled={isApproved} onClick={() => removeSection(panel.id, section.id)} className="h-7 px-3 text-xs"><Trash2 className="size-3" /> Remove</TBtn>
                             </div>
                           </div>
 
@@ -2165,6 +2205,7 @@ function BusbarCalculationPage() {
                                           : "hover:bg-surface-2"
                                       }`}
                                       onDoubleClick={() => {
+                                        if (isApproved) return;
                                         setSelectedRows(new Set([r.id]));
                                         setEditingRow({ row: r, panelId: panel.id, sectionId: section.id });
                                       }}
@@ -2192,7 +2233,8 @@ function BusbarCalculationPage() {
                                            <div className="flex items-center justify-center h-full w-full">
                                              <input 
                                                type="checkbox" 
-                                               className="cursor-pointer"
+                                               disabled={isApproved}
+                                               className="cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                                                checked={selectedRows.has(r.id)}
                                                onChange={() => {}}
                                                onClick={(e) => {
@@ -2203,7 +2245,7 @@ function BusbarCalculationPage() {
                                            </div>
                                          </td>
                                          <td style={{ width: busbarColWidths.no, minWidth: busbarColWidths.no, maxWidth: busbarColWidths.no }} className="text-center text-muted-foreground font-medium px-0.5 text-[11.5px]">{idx + 1}</td>
-                                         <td style={{ width: busbarColWidths.desc, minWidth: busbarColWidths.desc, maxWidth: busbarColWidths.desc }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                         <td style={{ width: busbarColWidths.desc, minWidth: busbarColWidths.desc, maxWidth: busbarColWidths.desc }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
                                           <div className="flex items-center gap-1.5 w-full px-1">
                                             {r.comments && r.comments.length > 0 && (
                                               <span 
@@ -2225,48 +2267,52 @@ function BusbarCalculationPage() {
                                               </span>
                                             )}
                                             <input 
+                                              disabled={isApproved}
                                               data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
                                               onKeyDown={(e) => handleKeyDown(e, 0)} 
-                                              onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                              onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                               type="text" 
-                                              className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground flex-1" 
+                                              className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground flex-1 disabled:opacity-60 disabled:cursor-not-allowed" 
                                               value={r.desc} 
                                               onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} 
                                             />
                                           </div>
                                         </td>
-                                        <td style={{ width: busbarColWidths.len, minWidth: busbarColWidths.len, maxWidth: busbarColWidths.len }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                        <td style={{ width: busbarColWidths.len, minWidth: busbarColWidths.len, maxWidth: busbarColWidths.len }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
                                           <input 
+                                            disabled={isApproved}
                                             data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} 
                                             onKeyDown={(e) => handleKeyDown(e, 1)} 
-                                            onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                            onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                             type="number" step="0.1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground disabled:opacity-60 disabled:cursor-not-allowed" 
                                             value={r.length} 
                                             onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
                                           />
                                         </td>
-                                        <td style={{ width: busbarColWidths.loadKw, minWidth: busbarColWidths.loadKw, maxWidth: busbarColWidths.loadKw }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                        <td style={{ width: busbarColWidths.loadKw, minWidth: busbarColWidths.loadKw, maxWidth: busbarColWidths.loadKw }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
                                           <input 
+                                            disabled={isApproved}
                                             data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} 
                                             onKeyDown={(e) => handleKeyDown(e, 2)} 
-                                            onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                            onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                             type="number" step="0.1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground disabled:opacity-60 disabled:cursor-not-allowed" 
                                             value={r.loadKw} 
                                             onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
                                           />
                                         </td>
                                         
-                                        <td style={{ width: busbarColWidths.tclKw, minWidth: busbarColWidths.tclKw, maxWidth: busbarColWidths.tclKw }} className="px-2 py-1 text-center font-bold bg-surface-2 text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.tcl.toFixed(2)}</td>
+                                        <td style={{ width: busbarColWidths.tclKw, minWidth: busbarColWidths.tclKw, maxWidth: busbarColWidths.tclKw }} className="px-2 py-1 text-center font-bold bg-surface-2 text-foreground cursor-pointer" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.tcl.toFixed(2)}</td>
                                         
-                                        <td style={{ width: busbarColWidths.div, minWidth: busbarColWidths.div, maxWidth: busbarColWidths.div }} className="p-0" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
+                                        <td style={{ width: busbarColWidths.div, minWidth: busbarColWidths.div, maxWidth: busbarColWidths.div }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
                                           <input 
+                                            disabled={isApproved}
                                             data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} 
                                             onKeyDown={(e) => handleKeyDown(e, 3)} 
-                                            onDoubleClick={(e) => { e.stopPropagation(); setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
+                                            onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
                                             type="number" step="0.01" max="1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground" 
+                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground disabled:opacity-60 disabled:cursor-not-allowed" 
                                             value={r.div} 
                                             onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
                                           />
@@ -2344,7 +2390,9 @@ function BusbarCalculationPage() {
           </div>
           <button
             onClick={() => {
+              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
               const idsToCopy = selectedRows.has(contextMenu.rowId) ? Array.from(selectedRows) : [contextMenu.rowId];
+              pushToUndo(panels);
               copyRows(idsToCopy);
               pasteRows();
               setContextMenu(null);
@@ -2355,6 +2403,7 @@ function BusbarCalculationPage() {
           </button>
           <button
             onClick={() => {
+              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
               const inputEl = document.querySelector(`tr[data-row-id="${contextMenu.rowId}"] input[type="text"]`) as HTMLInputElement;
               if (inputEl) {
                 inputEl.focus();
@@ -2388,6 +2437,7 @@ function BusbarCalculationPage() {
           </button>
           <button
             onClick={() => {
+              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
               let isCurrentlyFlagged = false;
               panels.forEach(p => p.sections.forEach(s => s.rows.forEach(r => {
                 if (r.id === contextMenu.rowId) isCurrentlyFlagged = Boolean(r.flagged);
@@ -2402,6 +2452,7 @@ function BusbarCalculationPage() {
           <div className="my-1 border-t border-border/60"></div>
           <button
             onClick={() => {
+              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
               const idsToDelete = selectedRows.has(contextMenu.rowId) ? Array.from(selectedRows) : [contextMenu.rowId];
               pushToUndo(panels);
               setPanels(prev => prev.map(p => ({
@@ -2537,6 +2588,7 @@ function BusbarCalculationPage() {
             onToggleMdForCurrent={(val) => updateSection(editingRow.panelId, editingRow.sectionId, "useMdForCurrent", val)}
             onClose={() => setEditingRow(null)}
             onSave={(updated) => {
+              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setEditingRow(null); return; }
               if (updated.desc !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "desc", updated.desc);
               if (updated.length !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "length", updated.length);
               if (updated.loadKw !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "loadKw", updated.loadKw);

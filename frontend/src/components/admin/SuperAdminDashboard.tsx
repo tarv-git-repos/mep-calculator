@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3, ArrowUpDown } from "lucide-react"
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3, ArrowUpDown, ChevronDown } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -746,28 +746,28 @@ export function SuperAdminDashboard() {
     if (diffDays < 0) {
       const pastDays = Math.abs(diffDays);
       return (
-        <div className="flex flex-col">
-          <span className="font-semibold text-slate-700 dark:text-slate-300">{dateFormatted}</span>
-          <span className="text-[11px] font-bold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-1.5 py-0.5 rounded w-fit mt-0.5">
-            Expired ({pastDays} day{pastDays === 1 ? '' : 's'} ago)
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">{dateFormatted}</span>
+          <span className="text-[10px] font-bold text-red-600 dark:text-red-400">
+            ({pastDays}d ago)
           </span>
         </div>
       );
     } else if (diffDays === 0) {
       return (
-        <div className="flex flex-col">
-          <span className="font-semibold text-slate-700 dark:text-slate-300">{dateFormatted}</span>
-          <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded w-fit mt-0.5">
-            Expires today
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">{dateFormatted}</span>
+          <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+            (Today)
           </span>
         </div>
       );
     } else {
       return (
-        <div className="flex flex-col">
-          <span className="font-semibold text-slate-700 dark:text-slate-300">{dateFormatted}</span>
-          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded w-fit mt-0.5">
-            {diffDays} day{diffDays === 1 ? '' : 's'} remaining
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-slate-700 dark:text-slate-300 text-xs">{dateFormatted}</span>
+          <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+            ({diffDays}d left)
           </span>
         </div>
       );
@@ -1137,22 +1137,15 @@ export function SuperAdminDashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="hidden lg:flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3 py-1 rounded-lg">
-                      <span className="text-slate-400">⌨️ Shortcuts:</span>
-                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Ctrl+A</kbd> Select All
-                      <span className="text-slate-300 dark:text-slate-700">|</span>
-                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Shift+Click</kbd> Range
-                      <span className="text-slate-300 dark:text-slate-700">|</span>
-                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Ctrl+Z</kbd> Undo
-                      <span className="text-slate-300 dark:text-slate-700">|</span>
-                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Ctrl+Y</kbd> Redo
-                      <span className="text-slate-300 dark:text-slate-700">|</span>
-                      <kbd className="px-1 py-0.2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-[10px] font-mono text-slate-700 dark:text-slate-300">Esc</kbd> Clear
-                    </div>
-                    <button onClick={fetchProfiles} className="text-sm text-blue-600 hover:underline font-medium">Refresh</button>
+                    <button 
+                      onClick={fetchProfiles} 
+                      className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg transition cursor-pointer"
+                    >
+                      Refresh
+                    </button>
                     <button 
                       onClick={() => setShowAddUser(true)}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-2xs transition-all cursor-pointer"
                     >
                       + Add User
                     </button>
@@ -1187,32 +1180,44 @@ export function SuperAdminDashboard() {
                       </select>
                     </div>
 
-                    {/* SORT BY DROPDOWN AND ORDER TOGGLE */}
+                    {/* EXACT STATIC-WIDTH SINGLE BUTTON SORT BY CONTROL */}
                     <div className="flex items-center gap-2 sm:border-l border-slate-200 dark:border-slate-700 sm:pl-4">
-                      <ArrowUpDown size={15} className="text-blue-600 shrink-0" />
-                      <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0">
-                        Sort By:
-                      </label>
-                      <select
-                        value={userSortField}
-                        onChange={(e) => setUserSortField(e.target.value as any)}
-                        className="text-xs font-bold p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                      >
-                        <option value="email">Email Address</option>
-                        <option value="role">User Role Priority</option>
-                        <option value="organization">Organization Name</option>
-                        <option value="created_at">Creation Date</option>
-                        <option value="expires">Subscription Expiry</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                        className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer flex items-center gap-1 shadow-2xs whitespace-nowrap"
-                        title="Toggle Sort Direction"
-                      >
-                        <span>{userSortOrder === 'asc' ? 'Ascending (A-Z)' : 'Descending (Z-A)'}</span>
-                        <span className="text-blue-600 font-extrabold">{userSortOrder === 'asc' ? '↑' : '↓'}</span>
-                      </button>
+                      <div className="relative inline-flex items-center w-[230px] shrink-0">
+                        <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-2xs hover:border-slate-400 dark:hover:border-slate-600 transition cursor-pointer pointer-events-none w-[230px] shrink-0">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <ArrowUpDown size={13} className="text-blue-600 shrink-0" />
+                            <span className="text-slate-600 dark:text-slate-400 font-bold shrink-0">Sort By:</span>
+                            <span className="font-semibold text-slate-900 dark:text-white truncate">
+                              {userSortField === 'email' && (userSortOrder === 'asc' ? 'Email (A-Z ↑)' : 'Email (Z-A ↓)')}
+                              {userSortField === 'role' && (userSortOrder === 'asc' ? 'Role (High-Low ↑)' : 'Role (Low-High ↓)')}
+                              {userSortField === 'organization' && (userSortOrder === 'asc' ? 'Org (A-Z ↑)' : 'Org (Z-A ↓)')}
+                              {userSortField === 'created_at' && (userSortOrder === 'desc' ? 'Date (Newest ↓)' : 'Date (Oldest ↑)')}
+                              {userSortField === 'expires' && (userSortOrder === 'asc' ? 'Expiry (Soonest ↑)' : 'Expiry (Latest ↓)')}
+                            </span>
+                          </div>
+                          <ChevronDown size={13} className="text-slate-600 dark:text-slate-400 shrink-0" />
+                        </div>
+                        <select
+                          value={`${userSortField}_${userSortOrder}`}
+                          onChange={(e) => {
+                            const [field, order] = e.target.value.split('_');
+                            setUserSortField(field as any);
+                            setUserSortOrder(order as any);
+                          }}
+                          className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                        >
+                          <option value="email_asc">Sort By: Email Address (A to Z ↑)</option>
+                          <option value="email_desc">Sort By: Email Address (Z to A ↓)</option>
+                          <option value="role_asc">Sort By: Role Priority (High to Low ↑)</option>
+                          <option value="role_desc">Sort By: Role Priority (Low to High ↓)</option>
+                          <option value="organization_asc">Sort By: Organization Name (A to Z ↑)</option>
+                          <option value="organization_desc">Sort By: Organization Name (Z to A ↓)</option>
+                          <option value="created_at_desc">Sort By: Creation Date (Newest First ↓)</option>
+                          <option value="created_at_asc">Sort By: Creation Date (Oldest First ↑)</option>
+                          <option value="expires_asc">Sort By: Subscription Expiry (Soonest First ↑)</option>
+                          <option value="expires_desc">Sort By: Subscription Expiry (Latest First ↓)</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
 
@@ -1384,7 +1389,7 @@ export function SuperAdminDashboard() {
                             if (userSortField === 'email') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                             else { setUserSortField('email'); setUserSortOrder('asc'); }
                           }}
-                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-left"
                           title="Click to sort by Email"
                         >
                           <div className="flex items-center gap-1">
@@ -1397,10 +1402,10 @@ export function SuperAdminDashboard() {
                             if (userSortField === 'role') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                             else { setUserSortField('role'); setUserSortOrder('asc'); }
                           }}
-                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-center"
                           title="Click to sort by Role Priority"
                         >
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-1">
                             <span>Role</span>
                             <span className="text-xs text-blue-600 font-bold">{userSortField === 'role' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
                           </div>
@@ -1410,40 +1415,39 @@ export function SuperAdminDashboard() {
                             if (userSortField === 'organization') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                             else { setUserSortField('organization'); setUserSortOrder('asc'); }
                           }}
-                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-center"
                           title="Click to sort by Organization Name"
                         >
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-1">
                             <span>Organization</span>
                             <span className="text-xs text-blue-600 font-bold">{userSortField === 'organization' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
                           </div>
                         </th>
-                        <th className="pb-3 font-semibold">Status</th>
                         <th 
                           onClick={() => {
                             if (userSortField === 'expires') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                             else { setUserSortField('expires'); setUserSortOrder('asc'); }
                           }}
-                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition"
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-center w-[210px]"
                           title="Click to sort by Expiry Date"
                         >
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-1">
                             <span>Expires</span>
                             <span className="text-xs text-blue-600 font-bold">{userSortField === 'expires' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
                           </div>
                         </th>
-                        <th className="pb-3 font-semibold text-right">Actions</th>
+                        <th className="pb-3 font-semibold text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm">
                       {loadingProfiles ? (
-                        <tr><td colSpan={7} className="py-8 text-center text-slate-500">Loading...</td></tr>
+                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">Loading...</td></tr>
                       ) : profiles.filter(p => {
                         if (selectedOrgFilter === 'ALL') return true;
                         if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                         return p.organization_id === selectedOrgFilter;
                       }).length === 0 ? (
-                        <tr><td colSpan={7} className="py-8 text-center text-slate-500">No users found for this organization selection.</td></tr>
+                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">No users found for this organization selection.</td></tr>
                       ) : (() => {
                         const visibleProfiles = profiles.filter(p => {
                           if (selectedOrgFilter === 'ALL') return true;
@@ -1500,15 +1504,22 @@ export function SuperAdminDashboard() {
                                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
                               />
                             </td>
-                            <td className="py-4 font-medium flex items-center gap-2">
-                              {p.role === 'ORG_ADMIN' && <Crown size={15} className="text-amber-500 shrink-0" title="Organization Admin Representative" />}
-                              <span>{p.email}</span>
+                            <td className="py-3.5 px-3 font-semibold text-slate-900 dark:text-slate-100">
+                              <div className="flex items-center gap-2">
+                                <div className="size-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-extrabold flex items-center justify-center text-[11px] shrink-0 border border-slate-200 dark:border-slate-700">
+                                  {(p.email || 'U')[0].toUpperCase()}
+                                </div>
+                                <div className="flex items-center gap-1 min-w-0">
+                                  {p.role === 'ORG_ADMIN' && <Crown size={14} className="text-amber-500 shrink-0" title="Organization Admin Representative" />}
+                                  <span className="truncate text-xs">{p.email}</span>
+                                </div>
+                              </div>
                             </td>
-                            <td className="py-4">
+                            <td className="py-3.5 px-3 text-center">
                               <select
                                 value={p.role || 'Design Engineer'}
                                 onChange={(e) => handleRoleChange(p.id, e.target.value)}
-                                className="text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer shadow-xs focus:ring-2 focus:ring-blue-500 max-w-[170px]"
+                                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer shadow-2xs focus:ring-1 focus:ring-blue-500 max-w-[170px] outline-none"
                               >
                                 <option value="SUPER_ADMIN">⚡ SUPER_ADMIN</option>
                                 <option value="ORG_ADMIN">👑 ORG_ADMIN</option>
@@ -1524,14 +1535,14 @@ export function SuperAdminDashboard() {
                                 <option value="Client">Client</option>
                               </select>
                             </td>
-                            <td className="py-4">
+                            <td className="py-3.5 px-3 text-center">
                               {p.role === 'SUPER_ADMIN' ? (
                                 <span className="text-slate-400 text-xs italic">N/A</span>
                               ) : (
                                 <select 
                                   value={p.organization_id || ''}
                                   onChange={(e) => assignOrganization(p.id, e.target.value)}
-                                  className="text-xs p-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 max-w-[150px] truncate cursor-pointer font-medium"
+                                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 max-w-[155px] truncate cursor-pointer font-medium text-slate-800 dark:text-slate-200 shadow-2xs outline-none"
                                 >
                                   <option value="">No Organization</option>
                                   {organizations.map(org => (
@@ -1540,50 +1551,49 @@ export function SuperAdminDashboard() {
                                 </select>
                               )}
                             </td>
-                            <td className="py-4">
-                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${p.subscription_status === 'ACTIVE' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
-                                {p.subscription_status}
-                              </span>
-                            </td>
-                            <td className="py-4 text-slate-500">
+                            <td className="py-3.5 px-3 text-slate-500 whitespace-nowrap text-center w-[210px]">
                               {editingExpiryFor === p.id ? (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center justify-center gap-1.5 w-[195px] mx-auto">
                                   <input 
                                     type="date" 
                                     value={newExpiryDate.split('T')[0]} 
                                     onChange={(e) => setNewExpiryDate(e.target.value)}
-                                    className="p-1 border rounded text-xs"
+                                    className="px-1.5 py-1 border border-blue-500 rounded text-[11px] bg-white dark:bg-slate-800 outline-none w-[115px] shrink-0"
                                   />
-                                  <button onClick={() => saveExpiry(p.id)} className="text-blue-600 font-medium text-xs hover:underline">Save</button>
-                                  <button onClick={() => setEditingExpiryFor(null)} className="text-slate-500 font-medium text-xs hover:underline">Cancel</button>
+                                  <button onClick={() => saveExpiry(p.id)} className="px-2 py-1 bg-blue-600 text-white font-bold text-[11px] rounded transition cursor-pointer shrink-0">Save</button>
+                                  <button onClick={() => setEditingExpiryFor(null)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs shrink-0 cursor-pointer" title="Cancel">✕</button>
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-2">
-                                  {getExpiryDisplay(p.subscription_expires)}
+                                <div className="flex items-center justify-between gap-2 w-[195px] mx-auto">
+                                  <div className="flex-1 truncate text-left">
+                                    {getExpiryDisplay(p.subscription_expires)}
+                                  </div>
                                   <button 
                                     onClick={() => {
                                       setEditingExpiryFor(p.id);
                                       setNewExpiryDate(formatLocalDateForInput(p.subscription_expires));
                                     }}
-                                    className="text-blue-600 text-[10px] uppercase font-bold tracking-wider hover:underline opacity-60 hover:opacity-100"
+                                    className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 transition cursor-pointer shrink-0"
+                                    title="Edit Expiry Date"
                                   >
-                                    Edit
+                                    <Edit3 size={13} />
                                   </button>
                                 </div>
                               )}
                             </td>
-                            <td className="py-4 text-right space-x-2 whitespace-nowrap">
+                            <td className="py-3.5 px-3 text-center space-x-1.5 whitespace-nowrap">
                               <button 
                                 onClick={() => setEditingPermissionsFor(p)}
-                                className="px-3 py-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/40 rounded text-xs font-medium transition-colors"
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700 transition cursor-pointer shadow-2xs"
                               >
                                 Permissions
                               </button>
                               <button 
                                 onClick={() => deleteUser(p.id, p.email)}
-                                className="px-3 py-1 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded text-xs font-medium transition-colors"
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition cursor-pointer inline-flex items-center justify-center align-middle"
+                                title="Delete User"
                               >
-                                Delete
+                                <Trash2 size={15} />
                               </button>
                             </td>
                           </tr>

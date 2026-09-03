@@ -1,4 +1,4 @@
-import { addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr, getExporterUserName } from "@/lib/pdfHelpers";
+import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
@@ -72,242 +72,285 @@ export const exportPreliminaryCoolingLoadPDF = async (
       }
     };
 
-    const today = meta.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-CAL-PCL-001";
+    const today = meta.date || new Date().toLocaleDateString("en-GB");
+    const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Preliminary Cooling Load Estimation";
-    const clientName = meta.client || activeProj?.client || "Prestige Group developers";
+    const clientName = meta.client || activeProj?.client || "";
+    const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
 
-    const leftMargin = 14;
-    const contentWidth = 182; // 210 - 28
+    // 1. Header Title (Matching Ventilation)
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Preliminary Cooling Load Calculation Report", 14, 14);
 
-    // 1. Calculate Summary Stats
-    let totalArea = 0;
-    let totalKw = 0;
-    let totalTr = 0;
+    // 2. Metadata Block (Exact Ventilation 2-column format)
+    doc.setFontSize(9);
+    doc.setLineWidth(0.3);
+    doc.rect(14, 18, 182, 18); // Outer box (182mm width)
 
-    rows.forEach((r) => {
-      const a = typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0);
-      const d = r.density || 120;
-      const k = typeof r.kw === "number" ? r.kw : (a * d) / 1000;
-      const t = typeof r.tr === "number" ? r.tr : k / 3.517;
+    // Vertical line
+    doc.line(105, 18, 105, 36);
 
-      totalArea += a;
-      totalKw += k;
-      totalTr += t;
+    // Horizontal lines
+    doc.line(14, 24, 196, 24);
+    doc.line(14, 30, 196, 30);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Calculation No.:", 16, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(calcNo, 45, 22);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", 107, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(today, 120, 22);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Project No.:", 16, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(projectNo, 40, 28);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Client:", 107, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(clientName, 120, 28);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Project Name:", 16, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(projectName, 42, 34);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("End User:", 107, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(endUser, 125, 34);
+
+    // 3. Group spaces by floor
+    const sortedRows = [...rows].sort((a, b) => {
+      const floorA = (a.floor || "GF").toLowerCase();
+      const floorB = (b.floor || "GF").toLowerCase();
+      if (floorA !== floorB) return floorA.localeCompare(floorB);
+      return (a.name || "").localeCompare(b.name || "");
     });
 
-    const avgDensity = totalArea > 0 ? (totalKw * 1000) / totalArea : 0;
+    const rowsByFloor: { [floor: string]: PclExportRow[] } = {};
+    const floorOrder: string[] = [];
 
-    // 2. Title Banner: PRELIMINARY COOLING LOAD REPORT
-    doc.setFillColor(10, 123, 199); // Primary Blue #0A7BC7
-    doc.rect(leftMargin, 12, contentWidth, 10, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(13);
-    doc.setFont("times", "bold");
-    doc.text("PRELIMINARY COOLING LOAD REPORT", 105, 18.5, { align: "center" });
+    sortedRows.forEach((r) => {
+      const fl = r.floor || "GF";
+      if (!rowsByFloor[fl]) {
+        rowsByFloor[fl] = [];
+        floorOrder.push(fl);
+      }
+      rowsByFloor[fl].push(r);
+    });
 
-    // 3. Company & Date Line
-    doc.setTextColor(20, 20, 20);
-    doc.setFontSize(9.5);
-    doc.setFont("times", "bold");
-    doc.text(clientName, leftMargin, 27);
-    doc.setFont("times", "normal");
-    doc.text("Date: " + today, leftMargin + contentWidth, 27, { align: "right" });
+    const body: any[] = [];
+    let globalSrNo = 1;
 
-    // 4. PROJECT SUMMARY STATS Table
+    let grandArea = 0;
+    let grandWatts = 0;
+    let grandKw = 0;
+    let grandTr = 0;
+
+    floorOrder.forEach((floorName) => {
+      const floorRows = rowsByFloor[floorName];
+      let floorArea = 0;
+      let floorWatts = 0;
+      let floorKw = 0;
+      let floorTr = 0;
+
+      floorRows.forEach((r) => {
+        const areaVal = typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0);
+        const densityVal = r.density || 120;
+        const kwVal = typeof r.kw === "number" ? r.kw : (areaVal * densityVal) / 1000;
+        const trVal = typeof r.tr === "number" ? r.tr : kwVal / 3.517;
+        const wattsVal = r.dissipation || (areaVal * densityVal);
+
+        floorArea += areaVal;
+        floorWatts += wattsVal;
+        floorKw += kwVal;
+        floorTr += trVal;
+
+        body.push([
+          globalSrNo++,
+          r.floor || "GF",
+          r.name || "-",
+          r.type || "General",
+          areaVal.toFixed(1),
+          r.occupancy || "-",
+          densityVal.toFixed(0),
+          Math.round(wattsVal),
+          kwVal.toFixed(2),
+          trVal.toFixed(2)
+        ]);
+      });
+
+      // Floor Total Row
+      const floorTotalRow = [
+        "",
+        floorName,
+        `TOTAL (${floorName})`,
+        "",
+        floorArea.toFixed(1),
+        "",
+        floorArea > 0 ? ((floorWatts / floorArea)).toFixed(0) : "",
+        Math.round(floorWatts),
+        floorKw.toFixed(2),
+        floorTr.toFixed(2)
+      ];
+      (floorTotalRow as any)._isFloorTotal = true;
+      body.push(floorTotalRow);
+
+      grandArea += floorArea;
+      grandWatts += floorWatts;
+      grandKw += floorKw;
+      grandTr += floorTr;
+    });
+
+    // Grand Total Row if multiple floors
+    if (floorOrder.length > 1) {
+      const grandTotalRow = [
+        "",
+        "ALL",
+        "GRAND TOTAL",
+        "",
+        grandArea.toFixed(1),
+        "",
+        grandArea > 0 ? ((grandWatts / grandArea)).toFixed(0) : "",
+        Math.round(grandWatts),
+        grandKw.toFixed(2),
+        grandTr.toFixed(2)
+      ];
+      (grandTotalRow as any)._isGrandTotal = true;
+      body.push(grandTotalRow);
+    }
+
+    const primaryFill = [217, 217, 217] as [number, number, number]; // Clean gray from Ventilation
+
     callAutoTable(doc, {
-      startY: 30,
-      margin: { left: leftMargin, right: leftMargin },
-      theme: "plain",
+      startY: 42,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: {
+        fontSize: 7,
+        halign: "center",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 },
+        minCellHeight: 6.5
+      },
+      headStyles: {
+        fillColor: primaryFill,
+        textColor: 0,
+        fontStyle: "bold",
+        cellPadding: { top: 2, bottom: 2, left: 0.5, right: 0.5 }
+      },
+      columnStyles: {
+        0: { cellWidth: 8 },                 // Sr. No.
+        1: { cellWidth: 14 },                // Floor
+        2: { halign: "left", cellWidth: 32 },// Space Name
+        3: { halign: "left", cellWidth: 28 },// Space Type
+        4: { cellWidth: 18 },                // Area (m²)
+        5: { cellWidth: 14 },                // Occupancy
+        6: { cellWidth: 18 },                // Density (W/m²)
+        7: { cellWidth: 20 },                // Watts (W)
+        8: { cellWidth: 15 },                // Load (kW)
+        9: { cellWidth: 15 }                 // Load (TR)
+      },
       head: [
         [
-          {
-            content: "PROJECT SUMMARY STATS",
-            colSpan: 4,
-            styles: {
-              fillColor: [6, 69, 111], // Deep Navy #06456F
-              textColor: [255, 255, 255],
-              fontStyle: "bold",
-              fontSize: 9,
-              font: "times",
-              halign: "left",
-              cellPadding: 2,
-            },
-          },
+          { content: "Sr. No.", rowSpan: 2, styles: { fillColor: primaryFill } },
+          { content: "Space Parameters", colSpan: 3, styles: { fillColor: primaryFill } },
+          { content: "Design Parameters", colSpan: 3, styles: { fillColor: primaryFill } },
+          { content: "Cooling Load Metrics", colSpan: 3, styles: { fillColor: primaryFill } }
         ],
+        [
+          { content: "Space Floor" },
+          { content: "Space Name" },
+          { content: "Space Type" },
+          { content: "Area\n(m²)" },
+          { content: "Occupancy" },
+          { content: "Density\n(W/m²)" },
+          { content: "Heat Gain\n(W)" },
+          { content: "Load\n(kW)" },
+          { content: "Load\n(TR)" }
+        ]
+      ],
+      body: body,
+      didParseCell: function(data: any) {
+        const rawRow = data.row.raw;
+        if (data.section === "body") {
+          const isTotalRow = rawRow && (rawRow._isFloorTotal || rawRow._isGrandTotal);
+          if (isTotalRow) {
+            data.cell.styles.fontStyle = "bold";
+          }
+        }
+      }
+    });
+
+    const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
+
+    const {
+      originatedName,
+      originatedDate,
+      reviewerName,
+      reviewerDate,
+      approverName,
+      approverDate
+    } = getSignatureBlockDetails(activeProj?.id || "default", "/preliminary-cooling-load", meta.userName || "");
+
+    // 4. Signature Block (Exact warm peach header from Ventilation)
+    callAutoTable(doc, {
+      startY: finalY + 8,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: {
+        fontSize: 8,
+        halign: "center",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
+      },
+      headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
+      head: [
+        [
+          { content: "" },
+          { content: "Originated by" },
+          { content: "Reviewed by" },
+          { content: "Approved by" }
+        ]
       ],
       body: [
         [
-          { content: "Project Name:", styles: { font: "times", fontStyle: "bold", cellWidth: 35 } },
-          { content: projectName, styles: { font: "times", cellWidth: 55 } },
-          { content: "Total Estimated Load (TR):", styles: { font: "times", fontStyle: "bold", cellWidth: 45 } },
-          { content: `${totalTr.toFixed(2)} TR`, styles: { font: "times", fontStyle: "bold", textColor: [10, 123, 199], halign: "right", cellWidth: 47 } },
+          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedName, styles: { halign: "center" } },
+          { content: reviewerName, styles: { halign: "center" } },
+          { content: approverName, styles: { halign: "center" } }
         ],
         [
-          { content: "Client Name:", styles: { font: "times", fontStyle: "bold" } },
-          { content: clientName, styles: { font: "times" } },
-          { content: "Total Estimated Load (kW):", styles: { font: "times", fontStyle: "bold" } },
-          { content: `${totalKw.toFixed(2)} kW`, styles: { font: "times", fontStyle: "bold", textColor: [10, 123, 199], halign: "right" } },
-        ],
-        [
-          { content: "Calculation No:", styles: { font: "times", fontStyle: "bold" } },
-          { content: meta.calcNo || "CALC-HVAC-PCL01", styles: { font: "times" } },
-          { content: "Total Area (m²):", styles: { font: "times", fontStyle: "bold" } },
-          { content: `${totalArea.toFixed(1)} m²`, styles: { font: "times", halign: "right" } },
-        ],
-        [
-          { content: "Project Code:", styles: { font: "times", fontStyle: "bold" } },
-          { content: meta.projectNo || activeProj?.code || "MEP-2026-001", styles: { font: "times" } },
-          { content: "Avg Heat Load Density:", styles: { font: "times", fontStyle: "bold" } },
-          { content: `${avgDensity.toFixed(1)} W/m²`, styles: { font: "times", halign: "right" } },
-        ],
+          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedDate, styles: { halign: "center" } },
+          { content: reviewerDate, styles: { halign: "center" } },
+          { content: approverDate, styles: { halign: "center" } }
+        ]
       ],
-      styles: {
-        font: "times",
-        fontSize: 8,
-        cellPadding: 1.8,
-        textColor: [30, 30, 30],
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1,
-      },
+      columnStyles: {
+        0: { cellWidth: 32 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 50 }
+      }
     });
 
-    const statsEndY = (doc as any).lastAutoTable.finalY;
-
-    // 5. Build Room by Room Schedule Body Grouped by Floor
-    const floorsMap = new Map<string, PclExportRow[]>();
-    rows.forEach((r) => {
-      const f = r.floor || "GF";
-      if (!floorsMap.has(f)) floorsMap.set(f, []);
-      floorsMap.get(f)!.push(r);
-    });
-
-    const scheduleBody: any[] = [];
-    let sNo = 1;
-
-    const floorHeaderFill = [240, 244, 248]; // Light Blue-Gray
-    const totalRowFill = [225, 238, 248]; // Accent Highlight
-
-    floorsMap.forEach((floorRows, floorName) => {
-      // Floor Subheader
-      scheduleBody.push([
-        {
-          content: `${floorName} (${floorRows.length} spaces)`,
-          colSpan: 7,
-          styles: {
-            font: "times",
-            fontStyle: "bold",
-            fontSize: 8,
-            fillColor: floorHeaderFill,
-            textColor: [6, 69, 111],
-            halign: "left",
-            cellPadding: 2,
-          },
-        },
-      ]);
-
-      floorRows.forEach((r) => {
-        const numArea = typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0);
-        const density = r.density || 120;
-        const kw = typeof r.kw === "number" ? r.kw : (numArea * density) / 1000;
-        const tr = typeof r.tr === "number" ? r.tr : kw / 3.517;
-
-        scheduleBody.push([
-          { content: String(sNo++), styles: { font: "times", halign: "center" } },
-          { content: r.name || "Space", styles: { font: "times", halign: "left" } },
-          { content: numArea > 0 ? numArea.toFixed(1) : "—", styles: { font: "times", halign: "right" } },
-          { content: r.type || "Unassigned", styles: { font: "times", halign: "left" } },
-          { content: density > 0 ? density.toFixed(1) : "—", styles: { font: "times", halign: "right" } },
-          { content: kw > 0 ? kw.toFixed(2) : "—", styles: { font: "times", halign: "right" } },
-          { content: tr > 0 ? tr.toFixed(2) : "—", styles: { font: "times", halign: "right" } },
-        ]);
-      });
-    });
-
-    // TOTAL Summary Row
-    scheduleBody.push([
-      { content: "TOTAL", colSpan: 2, styles: { font: "times", fontStyle: "bold", halign: "left", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalArea.toFixed(1), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: "", styles: { fillColor: totalRowFill } },
-      { content: avgDensity.toFixed(1), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalKw.toFixed(2), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-      { content: totalTr.toFixed(2), styles: { font: "times", fontStyle: "bold", halign: "right", fillColor: totalRowFill, textColor: [6, 69, 111] } },
-    ]);
-
-    // 6. COOLING LOAD SCHEDULE Banner (Draws on Page 1 above the table)
-    const scheduleBannerY = statsEndY + 3;
-    doc.setFillColor(6, 69, 111); // Deep Navy #06456F
-    doc.rect(leftMargin, scheduleBannerY, contentWidth, 6, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(8.5);
-    doc.setFont("times", "bold");
-    doc.text("COOLING LOAD SCHEDULE", leftMargin + 3, scheduleBannerY + 4.2);
-
-    // 7. Schedule Table (Only Column Headers repeat on page breaks)
-    callAutoTable(doc, {
-      startY: scheduleBannerY + 6,
-      margin: { top: 14, left: leftMargin, right: leftMargin },
-      head: [
-        [
-          { content: "S.No", styles: { halign: "center", cellWidth: 10 } },
-          { content: "Name of Space", styles: { halign: "left", cellWidth: 40 } },
-          { content: "Area (m²)", styles: { halign: "right", cellWidth: 18 } },
-          { content: "Type of Space", styles: { halign: "left", cellWidth: 42 } },
-          { content: "Cooling load Density (W/m²)", styles: { halign: "right", cellWidth: 28 } },
-          { content: "Cooling Load (kW)", styles: { halign: "right", cellWidth: 22 } },
-          { content: "Cooling Load (TR)", styles: { halign: "right", cellWidth: 22 } },
-        ],
-      ],
-      body: scheduleBody,
-      theme: "grid",
-      headStyles: {
-        fillColor: [10, 123, 199], // Primary Blue #0A7BC7
-        textColor: [255, 255, 255],
-        font: "times",
-        fontStyle: "bold",
-        fontSize: 7.5,
-        valign: "middle",
-      },
-      styles: {
-        font: "times",
-        fontSize: 7.5,
-        textColor: [20, 20, 20],
-        cellPadding: 1.5,
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1,
-      },
-      didDrawPage: (data: any) => {
-        // Footer: Page Numbers
-        const pageCount = (doc as any).internal.getNumberOfPages();
-        doc.setFontSize(7.5);
-        doc.setFont("times", "normal");
-        doc.setTextColor(100, 100, 100);
-        doc.text(
-          `Page ${data.pageNumber} of ${pageCount}`,
-          105,
-          290,
-          { align: "center" }
-        );
-      },
-    });
-
-    const tableEndY = (doc as any).lastAutoTable.finalY;
-
-    // 8. Signature Block
-    const sigDetails = getSignatureBlockDetails(
-      activeProjectId,
-      "/preliminary-cooling-load",
-      getExporterUserName(currentUserName),
-      meta.reviewState
-    );
-
-    addPdfSignatureBlock(doc, tableEndY + 6, sigDetails, activeProjectId, "/preliminary-cooling-load");
-
-    // Save and download
-    const fileName = `${(projectName || "Preliminary_Cooling_Load").replace(/\s+/g, "_")}_report.pdf`;
-    downloadFile(doc.output("blob"), fileName);
-    toast.success("Preliminary Cooling Load PDF report exported successfully!");
+    const pdfBuffer = doc.output("arraybuffer");
+    await downloadFile(new Uint8Array(pdfBuffer), `Preliminary_Cooling_Load_Report_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+    toast.success("Preliminary Cooling Load PDF exported successfully!");
   } catch (error: any) {
-    console.error("PDF Export error:", error);
-    toast.error(`Failed to export PDF: ${error.message || "Unknown error"}`);
+    console.error("exportPreliminaryCoolingLoadPDF error:", error);
+    toast.error(`Export PDF failed: ${error?.message || String(error)}`);
   }
 };

@@ -26,7 +26,7 @@ export function InlineInput({
     setVal(getCleanVal(value));
   }, [value]);
 
-  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
 
   if (!editing) {
     return (
@@ -81,7 +81,7 @@ export function InlineSelect({
   onCommit: (val: string) => void;
   className?: string;
 }) {
-  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
   return (
     <select
       value={value}

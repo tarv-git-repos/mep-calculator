@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   CheckCircle2, XCircle, Clock, AlertTriangle, MessageSquare, 
-  Send, UserCheck, ShieldCheck, ChevronDown, User, Sparkles, RefreshCw, FileText 
+  Send, UserCheck, ShieldCheck, ChevronDown, User, Sparkles, RefreshCw, FileText, Lock 
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -29,6 +29,68 @@ export interface CalculationReviewState {
     timestamp: string;
     comment?: string;
   }>;
+}
+
+export function useCalculationLock(calculatorPath?: string, projectId?: string) {
+  const currentProj = workspaceStore.getState().project;
+  const effectiveProjectId = (projectId && projectId !== "none" && projectId !== "active_project") 
+    ? projectId 
+    : (currentProj?.id || "default");
+    
+  const storageKey = `mep_calc_review_${effectiveProjectId}_${calculatorPath || "ventilation"}`;
+
+  const [isLocked, setIsLocked] = useState<boolean>(() => {
+    const proj = workspaceStore.getState().project;
+    if (proj && (proj.id === effectiveProjectId || effectiveProjectId === "default")) {
+      const reviewStates = proj.workspace_data?.review_states || {};
+      if (reviewStates[storageKey]) {
+        return reviewStates[storageKey].status === "APPROVED";
+      }
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return parsed.status === "APPROVED";
+        }
+      } catch (e) {}
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const checkLock = () => {
+      const proj = workspaceStore.getState().project;
+      if (proj && (proj.id === effectiveProjectId || effectiveProjectId === "default")) {
+        const reviewStates = proj.workspace_data?.review_states || {};
+        if (reviewStates[storageKey]) {
+          setIsLocked(reviewStates[storageKey].status === "APPROVED");
+          return;
+        }
+      }
+      if (typeof window !== "undefined") {
+        try {
+          const saved = localStorage.getItem(storageKey);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            setIsLocked(parsed.status === "APPROVED");
+            return;
+          }
+        } catch (e) {}
+      }
+      setIsLocked(false);
+    };
+
+    checkLock();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("mep-review-state-updated", checkLock);
+      return () => window.removeEventListener("mep-review-state-updated", checkLock);
+    }
+  }, [storageKey, effectiveProjectId]);
+
+  return isLocked;
 }
 
 interface CalculationReviewBarProps {
@@ -155,6 +217,13 @@ export function CalculationReviewBar({
   const [srComments, setSrComments] = useState("");
   const [approveComments, setApproveComments] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+
+  // Synchronize global read-only flag for approved status
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__mep_approved_readonly = (reviewState.status === "APPROVED");
+    }
+  }, [reviewState.status]);
 
   // Sync state when storageKey changes
   useEffect(() => {
@@ -510,20 +579,20 @@ export function CalculationReviewBar({
 
       {/* 2. STATUS BADGE / BANNER (Rendered on Right of Approve/Reject Buttons) */}
       {reviewState.status === "APPROVED" && (
-        <div className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 dark:bg-emerald-950/40 dark:border-emerald-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
-          <div className="size-6 rounded-md bg-emerald-500 text-white flex items-center justify-center font-bold shrink-0">
-            <CheckCircle2 className="size-3.5" />
+        <div className="px-3.5 py-1.5 bg-emerald-500/15 border border-emerald-500/40 dark:bg-emerald-950/60 dark:border-emerald-600/60 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
+          <div className="size-6 rounded-md bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
+            <Lock className="size-3.5" />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="font-extrabold text-[11px] text-emerald-700 dark:text-emerald-300 tracking-wide uppercase">
-              CALCULATION APPROVED
+            <span className="font-extrabold text-[11px] text-emerald-800 dark:text-emerald-300 tracking-wide uppercase flex items-center gap-1">
+              🔒 APPROVED & READ-ONLY
             </span>
-            <span className="text-[9.5px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30">
-              Official Record
+            <span className="text-[9.5px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full border border-emerald-500/30">
+              LOCKED
             </span>
           </div>
-          <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 font-medium border-l border-emerald-500/30 pl-2.5">
-            Approved by <span className="font-bold">{reviewState.approvedBy || "Discipline Coordinator"}</span> on {reviewState.approvedAt || "recently"}
+          <span className="text-[11px] text-emerald-900/90 dark:text-emerald-200/90 font-medium border-l border-emerald-500/40 pl-2.5">
+            Approved by <span className="font-bold">{reviewState.approvedBy || "Discipline Coordinator"}</span> on {reviewState.approvedAt || "recently"}. All inputs locked.
           </span>
         </div>
       )}

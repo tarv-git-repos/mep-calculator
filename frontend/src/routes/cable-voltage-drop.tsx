@@ -57,6 +57,7 @@ interface InlineInputProps {
 }
 
 function InlineInput({ value, onCommit, className = "", type = "text", step, min, onFocus }: InlineInputProps) {
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
   const [localVal, setLocalVal] = useState(String(value));
 
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
@@ -76,6 +77,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   }, [value, localVal]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) return;
     setLocalVal(e.target.value);
     onCommit(e.target.value);
   };
@@ -91,13 +93,14 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
+      disabled={isReadOnly}
       value={localVal}
       onChange={handleChange}
       onFocus={onFocus}
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text ${className}`}
+      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
     />
   );
 }
