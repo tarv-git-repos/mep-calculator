@@ -269,10 +269,25 @@ async function readUsers(forceRefresh = false) {
         if (locEmail) processedEmails.add(locEmail);
 
         const u = dbMap.get(locId) || dbMap.get(locEmail) || {};
-        const effRole = (loc.role && loc.role !== 'USER') ? loc.role : ((u.role && u.role !== 'USER') ? u.role : (loc.features?.role || u.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer')));
-        const expDate = loc.subscription_expires || loc.features?.subscription_expires || u.subscription_expires || u.features?.subscription_expires || null;
+        const effRole = (loc.role && loc.role !== 'USER')
+          ? loc.role
+          : ((loc.features && loc.features.role && loc.features.role !== 'USER')
+              ? loc.features.role
+              : ((u.role && u.role !== 'USER') ? u.role : (u.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'))));
+
+        const expDate = (loc.subscription_expires !== undefined && loc.subscription_expires !== null && loc.subscription_expires !== '')
+          ? loc.subscription_expires
+          : ((loc.features && loc.features.subscription_expires !== undefined && loc.features.subscription_expires !== null && loc.features.subscription_expires !== '')
+              ? loc.features.subscription_expires
+              : (u.subscription_expires || u.features?.subscription_expires || null));
+
         const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
-        const orgId = loc.organization_id || loc.features?.organization_id || u.organization_id || u.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null);
+        const orgId = (loc.organization_id !== undefined && loc.organization_id !== null && loc.organization_id !== '')
+          ? loc.organization_id
+          : ((loc.features && loc.features.organization_id !== undefined && loc.features.organization_id !== null && loc.features.organization_id !== '')
+              ? loc.features.organization_id
+              : (u.organization_id || u.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null)));
+
         const comp = loc.company || loc.organization || loc.features?.company || loc.features?.organization || u.company || u.organization || u.features?.company || u.features?.organization || '';
 
         return {
@@ -283,7 +298,7 @@ async function readUsers(forceRefresh = false) {
           company: comp,
           organization: comp,
           designation: loc.designation || u.designation || loc.features?.designation || '',
-          profile_photo: loc.profile_photo !== undefined && loc.profile_photo !== null ? loc.profile_photo : (loc.features?.profile_photo || u.profile_photo || u.features?.profile_photo || ''),
+          profile_photo: (loc.profile_photo !== undefined && loc.profile_photo !== null) ? loc.profile_photo : ((loc.features?.profile_photo !== undefined && loc.features?.profile_photo !== null) ? loc.features.profile_photo : (u.profile_photo !== undefined ? u.profile_photo : (u.features?.profile_photo || ''))),
           settings: loc.settings || u.settings || loc.features?.settings || u.features?.settings || {},
           active_hwid: loc.active_hwid || u.active_hwid || loc.features?.active_hwid || null,
           subscription_expires: expDate,

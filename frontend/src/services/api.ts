@@ -61,6 +61,27 @@ axios.interceptors.response.use(
 
 let isHeartbeatEndpointAvailable = true;
 
+const getAuthHeaders = () => {
+  let token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (!token && typeof localStorage !== 'undefined') {
+    try {
+      const userData = JSON.parse(localStorage.getItem('mep_calculator_user_data') || '{}');
+      if (userData && userData.id) {
+        token = `desktop-token-${userData.id}`;
+      } else if (userData && userData.email) {
+        token = `desktop-token-${userData.email}`;
+      }
+    } catch(e) {}
+  }
+  if (!token) token = 'desktop-token-admin@tarv.ai';
+
+  const hwid = getHardwareFingerprint();
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(hwid ? { 'x-hwid': hwid } : {})
+  };
+};
+
 export const api = {
   // USERS
   async getUsers() {
@@ -99,13 +120,7 @@ export const api = {
     }
 
     try {
-      if (typeof localStorage !== 'undefined' && Array.isArray(usersList) && usersList.length > 0) {
-        localStorage.setItem('mep_local_users', JSON.stringify(usersList));
-      }
-    } catch(e) {}
-
-    try {
-      const cachedStr = localStorage.getItem('mep_local_users');
+      const cachedStr = typeof localStorage !== 'undefined' ? localStorage.getItem('mep_local_users') : null;
       let orgOverrides: Record<string, string> = {};
       try { orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
 
@@ -125,8 +140,16 @@ export const api = {
           } else if (!finalOrgId && c) {
             finalOrgId = c.organization_id || c.features?.organization_id;
           }
-          const finalRole = (u.role && u.role !== 'USER') ? u.role : (c?.role || u.features?.role || c?.features?.role || u.role);
-          const finalExpires = u.subscription_expires || u.features?.subscription_expires || c?.subscription_expires || c?.features?.subscription_expires || null;
+          const finalRole = (c?.role && c?.role !== 'USER')
+            ? c.role
+            : ((u.role && u.role !== 'USER') ? u.role : (c?.features?.role || u.features?.role || 'Jr. Design Engineer'));
+
+          const finalExpires = (c?.subscription_expires !== undefined && c?.subscription_expires !== null && c?.subscription_expires !== '')
+            ? c.subscription_expires
+            : ((c?.features && c.features.subscription_expires !== undefined && c.features.subscription_expires !== null && c.features.subscription_expires !== '')
+                ? c.features.subscription_expires
+                : (u.subscription_expires || u.features?.subscription_expires || null));
+
           return {
             ...u,
             ...(c || {}),
@@ -143,7 +166,9 @@ export const api = {
           };
         });
       }
-      localStorage.setItem('mep_local_users', JSON.stringify(usersList));
+      if (typeof localStorage !== 'undefined' && Array.isArray(usersList) && usersList.length > 0) {
+        localStorage.setItem('mep_local_users', JSON.stringify(usersList));
+      }
     } catch (e) {}
 
     return usersList;
@@ -183,7 +208,9 @@ export const api = {
 
     // 2. Async backend sync
     try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/admin/toggle-role`, { profileId, newRole });
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/toggle-role`, { profileId, newRole }, {
+        headers: getAuthHeaders()
+      });
       if (data && data.success) return data;
     } catch (error: any) {
       console.warn('adminToggleRole backend warning:', error);
@@ -193,7 +220,9 @@ export const api = {
   
   async adminDeleteUser(profileId: string) {
     try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/admin/delete-user`, { profileId });
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/delete-user`, { profileId }, {
+        headers: getAuthHeaders()
+      });
       return data;
     } catch (error: any) {
       return { success: false, message: error.response?.data?.message || 'Failed to delete user' };
@@ -208,25 +237,22 @@ export const api = {
       if (!users || !Array.isArray(users)) {
         users = await this.getUsers();
       }
-      const emailOrId = String(profileId).toLowerCase();
+      const targetLower = String(profileId || '').toLowerCase();
+      const updateEmailLower = String(updates?.email || '').toLowerCase();
       
       let orgMap: Record<string, string> = {};
       try { orgMap = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
       if (updates.organization_id !== undefined) {
         const valToStore = updates.organization_id || 'No Organization';
-        orgMap[emailOrId] = valToStore;
-        const matchingUser = users.find((u: any) => String(u.id || '').toLowerCase() === emailOrId || String(u.email || '').toLowerCase() === emailOrId);
-        if (matchingUser) {
-          if (matchingUser.email) orgMap[String(matchingUser.email).toLowerCase()] = valToStore;
-          if (matchingUser.id) orgMap[String(matchingUser.id).toLowerCase()] = valToStore;
-        }
+        orgMap[targetLower] = valToStore;
+        if (updateEmailLower) orgMap[updateEmailLower] = valToStore;
         localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgMap));
       }
 
       users = users.map((u: any) => {
         const uId = String(u.id || '').toLowerCase();
         const uEmail = String(u.email || '').toLowerCase();
-        if (uId === emailOrId || uEmail === emailOrId) {
+        if (uId === targetLower || uEmail === targetLower || (updateEmailLower && (uId === updateEmailLower || uEmail === updateEmailLower))) {
           const updatedOrg = updates.organization_id !== undefined ? (updates.organization_id || '') : (u.organization_id || u.features?.organization_id || '');
           const updatedComp = updates.company || updates.organization || u.company || u.organization || u.features?.company || '';
           const updatedRole = updates.role || u.role || u.features?.role;
@@ -262,12 +288,16 @@ export const api = {
 
     // 2. Async backend sync
     try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/admin/update-profile`, { profileId, updates });
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/update-profile`, { profileId, updates }, {
+        headers: getAuthHeaders()
+      });
       if (data && data.success) return data;
+      return data || { success: true };
     } catch (error: any) {
       console.warn('adminUpdateProfile backend warning:', error);
+      if (error.response && error.response.data) return error.response.data;
+      return { success: false, message: error.message || 'Failed to update profile' };
     }
-    return { success: true };
   },
 
   async adminCreateUser(payload: {

@@ -402,7 +402,11 @@ export function SettingsPage() {
 
     if (typeof window !== 'undefined') {
       if (uId) {
-        localStorage.setItem(`mep_profile_photo_${uId}`, profilePhoto);
+        if (profilePhoto) {
+          localStorage.setItem(`mep_profile_photo_${uId}`, profilePhoto);
+        } else {
+          localStorage.removeItem(`mep_profile_photo_${uId}`);
+        }
         localStorage.setItem(`mep_user_name_${uId}`, fullName);
         localStorage.setItem(`mep_user_company_${uId}`, company);
         localStorage.setItem(`mep_user_designation_${uId}`, designation);

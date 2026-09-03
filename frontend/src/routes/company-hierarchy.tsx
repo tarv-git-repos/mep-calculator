@@ -4,7 +4,7 @@ import {
   Network, Users, Plus, Shield, ShieldAlert, ShieldCheck, Mail, Trash2, Edit3, 
   ChevronDown, ChevronRight, Search, Sparkles, Save, RefreshCw, 
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
-  User, Check, ArrowRight
+  User, Check, ArrowRight, Eye
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
@@ -22,13 +22,30 @@ export const Route = createFileRoute("/company-hierarchy")({
 
 export type ApprovalAuthority = "REVIEW" | "APPROVE_REJECT" | "NONE";
 
+export type HierarchyRole = 
+  | "SUPER_ADMIN" 
+  | "ORG_ADMIN" 
+  | "PROJECT_MANAGER" 
+  | "TEAM_LEADER"
+  | "DISCIPLINE_COORDINATOR"
+  | "SR_DESIGN_ENGINEER"
+  | "DESIGN_ENGINEER"
+  | "JR_DESIGN_ENGINEER"
+  | "BIM_COORDINATOR"
+  | "BIM_MODELER"
+  | "DRAFTSMAN_2D"
+  | "VIEWER"
+  | "CLIENT"
+  | "ENGINEER" 
+  | "USER";
+
 export interface HierarchyUser {
   id: string;
   name: string;
   email: string;
   designation: string;
   department: "Management" | "HVAC" | "Electrical" | "Plumbing" | "Fire Fighting" | "BIM & IT";
-  role: "SUPER_ADMIN" | "ORG_ADMIN" | "PROJECT_MANAGER" | "ENGINEER" | "USER" | "VIEWER";
+  role: HierarchyRole;
   approvalAuthority?: ApprovalAuthority;
   parentId: string | null; // ID of manager
   avatarColor?: string;
@@ -552,8 +569,12 @@ function CompanyHierarchyPage() {
 
   // KPI Metrics scoped to visible members
   const kpiTotalMembers = visibleMembers.length;
-  const kpiLeaders = visibleMembers.filter((m) => ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(m.role)).length;
-  const kpiStaff = visibleMembers.filter((m) => ["ENGINEER", "USER", "VIEWER"].includes(m.role)).length;
+  const kpiLeaders = visibleMembers.filter((m) => 
+    ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(m.role)
+  ).length;
+  const kpiStaff = visibleMembers.filter((m) => 
+    !["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(m.role)
+  ).length;
   const kpiDepartments = useMemo(() => {
     if (visibleMembers.length === 0) return 0;
     return new Set(visibleMembers.map((m) => m.department)).size;
@@ -1034,9 +1055,9 @@ function CompanyHierarchyPage() {
                     onChange={(e) => {
                       const newRole = e.target.value as HierarchyUser["role"];
                       setFormRole(newRole);
-                      if (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(newRole)) {
+                      if (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(newRole)) {
                         setFormApprovalAuthority("APPROVE_REJECT");
-                      } else if (newRole === "ENGINEER") {
+                      } else if (["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(newRole)) {
                         setFormApprovalAuthority("REVIEW");
                       } else {
                         setFormApprovalAuthority("NONE");
@@ -1047,9 +1068,16 @@ function CompanyHierarchyPage() {
                     {currentRole === "SUPER_ADMIN" && <option value="SUPER_ADMIN">Super Admin (CEO)</option>}
                     <option value="ORG_ADMIN">Org Admin (Director)</option>
                     <option value="PROJECT_MANAGER">Project Manager (PM)</option>
-                    <option value="ENGINEER">Senior Engineer</option>
-                    <option value="USER">Engineer / Staff</option>
-                    <option value="VIEWER">Viewer / Guest</option>
+                    <option value="TEAM_LEADER">Team Leader</option>
+                    <option value="DISCIPLINE_COORDINATOR">Discipline Coordinator</option>
+                    <option value="SR_DESIGN_ENGINEER">Sr. Design Engineer</option>
+                    <option value="DESIGN_ENGINEER">Design Engineer</option>
+                    <option value="JR_DESIGN_ENGINEER">Jr. Design Engg</option>
+                    <option value="BIM_COORDINATOR">BIM Coordinator</option>
+                    <option value="BIM_MODELER">BIM Modeler</option>
+                    <option value="DRAFTSMAN_2D">2D Draftsman</option>
+                    <option value="VIEWER">Viewer</option>
+                    <option value="CLIENT">Client</option>
                   </select>
                 </div>
 
@@ -1253,13 +1281,68 @@ function RoleBadge({ role }: { role: HierarchyUser["role"] }) {
     case "PROJECT_MANAGER":
       return (
         <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Briefcase className="size-3" /> Lead PM
+          <Briefcase className="size-3" /> Project Manager
         </span>
       );
+    case "TEAM_LEADER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Users className="size-3" /> Team Leader
+        </span>
+      );
+    case "DISCIPLINE_COORDINATOR":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Layers className="size-3" /> Discipline Coordinator
+        </span>
+      );
+    case "SR_DESIGN_ENGINEER":
     case "ENGINEER":
       return (
         <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider flex items-center gap-1">
-          <UserCheck className="size-3" /> Sr. Engineer
+          <UserCheck className="size-3" /> Sr. Design Engineer
+        </span>
+      );
+    case "DESIGN_ENGINEER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 uppercase tracking-wider flex items-center gap-1">
+          <User className="size-3" /> Design Engineer
+        </span>
+      );
+    case "JR_DESIGN_ENGINEER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 uppercase tracking-wider flex items-center gap-1">
+          <User className="size-3" /> Jr. Design Engg
+        </span>
+      );
+    case "BIM_COORDINATOR":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Building2 className="size-3" /> BIM Coordinator
+        </span>
+      );
+    case "BIM_MODELER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Network className="size-3" /> BIM Modeler
+        </span>
+      );
+    case "DRAFTSMAN_2D":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Edit3 className="size-3" /> 2D Draftsman
+        </span>
+      );
+    case "VIEWER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Eye className="size-3" /> Viewer
+        </span>
+      );
+    case "CLIENT":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Briefcase className="size-3" /> Client
         </span>
       );
     default:

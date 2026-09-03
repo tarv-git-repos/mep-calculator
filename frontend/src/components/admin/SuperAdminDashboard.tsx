@@ -725,7 +725,16 @@ export function SuperAdminDashboard() {
   const getExpiryDisplay = (expStr?: string | null) => {
     if (!expStr) return <span className="text-slate-500 font-medium">Never (Lifetime)</span>;
     
-    const expDate = new Date(expStr);
+    // Parse YYYY-MM-DD without UTC timezone rollover
+    const cleanDatePart = expStr.split('T')[0];
+    const parts = cleanDatePart.split('-').map(Number);
+    let expDate: Date;
+    if (parts.length === 3 && !parts.some(isNaN)) {
+      expDate = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59);
+    } else {
+      expDate = new Date(expStr);
+    }
+    
     if (isNaN(expDate.getTime())) return <span className="text-slate-500 font-medium">Never</span>;
     
     const now = new Date();
@@ -767,6 +776,9 @@ export function SuperAdminDashboard() {
 
   const formatLocalDateForInput = (expStr?: string | null) => {
     if (!expStr) return '';
+    const cleanDatePart = expStr.split('T')[0];
+    const parts = cleanDatePart.split('-');
+    if (parts.length === 3) return cleanDatePart;
     const d = new Date(expStr);
     if (isNaN(d.getTime())) return '';
     const yyyy = d.getFullYear();
@@ -779,8 +791,7 @@ export function SuperAdminDashboard() {
     let dateStr: string | null = null;
     if (newExpiryDate) {
       const cleanDate = newExpiryDate.split('T')[0];
-      const exp = new Date(`${cleanDate}T23:59:59`);
-      dateStr = exp.toISOString();
+      dateStr = `${cleanDate}T23:59:59.999Z`;
     }
     
     // Optimistic UI update
