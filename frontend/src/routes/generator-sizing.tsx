@@ -38,13 +38,13 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useEditableGrid, useGridNavigation } from "@/core/gridEngine";
 import { toast } from "sonner";
-import { useWorkspace } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 
 export const Route = createFileRoute("/generator-sizing")({
   head: () => ({
     meta: [
-      { title: "Generator Sizing ΓÇö MEP Calc" },
+      { title: "Generator Sizing — MEP Calc" },
       {
         name: "description",
         content: "Calculate DG set size based on connected and emergency loads.",

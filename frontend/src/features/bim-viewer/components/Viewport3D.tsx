@@ -185,8 +185,12 @@ const loadIfcFile = async (file: File) => {
     });
     tags = [];
 
-    store().setIsLoading(true);
-    store().setLoadingText(isPreload ? 'Loading 3D Model...' : 'Converting IFC (this may take a moment)...');
+    if (!isPreload) {
+        store().setIsLoading(true);
+        store().setLoadingText('Converting IFC (this may take a moment)...');
+    } else {
+        store().setIsLoading(false);
+    }
 
     try {
         const fileKey = (window as any).api.getFilePath(file);
@@ -506,17 +510,44 @@ const loadIfcFile = async (file: File) => {
 
         await fragments.core.update(true);
         world.scene.three.add(model.object);
-        try {
-            const fitBox = new THREE.Box3().setFromObject(model.object);
-            const fitSphere = new THREE.Sphere();
-            fitBox.getBoundingSphere(fitSphere);
-            if (fitSphere.radius > 0) {
-                await world.camera.controls.fitToSphere(fitSphere, true);
+
+        const saveCameraState = () => {
+            if (world?.camera?.controls) {
+                try {
+                    const pos = new THREE.Vector3();
+                    const target = new THREE.Vector3();
+                    world.camera.controls.getPosition(pos);
+                    world.camera.controls.getTarget(target);
+                    (window as any)._bimCameraState = {
+                        pos: [pos.x, pos.y, pos.z],
+                        target: [target.x, target.y, target.z]
+                    };
+                } catch {}
             }
-        } catch (fitErr) {
-            console.warn("Camera fitToSphere safely skipped:", fitErr);
+        };
+
+        if ((window as any)._bimCameraState && world?.camera?.controls) {
+            const { pos, target } = (window as any)._bimCameraState;
+            try {
+                world.camera.controls.setLookAt(pos[0], pos[1], pos[2], target[0], target[1], target[2], false);
+            } catch {}
+        } else {
+            try {
+                const fitBox = new THREE.Box3().setFromObject(model.object);
+                const fitSphere = new THREE.Sphere();
+                fitBox.getBoundingSphere(fitSphere);
+                if (fitSphere.radius > 0) {
+                    await world.camera.controls.fitToSphere(fitSphere, false);
+                }
+            } catch (fitErr) {
+                console.warn("Camera fitToSphere safely skipped:", fitErr);
+            }
         }
-        world.camera.controls.addEventListener("update", () => fragments.core.update());
+
+        world.camera.controls.addEventListener("update", () => {
+            fragments.core.update();
+            saveCameraState();
+        });
 
         const maxDim = Math.max(size.x, size.y, size.z);
         world.camera.three.near = 1.0;

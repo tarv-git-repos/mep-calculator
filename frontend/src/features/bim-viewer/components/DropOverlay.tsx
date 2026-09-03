@@ -6,7 +6,8 @@ export function DropOverlay() {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  if (isLoaded && !isLoading) return null;
+  const hasLoadedModel = isLoaded || Boolean((window as any)._currentLoadedFile);
+  if (hasLoadedModel && !isDragOver) return null;
 
   const handleClick = () => {
     if (!isLoading) {
