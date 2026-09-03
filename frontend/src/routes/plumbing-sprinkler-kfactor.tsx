@@ -1967,7 +1967,8 @@ function SprinklerKFactorPage() {
                     </div>
                   )}
                 </div>
-              )}
+              </div>
+            )}
 
             {/* Sprinkler Schedule Tab */}
             {tab === "schedule" && (
@@ -2662,6 +2663,9 @@ function SprinklerKFactorPage() {
           }}
         />
       )}
+          </div>
+        </div>
+      </div>
     </AppShell>
   );
 }
