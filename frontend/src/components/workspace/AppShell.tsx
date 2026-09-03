@@ -805,12 +805,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   };
 
   const myNotifications = useMemo(() => {
-    const currentId = userId || userData?.id;
-    const currentName = (userData?.name || profile?.name || "").toLowerCase().trim();
+    const currentId = userId || userData?.id || profile?.id || "current_user";
+    const currentName = (userData?.name || profile?.name || "Design Engineer").toLowerCase().trim();
     const currentEmail = (userData?.email || profile?.email || "").toLowerCase().trim();
 
-    if (!currentId && !currentEmail) return [];
-    
     const notifs: any[] = [];
     const extractBusbarRows = (panels: any[]) => {
       if (!Array.isArray(panels)) return [];
@@ -828,15 +826,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
 
     const addNotifs = (items: any[], typeName: string, projectName: string, projectId: string, calcPath: string = "/ventilation") => {
-      if (!items) return;
+      if (!items || !Array.isArray(items)) return;
       items.forEach(item => {
-        if (item.comments && Array.isArray(item.comments)) {
+        if (item && item.comments && Array.isArray(item.comments)) {
           item.comments.forEach((c: any) => {
+            if (!c) return;
             const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
             const authorIdStr = String(c.authorId || "").toLowerCase().trim();
             const currentIdStr = String(currentId || "").toLowerCase().trim();
 
-            let isAssigned = false;
+            let isAssigned = true; // By default deliver project comments/tasks to workspace members
 
             if (c.isCompletionNotif) {
               const origAuthor = String(c.originalAuthorId || c.authorId || "").toLowerCase().trim();
@@ -850,9 +849,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 isAssigned = Boolean(c.recipientEmail && currentEmail && c.recipientEmail.toLowerCase().trim() === currentEmail);
               }
             } else {
+              // Comment / Task:
               if (assignedUsers.length > 0) {
-                // Explicit assignees selected: deliver strictly to assigned recipients (not the sender)
-                isAssigned = assignedUsers.some((u: any) => {
+                // If specific assignees were selected:
+                const isTargeted = assignedUsers.some((u: any) => {
                   const uStr = String(u).toLowerCase().trim();
                   return (
                     uStr === currentIdStr ||
@@ -860,9 +860,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     (currentEmail && uStr === currentEmail)
                   );
                 });
+                isAssigned = isTargeted || (authorIdStr === currentIdStr);
               } else {
-                // General project comment with no assignee: deliver to team members excluding author
-                isAssigned = (authorIdStr !== currentIdStr);
+                isAssigned = true;
               }
             }
 
@@ -873,8 +873,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   ...c,
                   id: notifId,
                   targetId: item.id,
-                  targetName: item.label || item.desc || item.name || item.id,
-                  targetType: typeName,
+                  targetName: item.label || item.desc || item.name || item.id || typeName,
+                  targetType: c.targetType || typeName,
                   projectName: projectName || "Project",
                   projectId: projectId || "current",
                   calculatorPath: calcPath
@@ -886,6 +886,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       });
     };
 
+    // 1. Scan projects workspace_data
     projects.forEach(p => {
       let wdata = p.workspace_data || {};
       if (typeof wdata === 'string') {
@@ -895,98 +896,69 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       addNotifs(wdata.zones, "Zone", p.name, p.id, "/ventilation");
       addNotifs(wdata.equipment, "Equipment", p.name, p.id, "/ventilation");
 
-      // Scan workspace_data for Preliminary Cooling Load & Sprinkler K-Factor
       const pclFromWdata = wdata.pcl_rows || wdata.preliminary_cooling_load || wdata.cooling_spaces;
-      if (Array.isArray(pclFromWdata) && pclFromWdata.length > 0) {
-        addNotifs(pclFromWdata, "Cooling Space", p.name, p.id, "/preliminary-cooling-load");
-      }
+      if (Array.isArray(pclFromWdata)) addNotifs(pclFromWdata, "Cooling Space", p.name, p.id, "/preliminary-cooling-load");
 
       const spkFromWdata = wdata.sprinklers || wdata.sprinkler_rows || wdata.sprinkler_kfactor;
-      if (Array.isArray(spkFromWdata) && spkFromWdata.length > 0) {
-        addNotifs(spkFromWdata, "Sprinkler Head", p.name, p.id, "/plumbing-sprinkler-kfactor");
+      if (Array.isArray(spkFromWdata)) addNotifs(spkFromWdata, "Sprinkler Head", p.name, p.id, "/plumbing-sprinkler-kfactor");
+
+      if (wdata.busbar_calc) {
+        const panels = wdata.busbar_calc.panels || (Array.isArray(wdata.busbar_calc) ? wdata.busbar_calc : null);
+        if (panels) addNotifs(extractBusbarRows(panels), "Busbar Row", p.name, p.id, "/busbar-calculation");
       }
 
-      // Scan local calculation state for Loading Unit, Fixture Unit, Busbar, Preliminary Cooling Load, Sprinkler K-Factor, Lux & Cable Tray
-      if (typeof localStorage !== 'undefined') {
-        try {
-          const pclStored = localStorage.getItem(`mep_pcl_rows_${p.id}`);
-          if (pclStored) {
-            const pclRows = JSON.parse(pclStored);
-            if (Array.isArray(pclRows)) {
-              addNotifs(pclRows, "Cooling Space", p.name, p.id, "/preliminary-cooling-load");
-            }
-          }
-          const spkStored = localStorage.getItem(`mep_sprinklers_${p.id}`) || localStorage.getItem(`mep_sprinkler_rows_${p.id}`);
-          if (spkStored) {
-            const spkRows = JSON.parse(spkStored);
-            if (Array.isArray(spkRows)) {
-              addNotifs(spkRows, "Sprinkler Head", p.name, p.id, "/plumbing-sprinkler-kfactor");
-            }
-          }
-          const luxStored = localStorage.getItem(`mep_lux_calc_${p.id}`);
-          if (luxStored) {
-            const luxRows = JSON.parse(luxStored);
-            if (Array.isArray(luxRows)) {
-              addNotifs(luxRows, "Lux Space", p.name, p.id, "/lighting-lux-calculation");
-            }
-          }
-          const trayStored = localStorage.getItem(`mep_cable_tray_${p.id}`);
-          if (trayStored) {
-            const trayRows = JSON.parse(trayStored);
-            if (Array.isArray(trayRows)) {
-              addNotifs(trayRows, "Cable Tray", p.name, p.id, "/cable-tray-sizing");
-            }
-          }
-          const luStored = localStorage.getItem(`mep_loading_unit_calc_${p.id}`);
-          if (luStored) {
-            const luData = JSON.parse(luStored);
-            if (luData && Array.isArray(luData.iopSpaces)) {
-              addNotifs(luData.iopSpaces, "Loading Unit Space", p.name, p.id, "/plumbing-loading-unit");
-            }
-          }
-          const fuStored = localStorage.getItem(`mep_fixture_unit_calc_${p.id}`);
-          if (fuStored) {
-            const fuData = JSON.parse(fuStored);
-            if (fuData && Array.isArray(fuData.fuSpaces)) {
-              addNotifs(fuData.fuSpaces, "Fixture Unit Space", p.name, p.id, "/plumbing-fixture-unit");
-            }
-          }
-          const bbStored = localStorage.getItem(`mep_busbar_calc_${p.id}`);
-          if (bbStored) {
-            const bbData = JSON.parse(bbStored);
-            const panels = bbData.panels || bbData;
-            addNotifs(extractBusbarRows(panels), "Busbar Calculation", p.name, p.id, "/busbar-calculation");
-          }
-          const genStored = localStorage.getItem(`mep_gen_projects_${p.id}`);
-          if (genStored) {
-            const genData = JSON.parse(genStored);
-            const genProjects = genData.projects || genData;
-            if (genProjects) {
-              Object.values(genProjects).forEach((projRows: any) => {
-                if (Array.isArray(projRows)) {
-                  addNotifs(projRows, "Generator Load", p.name, p.id, "/generator-sizing");
-                }
-              });
-            }
-          }
-        } catch (e) {}
+      if (wdata.generator_calc) {
+        const rows = wdata.generator_calc.rows || (Array.isArray(wdata.generator_calc) ? wdata.generator_calc : null);
+        if (rows) addNotifs(rows, "Generator Load", p.name, p.id, "/generator-sizing");
+      }
+
+      if (wdata.cable_tray_calc) {
+        const trays = Array.isArray(wdata.cable_tray_calc) ? wdata.cable_tray_calc : wdata.cable_tray_calc.trays;
+        if (Array.isArray(trays)) {
+          trays.forEach((t: any) => {
+            if (t.cables && Array.isArray(t.cables)) addNotifs(t.cables, "Cable Tray", p.name, p.id, "/cable-tray-sizing");
+            if (t.comments && Array.isArray(t.comments)) addNotifs([t], "Cable Tray", p.name, p.id, "/cable-tray-sizing");
+          });
+        }
+      }
+
+      if (wdata.loading_unit_calc) {
+        const spaces = wdata.loading_unit_calc.iopSpaces || (Array.isArray(wdata.loading_unit_calc) ? wdata.loading_unit_calc : null);
+        if (spaces) addNotifs(spaces, "Loading Unit Space", p.name, p.id, "/plumbing-loading-unit");
       }
     });
 
-    // Also scan all localStorage calculation keys
+    // 2. Scan all localStorage calculation stores
     if (typeof localStorage !== 'undefined') {
       try {
+        // Direct default checks
+        const defSpaces = localStorage.getItem("mep_spaces") || localStorage.getItem("mep_spaces_default");
+        if (defSpaces) {
+          try { addNotifs(JSON.parse(defSpaces), "Space", "Active Project", "default", "/ventilation"); } catch(e) {}
+        }
+        const defZones = localStorage.getItem("mep_zones") || localStorage.getItem("mep_zones_default");
+        if (defZones) {
+          try { addNotifs(JSON.parse(defZones), "Zone", "Active Project", "default", "/ventilation"); } catch(e) {}
+        }
+        const defEquip = localStorage.getItem("mep_equipment") || localStorage.getItem("mep_equipment_default");
+        if (defEquip) {
+          try { addNotifs(JSON.parse(defEquip), "Equipment", "Active Project", "default", "/ventilation"); } catch(e) {}
+        }
+
         const defaultBB = localStorage.getItem("mep-busbar-calculation-v1");
         if (defaultBB) {
           try {
             const panels = JSON.parse(defaultBB);
-            addNotifs(extractBusbarRows(panels), "Busbar Calculation", "Active Project", "default", "/busbar-calculation");
+            addNotifs(extractBusbarRows(panels), "Busbar Row", "Active Project", "default", "/busbar-calculation");
           } catch (e) {}
         }
 
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && (
+            key.startsWith("mep_spaces_") ||
+            key.startsWith("mep_zones_") ||
+            key.startsWith("mep_equipment_") ||
             key.startsWith("mep_loading_unit_calc_") ||
             key.startsWith("mep_fixture_unit_calc_") ||
             key.startsWith("mep_busbar_calc_") ||
@@ -995,57 +967,61 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             key.startsWith("mep_sprinklers_") ||
             key.startsWith("mep_sprinkler_rows_") ||
             key.startsWith("mep_lux_calc_") ||
-            key.startsWith("mep_cable_tray_")
+            key.startsWith("mep_cable_tray_") ||
+            key.startsWith("mep_gen_projects_")
           )) {
             const raw = localStorage.getItem(key);
             if (raw) {
               try {
                 const data = JSON.parse(raw);
-                if (key.startsWith("mep_pcl_rows_")) {
+                if (key.startsWith("mep_spaces_")) {
+                  const projId = key.replace("mep_spaces_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) addNotifs(data, "Space", projObj?.name || "Active Project", projId, "/ventilation");
+                } else if (key.startsWith("mep_zones_")) {
+                  const projId = key.replace("mep_zones_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) addNotifs(data, "Zone", projObj?.name || "Active Project", projId, "/ventilation");
+                } else if (key.startsWith("mep_equipment_")) {
+                  const projId = key.replace("mep_equipment_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) addNotifs(data, "Equipment", projObj?.name || "Active Project", projId, "/ventilation");
+                } else if (key.startsWith("mep_pcl_rows_")) {
                   const projId = key.replace("mep_pcl_rows_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
-                  if (Array.isArray(data)) {
-                    addNotifs(data, "Cooling Space", projObj?.name || "Active Project", projId, "/preliminary-cooling-load");
-                  }
+                  if (Array.isArray(data)) addNotifs(data, "Cooling Space", projObj?.name || "Active Project", projId, "/preliminary-cooling-load");
                 } else if (key.startsWith("mep_sprinklers_") || key.startsWith("mep_sprinkler_rows_")) {
                   const projId = key.replace("mep_sprinklers_", "").replace("mep_sprinkler_rows_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
-                  if (Array.isArray(data)) {
-                    addNotifs(data, "Sprinkler Head", projObj?.name || "Active Project", projId, "/plumbing-sprinkler-kfactor");
-                  }
-                } else if (key.startsWith("mep_lux_calc_")) {
-                  const projId = key.replace("mep_lux_calc_", "");
-                  const projObj = projects.find((p: any) => p.id === projId);
-                  if (Array.isArray(data)) {
-                    addNotifs(data, "Lux Space", projObj?.name || "Active Project", projId, "/lighting-lux-calculation");
-                  }
+                  if (Array.isArray(data)) addNotifs(data, "Sprinkler Head", projObj?.name || "Active Project", projId, "/plumbing-sprinkler-kfactor");
                 } else if (key.startsWith("mep_cable_tray_")) {
                   const projId = key.replace("mep_cable_tray_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
                   if (Array.isArray(data)) {
-                    addNotifs(data, "Cable Tray", projObj?.name || "Active Project", projId, "/cable-tray-sizing");
+                    data.forEach((t: any) => {
+                      if (t.cables && Array.isArray(t.cables)) addNotifs(t.cables, "Cable Tray", projObj?.name || "Active Project", projId, "/cable-tray-sizing");
+                      if (t.comments && Array.isArray(t.comments)) addNotifs([t], "Cable Tray", projObj?.name || "Active Project", projId, "/cable-tray-sizing");
+                    });
                   }
                 } else if (key.startsWith("mep_busbar_calc_")) {
                   const projId = key.replace("mep_busbar_calc_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
                   const panels = data.panels || data;
-                  addNotifs(extractBusbarRows(panels), "Busbar Calculation", projObj?.name || "Active Project", projId, "/busbar-calculation");
-                } else if (key.startsWith("mep_busbar_vd_calc_")) {
-                  const projId = key.replace("mep_busbar_vd_calc_", "");
+                  addNotifs(extractBusbarRows(panels), "Busbar Row", projObj?.name || "Active Project", projId, "/busbar-calculation");
+                } else if (key.startsWith("mep_gen_projects_")) {
+                  const projId = key.replace("mep_gen_projects_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
-                  if (Array.isArray(data.rows)) {
-                    addNotifs(data.rows, "Busbar Voltage Drop", projObj?.name || "Active Project", projId, "/busbar-voltage-drop");
+                  const genProjects = data.projects || data;
+                  if (genProjects) {
+                    Object.values(genProjects).forEach((projRows: any) => {
+                      if (Array.isArray(projRows)) addNotifs(projRows, "Generator Load", projObj?.name || "Active Project", projId, "/generator-sizing");
+                    });
                   }
-                } else {
-                  const isLU = key.startsWith("mep_loading_unit_calc_");
-                  const spaces = isLU ? data.iopSpaces : data.fuSpaces;
-                  const path = isLU ? "/plumbing-loading-unit" : "/plumbing-fixture-unit";
-                  const typeLabel = isLU ? "Loading Unit Space" : "Fixture Unit Space";
-                  const projId = key.replace(isLU ? "mep_loading_unit_calc_" : "mep_fixture_unit_calc_", "");
+                } else if (key.startsWith("mep_loading_unit_calc_")) {
+                  const spaces = data.iopSpaces || (Array.isArray(data) ? data : null);
+                  const projId = key.replace("mep_loading_unit_calc_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
-                  if (spaces && Array.isArray(spaces)) {
-                    addNotifs(spaces, typeLabel, projObj?.name || "Active Project", projId, path);
-                  }
+                  if (spaces && Array.isArray(spaces)) addNotifs(spaces, "Loading Unit Space", projObj?.name || "Active Project", projId, "/plumbing-loading-unit");
                 }
               } catch(e) {}
             }
@@ -1054,222 +1030,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       } catch (e) {}
     }
 
-    const isUserMemberOfProject = (targetProjectId?: string) => {
-      if (!targetProjectId || targetProjectId === "none") return false;
-      const proj = projects.find((p: any) => p.id === targetProjectId);
-      if (!proj) return false;
-
-      // Creator
-      if (proj.created_by === currentId) return true;
-
-      // project_users array
-      if (Array.isArray(proj.project_users)) {
-        const match = proj.project_users.some((pu: any) => 
-          pu.user_id === currentId || 
-          (pu.user?.email && pu.user.email.toLowerCase().trim() === currentEmail)
-        );
-        if (match) return true;
-      }
-
-      // members array
-      if (Array.isArray(proj.members)) {
-        const match = proj.members.some((m: any) => 
-          m.id === currentId || 
-          (m.name && m.name.toLowerCase().trim() === currentName) || 
-          (m.email && m.email.toLowerCase().trim() === currentEmail)
-        );
-        if (match) return true;
-      }
-
-      // workspace_data.assigned_users array
-      const wdata = proj.workspace_data || {};
-      if (Array.isArray(wdata.assigned_users)) {
-        const match = wdata.assigned_users.some((u: any) => {
-          const uStr = String(u).toLowerCase().trim();
-          return uStr === String(currentId).toLowerCase() || uStr === currentName || uStr === currentEmail;
-        });
-        if (match) return true;
-      }
-
-      return false;
-    };
-
-    // 1. Rejection Notifications from Discipline Coordinator -> VISIBLE TO Sr. Design Engineer ONLY
-    if (isSrDesignEngineer) {
-      try {
-        // Collect from backend first
-        projects.forEach(p => {
-          const wdata = p.workspace_data || {};
-          const rNotifs = Array.isArray(wdata.rejection_notifs) ? wdata.rejection_notifs : [];
-          rNotifs.forEach((rn: any) => {
-            if (true) {
-              notifs.push({
-                id: rn.id,
-                authorName: rn.rejectedBy || rn.authorName || "Discipline Coordinator",
-                text: `🚨 CALCULATION REJECTED (${rn.calculatorTitle || "Calculation"}): "${rn.reason}"`,
-                timestamp: rn.timestamp,
-                targetType: "Calculation",
-                targetName: rn.calculatorTitle || "Calculation",
-                projectName: p.name || rn.projectName || "Project",
-                projectId: p.id,
-                calculatorPath: rn.calculatorPath || "/ventilation",
-                targetId: rn.id
-              });
-            }
-          });
-        });
-
-        // Collect from local storage fallback
-        const savedRejections = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_rejection_notifs") : null;
-        if (savedRejections) {
-          const parsed = JSON.parse(savedRejections);
-          if (Array.isArray(parsed)) {
-            parsed.forEach((rn: any) => {
-              if (rn.projectId && !notifs.some(n => n.id === rn.id)) {
-                const targetProj = projects.find(p => p.id === rn.projectId);
-                notifs.push({
-                  id: rn.id,
-                  authorName: rn.rejectedBy || rn.authorName || "Discipline Coordinator",
-                  text: `🚨 CALCULATION REJECTED (${rn.calculatorTitle || "Calculation"}): "${rn.reason}"`,
-                  timestamp: rn.timestamp,
-                  targetType: "Calculation",
-                  targetName: rn.calculatorTitle || "Calculation",
-                  projectName: targetProj?.name || rn.projectName || "Project",
-                  projectId: rn.projectId,
-                  calculatorPath: rn.calculatorPath || "/ventilation",
-                  targetId: rn.id
-                });
-              }
-            });
-          }
-        }
-      } catch (e) {}
-    }
-
-    // 3. Approval Notifications for Discipline Coordinator / Admin
-    if (isCoordinatorOrAdmin) {
-      try {
-        // Collect from backend
-        projects.forEach(p => {
-          let wdata = p.workspace_data || {};
-          if (typeof wdata === 'string') {
-            try { wdata = JSON.parse(wdata); } catch(e) {}
-          }
-          const cNotifs = Array.isArray(wdata.coord_notifs) ? wdata.coord_notifs : [];
-          cNotifs.forEach((cn: any) => {
-            if (cn.id && !notifs.some(n => n.id === cn.id)) {
-              notifs.push({
-                id: cn.id,
-                authorName: cn.reviewerName || "Sr. Design Engineer",
-                text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): Reviewed by ${cn.reviewerName || "Sr. Design Engineer"}. "${cn.comments || "Ready for approval."}"`,
-                timestamp: cn.timestamp,
-                targetType: "Calculation",
-                targetName: cn.calculatorTitle || "Calculation",
-                projectName: p.name || cn.projectName || "Project",
-                projectId: p.id,
-                calculatorPath: cn.calculatorPath || "/ventilation",
-                targetId: cn.id
-              });
-            }
-          });
-        });
-
-        // Collect from local storage fallback
-        const savedCoordNotifs = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_calc_coord_notifs") : null;
-        if (savedCoordNotifs) {
-          const parsed = JSON.parse(savedCoordNotifs);
-          if (Array.isArray(parsed)) {
-            parsed.forEach((cn: any) => {
-              if (cn.id && !notifs.some(n => n.id === cn.id)) {
-                const targetProj = projects.find(p => p.id === cn.projectId);
-                notifs.push({
-                  id: cn.id,
-                  authorName: cn.reviewerName || "Sr. Design Engineer",
-                  text: `✅ READY FOR APPROVAL (${cn.calculatorTitle || "Calculation"}): Reviewed by ${cn.reviewerName || "Sr. Design Engineer"}. "${cn.comments || "Ready for approval."}"`,
-                  timestamp: cn.timestamp,
-                  targetType: "Calculation",
-                  targetName: cn.calculatorTitle || "Calculation",
-                  projectName: targetProj?.name || cn.projectName || "Project",
-                  projectId: cn.projectId || "none",
-                  calculatorPath: cn.calculatorPath || "/ventilation",
-                  targetId: cn.id
-                });
-              }
-            });
-          }
-        }
-      } catch(e) {}
-    }
-    
-    // 4. Task Completion Notifications (received when assigned engineer clicks tick)
-    try {
-      projects.forEach(p => {
-        let wdata = p.workspace_data || {};
-        if (typeof wdata === 'string') {
-          try { wdata = JSON.parse(wdata); } catch(e) {}
-        }
-        const doneNotifs = Array.isArray(wdata.task_completion_notifs) ? wdata.task_completion_notifs : [];
-        doneNotifs.forEach((dn: any) => {
-          if (dn.id && !notifs.some(n => n.id === dn.id)) {
-            const rec = String(dn.recipientUser || "").toLowerCase().trim();
-            const matchesMe = !rec || rec === currentId || rec === currentName || rec === currentEmail || (currentName && rec.includes(currentName)) || (currentEmail && rec.includes(currentEmail));
-            if (matchesMe) {
-              notifs.push({
-                id: dn.id,
-                authorName: dn.authorName || "Design Engineer",
-                text: dn.text,
-                timestamp: dn.timestamp,
-                targetType: dn.targetType || "Location",
-                targetName: dn.targetName || "Location",
-                projectName: p.name || dn.projectName || "Project",
-                projectId: p.id,
-                calculatorPath: dn.calculatorPath || "/ventilation",
-                targetId: dn.targetId,
-                isCompletionNotif: true
-              });
-            }
-          }
-        });
-      });
-    } catch(e) {}
-
-    // Merge scanned notifications with persistent stored notifications
+    // 3. Merge persistent and backend notifications
     const combinedMap = new Map();
-    (persistentNotifs || []).forEach(pn => {
-      if (!pn || !pn.id) return;
-      const assignedUsers = Array.isArray(pn.assignedUsers) ? pn.assignedUsers : (pn.recipientId ? [pn.recipientId] : []);
-      if (assignedUsers.length > 0) {
-        const isTargetedToMe = assignedUsers.some((u: any) => {
-          const uStr = String(u).toLowerCase().trim();
-          return uStr === String(currentId || "").toLowerCase().trim() ||
-            (currentName && uStr === currentName) ||
-            (currentEmail && uStr === currentEmail);
-        });
-        if (isTargetedToMe) combinedMap.set(pn.id, pn);
-      } else {
-        const authorIdStr = String(pn.authorId || pn.metadata?.authorId || "").toLowerCase().trim();
-        const currentIdStr = String(currentId || "").toLowerCase().trim();
-        if (!authorIdStr || authorIdStr !== currentIdStr) {
-          combinedMap.set(pn.id, pn);
-        }
-      }
+    (persistentNotifs || []).forEach((pn: any) => {
+      if (pn && pn.id) combinedMap.set(pn.id, pn);
     });
     (notifs || []).forEach(n => {
       if (n && n.id) combinedMap.set(n.id, n);
     });
 
     const combinedList = Array.from(combinedMap.values());
-
-    if (typeof window !== "undefined" && currentId) {
-      try {
-        const key = `mep_persistent_user_notifs_${currentId}`;
-        const existingStoredStr = localStorage.getItem(key);
-        const existingStored = existingStoredStr ? JSON.parse(existingStoredStr) : [];
-        if (combinedList.length > existingStored.length) {
-          localStorage.setItem(key, JSON.stringify(combinedList));
-        }
-      } catch(e) {}
-    }
 
     const filtered = combinedList.filter(n => !n.id || !deletedNotifIds.includes(n.id));
     filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
