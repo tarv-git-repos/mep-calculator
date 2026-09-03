@@ -423,9 +423,12 @@ interface InlineInputProps {
   step?: string;
   min?: number;
   placeholder?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder }: InlineInputProps) {
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, readOnly }: InlineInputProps) {
+  const isEffectivelyDisabled = disabled || readOnly;
   const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
 
   useEffect(() => {
@@ -433,6 +436,10 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isEffectivelyDisabled) {
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Enter") {
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
@@ -446,10 +453,16 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
+      disabled={isEffectivelyDisabled}
+      readOnly={isEffectivelyDisabled}
       value={localVal}
       placeholder={placeholder}
-      onChange={(e) => setLocalVal(e.target.value)}
+      onChange={(e) => {
+        if (isEffectivelyDisabled) return;
+        setLocalVal(e.target.value);
+      }}
       onBlur={() => {
+        if (isEffectivelyDisabled) return;
         if (localVal !== (value === "" ? "" : String(value))) {
           onCommit(localVal);
         }
@@ -457,7 +470,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text placeholder:text-muted-foreground/45 placeholder:font-normal ${className}`}
+      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isEffectivelyDisabled ? "cursor-default select-text pointer-events-none opacity-90" : "cursor-text"} ${className}`}
     />
   );
 }
@@ -1257,6 +1270,10 @@ function PreliminaryCoolingLoadPage() {
 
       // 2. Delete / Backspace
       if (e.key === "Delete" || e.key === "Backspace") {
+        if (isApprovedLocked) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
+          return;
+        }
         if (importOpen && selectedPending.size > 0) {
           e.preventDefault();
           confirm(`Are you sure you want to remove the ${selectedPending.size} selected pending spaces?`).then((ok) => {
@@ -1290,6 +1307,10 @@ function PreliminaryCoolingLoadPage() {
 
       // 4. Cut: Ctrl+X
       if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (isApprovedLocked) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to cut spaces.", { id: "readonly-notice" });
+          return;
+        }
         if (!importOpen && selected.size > 0) {
           e.preventDefault();
           const selectedRows = rows.filter((r) => selected.has(r.id));
@@ -1302,6 +1323,10 @@ function PreliminaryCoolingLoadPage() {
 
       // 5. Paste: Ctrl+V
       if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (isApprovedLocked) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to paste spaces.", { id: "readonly-notice" });
+          return;
+        }
         if (!importOpen && clipboard.length > 0) {
           e.preventDefault();
           const pasted = clipboard.map((r, idx) => ({

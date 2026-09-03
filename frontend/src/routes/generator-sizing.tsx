@@ -450,24 +450,102 @@ function GeneratorSizingPage() {
     setDraggedRowIndex(index);
     pushState(newRows);
   };
+  const [clipboard, setClipboard] = useState<GenRow[]>([]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "SELECT" ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable
+      );
+      if (isInput) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
       if (e.key === "Escape") {
         if (selectedRows.size > 0) {
           e.preventDefault();
           clearSelection();
         }
+        return;
+      }
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        selectAll();
+        return;
+      }
+
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedRows.size > 0) {
+        if (!isApprovedLocked) {
+          e.preventDefault();
+          bulkDelete();
+        }
+        return;
+      }
+
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c" && selectedRows.size > 0) {
+        e.preventDefault();
+        const toCopy = rows.filter(r => selectedRows.has(r.id));
+        setClipboard(toCopy);
+        localStorage.setItem("mep_clipboard_generator_rows", JSON.stringify(toCopy));
+        toast.info(`${toCopy.length} row(s) copied`);
+        return;
+      }
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x" && selectedRows.size > 0) {
+        if (isApprovedLocked) return;
+        e.preventDefault();
+        const toCopy = rows.filter(r => selectedRows.has(r.id));
+        setClipboard(toCopy);
+        localStorage.setItem("mep_clipboard_generator_rows", JSON.stringify(toCopy));
+        bulkDelete();
+        toast.info(`${toCopy.length} row(s) cut`);
+        return;
+      }
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (isApprovedLocked) return;
+        e.preventDefault();
+        try {
+          const stored = localStorage.getItem("mep_clipboard_generator_rows");
+          const source = clipboard.length > 0 ? clipboard : (stored ? JSON.parse(stored) : []);
+          if (Array.isArray(source) && source.length > 0) {
+            const pasted = source.map((r, idx) => ({
+              ...r,
+              id: `gen_paste_${Date.now()}_${idx}_${Math.floor(Math.random() * 1000)}`,
+              desc: `${r.desc || "Load"} (Copy)`
+            }));
+            pushState([...rows, ...pasted]);
+            toast.success(`${pasted.length} row(s) pasted`);
+          }
+        } catch (err) {}
+        return;
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedRows, clearSelection]);
+  }, [selectedRows, clearSelection, rows, handleUndo, handleRedo, isApprovedLocked, clipboard, selectAll, bulkDelete, pushState]);
 
   const handleDrop = () => setDraggedRowIndex(null);
 
   // Calculations
-  const calc = useMemo(() => {
     let totalAcl = 0;
     let totalEmergency = 0;
     let maxStartCur = 0;
