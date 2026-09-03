@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { 
   CheckCircle2, XCircle, Clock, AlertTriangle, MessageSquare, 
-  Send, UserCheck, ShieldCheck, ChevronDown, User, Sparkles, RefreshCw, FileText, Lock 
+  Send, UserCheck, ShieldCheck, ChevronDown, User, Sparkles, RefreshCw, FileText, Lock, Unlock, Info, History
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -120,7 +120,6 @@ export function CalculationReviewBar({
   const userRole = useMemo<WorkflowRole>(() => {
     const activeProfile = profile || userData || {};
     
-    // Extract exact role strings
     const roleVal = String(activeProfile.role || userData?.role || "").trim();
     const desVal = String(activeProfile.designation || userData?.designation || "").trim();
     const metaRole = String(userData?.user_metadata?.role || "").trim();
@@ -128,8 +127,6 @@ export function CalculationReviewBar({
     const roleUpper = roleVal.toUpperCase();
     const metaUpper = metaRole.toUpperCase();
 
-    // 1. ABSOLUTE GUARD: System Admin, Org Admin, Super Admin, Project Manager, Viewer, etc.
-    // MUST NEVER have access to Review, Approve, or Reject buttons!
     if (
       roleUpper === "ORG_ADMIN" || 
       roleUpper === "SUPER_ADMIN" || 
@@ -145,7 +142,6 @@ export function CalculationReviewBar({
       return "Jr. / Design Engineer";
     }
 
-    // 2. DISCIPLINE COORDINATOR: ONLY if role or designation is explicitly "Discipline Coordinator"
     const isExplicitCoordinator = 
       roleVal === "Discipline Coordinator" ||
       desVal === "Discipline Coordinator" ||
@@ -160,7 +156,6 @@ export function CalculationReviewBar({
       return "Discipline Coordinator";
     }
 
-    // 3. SR. DESIGN ENGINEER: ONLY if role or designation is explicitly "Sr. Design Engineer" / "Senior Design Engineer"
     const isExplicitSenior = 
       roleVal === "Sr. Design Engineer" ||
       desVal === "Sr. Design Engineer" ||
@@ -181,7 +176,6 @@ export function CalculationReviewBar({
       return "Sr. Design Engineer";
     }
 
-    // Default fallback: Jr. / Design Engineer (No action buttons)
     return "Jr. / Design Engineer";
   }, [profile, userData]);
 
@@ -189,7 +183,6 @@ export function CalculationReviewBar({
 
   // 2. Calculation Review State
   const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
-    // Priority 1: Backend Workspace Data
     const currentProj = workspaceStore.getState().project;
     if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
       const reviewStates = currentProj.workspace_data?.review_states || {};
@@ -198,7 +191,6 @@ export function CalculationReviewBar({
       }
     }
 
-    // Priority 2: Local Storage fallback
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem(storageKey);
@@ -212,7 +204,8 @@ export function CalculationReviewBar({
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
-  const [showCommentsModal, setShowCommentsModal] = useState(false);
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   
   const [srComments, setSrComments] = useState("");
   const [approveComments, setApproveComments] = useState("");
@@ -248,48 +241,51 @@ export function CalculationReviewBar({
         }
       } catch (e) {}
     }
-    const initialState: CalculationReviewState = { status: "DRAFT" };
-    setReviewState(initialState);
-    if (onReviewStateChange) onReviewStateChange(initialState);
   }, [storageKey, effectiveProjectId]);
 
-  // Helper to persist & sync state
-  const updateReviewState = (next: CalculationReviewState, skipSaveBackend = false) => {
-    setReviewState(next);
-    
-    // Save to Backend
-    if (!skipSaveBackend) {
-      const currentProj = workspaceStore.getState().project;
-      if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
-        const currentWdata = currentProj.workspace_data || {};
-        const reviewStates = currentWdata.review_states || {};
-        const updatedWdata = {
-          ...currentWdata,
-          review_states: {
-            ...reviewStates,
-            [storageKey]: next
-          }
-        };
-        
-        api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
-        workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
-      }
+  const updateReviewState = (newState: CalculationReviewState) => {
+    setReviewState(newState);
+    if (onReviewStateChange) onReviewStateChange(newState);
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(storageKey, JSON.stringify(newState));
+      (window as any).__mep_approved_readonly = (newState.status === "APPROVED");
+    }
+
+    const currentProj = workspaceStore.getState().project;
+    if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
+      const wdata = currentProj.workspace_data || {};
+      const updatedReviewStates = {
+        ...(wdata.review_states || {}),
+        [storageKey]: newState
+      };
+      const updatedWdata = {
+        ...wdata,
+        review_states: updatedReviewStates
+      };
+      
+      workspaceStore.updateProject({
+        ...currentProj,
+        workspace_data: updatedWdata
+      });
+
+      api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
     }
 
     if (typeof window !== "undefined") {
-      localStorage.setItem(storageKey, JSON.stringify(next));
-    }
-    if (onReviewStateChange) {
-      onReviewStateChange(next);
-    }
-
-    // Trigger custom window event for cross-component sync
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("mep-review-state-updated", { detail: next }));
+      window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
+        detail: { 
+          storageKey, 
+          state: newState,
+          status: newState.status,
+          projectId: effectiveProjectId,
+          calculatorTitle 
+        } 
+      }));
     }
   };
 
-  // Action 1: Sr. Design Engineer Hits "Reviewed"
+  // Action 1: Sr. Design Engineer Submit Review
   const handleSrReviewSubmit = async () => {
     const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
     if (isViewer) {
@@ -298,12 +294,13 @@ export function CalculationReviewBar({
       return;
     }
     const timestamp = new Date().toLocaleString();
+    const commentText = srComments.trim() || "Calculation reviewed by Sr. Design Engineer";
     const updated: CalculationReviewState = {
       ...reviewState,
       status: "REVIEWED",
       reviewedBy: currentUserName,
       reviewedAt: timestamp,
-      reviewerComments: srComments.trim() || undefined,
+      reviewerComments: commentText,
       history: [
         ...(reviewState.history || []),
         {
@@ -311,68 +308,52 @@ export function CalculationReviewBar({
           user: currentUserName,
           role: "Sr. Design Engineer",
           timestamp,
-          comment: srComments.trim() || "Calculation reviewed and submitted to Discipline Coordinator."
+          comment: commentText
         }
       ]
     };
 
-    // Pass skipSaveBackend = true, we will do one combined save below
-    updateReviewState(updated, true);
+    updateReviewState(updated);
     setShowReviewModal(false);
 
-    // Always send notification to Discipline Coordinator to review
     try {
-      if (typeof window !== 'undefined') {
-        const coordNotifRecord = {
-          id: `coord-notif-${Date.now()}`,
-          reviewerName: currentUserName,
-          comments: srComments.trim() || "Ready for approval.",
-          calculatorTitle,
-          calculatorPath,
-          projectId: effectiveProjectId,
-          timestamp: new Date().toISOString()
+      const coordNotifRecord = {
+        id: `review_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        targetId: `calc_${calculatorPath || "review"}`,
+        targetName: calculatorTitle,
+        targetType: "Calculation Review",
+        text: `${currentUserName} (Sr. Design Engineer) has marked "${calculatorTitle}" as REVIEWED and ready for approval: "${commentText}"`,
+        authorId: profile?.id || userData?.id || "sr_designer",
+        authorName: currentUserName,
+        timestamp: new Date().toISOString(),
+        isReviewStateNotif: true,
+        targetRole: "discipline_coordinator",
+        projectId: effectiveProjectId,
+        calculatorPath
+      };
+
+      const currentProj = workspaceStore.getState().project;
+      if (currentProj) {
+        const wdata = currentProj.workspace_data || {};
+        const existingNotifs = Array.isArray(wdata.notifications) ? wdata.notifications : [];
+        const updatedWdata = {
+          ...wdata,
+          notifications: [coordNotifRecord, ...existingNotifs].slice(0, 50)
         };
-
-        const currentProj = workspaceStore.getState().project;
-        if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
-          const currentWdata = currentProj.workspace_data || {};
-          const existingCoord = Array.isArray(currentWdata.coord_notifs) ? currentWdata.coord_notifs : [];
-          const reviewStates = currentWdata.review_states || {};
-
-          const updatedWdata = {
-            ...currentWdata,
-            review_states: {
-              ...reviewStates,
-              [storageKey]: updated
-            },
-            coord_notifs: [coordNotifRecord, ...existingCoord].slice(0, 20)
-          };
-
-          api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
-          workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
-        }
-
-        // Save to LocalStorage fallback as well for immediate cross-tab/local sync
-        try {
-          const existingCoordLS = JSON.parse(localStorage.getItem("mep_calc_coord_notifs") || "[]");
-          if (!existingCoordLS.some((n: any) => n.id === coordNotifRecord.id)) {
-            existingCoordLS.unshift(coordNotifRecord);
-            localStorage.setItem("mep_calc_coord_notifs", JSON.stringify(existingCoordLS.slice(0, 20)));
-          }
-        } catch (e) {}
-
-        // Dispatch event to notify Jr. Design Engineers & Coordinators
-        window.dispatchEvent(new CustomEvent("mep-notification-added"));
-        window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
-          detail: {
-            status: "SR_REVIEW_SUBMITTED",
-            reviewedBy: currentUserName,
-            reviewerComments: srComments.trim(),
-            calculatorTitle,
-            projectId: effectiveProjectId
-          } 
-        }));
+        api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
+        workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
       }
+
+      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+      window.dispatchEvent(new CustomEvent("mep-review-state-updated", { 
+        detail: {
+          status: "SR_REVIEW_SUBMITTED",
+          reviewedBy: currentUserName,
+          reviewerComments: srComments.trim(),
+          calculatorTitle,
+          projectId: effectiveProjectId
+        } 
+      }));
     } catch (e) {
       console.error("Failed to save notification:", e);
     }
@@ -429,14 +410,13 @@ export function CalculationReviewBar({
         comment: commentText
       });
       
-      // Auto-save version
       const revisions = workspaceStore.getState().project?.revisions || [];
       const newRevNumber = revisions.length + 1;
       const dateStr = new Date().toLocaleDateString();
       workspaceStore.saveAsRevision(`V_${newRevNumber} - Approved on ${dateStr}`);
     } catch (e) {}
 
-    toast.success(`Calculation APPROVED! Status updated for all team members.`);
+    toast.success("Calculation APPROVED! Status updated for all team members.");
   };
 
   // Action 3: Discipline Coordinator Hits "Reject"
@@ -448,6 +428,11 @@ export function CalculationReviewBar({
       return;
     }
     const timestamp = new Date().toLocaleString();
+    if (!rejectReason.trim()) {
+      toast.error("Please enter the rejection description for the Sr. Design Engineer.");
+      return;
+    }
+
     const updated: CalculationReviewState = {
       ...reviewState,
       status: "REJECTED",
@@ -466,54 +451,47 @@ export function CalculationReviewBar({
       ]
     };
 
-    // Pass skipSaveBackend = true, we will do one combined save below
-    updateReviewState(updated, true);
+    updateReviewState(updated);
     setShowRejectModal(false);
 
-    // Create Notification for Sr. Design Engineer
     try {
-      if (typeof window !== 'undefined') {
-        const notifRecord = {
-          id: `rejection-${Date.now()}`,
-          rejectedBy: currentUserName,
-          reason: rejectReason.trim(),
-          calculatorTitle,
-          calculatorPath,
-          projectId: effectiveProjectId,
-          timestamp: new Date().toISOString()
+      const notifRecord = {
+        id: `reject_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        targetId: `calc_${calculatorPath || "review"}`,
+        targetName: calculatorTitle,
+        targetType: "Calculation Rejection",
+        text: `Calculation "${calculatorTitle}" was REJECTED by ${currentUserName} (Discipline Coordinator): "${rejectReason.trim()}"`,
+        authorId: profile?.id || userData?.id || "coordinator",
+        authorName: currentUserName,
+        timestamp: new Date().toISOString(),
+        isReviewStateNotif: true,
+        targetRole: "sr_design_engineer",
+        projectId: effectiveProjectId,
+        calculatorPath
+      };
+
+      const currentProj = workspaceStore.getState().project;
+      if (currentProj) {
+        const wdata = currentProj.workspace_data || {};
+        const existingNotifs = Array.isArray(wdata.notifications) ? wdata.notifications : [];
+        const updatedWdata = {
+          ...wdata,
+          notifications: [notifRecord, ...existingNotifs].slice(0, 50)
         };
-        
-        const currentProj = workspaceStore.getState().project;
-        if (currentProj && (currentProj.id === effectiveProjectId || effectiveProjectId === "default")) {
-          const currentWdata = currentProj.workspace_data || {};
-          const existing = Array.isArray(currentWdata.rejection_notifs) ? currentWdata.rejection_notifs : [];
-          const reviewStates = currentWdata.review_states || {};
-          const updatedWdata = {
-            ...currentWdata,
-            review_states: {
-              ...reviewStates,
-              [storageKey]: updated
-            },
-            rejection_notifs: [notifRecord, ...existing].slice(0, 20)
-          };
-          api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
-          workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
-        } else {
-          const existing = JSON.parse(localStorage.getItem("mep_calc_rejection_notifs") || "[]");
-          existing.unshift(notifRecord);
-          localStorage.setItem("mep_calc_rejection_notifs", JSON.stringify(existing.slice(0, 20)));
-        }
-        window.dispatchEvent(new CustomEvent("mep-notification-added"));
-        window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
-          detail: {
-            status: "REJECTED",
-            rejectedBy: currentUserName,
-            rejectionDescription: rejectReason.trim(),
-            calculatorTitle,
-            projectId: effectiveProjectId
-          }
-        }));
+        api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
+        workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
       }
+
+      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+      window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
+        detail: {
+          status: "REJECTED",
+          rejectedBy: currentUserName,
+          rejectionDescription: rejectReason.trim(),
+          calculatorTitle,
+          projectId: effectiveProjectId
+        }
+      }));
     } catch (e) {}
 
     setRejectReason("");
@@ -529,102 +507,141 @@ export function CalculationReviewBar({
     toast.error("Calculation REJECTED and rejection notification sent to Sr. Design Engineer.");
   };
 
+  // Action 4: Discipline Coordinator Hits "Unlock"
+  const handleCoordinatorUnlock = async () => {
+    const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
+    if (isViewer) {
+      toast.info("Viewer role cannot submit review actions.", { id: "readonly-notice" });
+      setShowUnlockModal(false);
+      return;
+    }
+    const timestamp = new Date().toLocaleString();
+    const updated: CalculationReviewState = {
+      ...reviewState,
+      status: "DRAFT",
+      history: [
+        ...(reviewState.history || []),
+        {
+          action: "DRAFT",
+          user: currentUserName,
+          role: "Discipline Coordinator",
+          timestamp,
+          comment: "Calculation unlocked and returned to Draft mode for editing"
+        }
+      ]
+    };
+
+    updateReviewState(updated);
+    setShowUnlockModal(false);
+
+    try {
+      await api.logActivity("CALCULATION_UNLOCKED", {
+        calculatorTitle,
+        unlockedBy: currentUserName
+      });
+    } catch (e) {}
+
+    toast.success("Calculation unlocked! Editing is now enabled for all engineers.");
+  };
+
+  const isApproved = reviewState.status === "APPROVED";
+  const isReviewed = reviewState.status === "REVIEWED";
+  const isRejected = reviewState.status === "REJECTED";
+
   return (
-    <div className="calculation-review-bar no-print select-none inline-flex items-center gap-3">
-      {/* 1. DIRECT HEADER ACTION BUTTONS (Rendered on Left) */}
-      <div className="inline-flex items-center gap-2 shrink-0">
-        {/* SR. DESIGN ENGINEER ACTION BUTTON */}
-        {userRole === "Sr. Design Engineer" && (
-          <button
-            onClick={() => setShowReviewModal(true)}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-          >
-            <CheckCircle2 className="size-3.5" />
-            <span>{reviewState.status === "REVIEWED" || reviewState.status === "APPROVED" ? "Reviewed" : "Review"}</span>
-          </button>
-        )}
+    <div className="calculation-review-bar no-print select-none inline-flex items-center gap-2">
+      {/* 1. STATUS BADGE (Clean & Compact Pill) */}
+      {isApproved && (
+        <button
+          onClick={() => setShowDetailsModal(true)}
+          title="Click to view full approval details"
+          className="px-3 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-xs font-bold rounded-full transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+        >
+          <Lock className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span>Approved & Locked</span>
+          <Info className="size-3 text-emerald-600/70 dark:text-emerald-400/70 ml-0.5" />
+        </button>
+      )}
 
-        {/* DISCIPLINE COORDINATOR ACTION BUTTONS */}
-        {userRole === "Discipline Coordinator" && (
-          <div className="inline-flex items-center gap-2 shrink-0">
+      {isReviewed && (
+        <button
+          onClick={() => setShowDetailsModal(true)}
+          title="Click to view reviewer notes"
+          className="px-3 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 text-xs font-bold rounded-full transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+        >
+          <Clock className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <span>Reviewed by Sr. Engineer</span>
+          <Info className="size-3 text-indigo-600/70 dark:text-indigo-400/70 ml-0.5" />
+        </button>
+      )}
+
+      {isRejected && (
+        <button
+          onClick={() => setShowDetailsModal(true)}
+          title="Click to view rejection reason"
+          className="px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/30 text-xs font-bold rounded-full transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+        >
+          <XCircle className="size-3.5 text-red-600 dark:text-red-400 shrink-0" />
+          <span>Rejected</span>
+          <Info className="size-3 text-red-600/70 dark:text-red-400/70 ml-0.5" />
+        </button>
+      )}
+
+      {/* 2. ROLE-BASED ACTION CONTROLS */}
+      
+      {/* A. DISCIPLINE COORDINATOR */}
+      {userRole === "Discipline Coordinator" && (
+        <div className="inline-flex items-center gap-1.5 shrink-0">
+          {isApproved ? (
             <button
-              onClick={() => setShowApproveModal(true)}
-              disabled={reviewState.status === "APPROVED"}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+              onClick={() => setShowUnlockModal(true)}
+              className="px-3 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="Unlock calculation to allow engineers to make edits"
             >
-              <CheckCircle2 className="size-3.5" />
-              <span>Approve</span>
+              <Unlock className="size-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Unlock</span>
             </button>
-            <button
-              onClick={() => setShowRejectModal(true)}
-              disabled={reviewState.status === "REJECTED"}
-              className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-xs rounded-full shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-            >
-              <XCircle className="size-3.5" />
-              <span>Reject</span>
-            </button>
-          </div>
-        )}
-
-        {/* JR / DESIGN ENGINEER VIEW NOTES */}
-        {userRole === "Jr. / Design Engineer" && reviewState.reviewerComments && (
-          <button
-            onClick={() => setShowCommentsModal(true)}
-            className="px-3 py-1 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 text-xs font-semibold rounded-full transition-colors flex items-center gap-1 cursor-pointer shrink-0"
-          >
-            <MessageSquare className="size-3.5" /> Reviewer Notes
-          </button>
-        )}
-      </div>
-
-      {/* 2. STATUS BADGE / BANNER (Rendered on Right of Approve/Reject Buttons) */}
-      {reviewState.status === "APPROVED" && (
-        <div className="px-3.5 py-1.5 bg-emerald-500/15 border border-emerald-500/40 dark:bg-emerald-950/60 dark:border-emerald-600/60 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
-          <div className="size-6 rounded-md bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
-            <Lock className="size-3.5" />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="font-extrabold text-[11px] text-emerald-800 dark:text-emerald-300 tracking-wide uppercase flex items-center gap-1">
-              🔒 APPROVED & READ-ONLY
-            </span>
-            <span className="text-[9.5px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-full border border-emerald-500/30">
-              LOCKED
-            </span>
-          </div>
-          <span className="text-[11px] text-emerald-900/90 dark:text-emerald-200/90 font-medium border-l border-emerald-500/40 pl-2.5">
-            Approved by <span className="font-bold">{reviewState.approvedBy || "Discipline Coordinator"}</span> on {reviewState.approvedAt || "recently"}. All inputs locked.
-          </span>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowApproveModal(true)}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <CheckCircle2 className="size-3.5" />
+                <span>Approve</span>
+              </button>
+              <button
+                onClick={() => setShowRejectModal(true)}
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <XCircle className="size-3.5" />
+                <span>Reject</span>
+              </button>
+            </>
+          )}
         </div>
       )}
 
-      {reviewState.status === "REJECTED" && (userRole === "Sr. Design Engineer" || userRole === "Discipline Coordinator") && (
-        <div className="px-3 py-1.5 bg-red-500/10 border border-red-500/30 dark:bg-red-950/40 dark:border-red-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
-          <div className="size-6 rounded-md bg-red-500 text-white flex items-center justify-center font-bold shrink-0">
-            <XCircle className="size-3.5" />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="font-extrabold text-[11px] text-red-600 dark:text-red-400 tracking-wide uppercase">
-              CALCULATION REJECTED
-            </span>
-          </div>
-          <span className="text-[11px] text-red-700/90 dark:text-red-300/90 font-medium border-l border-red-500/30 pl-2.5">
-            Reason from {reviewState.rejectedBy}: "{reviewState.rejectionDescription}"
-          </span>
-        </div>
+      {/* B. SR. DESIGN ENGINEER */}
+      {userRole === "Sr. Design Engineer" && !isApproved && (
+        <button
+          onClick={() => setShowReviewModal(true)}
+          className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+        >
+          <ShieldCheck className="size-3.5" />
+          <span>{isReviewed ? "Reviewed" : "Review"}</span>
+        </button>
       )}
 
-      {reviewState.status === "REVIEWED" && (
-        <div className="px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 dark:bg-amber-950/40 dark:border-amber-700/50 rounded-xl flex items-center gap-2.5 shadow-xs shrink-0">
-          <div className="size-6 rounded-md bg-amber-500 text-white flex items-center justify-center font-bold shrink-0">
-            <Clock className="size-3.5" />
-          </div>
-          <span className="font-extrabold text-[11px] text-amber-700 dark:text-amber-300 tracking-wide uppercase">
-            REVIEWED BY SR. DESIGN ENGINEER
-          </span>
-          <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80 font-medium border-l border-amber-500/30 pl-2.5">
-            Reviewed by <span className="font-bold">{reviewState.reviewedBy}</span> on {reviewState.reviewedAt}
-          </span>
-        </div>
+      {/* C. JR / DESIGN ENGINEER NOTES BUTTON */}
+      {userRole === "Jr. / Design Engineer" && (reviewState.reviewerComments || reviewState.rejectionDescription) && !isApproved && (
+        <button
+          onClick={() => setShowDetailsModal(true)}
+          className="px-3 py-1 bg-surface-2 hover:bg-surface-3 text-foreground/80 border border-border/70 text-xs font-semibold rounded-full transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+        >
+          <MessageSquare className="size-3.5 text-primary" />
+          <span>Review Notes</span>
+        </button>
       )}
 
       {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
@@ -673,7 +690,7 @@ export function CalculationReviewBar({
               Approve Calculation
             </h3>
             <p className="text-xs text-muted-foreground mb-4">
-              You are approving the calculation for <span className="font-bold text-foreground">{calculatorTitle}</span>. You can optionally add approval notes or instructions for the team.
+              You are approving the calculation for <span className="font-bold text-foreground">{calculatorTitle}</span>. All inputs will be locked in Read-Only mode for the team.
             </p>
             <textarea
               value={approveComments}
@@ -701,7 +718,7 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* MODAL 3: Discipline Coordinator Reject Modal (Mandatory Rejection Description) */}
+      {/* MODAL 3: Discipline Coordinator Reject Modal */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
@@ -738,33 +755,128 @@ export function CalculationReviewBar({
         </div>
       )}
 
-      {/* MODAL 4: View Reviewer Notes Modal */}
-      {showCommentsModal && (
+      {/* MODAL 4: Discipline Coordinator Unlock Confirmation Modal */}
+      {showUnlockModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
           <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
-            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
-              <MessageSquare className="size-5 text-primary" />
-              Reviewer Notes & Feedback
+            <h3 className="text-base font-bold text-amber-600 dark:text-amber-400 flex items-center gap-2 mb-2">
+              <Unlock className="size-5 text-amber-500" />
+              Unlock Calculation for Editing
             </h3>
-            {reviewState.reviewerComments && (
-              <div className="mb-4">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase">Sr. Design Engineer Notes:</span>
-                <p className="text-xs text-foreground bg-surface-2 p-3 rounded-xl border border-border mt-1">
-                  {reviewState.reviewerComments}
-                </p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Are you sure you want to unlock <span className="font-bold text-foreground">{calculatorTitle}</span>? This will return the calculation to <strong>Draft</strong> status and allow all engineers to edit values again.
+            </p>
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowUnlockModal(false)}
+                className="px-4 py-2 border border-border text-xs font-semibold rounded-xl hover:bg-surface-2 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCoordinatorUnlock}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Unlock className="size-3.5" />
+                Confirm & Unlock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: Full Audit & Details Modal */}
+      {showDetailsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 review-modal" role="dialog">
+          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-lg p-6 animate-scale-in">
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-3">
+              <ShieldCheck className="size-5 text-primary" />
+              Workflow Status & Audit Details
+            </h3>
+
+            <div className="space-y-3.5 text-xs">
+              <div className="flex items-center justify-between p-3 bg-surface-2 rounded-xl border border-border/60">
+                <span className="font-semibold text-muted-foreground">Current Status:</span>
+                <span className={`font-bold px-2.5 py-0.5 rounded-full text-[11px] ${
+                  isApproved 
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" 
+                    : isReviewed 
+                    ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30"
+                    : isRejected
+                    ? "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30"
+                    : "bg-surface-3 text-muted-foreground"
+                }`}>
+                  {reviewState.status}
+                </span>
               </div>
-            )}
-            {reviewState.rejectionDescription && (
-              <div className="mb-4">
-                <span className="text-[11px] font-bold text-red-500 uppercase">Discipline Coordinator Rejection Description:</span>
-                <p className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/40 p-3 rounded-xl border border-red-200 dark:border-red-900/50 mt-1">
-                  {reviewState.rejectionDescription}
-                </p>
-              </div>
-            )}
+
+              {isApproved && (
+                <div className="p-3.5 bg-emerald-500/5 rounded-xl border border-emerald-500/20 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-muted-foreground">Approved By:</span>
+                    <span className="font-bold text-foreground">{reviewState.approvedBy || "Discipline Coordinator"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-muted-foreground">Approval Date:</span>
+                    <span className="text-foreground">{reviewState.approvedAt || "Recently"}</span>
+                  </div>
+                  {reviewState.reviewerComments && (
+                    <div className="pt-2 border-t border-emerald-500/10 mt-2">
+                      <span className="font-semibold text-muted-foreground block mb-1">Approval Notes:</span>
+                      <p className="bg-background p-2.5 rounded-lg border border-border/50 text-foreground text-[11.5px]">
+                        {reviewState.reviewerComments}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {isReviewed && (
+                <div className="p-3.5 bg-indigo-500/5 rounded-xl border border-indigo-500/20 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-muted-foreground">Reviewed By:</span>
+                    <span className="font-bold text-foreground">{reviewState.reviewedBy}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-muted-foreground">Review Date:</span>
+                    <span className="text-foreground">{reviewState.reviewedAt}</span>
+                  </div>
+                  {reviewState.reviewerComments && (
+                    <div className="pt-2 border-t border-indigo-500/10 mt-2">
+                      <span className="font-semibold text-muted-foreground block mb-1">Reviewer Notes:</span>
+                      <p className="bg-background p-2.5 rounded-lg border border-border/50 text-foreground text-[11.5px]">
+                        {reviewState.reviewerComments}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {isRejected && (
+                <div className="p-3.5 bg-red-500/5 rounded-xl border border-red-500/20 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-muted-foreground">Rejected By:</span>
+                    <span className="font-bold text-red-600 dark:text-red-400">{reviewState.rejectedBy}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-muted-foreground">Rejection Date:</span>
+                    <span className="text-foreground">{reviewState.rejectedAt}</span>
+                  </div>
+                  {reviewState.rejectionDescription && (
+                    <div className="pt-2 border-t border-red-500/10 mt-2">
+                      <span className="font-semibold text-red-600 dark:text-red-400 block mb-1">Reason for Rejection:</span>
+                      <p className="bg-background p-2.5 rounded-lg border border-red-200 dark:border-red-900/50 text-foreground text-[11.5px]">
+                        {reviewState.rejectionDescription}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center justify-end mt-5">
               <button
-                onClick={() => setShowCommentsModal(false)}
+                onClick={() => setShowDetailsModal(false)}
                 className="px-4 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"
               >
                 Close

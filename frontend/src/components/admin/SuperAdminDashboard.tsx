@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3, ArrowUpDown, ChevronDown } from "lucide-react"
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3, ArrowUpDown, ChevronDown, X } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -70,7 +70,7 @@ export function SuperAdminDashboard() {
         return saved as any;
       }
     }
-    return 'organizations';
+    return 'users';
   });
 
   const setActiveTab = (tab: any) => {
@@ -98,7 +98,19 @@ export function SuperAdminDashboard() {
   
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loadingProfiles, setLoadingProfiles] = useState(false)
-  const [selectedOrgFilter, setSelectedOrgFilter] = useState<string>('ALL')
+  const [selectedOrgFilter, setSelectedOrgFilterState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mep_user_org_filter') || 'ALL';
+    }
+    return 'ALL';
+  });
+
+  const setSelectedOrgFilter = (val: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mep_user_org_filter', val);
+    }
+    setSelectedOrgFilterState(val);
+  };
 
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
@@ -278,9 +290,44 @@ export function SuperAdminDashboard() {
   const [showAddUserModalForOrg, setShowAddUserModalForOrg] = useState<boolean>(false)
   const [addUsersModalFilter, setAddUsersModalFilter] = useState<'unassigned' | 'all'>('unassigned')
 
-  // User Sorting States
-  const [userSortField, setUserSortField] = useState<'email' | 'role' | 'organization' | 'created_at' | 'expires'>('email')
-  const [userSortOrder, setUserSortOrder] = useState<'asc' | 'desc'>('asc')
+  // User Sorting States with localStorage Persistence
+  const [userSortField, setUserSortFieldState] = useState<'email' | 'role' | 'organization' | 'created_at' | 'expires'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_user_sort_field');
+      if (saved && ['email', 'role', 'organization', 'created_at', 'expires'].includes(saved)) {
+        return saved as any;
+      }
+    }
+    return 'email';
+  });
+
+  const setUserSortField = (field: 'email' | 'role' | 'organization' | 'created_at' | 'expires' | ((prev: any) => any)) => {
+    setUserSortFieldState(prev => {
+      const next = typeof field === 'function' ? field(prev) : field;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('mep_user_sort_field', next);
+      }
+      return next;
+    });
+  };
+
+  const [userSortOrder, setUserSortOrderState] = useState<'asc' | 'desc'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_user_sort_order');
+      if (saved === 'asc' || saved === 'desc') return saved;
+    }
+    return 'asc';
+  });
+
+  const setUserSortOrder = (order: 'asc' | 'desc' | ((prev: any) => any)) => {
+    setUserSortOrderState(prev => {
+      const next = typeof order === 'function' ? order(prev) : order;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('mep_user_sort_order', next);
+      }
+      return next;
+    });
+  };
 
   const handleUpdateMaxSeats = async (orgId: string, newMaxInput: number | '') => {
     const newMax = typeof newMaxInput === 'number' ? newMaxInput : parseInt(String(newMaxInput), 10);
@@ -1558,10 +1605,22 @@ export function SuperAdminDashboard() {
                                     type="date" 
                                     value={newExpiryDate.split('T')[0]} 
                                     onChange={(e) => setNewExpiryDate(e.target.value)}
-                                    className="px-1.5 py-1 border border-blue-500 rounded text-[11px] bg-white dark:bg-slate-800 outline-none w-[115px] shrink-0"
+                                    className="px-2 py-1 border border-slate-300 dark:border-slate-700 focus:border-slate-500 rounded-lg text-xs bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 outline-none w-[120px] shrink-0 font-mono shadow-2xs"
                                   />
-                                  <button onClick={() => saveExpiry(p.id)} className="px-2 py-1 bg-blue-600 text-white font-bold text-[11px] rounded transition cursor-pointer shrink-0">Save</button>
-                                  <button onClick={() => setEditingExpiryFor(null)} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs shrink-0 cursor-pointer" title="Cancel">✕</button>
+                                  <button 
+                                    onClick={() => saveExpiry(p.id)} 
+                                    className="p-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 rounded-lg transition cursor-pointer shrink-0 shadow-2xs"
+                                    title="Save Date"
+                                  >
+                                    <Check size={13} />
+                                  </button>
+                                  <button 
+                                    onClick={() => setEditingExpiryFor(null)} 
+                                    className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition shrink-0 cursor-pointer" 
+                                    title="Cancel"
+                                  >
+                                    <X size={13} />
+                                  </button>
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-between gap-2 w-[195px] mx-auto">

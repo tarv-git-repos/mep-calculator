@@ -115,6 +115,7 @@ interface LVPanel {
 }
 
 function BusbarCalculationPage() {
+  const isApproved = useCalculationLock("/busbar-calculation");
   const { userData, profile } = useAuth();
   const { project, activeProjectId } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";

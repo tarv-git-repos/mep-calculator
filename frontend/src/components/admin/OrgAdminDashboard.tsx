@@ -42,28 +42,111 @@ export function OrgAdminDashboard() {
   const confirm = useConfirm()
   const navigate = useNavigate()
 
-  const [activeTab, setActiveTab] = useState<'users' | 'activity' | 'storage' | 'broadcasts'>('users')
+  const [activeTab, setActiveTabState] = useState<'users' | 'activity' | 'storage' | 'broadcasts'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_org_admin_active_tab');
+      if (saved && ['users', 'activity', 'storage', 'broadcasts'].includes(saved)) return saved as any;
+    }
+    return 'users';
+  })
+  const setActiveTab = (tab: any) => {
+    if (typeof window !== 'undefined') localStorage.setItem('mep_org_admin_active_tab', tab);
+    setActiveTabState(tab);
+  }
 
-  // Users State
+  // Users State with localStorage Persistence
   const [users, setUsers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(false)
-  const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('ALL')
-  const [sortByRole, setSortByRole] = useState<boolean>(true)
+  const [selectedRoleFilter, setSelectedRoleFilterState] = useState<string>(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('mep_org_user_role_filter') || 'ALL';
+    return 'ALL';
+  })
+  const setSelectedRoleFilter = (val: string) => {
+    if (typeof window !== 'undefined') localStorage.setItem('mep_org_user_role_filter', val);
+    setSelectedRoleFilterState(val);
+  }
+
+  const [sortByRole, setSortByRoleState] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_org_user_sort_role');
+      if (saved !== null) return saved === 'true';
+    }
+    return true;
+  })
+  const setSortByRole = (val: boolean | ((prev: boolean) => boolean)) => {
+    setSortByRoleState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      if (typeof window !== 'undefined') localStorage.setItem('mep_org_user_sort_role', String(next));
+      return next;
+    });
+  }
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteName, setInviteName] = useState('')
   const [inviteRole, setInviteRole] = useState('Design Engineer')
   const [isInviting, setIsInviting] = useState(false)
 
-  // Activity Logs State
+  // Activity Logs State with localStorage Persistence
   const [activityLogs, setActivityLogs] = useState<any[]>([])
   const [loadingLogs, setLoadingLogs] = useState(false)
-  const [logCategoryFilter, setLogCategoryFilter] = useState<string>('ALL')
-  const [logProjectFilter, setLogProjectFilter] = useState<string>('ALL')
-  const [logPageFilter, setLogPageFilter] = useState<string>('ALL')
+  const [logCategoryFilter, setLogCategoryFilterState] = useState<string>(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('mep_log_cat_filter') || 'ALL';
+    return 'ALL';
+  })
+  const setLogCategoryFilter = (val: string) => {
+    if (typeof window !== 'undefined') localStorage.setItem('mep_log_cat_filter', val);
+    setLogCategoryFilterState(val);
+  }
+
+  const [logProjectFilter, setLogProjectFilterState] = useState<string>(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('mep_log_proj_filter') || 'ALL';
+    return 'ALL';
+  })
+  const setLogProjectFilter = (val: string) => {
+    if (typeof window !== 'undefined') localStorage.setItem('mep_log_proj_filter', val);
+    setLogProjectFilterState(val);
+  }
+
+  const [logPageFilter, setLogPageFilterState] = useState<string>(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('mep_log_page_filter') || 'ALL';
+    return 'ALL';
+  })
+  const setLogPageFilter = (val: string) => {
+    if (typeof window !== 'undefined') localStorage.setItem('mep_log_page_filter', val);
+    setLogPageFilterState(val);
+  }
+
   const [logSearchQuery, setLogSearchQuery] = useState<string>('')
-  const [logSortField, setLogSortField] = useState<'timestamp' | 'project' | 'page' | 'user' | 'action'>('timestamp')
-  const [logSortOrder, setLogSortOrder] = useState<'asc' | 'desc'>('desc')
+  
+  const [logSortField, setLogSortFieldState] = useState<'timestamp' | 'project' | 'page' | 'user' | 'action'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_log_sort_field');
+      if (saved && ['timestamp', 'project', 'page', 'user', 'action'].includes(saved)) return saved as any;
+    }
+    return 'timestamp';
+  })
+  const setLogSortField = (val: any) => {
+    setLogSortFieldState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      if (typeof window !== 'undefined') localStorage.setItem('mep_log_sort_field', next);
+      return next;
+    });
+  }
+
+  const [logSortOrder, setLogSortOrderState] = useState<'asc' | 'desc'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_log_sort_order');
+      if (saved === 'asc' || saved === 'desc') return saved;
+    }
+    return 'desc';
+  })
+  const setLogSortOrder = (val: any) => {
+    setLogSortOrderState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      if (typeof window !== 'undefined') localStorage.setItem('mep_log_sort_order', next);
+      return next;
+    });
+  }
 
   // Storage State
   const [localBackupPath, setLocalBackupPath] = useState(localStorage.getItem('localBackupPath') || '')
