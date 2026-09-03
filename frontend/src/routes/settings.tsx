@@ -4,6 +4,8 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useAuth } from "@/contexts/AuthContext";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
+import { api } from "@/services/api";
+import { toast } from "sonner";
 import { 
   Settings, 
   Save, 
@@ -160,7 +162,7 @@ export function SettingsPage() {
         }
 
         // 2. Direct organization/company field assigned by Admin
-        const directOrg = myRecord?.organization || myRecord?.company || profile?.organization || profile?.company || userData?.organization || userData?.company;
+        const directOrg = myRecord?.organization || myRecord?.company || (profile as any)?.organization || profile?.company || (userData as any)?.organization || userData?.company;
         if (directOrg && directOrg.trim() && directOrg.trim() !== 'No Organization Assigned' && directOrg.trim() !== 'null') {
           const resolvedName = directOrg.trim() === 'Consitent' ? 'Consistent Engineering Consultants' : directOrg.trim();
           setAssignedOrgName(resolvedName);
@@ -340,7 +342,7 @@ export function SettingsPage() {
             setUserData({
               ...userData,
               profile_photo: compressedDataUrl,
-              features: { ...(userData.features || {}), profile_photo: compressedDataUrl }
+              features: { ...(userData.features || {}), profile_photo: compressedDataUrl } as any
             });
           }
           // Automatically persist profile photo to backend DB
@@ -362,7 +364,7 @@ export function SettingsPage() {
       setUserData({
         ...userData,
         profile_photo: '',
-        features: { ...(userData.features || {}), profile_photo: '' }
+        features: { ...(userData.features || {}), profile_photo: '' } as any
       });
     }
     // Automatically persist profile photo deletion to backend DB
@@ -437,7 +439,7 @@ export function SettingsPage() {
         company,
         designation,
         profile_photo: profilePhoto,
-        features: { ...(userData.features || {}), profile_photo: profilePhoto }
+        features: { ...(userData.features || {}), profile_photo: profilePhoto } as any
       });
     }
     // Automatically sync all settings & profile photo to backend DB

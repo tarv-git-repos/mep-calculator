@@ -2224,10 +2224,15 @@ function PreliminaryCoolingLoadPage() {
         return (
           <div className="flex items-center justify-between gap-1 w-full h-full pr-1" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
             <PclCategorySelect
+              disabled={isApprovedLocked}
               value={r.type || ""}
               densities={SPACE_DENSITIES}
               hideChevron={isCustom}
               onChange={(nextType) => {
+                if (isApprovedLocked) {
+                  toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to change space type.", { id: "readonly-notice" });
+                  return;
+                }
                 const editIds = getSpaceEditIds(r.id);
                 const editSet = new Set(editIds);
 
@@ -2711,7 +2716,7 @@ function PreliminaryCoolingLoadPage() {
     }}
   ><Download className="size-3.5" /> Import</TBtn>
                         <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export</TBtn>
-                        <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
+                        <TBtn primary disabled={isApprovedLocked} onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
 
                       {/* Bulk actions bar overlay matching Ventilation */}

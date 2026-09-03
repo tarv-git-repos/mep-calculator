@@ -34,7 +34,7 @@ export interface AuthUserData {
   settings?: UserSettings;
   isAccountVerified: boolean;
   privacyPolicyAccepted?: boolean;
-  features?: Record<string, boolean>;
+  features?: Record<string, any>;
   subscription_expires?: string;
   is_founding_pioneer?: boolean;
   pioneer_number?: number | null;
@@ -47,6 +47,7 @@ export interface AuthResponse {
   userData?: AuthUserData;
   requireForceLogout?: boolean;
   sessionRevoked?: boolean;
+  accountDeactivated?: boolean;
 }
 
 export const clearAllAuthStorage = () => {

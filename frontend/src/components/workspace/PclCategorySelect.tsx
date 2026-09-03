@@ -24,8 +24,8 @@ export function PclCategorySelect({
   hideChevron,
   disabled,
 }: PclCategorySelectProps) {
-  const isReadOnly = typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly);
-  const isEffectiveDisabled = disabled || isReadOnly;
+  const isReadOnly = typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
+  const isEffectiveDisabled = Boolean(disabled || isReadOnly);
   const [open, setOpen] = useState(false);
   const categories = Object.keys(densities);
 
@@ -34,7 +34,7 @@ export function PclCategorySelect({
   const triggerText = displayVal ? (displayVal.endsWith(" (Custom)") ? displayVal : displayVal) : "Select Category...";
 
   return (
-    <div className={cn("relative w-full min-w-0", className)}>
+    <div className={cn("relative w-full min-w-0", className, isEffectiveDisabled && "pointer-events-none")}>
       <Popover open={isEffectiveDisabled ? false : open} onOpenChange={(val) => { if (!isEffectiveDisabled) setOpen(val); }}>
         <PopoverTrigger asChild>
           <button
@@ -50,7 +50,7 @@ export function PclCategorySelect({
               e.stopPropagation();
               if (isEffectiveDisabled) {
                 e.preventDefault();
-                toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to change space type.", { id: "readonly-notice" });
               }
             }}
           >
