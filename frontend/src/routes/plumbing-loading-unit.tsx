@@ -588,6 +588,17 @@ export function getRecommendedPipeSize(lu: number, flowLPS: number): { sizeMM: n
 
 function LoadingUnitPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`mep_calc_review_${project?.id || activeProjectId || "default"}_/plumbing-loading-unit`);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return { status: "DRAFT" };
+  });
+
+  const isApprovedLocked = Boolean(project?.id || activeProjectId) && calcReviewState?.status === "APPROVED";
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [standardPreset, setStandardPreset] = useState<StandardPreset>("dubai");
@@ -1140,8 +1151,11 @@ function LoadingUnitPage() {
       return;
     }
     const targetFloor = activeFloor || floorSections[0] || "6th FLOOR";
+    if (!floorSections.includes(targetFloor)) {
+      setFloorSections(prev => [...prev, targetFloor]);
+    }
     const nextId = Date.now();
-    setIopSpaces(prev => [...prev, {
+    const newSpace: LUSpace = {
       id: nextId,
       desc: "New Space",
       floor: targetFloor,
@@ -1149,8 +1163,11 @@ function LoadingUnitPage() {
       floorQty: 1,
       std: selectedCategory || "med",
       fixtures: { wc: 1, basin: 1 }
-    }]);
-    toast.success("Added new space");
+    };
+    setIopSpaces(prev => [...prev, newSpace]);
+    setShowFlaggedOnly(false);
+    setSearchQuery("");
+    toast.success(`Added new space to ${targetFloor}`);
   };
 
   const handleAddSpaceToFloor = (floorTarget: string) => {

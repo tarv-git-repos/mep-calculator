@@ -6,23 +6,6 @@ import {
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
   User, Check, ArrowRight, Eye, ZoomIn, ZoomOut, RotateCcw, Scan, Move, Maximize2
 } from "lucide-react";
-import {
-  ReactFlow,
-  Controls,
-  Background,
-  BackgroundVariant,
-  MarkerType,
-  Handle,
-  Position,
-  type Connection,
-  type Edge,
-  type Node,
-  useNodesState,
-  useEdgesState,
-  Panel,
-  ReactFlowProvider,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -321,411 +304,6 @@ const DEFAULT_ORG_ADMIN_HIERARCHY = (adminName?: string, adminEmail?: string): H
   ];
 };
 
-// Sub-component: Role Badge
-function RoleBadge({ role }: { role: HierarchyUser["role"] }) {
-  switch (role) {
-    case "SUPER_ADMIN":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Crown className="size-3" /> Super Admin
-        </span>
-      );
-    case "ORG_ADMIN":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Shield className="size-3" /> Org Admin
-        </span>
-      );
-    case "PROJECT_MANAGER":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Briefcase className="size-3" /> Project Manager
-        </span>
-      );
-    case "TEAM_LEADER":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Users className="size-3" /> Team Leader
-        </span>
-      );
-    case "DISCIPLINE_COORDINATOR":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Layers className="size-3" /> Discipline Coordinator
-        </span>
-      );
-    case "SR_DESIGN_ENGINEER":
-    case "ENGINEER":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider flex items-center gap-1">
-          <UserCheck className="size-3" /> Sr. Design Engineer
-        </span>
-      );
-    case "DESIGN_ENGINEER":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 uppercase tracking-wider flex items-center gap-1">
-          <User className="size-3" /> Design Engineer
-        </span>
-      );
-    case "JR_DESIGN_ENGINEER":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 uppercase tracking-wider flex items-center gap-1">
-          <User className="size-3" /> Jr. Design Engg
-        </span>
-      );
-    case "BIM_COORDINATOR":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Building2 className="size-3" /> BIM Coordinator
-        </span>
-      );
-    case "BIM_MODELER":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Network className="size-3" /> BIM Modeler
-        </span>
-      );
-    case "DRAFTSMAN_2D":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Edit3 className="size-3" /> 2D Draftsman
-        </span>
-      );
-    case "VIEWER":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Eye className="size-3" /> Viewer
-        </span>
-      );
-    case "CLIENT":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 uppercase tracking-wider flex items-center gap-1">
-          <Briefcase className="size-3" /> Client
-        </span>
-      );
-    default:
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 uppercase tracking-wider flex items-center gap-1">
-          <User className="size-3" /> Staff
-        </span>
-      );
-  }
-}
-
-// Sub-component: Authority Badge
-function AuthorityBadge({ authority }: { authority?: ApprovalAuthority }) {
-  const auth = authority || "NONE";
-  switch (auth) {
-    case "APPROVE_REJECT":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider flex items-center gap-1" title="Can review, approve or reject calculation sheets">
-          <ShieldCheck className="size-3" /> Approve / Reject
-        </span>
-      );
-    case "REVIEW":
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider flex items-center gap-1" title="Can review calculation sheets">
-          <UserCheck className="size-3" /> Review
-        </span>
-      );
-    case "NONE":
-    default:
-      return (
-        <span className="px-2 py-0.5 rounded-full text-[9px] font-medium bg-slate-500/10 text-muted-foreground border border-slate-500/20 uppercase tracking-wider flex items-center gap-1" title="No review or approval authority">
-          None
-        </span>
-      );
-  }
-}
-
-// --- Custom React Flow Node Component for Draggable Hierarchy Cards ---
-const HierarchyNodeComponent = ({ data }: { data: any }) => {
-  const { member, onAddReport, onEdit, onDelete } = data;
-  if (!member) return null;
-
-  return (
-    <div className="group relative bg-card border-2 border-border hover:border-primary/80 rounded-2xl shadow-lg hover:shadow-2xl transition-all w-[290px] p-3.5 flex flex-col gap-2.5 select-none bg-gradient-to-b from-card to-surface-1">
-      {/* Target Handle: Connect from reporting manager */}
-      <Handle
-        id="target"
-        type="target"
-        position={Position.Top}
-        className="w-4 h-4 !bg-blue-500 !border-2 !border-background shadow-md hover:scale-125 transition-transform"
-        title="Manager Input: Connect from reporting manager"
-      />
-
-      {/* Header Row: Badges & Actions */}
-      <div className="flex items-center justify-between gap-1.5">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <RoleBadge role={member.role} />
-          <AuthorityBadge authority={member.approvalAuthority} />
-        </div>
-        
-        <div className="flex items-center gap-1 shrink-0 nodrag">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddReport?.(member.id);
-            }}
-            className="p-1 hover:bg-primary/15 text-primary rounded-md transition-all cursor-pointer"
-            title="Add Subordinate Member"
-          >
-            <UserPlus className="size-3.5" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit?.(member);
-            }}
-            className="p-1 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-md transition-all cursor-pointer"
-            title="Edit Member"
-          >
-            <Edit3 className="size-3.5" />
-          </button>
-          {member.parentId && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete?.(member.id, member.name);
-              }}
-              className="p-1 hover:bg-rose-500/15 text-rose-500 rounded-md transition-all cursor-pointer"
-              title="Remove Member"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Body: Avatar & Name */}
-      <div className="flex items-center gap-3">
-        <div className={`size-10 rounded-2xl ${member.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs ring-2 ring-border/50`}>
-          {member.name ? member.name.charAt(0).toUpperCase() : "U"}
-        </div>
-        <div className="flex flex-col min-w-0">
-          <span className="font-extrabold text-foreground text-[13px] truncate">{member.name}</span>
-          <span className="text-[11px] font-medium text-muted-foreground truncate">{member.designation}</span>
-        </div>
-      </div>
-
-      {/* Footer: Dept & Email */}
-      <div className="flex items-center justify-between pt-2 border-t border-border/60 text-[10.5px]">
-        <span className="px-2 py-0.5 rounded-full font-bold bg-primary/10 text-primary border border-primary/20 text-[10px]">
-          {member.department}
-        </span>
-        <span className="text-muted-foreground text-[10.5px] truncate max-w-[140px]" title={member.email}>
-          {member.email}
-        </span>
-      </div>
-
-      {/* Source Handle: Connect to Subordinates */}
-      <Handle
-        id="source"
-        type="source"
-        position={Position.Bottom}
-        className="w-4 h-4 !bg-primary !border-2 !border-background shadow-md hover:scale-125 transition-transform"
-        title="Report Output: Drag line to subordinate team member"
-      />
-    </div>
-  );
-};
-
-const nodeTypes = {
-  hierarchyNode: HierarchyNodeComponent,
-};
-
-function generateHierarchyFlowNodesAndEdges(
-  members: HierarchyUser[],
-  onAddReport: (id: string) => void,
-  onEdit: (m: HierarchyUser) => void,
-  onDelete: (id: string, name: string) => void
-): { nodes: Node[]; edges: Edge[] } {
-  const nodeWidth = 320;
-  const nodeHeight = 160;
-  const horizontalGap = 60;
-  const verticalGap = 130;
-
-  const childrenMap = new Map<string, HierarchyUser[]>();
-  members.forEach((m) => {
-    if (m.parentId) {
-      if (!childrenMap.has(m.parentId)) childrenMap.set(m.parentId, []);
-      childrenMap.get(m.parentId)!.push(m);
-    }
-  });
-
-  const memberIds = new Set(members.map((m) => m.id));
-  const roots = members.filter((m) => !m.parentId || !memberIds.has(m.parentId));
-  const positions = new Map<string, { x: number; y: number }>();
-
-  let currentXOffset = 80;
-
-  function layoutSubtree(node: HierarchyUser, depth: number): { width: number; center: number } {
-    const children = childrenMap.get(node.id) || [];
-    const y = depth * (nodeHeight + verticalGap) + 60;
-
-    if (children.length === 0) {
-      const x = currentXOffset;
-      currentXOffset += nodeWidth + horizontalGap;
-      positions.set(node.id, { x, y });
-      return { width: nodeWidth, center: x + nodeWidth / 2 };
-    }
-
-    const startX = currentXOffset;
-    const centers: number[] = [];
-    children.forEach((c) => {
-      const { center } = layoutSubtree(c, depth + 1);
-      centers.push(center);
-    });
-
-    const subtreeWidth = currentXOffset - startX - horizontalGap;
-    const center = (centers[0] + centers[centers.length - 1]) / 2;
-    const x = center - nodeWidth / 2;
-
-    positions.set(node.id, { x, y });
-    return { width: Math.max(nodeWidth, subtreeWidth), center };
-  }
-
-  roots.forEach((root) => {
-    layoutSubtree(root, 0);
-    currentXOffset += horizontalGap * 2;
-  });
-
-  const nodes: Node[] = members.map((m) => {
-    const pos = positions.get(m.id) || { x: 100, y: 100 };
-    return {
-      id: m.id,
-      type: "hierarchyNode",
-      position: pos,
-      data: {
-        member: m,
-        onAddReport,
-        onEdit,
-        onDelete,
-      },
-    };
-  });
-
-  const edges: Edge[] = [];
-  members.forEach((m) => {
-    if (m.parentId && memberIds.has(m.parentId)) {
-      edges.push({
-        id: `edge-${m.parentId}-${m.id}`,
-        source: m.parentId,
-        target: m.id,
-        type: "smoothstep",
-        animated: true,
-        style: { stroke: "#3b82f6", strokeWidth: 2.5, strokeDasharray: "6 6" },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          width: 18,
-          height: 18,
-          color: "#3b82f6",
-        },
-      });
-    }
-  });
-
-  return { nodes, edges };
-}
-
-function HierarchyFlowContent({
-  members,
-  onAddReport,
-  onEdit,
-  onDelete,
-  onReassignParent,
-}: {
-  members: HierarchyUser[];
-  onAddReport: (parentId: string) => void;
-  onEdit: (m: HierarchyUser) => void;
-  onDelete: (id: string, name: string) => void;
-  onReassignParent: (childId: string, newParentId: string | null) => void;
-}) {
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(
-    () => generateHierarchyFlowNodesAndEdges(members, onAddReport, onEdit, onDelete),
-    [members, onAddReport, onEdit, onDelete]
-  );
-
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-
-  // Sync state whenever members list updates
-  useEffect(() => {
-    const { nodes: newNodes, edges: newEdges } = generateHierarchyFlowNodesAndEdges(
-      members,
-      onAddReport,
-      onEdit,
-      onDelete
-    );
-    setNodes(newNodes);
-    setEdges(newEdges);
-  }, [members, onAddReport, onEdit, onDelete, setNodes, setEdges]);
-
-  const onConnect = useCallback(
-    (params: Connection) => {
-      if (params.source && params.target && params.source !== params.target) {
-        onReassignParent(params.target, params.source);
-        toast.success("Reporting hierarchy line connected!");
-      }
-    },
-    [onReassignParent]
-  );
-
-  return (
-    <div className="w-full h-full min-h-[580px] bg-card border border-border rounded-3xl overflow-hidden shadow-sm relative">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.25 }}
-        minZoom={0.1}
-        maxZoom={2.5}
-        defaultViewport={{ x: 0, y: 0, zoom: 0.85 }}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} color="#94a3b8" />
-        <Controls className="!bg-card/95 !border !border-border !rounded-2xl !shadow-xl !p-1.5" showInteractive={false} />
-        
-        {/* Floating Controls Overlay */}
-        <Panel position="top-left">
-          <div className="bg-background/85 backdrop-blur-md border border-border/80 px-3.5 py-1.5 rounded-full text-[11px] font-semibold text-muted-foreground flex items-center gap-2.5 shadow-md">
-            <span>🖱️ Drag cards anywhere</span>
-            <span>•</span>
-            <span>⚡ Drag wires between handles to connect reporting lines</span>
-            <span>•</span>
-            <span>🔍 Zoom in/out for 100+ members</span>
-          </div>
-        </Panel>
-      </ReactFlow>
-    </div>
-  );
-}
-
-function HierarchyFlow(props: any) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return (
-      <div className="w-full h-[580px] bg-card border border-border rounded-3xl flex items-center justify-center text-muted-foreground text-sm">
-        Loading Hierarchy Diagram...
-      </div>
-    );
-  }
-
-  return (
-    <ReactFlowProvider>
-      <HierarchyFlowContent {...props} />
-    </ReactFlowProvider>
-  );
-}
-
 function CompanyHierarchyPage() {
   const { profile, userData } = useAuth();
   const currentRole = userData?.role || profile?.role || "SUPER_ADMIN";
@@ -735,30 +313,85 @@ function CompanyHierarchyPage() {
   // Access check: Visible only to SUPER_ADMIN and ORG_ADMIN
   const isAuthorized = ["SUPER_ADMIN", "ORG_ADMIN"].includes(currentRole);
 
-  const [members, setMembers] = useState<HierarchyUser[]>(DEFAULT_HIERARCHY);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
+  const [members, setMembers] = useState<HierarchyUser[]>(() => {
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
       try {
         const saved = localStorage.getItem("mep_company_hierarchy");
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setMembers(parsed);
-          }
-        }
+        if (saved) return JSON.parse(saved);
       } catch (e) {}
     }
-  }, []);
+    return DEFAULT_HIERARCHY;
+  });
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDept, setSelectedDept] = useState<string>("ALL");
   const [viewMode, setViewMode] = useState<"tree" | "table">("tree");
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
 
-  const handleReassignParent = (childId: string, newParentId: string | null) => {
-    const updated = members.map((m) => (m.id === childId ? { ...m, parentId: newParentId } : m));
-    saveHierarchy(updated);
+  // 3D-Viewer Style Canvas Pan & Zoom State
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
+  const handleZoomIn = () => setZoom((prev) => Math.min(2.5, +(prev + 0.15).toFixed(2)));
+  const handleZoomOut = () => setZoom((prev) => Math.max(0.15, +(prev - 0.15).toFixed(2)));
+  const handleResetZoom = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const handleFitView = useCallback(() => {
+    if (!canvasRef.current || !contentRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const contentRect = contentRef.current.getBoundingClientRect();
+
+    const currentScale = zoom;
+    const unscaledWidth = contentRect.width / currentScale;
+    const unscaledHeight = contentRect.height / currentScale;
+
+    if (unscaledWidth === 0 || unscaledHeight === 0) return;
+
+    const padding = 60;
+    const scaleX = (canvasRect.width - padding * 2) / unscaledWidth;
+    const scaleY = (canvasRect.height - padding * 2) / unscaledHeight;
+    const newZoom = Math.max(0.15, Math.min(1.2, Math.min(scaleX, scaleY)));
+
+    setZoom(+newZoom.toFixed(2));
+    setPan({ x: 0, y: 20 });
+  }, [zoom]);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+    setZoom((prev) => Math.max(0.15, Math.min(2.5, +(prev * zoomFactor).toFixed(2))));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("button, input, select, a, textarea")) return;
+    setIsPanning(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPanning) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setPan({
+      x: dragStartRef.current.panX + dx,
+      y: dragStartRef.current.panY + dy,
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
   };
 
   // Modal states
@@ -1145,16 +778,119 @@ function CompanyHierarchyPage() {
           </div>
         ) : (
           <>
-            {/* VIEW MODE 1: INTERACTIVE DRAGGABLE REACT FLOW CANVAS (3D / SLD STYLE) */}
+            {/* VIEW MODE 1: VISUAL TREE HIERARCHY WITH 3D-VIEWER STYLE PAN & ZOOM CANVAS */}
             {viewMode === "tree" && (
-              <div className="w-full h-full min-h-[580px] h-[calc(100vh-140px)]">
-                <HierarchyFlow
-                  members={filteredMembers}
-                  onAddReport={handleOpenAddModal}
-                  onEdit={handleOpenEditModal}
-                  onDelete={handleDeleteMember}
-                  onReassignParent={handleReassignParent}
-                />
+              <div 
+                ref={canvasRef}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                className={`relative bg-card border border-border rounded-3xl shadow-sm overflow-hidden min-h-[580px] h-[calc(100vh-140px)] flex flex-col select-none ${
+                  isPanning ? "cursor-grabbing" : "cursor-grab"
+                }`}
+                style={{
+                  backgroundImage: "radial-gradient(circle, rgba(148, 163, 184, 0.22) 1px, transparent 1px)",
+                  backgroundSize: "24px 24px",
+                }}
+              >
+                {/* Floating Canvas Navigation Controls (Bottom-Right) */}
+                <div className="absolute bottom-5 right-5 z-30 flex items-center gap-1.5 bg-card/95 backdrop-blur-md border border-border p-1.5 rounded-2xl shadow-xl">
+                  <button
+                    onClick={handleZoomOut}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Zoom Out (Scroll Down)"
+                  >
+                    <ZoomOut className="size-4" />
+                  </button>
+
+                  <div 
+                    onClick={handleResetZoom}
+                    className="px-2.5 py-1 text-[11px] font-mono font-bold text-foreground hover:text-primary cursor-pointer transition-colors select-none"
+                    title="Click to reset zoom to 100%"
+                  >
+                    {Math.round(zoom * 100)}%
+                  </div>
+
+                  <button
+                    onClick={handleZoomIn}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Zoom In (Scroll Up)"
+                  >
+                    <ZoomIn className="size-4" />
+                  </button>
+
+                  <div className="w-px h-5 bg-border/80 mx-0.5" />
+
+                  <button
+                    onClick={handleFitView}
+                    className="px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="Fit Entire Tree to Viewport"
+                  >
+                    <Scan className="size-3.5" /> Fit View
+                  </button>
+
+                  <button
+                    onClick={handleResetZoom}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Reset Position & Zoom"
+                  >
+                    <RotateCcw className="size-3.5" />
+                  </button>
+                </div>
+
+                {/* Floating Navigation Hint Pill (Top-Left) */}
+                <div className="absolute top-4 left-4 z-20 pointer-events-none opacity-70 hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-xs border border-border/60 px-3 py-1.5 rounded-full text-[10.5px] font-semibold text-muted-foreground flex items-center gap-2 shadow-2xs">
+                  <span>🖱️ Drag canvas to pan</span>
+                  <span>•</span>
+                  <span>🔍 Scroll wheel to zoom</span>
+                  <span>•</span>
+                  <span>⚡ Unlimited scale</span>
+                </div>
+
+                {/* Scalable Transform Canvas Content */}
+                <div
+                  ref={contentRef}
+                  className="w-full h-full p-10 flex justify-center items-start transition-transform duration-75 ease-out origin-top"
+                  style={{
+                    transform: `translate3d(${pan.x}px, ${pan.y}px, 0px) scale(${zoom})`,
+                    transformOrigin: "center top",
+                  }}
+                >
+                  <div className="flex flex-col items-center min-w-max space-y-6 pb-36">
+                    {rootMembers.length === 0 ? (
+                      <div className="p-12 text-center text-muted-foreground text-sm space-y-3">
+                        <p>No hierarchy members found matching query.</p>
+                        {(searchQuery || selectedDept !== "ALL") && (
+                          <button
+                            onClick={() => {
+                              setSearchQuery("");
+                              setSelectedDept("ALL");
+                            }}
+                            className="px-4 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold rounded-full transition-all cursor-pointer"
+                          >
+                            Clear Search & Filters
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      rootMembers.map((root) => (
+                        <TreeNode
+                          key={root.id}
+                          member={root}
+                          reportsMap={reportsMap}
+                          collapsedNodes={collapsedNodes}
+                          onToggleCollapse={toggleCollapse}
+                          onAddReport={handleOpenAddModal}
+                          onEdit={handleOpenEditModal}
+                          onDelete={handleDeleteMember}
+                          allMembers={members}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1444,4 +1180,246 @@ function CompanyHierarchyPage() {
       )}
     </AppShell>
   );
+}
+
+// Sub-component: Tree Node Component (Recursive Tree Rendering)
+function TreeNode({
+  member,
+  reportsMap,
+  collapsedNodes,
+  onToggleCollapse,
+  onAddReport,
+  onEdit,
+  onDelete,
+  allMembers
+}: {
+  member: HierarchyUser;
+  reportsMap: Map<string, HierarchyUser[]>;
+  collapsedNodes: Set<string>;
+  onToggleCollapse: (id: string) => void;
+  onAddReport: (parentId: string) => void;
+  onEdit: (m: HierarchyUser) => void;
+  onDelete: (id: string, name: string) => void;
+  allMembers: HierarchyUser[];
+}) {
+  const children = reportsMap.get(member.id) || [];
+  const isCollapsed = collapsedNodes.has(member.id);
+
+  return (
+    <div className="flex flex-col items-center relative">
+      {/* Node Card */}
+      <div className="group relative bg-card border border-border hover:border-primary/50 p-4 rounded-2xl shadow-xs hover:shadow-md transition-all w-72 flex flex-col gap-2.5">
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <RoleBadge role={member.role} />
+            <AuthorityBadge authority={member.approvalAuthority} />
+          </div>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              onClick={() => onAddReport(member.id)}
+              className="p-1 hover:bg-primary/10 text-primary rounded-md transition-all cursor-pointer"
+              title="Add Subordinate"
+            >
+              <UserPlus className="size-3.5" />
+            </button>
+            <button
+              onClick={() => onEdit(member)}
+              className="p-1 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-md transition-all cursor-pointer"
+              title="Edit Member"
+            >
+              <Edit3 className="size-3.5" />
+            </button>
+            {member.parentId && (
+              <button
+                onClick={() => onDelete(member.id, member.name)}
+                className="p-1 hover:bg-rose-500/10 text-rose-500 rounded-md transition-all cursor-pointer"
+                title="Remove Member"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className={`size-10 rounded-2xl ${member.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs`}>
+            {member.name.charAt(0)}
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="font-extrabold text-foreground text-sm truncate">{member.name}</span>
+            <span className="text-[11px] font-medium text-muted-foreground truncate">{member.designation}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t border-border/50 text-[11px]">
+          <span className="px-2 py-0.5 rounded-full font-bold bg-primary/10 text-primary border border-primary/20 text-[10px]">
+            {member.department}
+          </span>
+          <span className="text-muted-foreground text-[10px] truncate max-w-[130px]" title={member.email}>
+            {member.email}
+          </span>
+        </div>
+
+        {/* Collapse / Expand Toggle Button */}
+        {children.length > 0 && (
+          <button
+            onClick={() => onToggleCollapse(member.id)}
+            className="absolute -bottom-3 left-1/2 -translate-x-1/2 size-6 rounded-full bg-card border border-border shadow-xs flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary transition-all cursor-pointer z-10"
+            title={isCollapsed ? "Expand Subordinates" : "Collapse Subordinates"}
+          >
+            {isCollapsed ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          </button>
+        )}
+      </div>
+
+      {/* Children Nodes Branch */}
+      {children.length > 0 && !isCollapsed && (
+        <div className="flex flex-col items-center pt-6 relative w-full">
+          {/* Vertical connecting stem down from parent */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-6 bg-border/80"></div>
+
+          {/* Horizontal connecting bar across siblings */}
+          {children.length > 1 && (
+            <div className="absolute top-6 left-0 right-0 h-0.5 bg-border/80 mx-auto" style={{ width: `calc(100% - 18rem)` }}></div>
+          )}
+
+          <div className="flex items-start justify-center gap-6 pt-2">
+            {children.map((child) => (
+              <div key={child.id} className="relative pt-4">
+                {/* Vertical stem up to connector */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-border/80"></div>
+                <TreeNode
+                  member={child}
+                  reportsMap={reportsMap}
+                  collapsedNodes={collapsedNodes}
+                  onToggleCollapse={onToggleCollapse}
+                  onAddReport={onAddReport}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  allMembers={allMembers}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Sub-component: Role Badge
+function RoleBadge({ role }: { role: HierarchyUser["role"] }) {
+  switch (role) {
+    case "SUPER_ADMIN":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Crown className="size-3" /> Super Admin
+        </span>
+      );
+    case "ORG_ADMIN":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Shield className="size-3" /> Org Admin
+        </span>
+      );
+    case "PROJECT_MANAGER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Briefcase className="size-3" /> Project Manager
+        </span>
+      );
+    case "TEAM_LEADER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Users className="size-3" /> Team Leader
+        </span>
+      );
+    case "DISCIPLINE_COORDINATOR":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Layers className="size-3" /> Discipline Coordinator
+        </span>
+      );
+    case "SR_DESIGN_ENGINEER":
+    case "ENGINEER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider flex items-center gap-1">
+          <UserCheck className="size-3" /> Sr. Design Engineer
+        </span>
+      );
+    case "DESIGN_ENGINEER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 uppercase tracking-wider flex items-center gap-1">
+          <User className="size-3" /> Design Engineer
+        </span>
+      );
+    case "JR_DESIGN_ENGINEER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 uppercase tracking-wider flex items-center gap-1">
+          <User className="size-3" /> Jr. Design Engg
+        </span>
+      );
+    case "BIM_COORDINATOR":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Building2 className="size-3" /> BIM Coordinator
+        </span>
+      );
+    case "BIM_MODELER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Network className="size-3" /> BIM Modeler
+        </span>
+      );
+    case "DRAFTSMAN_2D":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Edit3 className="size-3" /> 2D Draftsman
+        </span>
+      );
+    case "VIEWER":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Eye className="size-3" /> Viewer
+        </span>
+      );
+    case "CLIENT":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 uppercase tracking-wider flex items-center gap-1">
+          <Briefcase className="size-3" /> Client
+        </span>
+      );
+    default:
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 uppercase tracking-wider flex items-center gap-1">
+          <User className="size-3" /> Staff
+        </span>
+      );
+  }
+}
+
+// Sub-component: Authority Badge
+function AuthorityBadge({ authority }: { authority?: ApprovalAuthority }) {
+  const auth = authority || "NONE";
+  switch (auth) {
+    case "APPROVE_REJECT":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider flex items-center gap-1" title="Can review, approve or reject calculation sheets">
+          <ShieldCheck className="size-3" /> Approve / Reject
+        </span>
+      );
+    case "REVIEW":
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider flex items-center gap-1" title="Can review calculation sheets">
+          <UserCheck className="size-3" /> Review
+        </span>
+      );
+    case "NONE":
+    default:
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-medium bg-slate-500/10 text-muted-foreground border border-slate-500/20 uppercase tracking-wider flex items-center gap-1" title="No review or approval authority">
+          None
+        </span>
+      );
+  }
 }

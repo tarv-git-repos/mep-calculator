@@ -224,6 +224,7 @@ function GeneratorSizingPage() {
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
   const [calcReviewState, setCalcReviewState] = useState<any>(null);
   const isLocked = calcReviewState?.status === "APPROVED";
+  const isApprovedLocked = isLocked;
   const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
   const [editingRow, setEditingRow] = useState<{ row: GenRow; index: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
@@ -398,12 +399,8 @@ function GeneratorSizingPage() {
   };
 
   const addRow = () => {
-    if (isApprovedLocked) {
-      toastSonner.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add loads.", { id: "readonly-notice" });
-      return;
-    }
-    if (isLocked) {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+    if (isApprovedLocked || isLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add loads.", { id: "readonly-notice" });
       return;
     }
     const newRow: GenRow = {
@@ -1287,7 +1284,7 @@ function GeneratorSizingPage() {
                 </button>
               </div>
               <CalculationReviewBar
-                projectId={activeProject?.id || "default"}
+                projectId={activeProjectId || project?.id || "default"}
                 calculatorPath="/generator-sizing"
                 calculatorTitle="Generator Sizing"
                 onReviewStateChange={setCalcReviewState}

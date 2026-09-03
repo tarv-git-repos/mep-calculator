@@ -47,14 +47,12 @@ function AuthGuard({ children }: { children: ReactNode }) {
     setMounted(true);
   }, []);
 
-  // Avoid hydration mismatch between server and client initial render
-  if (!mounted) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-slate-950">
-        <div className="text-sky-400 font-medium">Loading session...</div>
-      </div>
-    );
-  }
+  // Only show loading screen if initial client mounting is pending and user is not yet loaded from localStorage
+  if (!mounted && loading && !isLoggedin) return (
+    <div className="flex h-screen w-screen items-center justify-center bg-slate-950">
+      <div className="text-sky-400 font-medium">Loading session...</div>
+    </div>
+  );
   
   const isLoginPage = routerState.location.pathname === '/login';
   const isPrivacyPage = routerState.location.pathname === '/privacy';

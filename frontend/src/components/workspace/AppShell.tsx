@@ -2806,7 +2806,9 @@ function NavLink({
   const navigate = useNavigate();
   const confirm = useConfirm();
   const router = useRouter();
+  const { profile } = useAuth();
   const pathname = router.state.location.pathname;
+  const isLocked = to ? isFeatureLocked(to, profile) : false;
   
   const cls = `flex items-center gap-2 ${showDot ? "pl-2.5 pr-3" : "px-3"} py-1.5 rounded-xl text-[13px] transition-all duration-150 cursor-pointer ${indent ? "pl-8" : ""} ${
     active
@@ -2821,6 +2823,11 @@ function NavLink({
         <span className={`size-1.5 rounded-full shrink-0 ${active ? "bg-primary" : "bg-slate-350 dark:bg-slate-600"}`} />
       )}
       <span className="flex-1 truncate text-left">{label}</span>
+      {isLocked && (
+        <span className="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0 uppercase tracking-tight">
+          Coming Soon
+        </span>
+      )}
     </>
   );
 

@@ -203,76 +203,50 @@ function DashboardPage() {
                   <h3 className="text-[11px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Calculators Quick Access</h3>
                 </div>
                 <div className="flex flex-col gap-2 overflow-y-auto max-h-[360px] pr-1.5 custom-scrollbar">
-                <CalcLink name="Cooling Load" label="Cooling Load Sizer" />
-                <CalcLink name="Fresh Air Cooling Load" label="Fresh Air Load" />
-                <CalcLink name="Heating Load" label="Heating Load" />
-                <CalcLink name="Lobby Pressurization" label="Lobby Smoke Control" />
-                <CalcLink name="Staircase Pressurization" label="Staircase Overpressure" />
-                <Link
-                  to="/plumbing-sprinkler-kfactor"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Sprinkler K-Factor</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-sprinkler-density"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Sprinkler Density & Flow</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-hazen-williams"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Hazen-Williams</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-fm200"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>FM-200 Calculation</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-water-demand"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Water Demand Sizer</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-fixture-unit"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Fixture Unit Sizer</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-loading-unit"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Loading Unit Sizer</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-supply-pipe-sizer"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Supply Pipe Sizer</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
-                <Link
-                  to="/plumbing-pump-sizing"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
-                >
-                  <span>Pump Sizing (Transfer/Booster)</span>
-                  <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                </Link>
+                  <Link
+                    to="/"
+                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
+                  >
+                    <span>Ventilation Module</span>
+                    <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </Link>
+                  <Link
+                    to="/preliminary-cooling-load"
+                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
+                  >
+                    <span>Preliminary Cooling Load</span>
+                    <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </Link>
+                  <Link
+                    to="/plumbing-loading-unit"
+                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
+                  >
+                    <span>Loading Unit Calculator</span>
+                    <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </Link>
+                  <Link
+                    to="/busbar-calculation"
+                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
+                  >
+                    <span>Busbar Calculation</span>
+                    <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </Link>
+                  <Link
+                    to="/generator-sizing"
+                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
+                  >
+                    <span>Generator Sizing</span>
+                    <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </Link>
+                  <Link
+                    to="/plumbing-sprinkler-kfactor"
+                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
+                  >
+                    <span>Sprinkler K-Factor</span>
+                    <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                  </Link>
+                </div>
               </div>
-            </div>
             </div>
           </div>
 
