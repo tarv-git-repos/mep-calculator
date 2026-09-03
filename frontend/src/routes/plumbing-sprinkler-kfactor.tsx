@@ -2663,9 +2663,6 @@ function SprinklerKFactorPage() {
           }}
         />
       )}
-          </div>
-        </div>
-      </div>
     </AppShell>
   );
 }
