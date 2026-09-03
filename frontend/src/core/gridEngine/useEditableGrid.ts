@@ -6,6 +6,9 @@ import { useShortcuts } from "./useShortcuts";
 import { useBulkActions } from "./useBulkActions";
 
 export interface EditableGridConfig<T> {
+  readOnly?: boolean;
+  onDelete?: () => void;
+  onDuplicate?: () => void;
   initialRows: T[];
   onStateChange?: (rows: T[]) => void;
   onSave?: () => void;
@@ -30,6 +33,7 @@ export function useEditableGrid<T extends { id: string }>(config: EditableGridCo
   const { bulkDelete, bulkDuplicate, bulkEdit } = useBulkActions(rows, selectedIds, pushState);
 
   useShortcuts({
+    readOnly: config.readOnly,
     onUndo: undo,
     onRedo: redo,
     onCopy: copy,
@@ -37,8 +41,8 @@ export function useEditableGrid<T extends { id: string }>(config: EditableGridCo
     onPaste: paste,
     onSelectAll: selectAll,
     onClearSelection: clearSelection,
-    onDelete: bulkDelete,
-    onDuplicate: bulkDuplicate,
+    onDelete: config.onDelete || bulkDelete,
+    onDuplicate: config.onDuplicate || bulkDuplicate,
     onNewRow: config.onNewRow,
     onSave: config.onSave,
     onPrint: config.onPrint,
@@ -47,17 +51,20 @@ export function useEditableGrid<T extends { id: string }>(config: EditableGridCo
   });
 
   const updateRow = useCallback((id: string, field: keyof T, value: any) => {
+    if (config.readOnly) return;
     const newRows = rows.map(r => r.id === id ? { ...r, [field]: value } : r);
     pushState(newRows);
-  }, [rows, pushState]);
+  }, [rows, pushState, config.readOnly]);
 
   const addRow = useCallback((newRow: T) => {
+    if (config.readOnly) return;
     pushState([...rows, newRow]);
-  }, [rows, pushState]);
+  }, [rows, pushState, config.readOnly]);
 
   const removeRow = useCallback((id: string) => {
+    if (config.readOnly) return;
     pushState(rows.filter(r => r.id !== id));
-  }, [rows, pushState]);
+  }, [rows, pushState, config.readOnly]);
 
   return {
     rows,

@@ -185,12 +185,8 @@ const loadIfcFile = async (file: File) => {
     });
     tags = [];
 
-    if (!isPreload) {
-        store().setIsLoading(true);
-        store().setLoadingText('Converting IFC (this may take a moment)...');
-    } else {
-        store().setIsLoading(false);
-    }
+    store().setIsLoading(true);
+    store().setLoadingText('Loading your 3D model...');
 
     try {
         const fileKey = (window as any).api.getFilePath(file);

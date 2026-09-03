@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { toast } from "../notifications";
+import { toast } from "sonner";
 
 export function useClipboard<T extends { id: string }>(
   rows: T[], 

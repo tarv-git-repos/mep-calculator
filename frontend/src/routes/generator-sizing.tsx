@@ -163,6 +163,21 @@ function GeneratorSizingPage() {
     canRedo,
   } = useEditableGrid<GenRow>({
     initialRows: projects[currentProject] || [],
+    readOnly: isApprovedLocked,
+    onDelete: () => {
+      if (isApprovedLocked) {
+        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete loads.", { id: "readonly-notice" });
+        return;
+      }
+      bulkDelete();
+    },
+    onDuplicate: () => {
+      if (isApprovedLocked) {
+        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to duplicate loads.", { id: "readonly-notice" });
+        return;
+      }
+      bulkDuplicate();
+    },
     onStateChange: (newRows) => {
       setProjects((prev) => {
         if (prev[currentProject] === newRows) return prev;

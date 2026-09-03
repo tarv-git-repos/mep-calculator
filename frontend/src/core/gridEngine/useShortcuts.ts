@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 interface ShortcutHandlers {
+  readOnly?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
   onCopy?: () => void;
@@ -37,9 +38,11 @@ export function useShortcuts(handlers: ShortcutHandlers) {
         e.preventDefault();
         handlers.onCopy?.();
       } else if (ctrlCmd && e.key === "x") {
+        if (handlers.readOnly) return;
         e.preventDefault();
         handlers.onCut?.();
       } else if (ctrlCmd && e.key === "v") {
+        if (handlers.readOnly) return;
         // Pasting might need OS level clipboard API depending on implementation, 
         // but for internal clipboard we can trigger our paste
         e.preventDefault();
@@ -51,9 +54,11 @@ export function useShortcuts(handlers: ShortcutHandlers) {
         e.preventDefault();
         handlers.onRedo?.();
       } else if (ctrlCmd && e.key === "d") {
+        if (handlers.readOnly) return;
         e.preventDefault();
         handlers.onDuplicate?.();
       } else if (ctrlCmd && e.key === "n") {
+        if (handlers.readOnly) return;
         e.preventDefault();
         handlers.onNewRow?.();
       } else if (ctrlCmd && e.key === "s") {
@@ -70,6 +75,7 @@ export function useShortcuts(handlers: ShortcutHandlers) {
         e.preventDefault();
         handlers.onExportExcel?.();
       } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (handlers.readOnly) return;
         handlers.onDelete?.();
       } else if (e.key === "Escape") {
         handlers.onClearSelection?.();
