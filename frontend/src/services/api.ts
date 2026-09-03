@@ -144,21 +144,24 @@ export const api = {
             ? c.role
             : ((u.role && u.role !== 'USER') ? u.role : (c?.features?.role || u.features?.role || 'Jr. Design Engineer'));
 
-          const finalExpires = (c?.subscription_expires !== undefined && c?.subscription_expires !== null && c?.subscription_expires !== '')
-            ? c.subscription_expires
-            : ((c?.features && c.features.subscription_expires !== undefined && c.features.subscription_expires !== null && c.features.subscription_expires !== '')
-                ? c.features.subscription_expires
-                : (u.subscription_expires || u.features?.subscription_expires || null));
+          // Prioritize live server data from backend, fallback to local cache if missing
+          const finalExpires = (u.subscription_expires !== undefined && u.subscription_expires !== null)
+            ? u.subscription_expires
+            : ((u.features && u.features.subscription_expires !== undefined && u.features.subscription_expires !== null)
+                ? u.features.subscription_expires
+                : (c?.subscription_expires !== undefined
+                    ? c.subscription_expires
+                    : (c?.features?.subscription_expires || null)));
 
           return {
-            ...u,
             ...(c || {}),
+            ...u,
             organization_id: finalOrgId,
             role: finalRole,
             subscription_expires: finalExpires,
             features: {
-              ...(u.features || {}),
               ...(c?.features || {}),
+              ...(u.features || {}),
               organization_id: finalOrgId,
               role: finalRole,
               subscription_expires: finalExpires

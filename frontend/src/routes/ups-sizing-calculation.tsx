@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -614,7 +614,7 @@ function UpsSizingCalculationPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">UPS Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{loadRows.length} items</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing" />
+                
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Simplified preliminary electrical capacity sizing based on socket load schedule.

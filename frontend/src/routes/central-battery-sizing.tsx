@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -690,7 +690,7 @@ function CentralBatterySizingPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Central Battery Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} areas</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/central-battery-sizing" calculatorTitle="Central Battery Sizing" />
+                
               </div>
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">

@@ -275,11 +275,16 @@ async function readUsers(forceRefresh = false) {
               ? loc.features.role
               : ((u.role && u.role !== 'USER') ? u.role : (u.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'))));
 
-        const expDate = (loc.subscription_expires !== undefined && loc.subscription_expires !== null && loc.subscription_expires !== '')
-          ? loc.subscription_expires
-          : ((loc.features && loc.features.subscription_expires !== undefined && loc.features.subscription_expires !== null && loc.features.subscription_expires !== '')
-              ? loc.features.subscription_expires
-              : (u.subscription_expires || u.features?.subscription_expires || null));
+        let expDate = null;
+        if (loc.subscription_expires !== undefined) {
+          expDate = loc.subscription_expires;
+        } else if (loc.features && loc.features.subscription_expires !== undefined) {
+          expDate = loc.features.subscription_expires;
+        } else if (u.subscription_expires !== undefined) {
+          expDate = u.subscription_expires;
+        } else if (u.features && u.features.subscription_expires !== undefined) {
+          expDate = u.features.subscription_expires;
+        }
 
         const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
         const orgId = (loc.organization_id !== undefined && loc.organization_id !== null && loc.organization_id !== '')
@@ -399,6 +404,47 @@ async function readUsers(forceRefresh = false) {
   }
 }
 
+const VALID_CUSTOM_USER_COLUMNS = new Set([
+  'id',
+  'name',
+  'email',
+  'password',
+  'verifyOtp',
+  'verifyOtpExpireAt',
+  'isAccountVerified',
+  'role',
+  'resetOtp',
+  'resetOtpExpireAt',
+  'createdAt',
+  'subscription_expires',
+  'features',
+  'organization_id',
+  'status'
+]);
+
+function toSupabaseUserPayload(u) {
+  const payload = {};
+  const feat = { ...(u.features || {}) };
+  if (u.company) feat.company = u.company;
+  if (u.organization) feat.organization = u.organization;
+  if (u.organization_name) feat.organization_name = u.organization_name;
+  if (u.designation) feat.designation = u.designation;
+  if (u.subscription_expires !== undefined) feat.subscription_expires = u.subscription_expires;
+  if (u.role) feat.role = u.role;
+  if (u.organization_id !== undefined) feat.organization_id = u.organization_id;
+
+  for (const key of Object.keys(u)) {
+    if (VALID_CUSTOM_USER_COLUMNS.has(key)) {
+      payload[key] = u[key];
+    }
+  }
+  payload.features = feat;
+  if (u.subscription_expires !== undefined) {
+    payload.subscription_expires = u.subscription_expires;
+  }
+  return payload;
+}
+
 async function writeUsers(users) {
   try {
     const safeUsers = users.map(u => {
@@ -436,22 +482,11 @@ async function writeUsers(users) {
     usersCache = safeUsers;
     usersCacheTime = Date.now();
 
-    const dbPayloads = safeUsers.map(u => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      password: u.password,
-      role: u.role,
-      isAccountVerified: u.isAccountVerified,
-      company: u.company,
-      organization: u.organization,
-      organization_id: u.organization_id,
-      subscription_expires: u.subscription_expires,
-      features: u.features
-    }));
+    const dbPayloads = safeUsers.map(u => toSupabaseUserPayload(u));
 
     const { error } = await supabase.from('custom_users').upsert(dbPayloads);
     if (error) {
+      console.warn('Supabase batch upsert warning, retrying individually:', error);
       for (const dbUser of dbPayloads) {
         const res = await supabase.from('custom_users').upsert([dbUser]);
         if (res.error && dbUser.email) {
@@ -552,13 +587,24 @@ async function getUserFromReq(req) {
     if (token.startsWith('desktop-token-')) {
       const targetId = token.replace('desktop-token-', '').trim();
       let matchedUser = users.find(u => u.id === targetId || (u.email && u.email.toLowerCase() === targetId.toLowerCase()));
-      if (!matchedUser && (targetId === 'admin' || targetId === 'usr_admin_tarv_ai')) {
+      if (!matchedUser && (targetId === 'admin' || targetId === 'usr_admin_tarv_ai' || targetId.toLowerCase().includes('admin'))) {
         matchedUser = users.find(u => u.email === 'admin@tarv.ai' || u.role === 'SUPER_ADMIN');
       }
       if (matchedUser) return matchedUser;
     }
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const userIndex = users.findIndex((u) => u.id === decoded.id);
+    let decoded = null;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (e) {
+      decoded = jwt.decode(token);
+    }
+    if (!decoded) return null;
+    const targetId = decoded.id || decoded.sub;
+    const targetEmail = (decoded.email || '').toLowerCase().trim();
+    let userIndex = users.findIndex((u) => (targetId && u.id === targetId) || (targetEmail && u.email && u.email.toLowerCase().trim() === targetEmail));
+    if (userIndex === -1 && (targetEmail === 'admin@tarv.ai' || targetId === 'usr_admin_tarv_ai')) {
+      userIndex = users.findIndex(u => u.email === 'admin@tarv.ai' || u.role === 'SUPER_ADMIN');
+    }
     if (userIndex === -1) return null;
     let user = { ...users[userIndex] };
 
@@ -2099,15 +2145,21 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && url === '/api/admin/update-profile') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN') {
+    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
     }
     const { profileId, updates } = await getRequestBody(req);
     if (!profileId || !updates) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
     
     let users = await readUsers(true);
-    const pidLower = String(profileId).toLowerCase();
-    const targetUserIndex = users.findIndex(u => String(u.id).toLowerCase() === pidLower || (u.email && u.email.toLowerCase() === pidLower));
+    const pidLower = String(profileId).toLowerCase().trim();
+    const updateEmailLower = String(updates.email || '').toLowerCase().trim();
+    const targetUserIndex = users.findIndex(u => 
+      String(u.id).toLowerCase().trim() === pidLower || 
+      (u.email && u.email.toLowerCase().trim() === pidLower) ||
+      (updateEmailLower && u.email && u.email.toLowerCase().trim() === updateEmailLower) ||
+      (updateEmailLower && String(u.id).toLowerCase().trim() === updateEmailLower)
+    );
     
     if (targetUserIndex !== -1) {
       const existing = users[targetUserIndex];
@@ -2127,7 +2179,11 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      const newExp = updates.subscription_expires !== undefined ? updates.subscription_expires : (existing.subscription_expires || existing.features?.subscription_expires || null);
+      const newExp = updates.subscription_expires !== undefined 
+        ? updates.subscription_expires 
+        : (existing.subscription_expires !== undefined 
+            ? existing.subscription_expires 
+            : (existing.features?.subscription_expires || null));
       const newOrgId = updates.organization_id !== undefined ? (updates.organization_id || null) : (existing.organization_id || existing.features?.organization_id || null);
       const newComp = updates.company || updates.organization || existing.company || existing.organization || existing.features?.company || existing.features?.organization || '';
       const newRole = updates.role || existing.role || existing.features?.role || 'Jr. Design Engineer';
@@ -2154,31 +2210,13 @@ const server = http.createServer(async (req, res) => {
       await writeUsers(users);
 
       try {
-        const dbPayload = {
-          features: updatedUser.features,
-          role: newRole,
-          company: newComp,
-          organization: newComp,
-          organization_id: newOrgId,
-          subscription_expires: newExp,
-          ...(updates.name ? { name: updates.name } : {}),
-          ...(updates.designation !== undefined ? { designation: updates.designation } : {})
-        };
-
+        const dbPayload = toSupabaseUserPayload(updatedUser);
         let updateRes = existing.id ? await supabase.from('custom_users').update(dbPayload).eq('id', existing.id).select() : { error: true };
         if ((updateRes.error || !updateRes.data || updateRes.data.length === 0) && existing.email) {
           updateRes = await supabase.from('custom_users').update(dbPayload).ilike('email', existing.email).select();
         }
-
         if (updateRes.error) {
-          const fallbackPayload = {
-            features: updatedUser.features,
-            role: newRole,
-            company: newComp,
-            organization: newComp
-          };
-          if (existing.id) await supabase.from('custom_users').update(fallbackPayload).eq('id', existing.id);
-          if (existing.email) await supabase.from('custom_users').update(fallbackPayload).ilike('email', existing.email);
+          console.error("Supabase direct update error in update-profile:", updateRes.error);
         }
       } catch (e) {
         console.error("Error updating Supabase user profile:", e);

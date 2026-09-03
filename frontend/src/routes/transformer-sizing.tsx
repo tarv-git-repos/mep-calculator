@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -462,7 +462,7 @@ function TransformerSizingPage() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             Transformer Sizing <span className="text-sm font-normal text-slate-400">({loadRows.length} loads)</span>
           </h1>
-              <CalculationReviewBar calculatorPath="/transformer-sizing" calculatorTitle="Transformer Sizing" />
+              
           <p className="text-xs text-muted-foreground mt-1">Preliminary transformer capacity (kVA) sizing based on connected loads, diversity, and ambient deratings.</p>
         </div>
 

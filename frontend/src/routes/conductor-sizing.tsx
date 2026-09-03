@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -484,7 +484,7 @@ function ConductorSizingPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Conductor (Cable) Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} segments</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/conductor-sizing" calculatorTitle="Conductor Sizing" />
+                
               </div>
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">Calculate conductor (cable) sizing automatically complying with IEC standards.</p>

@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -393,7 +393,7 @@ function CircuitBreakerSizingPage() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             Circuit Breaker Sizing <span className="text-sm font-normal text-slate-400">({rows.length} circuits)</span>
           </h1>
-              <CalculationReviewBar calculatorPath="/circuit-breaker-sizing" calculatorTitle="Circuit Breaker Sizing" />
+              
           <p className="text-xs text-muted-foreground mt-1">Preliminary circuit breaker capacity rating sizing based on connected loads, voltage, and phase parameters.</p>
         </div>
 

@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -73,6 +73,7 @@ interface GenRow {
 }
 
 export function getGenRowValidation(r?: Partial<GenRow>) {
+  const isLocked = useCalculationLock("/generator-sizing", activeProjectId || (project as any)?.id || "default");
   const warnings: string[] = [];
   if (!r) return { isAutoFlagged: false, isFlagged: false, warnings: [] };
 
@@ -396,6 +397,10 @@ function GeneratorSizingPage() {
   };
 
   const addRow = () => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
     const newRow: GenRow = {
       id: `gen_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       desc: "",
@@ -412,10 +417,18 @@ function GeneratorSizingPage() {
   };
 
   const removeRow = async (id: string) => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
     baseRemoveRow(id);
   };
 
   const updateRow = (id: string, field: keyof GenRow, val: any) => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
     const targetIds = selectedRows.has(id) ? Array.from(selectedRows) : [id];
 
     const newRows = rows.map((row) => {
@@ -442,6 +455,10 @@ function GeneratorSizingPage() {
   };
 
   const setPowerFailPercent = (id: string, percentStr: string) => {
+    if (isLocked) {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
+      return;
+    }
     const percent = parseFloat(percentStr);
     if (!percent || isNaN(percent)) return;
 
@@ -1232,7 +1249,7 @@ function GeneratorSizingPage() {
       title="Generator Sizing"
       subtitle="Calculate DG set size based on connected and emergency loads"
     >
-      <div className="px-4 pt-2"><CalculationReviewBar calculatorPath="/generator-sizing" calculatorTitle="Generator Sizing" /></div>
+      
       <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>

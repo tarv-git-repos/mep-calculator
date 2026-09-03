@@ -239,7 +239,22 @@ export function SuperAdminDashboard() {
   };
 
   const [bulkTargetOrgId, setBulkTargetOrgId] = useState<string>('')
-  const [userSearchQuery, setUserSearchQuery] = useState<string>('')
+  const [userSearchQuery, setUserSearchQueryState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mep_user_search_query') || '';
+    }
+    return '';
+  });
+
+  const setUserSearchQuery = (val: string | ((prev: string) => string)) => {
+    setUserSearchQueryState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('mep_user_search_query', next);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -263,6 +278,14 @@ export function SuperAdminDashboard() {
             if (selectedOrgFilter === 'ALL') return true;
             if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
             return p.organization_id === selectedOrgFilter;
+          }).filter(p => {
+            if (!userSearchQuery.trim()) return true;
+            const q = userSearchQuery.trim().toLowerCase();
+            const email = (p.email || '').toLowerCase();
+            const name = ((p as any).name || (p as any).username || '').toLowerCase();
+            const role = (p.role || '').toLowerCase();
+            const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
+            return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
           }).map(p => p.id);
           updateSelection(visibleIds);
           toast.info(`Selected all ${visibleIds.length} users (Ctrl+A)`, { duration: 1200 });
@@ -840,21 +863,26 @@ export function SuperAdminDashboard() {
       const cleanDate = newExpiryDate.split('T')[0];
       dateStr = `${cleanDate}T23:59:59.999Z`;
     }
+
+    const currentProfile = profiles.find(p => p.id === profileId);
     
     // Optimistic UI update
     setProfiles(prevProfiles => prevProfiles.map(p => 
       p.id === profileId ? { ...p, subscription_expires: dateStr || '' } : p
     ));
 
-    const res = await api.adminUpdateProfile(profileId, { subscription_expires: dateStr });
+    const res = await api.adminUpdateProfile(profileId, { 
+      subscription_expires: dateStr,
+      email: currentProfile?.email 
+    });
       
     if (!res.success) {
-      toast.error("Failed to update expiry: " + res.message)
-      fetchProfiles()
+      toast.error("Failed to update expiry: " + (res.message || 'Unknown error'));
+      await fetchProfiles();
     } else {
-      toast.success("Expiry date updated successfully!")
-      setEditingExpiryFor(null)
-      fetchProfiles()
+      toast.success("Expiry date updated successfully!");
+      setEditingExpiryFor(null);
+      await fetchProfiles();
     }
   }
 
@@ -1199,10 +1227,10 @@ export function SuperAdminDashboard() {
                   </div>
                 </div>
 
-                {/* Requirement: Organization Selector Dropdown & Sorting Options */}
-                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1">
-                    <div className="flex items-center gap-2 flex-1">
+                {/* Requirement: Organization Selector Dropdown, Universal Search & Sorting Options */}
+                <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4 shadow-xs">
+                  <div className="flex flex-col lg:flex-row lg:items-center gap-3 flex-1 flex-wrap">
+                    <div className="flex items-center gap-2 flex-1 min-w-[220px]">
                       <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
                         <Building size={16} className="text-blue-600" />
                         Organization:
@@ -1227,8 +1255,48 @@ export function SuperAdminDashboard() {
                       </select>
                     </div>
 
+                    {/* UNIVERSAL SEARCH BAR & SEARCH BUTTON */}
+                    <div className="flex items-center gap-1.5 lg:border-l border-slate-200 dark:border-slate-700 lg:pl-3">
+                      <div className="relative flex items-center">
+                        <Search size={14} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={userSearchQuery}
+                          onChange={(e) => setUserSearchQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && userSearchQuery.trim()) {
+                              toast.info(`Filtered users matching "${userSearchQuery.trim()}"`, { duration: 1200 });
+                            }
+                          }}
+                          placeholder="Search username, email, org..."
+                          className="pl-8 pr-7 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-800 dark:text-slate-200 placeholder:text-slate-400 outline-none focus:border-blue-500 w-[190px] sm:w-[220px] transition"
+                        />
+                        {userSearchQuery && (
+                          <button
+                            onClick={() => setUserSearchQuery('')}
+                            className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs p-0.5 cursor-pointer"
+                            title="Clear search"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (userSearchQuery.trim()) {
+                            toast.info(`Filtered users matching "${userSearchQuery.trim()}"`, { duration: 1200 });
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-2xs shrink-0"
+                        title="Search users across username, email, role, and organization"
+                      >
+                        <Search size={13} />
+                        Search
+                      </button>
+                    </div>
+
                     {/* EXACT STATIC-WIDTH SINGLE BUTTON SORT BY CONTROL */}
-                    <div className="flex items-center gap-2 sm:border-l border-slate-200 dark:border-slate-700 sm:pl-4">
+                    <div className="flex items-center gap-2 lg:border-l border-slate-200 dark:border-slate-700 lg:pl-3">
                       <div className="relative inline-flex items-center w-[230px] shrink-0">
                         <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-2xs hover:border-slate-400 dark:hover:border-slate-600 transition cursor-pointer pointer-events-none w-[230px] shrink-0">
                           <div className="flex items-center gap-1.5 truncate">
@@ -1268,12 +1336,31 @@ export function SuperAdminDashboard() {
                     </div>
                   </div>
 
-                  <div className="text-xs font-semibold text-slate-500 shrink-0">
-                    Showing {profiles.filter(p => {
-                      if (selectedOrgFilter === 'ALL') return true;
-                      if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
-                      return p.organization_id === selectedOrgFilter;
-                    }).length} Users
+                  <div className="text-xs font-semibold text-slate-500 shrink-0 flex items-center gap-2">
+                    <span>
+                      Showing {profiles.filter(p => {
+                        if (selectedOrgFilter === 'ALL') return true;
+                        if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+                        return p.organization_id === selectedOrgFilter;
+                      }).filter(p => {
+                        if (!userSearchQuery.trim()) return true;
+                        const q = userSearchQuery.trim().toLowerCase();
+                        const email = (p.email || '').toLowerCase();
+                        const name = ((p as any).name || (p as any).username || '').toLowerCase();
+                        const role = (p.role || '').toLowerCase();
+                        const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
+                        return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
+                      }).length} Users
+                    </span>
+                    {userSearchQuery && (
+                      <button
+                        onClick={() => setUserSearchQuery('')}
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-bold cursor-pointer"
+                        title="Reset Search"
+                      >
+                        (Clear Search)
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1422,13 +1509,46 @@ export function SuperAdminDashboard() {
                         <th className="pb-3 px-2 w-10 text-center">
                           <input
                             type="checkbox"
-                            checked={profiles.length > 0 && profiles.every(p => selectedUserIds.includes(p.id))}
+                            checked={(() => {
+                              const orgAndSearchProfiles = profiles.filter(p => {
+                                if (selectedOrgFilter === 'ALL') return true;
+                                if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+                                return p.organization_id === selectedOrgFilter;
+                              }).filter(p => {
+                                if (!userSearchQuery.trim()) return true;
+                                const q = userSearchQuery.trim().toLowerCase();
+                                const email = (p.email || '').toLowerCase();
+                                const name = ((p as any).name || (p as any).username || '').toLowerCase();
+                                const role = (p.role || '').toLowerCase();
+                                const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
+                                return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
+                              });
+                              return orgAndSearchProfiles.length > 0 && orgAndSearchProfiles.every(p => selectedUserIds.includes(p.id));
+                            })()}
                             onChange={(e) => {
-                              if (e.target.checked) setSelectedUserIds(profiles.map(p => p.id));
-                              else setSelectedUserIds([]);
+                              const orgAndSearchProfiles = profiles.filter(p => {
+                                if (selectedOrgFilter === 'ALL') return true;
+                                if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
+                                return p.organization_id === selectedOrgFilter;
+                              }).filter(p => {
+                                if (!userSearchQuery.trim()) return true;
+                                const q = userSearchQuery.trim().toLowerCase();
+                                const email = (p.email || '').toLowerCase();
+                                const name = ((p as any).name || (p as any).username || '').toLowerCase();
+                                const role = (p.role || '').toLowerCase();
+                                const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
+                                return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
+                              });
+                              if (e.target.checked) {
+                                const ids = orgAndSearchProfiles.map(p => p.id);
+                                setSelectedUserIds(Array.from(new Set([...selectedUserIds, ...ids])));
+                              } else {
+                                const idSet = new Set(orgAndSearchProfiles.map(p => p.id));
+                                setSelectedUserIds(selectedUserIds.filter(id => !idSet.has(id)));
+                              }
                             }}
                             className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
-                            title="Select All Users"
+                            title="Select All Filtered Users"
                           />
                         </th>
                         <th 
@@ -1489,17 +1609,19 @@ export function SuperAdminDashboard() {
                     <tbody className="text-sm">
                       {loadingProfiles ? (
                         <tr><td colSpan={6} className="py-8 text-center text-slate-500">Loading...</td></tr>
-                      ) : profiles.filter(p => {
-                        if (selectedOrgFilter === 'ALL') return true;
-                        if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
-                        return p.organization_id === selectedOrgFilter;
-                      }).length === 0 ? (
-                        <tr><td colSpan={6} className="py-8 text-center text-slate-500">No users found for this organization selection.</td></tr>
                       ) : (() => {
                         const visibleProfiles = profiles.filter(p => {
                           if (selectedOrgFilter === 'ALL') return true;
                           if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                           return p.organization_id === selectedOrgFilter;
+                        }).filter(p => {
+                          if (!userSearchQuery.trim()) return true;
+                          const q = userSearchQuery.trim().toLowerCase();
+                          const email = (p.email || '').toLowerCase();
+                          const name = ((p as any).name || (p as any).username || '').toLowerCase();
+                          const role = (p.role || '').toLowerCase();
+                          const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
+                          return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
                         }).sort((a, b) => {
                           let res = 0;
                           if (userSortField === 'email') {
@@ -1524,6 +1646,31 @@ export function SuperAdminDashboard() {
                           }
                           return userSortOrder === 'asc' ? res : -res;
                         });
+
+                        if (visibleProfiles.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={6} className="py-12 text-center text-slate-500">
+                                <div className="flex flex-col items-center justify-center gap-2">
+                                  <Search size={24} className="text-slate-400 mb-1" />
+                                  <p className="font-semibold text-slate-700 dark:text-slate-300 text-sm">
+                                    {userSearchQuery.trim()
+                                      ? `No users found matching "${userSearchQuery.trim()}".`
+                                      : 'No users found for this organization selection.'}
+                                  </p>
+                                  {userSearchQuery.trim() && (
+                                    <button
+                                      onClick={() => setUserSearchQuery('')}
+                                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-bold cursor-pointer mt-1"
+                                    >
+                                      Clear search filter
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
 
                         return visibleProfiles.map((p, idx) => (
                           <tr key={p.id} className={`border-b border-slate-100 dark:border-slate-800/50 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${selectedUserIds.includes(p.id) ? 'bg-indigo-50/40 dark:bg-indigo-900/10' : ''}`}>

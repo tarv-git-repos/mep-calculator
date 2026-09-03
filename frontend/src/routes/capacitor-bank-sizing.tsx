@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -430,7 +430,7 @@ function CapacitorBankSizingPage() {
             <div className="flex items-center gap-3 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Capacitor Bank Sizing</h1>
-              <CalculationReviewBar calculatorPath="/capacitor-bank-sizing" calculatorTitle="Capacitor Bank Sizing" />
+              
               </div>
             </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">

@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1022,7 +1022,7 @@ function LightingLuxCalculationPage() {
       subtitle="Design and calculate lighting levels for different spaces"
       actions={
         <div className="flex items-center gap-2">
-          <CalculationReviewBar calculatorPath="/lighting-lux-calculation" calculatorTitle="Lighting LUX Calculation" />
+          
           <ImportExcelBtn
             columnMapping={{
               "Location": "location",
