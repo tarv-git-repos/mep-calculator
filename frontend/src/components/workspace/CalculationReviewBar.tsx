@@ -633,8 +633,8 @@ export function CalculationReviewBar({
         </button>
       )}
 
-      {/* C. JR / DESIGN ENGINEER NOTES BUTTON */}
-      {userRole === "Jr. / Design Engineer" && (reviewState.reviewerComments || reviewState.rejectionDescription) && !isApproved && (
+      {/* C. JR / DESIGN ENGINEER NOTES BUTTON (Only when Reviewed by Sr. Engineer and NOT Rejected/Approved) */}
+      {userRole === "Jr. / Design Engineer" && isReviewed && reviewState.reviewerComments && !isApproved && !isRejected && (
         <button
           onClick={() => setShowDetailsModal(true)}
           className="px-3 py-1 bg-surface-2 hover:bg-surface-3 text-foreground/80 border border-border/70 text-xs font-semibold rounded-full transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
