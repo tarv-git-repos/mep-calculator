@@ -80,7 +80,7 @@ function Login() {
   useEffect(() => {
     if (isLoggedin && userData) {
       if (userData.isAccountVerified !== false) {
-        navigate({ to: '/' });
+        navigate({ to: '/dashboard' });
       } else {
         setMode('Email Verify');
         if (userData.email) setEmail(userData.email);
@@ -197,7 +197,7 @@ function Login() {
             setUserData(res.userData);
           }
           toast.success(res.message || 'Logged in successfully');
-          navigate({ to: '/' });
+          navigate({ to: '/dashboard' });
         } else {
           toast.error(res.message || 'Login failed');
         }
@@ -226,7 +226,7 @@ function Login() {
           setUserData(res.userData);
         }
         toast.success('Email verified successfully! Welcome to MEP Calculator.');
-        navigate({ to: '/' });
+        navigate({ to: '/dashboard' });
       } else {
         toast.error(res.message || 'Invalid or expired OTP code.');
       }

@@ -222,6 +222,10 @@ function BusbarVoltageDropPage() {
   };
 
   const addRow = (isGroup: boolean = false) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add rows.", { id: "readonly-notice" });
+      return;
+    }
     const newId = `bb_${Math.random().toString(36).slice(2, 9)}`;
     const newRow: BusbarVDRow = {
       id: newId,
@@ -259,6 +263,10 @@ function BusbarVoltageDropPage() {
   };
 
   const deleteSelected = async () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete rows.", { id: "readonly-notice" });
+      return;
+    }
     if (selected.size === 0) return;
     if (await confirm(`Are you sure you want to delete ${selected.size} selected row(s)?`)) {
       pushToHistory(rows, history, setHistory, setRedoStack);
@@ -863,7 +871,7 @@ function BusbarVoltageDropPage() {
       subtitle="Calculate busbar voltage drop with resistive and reactive components."
       actions={
         <div className="flex gap-2">
-          <CalculationReviewBar calculatorPath="/busbar-voltage-drop" calculatorTitle="Busbar Voltage Drop" />
+          <CalculationReviewBar calculatorPath="/busbar-voltage-drop" calculatorTitle="Busbar Voltage Drop" onReviewStateChange={setCalcReviewState} />
           <ImportExcelBtn
             columnMapping={{
               "Busbar Ref": "busbarRef",

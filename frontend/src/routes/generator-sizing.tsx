@@ -398,6 +398,10 @@ function GeneratorSizingPage() {
   };
 
   const addRow = () => {
+    if (isApprovedLocked) {
+      toastSonner.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add loads.", { id: "readonly-notice" });
+      return;
+    }
     if (isLocked) {
       toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "calc-locked" });
       return;
@@ -1257,6 +1261,7 @@ function GeneratorSizingPage() {
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Sections Navigation (Tabs) */}
           <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
             <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
               <button
                 type="button"

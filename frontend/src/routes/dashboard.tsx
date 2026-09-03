@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
+  component: DashboardPage,
 });
 
 export function DashboardPage() {
