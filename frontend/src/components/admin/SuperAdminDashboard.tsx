@@ -1132,7 +1132,7 @@ export function SuperAdminDashboard() {
       <div className="w-full flex items-center justify-between bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl shadow-xs border border-slate-200/80 dark:border-slate-800 shrink-0">
         <div className="flex items-center gap-3">
           <Link 
-            to="/dashboard" 
+            to="/" 
             className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all cursor-pointer"
             title="Back to Dashboard"
           >
@@ -1599,10 +1599,10 @@ export function SuperAdminDashboard() {
                             if (userSortField === 'role') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                             else { setUserSortField('role'); setUserSortOrder('asc'); }
                           }}
-                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-left"
+                          className="pb-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-center"
                           title="Click to sort by Role Priority"
                         >
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-1">
                             <span>Role</span>
                             <span className="text-xs text-blue-600 font-bold">{userSortField === 'role' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
                           </div>
@@ -1757,21 +1757,21 @@ export function SuperAdminDashboard() {
                                 </div>
                               </div>
                             </td>
-                            <td className="py-3.5 px-3 text-left">
+                            <td className="py-3.5 px-3 text-center">
                               {p.role === 'SUPER_ADMIN' ? (
-                                <div className="w-[185px] h-[30px] px-2.5 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 shadow-2xs flex items-center gap-1.5 shrink-0">
-                                  <span className="text-amber-500 shrink-0 text-[13px]">⚡</span>
-                                  <span className="truncate">SUPER_ADMIN</span>
-                                </div>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 shadow-2xs">
+                                  <span>⚡</span>
+                                  <span>SUPER_ADMIN</span>
+                                </span>
                               ) : p.role === 'ORG_ADMIN' ? (
-                                <div className="w-[185px] h-[30px] px-2.5 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 shadow-2xs flex items-center gap-1.5 shrink-0">
-                                  <Crown size={13} className="text-amber-500 shrink-0" />
-                                  <span className="truncate">ORG_ADMIN</span>
-                                </div>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 shadow-2xs">
+                                  <Crown size={12} className="text-amber-500 shrink-0" />
+                                  <span>ORG_ADMIN</span>
+                                </span>
                               ) : (
-                                <div className="w-[185px] h-[30px] px-2.5 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center shrink-0">
-                                  <span className="truncate">{p.role || 'Design Engineer'}</span>
-                                </div>
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                  {p.role || 'Design Engineer'}
+                                </span>
                               )}
                             </td>
                             <td className="py-3.5 px-3 text-center">

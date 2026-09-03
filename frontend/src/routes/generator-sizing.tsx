@@ -1,4 +1,4 @@
-﻿import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1262,29 +1262,36 @@ function GeneratorSizingPage() {
           {/* Sections Navigation (Tabs) */}
           <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-            <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setActiveTab("equipment")}
-                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                  activeTab === "equipment"
-                    ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Generator
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("report")}
-                className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                  activeTab === "report"
-                    ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Sizing &amp; Report
-              </button>
+              <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("equipment")}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                    activeTab === "equipment"
+                      ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Generator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("report")}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                    activeTab === "report"
+                      ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Sizing &amp; Report
+                </button>
+              </div>
+              <CalculationReviewBar
+                projectId={activeProject?.id || "default"}
+                calculatorPath="/generator-sizing"
+                calculatorTitle="Generator Sizing"
+                onReviewStateChange={setCalcReviewState}
+              />
             </div>
           </div>
 

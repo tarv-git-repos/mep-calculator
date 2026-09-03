@@ -1118,16 +1118,119 @@ function CompanyHierarchyPage() {
           </div>
         ) : (
           <>
-            {/* VIEW MODE 1: INTERACTIVE DRAGGABLE REACT FLOW CANVAS (3D / SLD STYLE) */}
+            {/* VIEW MODE 1: VISUAL TREE HIERARCHY WITH 3D-VIEWER STYLE PAN & ZOOM CANVAS */}
             {viewMode === "tree" && (
-              <div className="w-full h-full min-h-[580px] h-[calc(100vh-140px)]">
-                <HierarchyFlow
-                  members={filteredMembers}
-                  onAddReport={handleOpenAddModal}
-                  onEdit={handleOpenEditModal}
-                  onDelete={handleDeleteMember}
-                  onReassignParent={handleReassignParent}
-                />
+              <div 
+                ref={canvasRef}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                className={`relative bg-card border border-border rounded-3xl shadow-sm overflow-hidden min-h-[580px] h-[calc(100vh-140px)] flex flex-col select-none ${
+                  isPanning ? "cursor-grabbing" : "cursor-grab"
+                }`}
+                style={{
+                  backgroundImage: "radial-gradient(circle, rgba(148, 163, 184, 0.22) 1px, transparent 1px)",
+                  backgroundSize: "24px 24px",
+                }}
+              >
+                {/* Floating Canvas Navigation Controls (Bottom-Right) */}
+                <div className="absolute bottom-5 right-5 z-30 flex items-center gap-1.5 bg-card/95 backdrop-blur-md border border-border p-1.5 rounded-2xl shadow-xl">
+                  <button
+                    onClick={handleZoomOut}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Zoom Out (Scroll Down)"
+                  >
+                    <ZoomOut className="size-4" />
+                  </button>
+
+                  <div 
+                    onClick={handleResetZoom}
+                    className="px-2.5 py-1 text-[11px] font-mono font-bold text-foreground hover:text-primary cursor-pointer transition-colors select-none"
+                    title="Click to reset zoom to 100%"
+                  >
+                    {Math.round(zoom * 100)}%
+                  </div>
+
+                  <button
+                    onClick={handleZoomIn}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Zoom In (Scroll Up)"
+                  >
+                    <ZoomIn className="size-4" />
+                  </button>
+
+                  <div className="w-px h-5 bg-border/80 mx-0.5" />
+
+                  <button
+                    onClick={handleFitView}
+                    className="px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="Fit Entire Tree to Viewport"
+                  >
+                    <Scan className="size-3.5" /> Fit View
+                  </button>
+
+                  <button
+                    onClick={handleResetZoom}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Reset Position & Zoom"
+                  >
+                    <RotateCcw className="size-3.5" />
+                  </button>
+                </div>
+
+                {/* Floating Navigation Hint Pill (Top-Left) */}
+                <div className="absolute top-4 left-4 z-20 pointer-events-none opacity-70 hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-xs border border-border/60 px-3 py-1.5 rounded-full text-[10.5px] font-semibold text-muted-foreground flex items-center gap-2 shadow-2xs">
+                  <span>🖱️ Drag canvas to pan</span>
+                  <span>•</span>
+                  <span>🔍 Scroll wheel to zoom</span>
+                  <span>•</span>
+                  <span>⚡ Unlimited scale</span>
+                </div>
+
+                {/* Scalable Transform Canvas Content */}
+                <div
+                  ref={contentRef}
+                  className="w-full h-full p-10 flex justify-center items-start transition-transform duration-75 ease-out origin-top"
+                  style={{
+                    transform: `translate3d(${pan.x}px, ${pan.y}px, 0px) scale(${zoom})`,
+                    transformOrigin: "center top",
+                  }}
+                >
+                  <div className="flex flex-col items-center min-w-max space-y-6 pb-36">
+                    {rootMembers.length === 0 ? (
+                      <div className="p-12 text-center text-muted-foreground text-sm space-y-3">
+                        <p>No hierarchy members found matching query.</p>
+                        {(searchQuery || selectedDept !== "ALL") && (
+                          <button
+                            onClick={() => {
+                              setSearchQuery("");
+                              setSelectedDept("ALL");
+                            }}
+                            className="px-4 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold rounded-full transition-all cursor-pointer"
+                          >
+                            Clear Search & Filters
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      rootMembers.map((root) => (
+                        <TreeNode
+                          key={root.id}
+                          member={root}
+                          reportsMap={reportsMap}
+                          collapsedNodes={collapsedNodes}
+                          onToggleCollapse={toggleCollapse}
+                          onAddReport={handleOpenAddModal}
+                          onEdit={handleOpenEditModal}
+                          onDelete={handleDeleteMember}
+                          allMembers={members}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
