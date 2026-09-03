@@ -2734,7 +2734,7 @@ function PreliminaryCoolingLoadPage() {
                                 onClick={handleAddNewSpace}
                                 className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
                               >
-                                <Plus className="size-3.5" /> + Add Space
+                                <Plus className="size-3.5" /> Add Space
                               </button>
                             </div>
                           </div>

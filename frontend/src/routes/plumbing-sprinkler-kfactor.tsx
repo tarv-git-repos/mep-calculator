@@ -1967,41 +1967,11 @@ function SprinklerKFactorPage() {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
 
             {/* Sprinkler Schedule Tab */}
             {tab === "schedule" && (
               <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                {/* Summary metrics header grid */}
-                <div className="grid grid-cols-4 gap-4 p-4 border-b border-border bg-surface-2/10 shrink-0">
-                  <div className="border border-border rounded-3xl p-3 bg-background shadow-xs flex flex-col justify-between hover:border-primary/20 transition-all">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sprinklers Sized</span>
-                    <div className="text-[20px] font-extrabold font-mono text-foreground mt-1">{rows.length} heads</div>
-                  </div>
-                  
-                  <div className="border border-border rounded-3xl p-3 bg-background shadow-xs flex flex-col justify-between hover:border-primary/20 transition-all">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Max Node Pressure</span>
-                    <div className="text-[20px] font-extrabold font-mono text-primary mt-1">
-                      {aggregateMetrics.maxPressure.toFixed(1)} <span className="text-[11px] font-normal text-muted-foreground">{unitSystem === "si" ? "bar" : "psi"}</span>
-                    </div>
-                  </div>
-
-                  <div className="border border-border rounded-3xl p-3 bg-background shadow-xs flex flex-col justify-between hover:border-primary/20 transition-all">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sprinkler Discharge</span>
-                    <div className="text-[20px] font-extrabold font-mono text-primary mt-1">
-                      {aggregateMetrics.totalFlow.toFixed(1)} <span className="text-[11px] font-normal text-muted-foreground">{unitSystem === "si" ? "L/min" : "GPM"}</span>
-                    </div>
-                  </div>
-
-                  <div className="border border-border rounded-3xl p-3 bg-background shadow-xs flex flex-col justify-between hover:border-primary/20 transition-all">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Water Demand</span>
-                    <div className="text-[20px] font-extrabold font-mono text-red-500 mt-1">
-                      {aggregateMetrics.systemDemand.toFixed(1)} <span className="text-[11px] font-normal text-muted-foreground">{unitSystem === "si" ? "L/min" : "GPM"}</span>
-                    </div>
-                  </div>
-                </div>
-
                 <div className="relative flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* Search */}
