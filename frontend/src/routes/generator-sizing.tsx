@@ -1497,20 +1497,6 @@ function GeneratorSizingPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
-                  <button
-                    onClick={() => setShowFlaggedOnly(prev => !prev)}
-                    className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border transition-all cursor-pointer ${
-                      showFlaggedOnly
-                        ? "bg-red-500/10 text-red-600 border-red-500/30 dark:bg-red-500/20 dark:text-red-400"
-                        : "bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:bg-surface-3"
-                    }`}
-                    title={showFlaggedOnly ? "Show all rows" : "Show flagged rows only"}
-                  >
-                    <Flag className={`size-3.5 ${flagStats.flaggedCount > 0 ? "fill-red-500 text-red-500" : ""}`} />
-                    <span>{flagStats.flaggedCount} Flagged</span>
-                    {showFlaggedOnly && <span className="text-[9px] bg-red-500 text-white px-1.5 rounded-full font-bold uppercase">Active</span>}
-                  </button>
-
                   <ImportExcelBtn
                     columnMapping={{
                       "Description": "desc",

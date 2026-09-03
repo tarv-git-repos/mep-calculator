@@ -1453,6 +1453,10 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1469,6 +1473,10 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const parseExcelFile = (file: File) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
@@ -1695,6 +1703,10 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const handleCommitImport = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+      return;
+    }
     const importList = pendingRecords.filter((r) => selectedPending.has(r.id));
     if (importList.length === 0) {
       alert("No spaces selected for import.");
@@ -2664,7 +2676,16 @@ function PreliminaryCoolingLoadPage() {
                       </Popover>
                       
                       <div className="ml-auto flex items-center gap-1">
-                        <TBtn onClick={() => setSourceModalOpen(true)}><Download className="size-3.5" /> Import</TBtn>
+                        <TBtn 
+    disabled={isApprovedLocked}
+    onClick={() => {
+      if (isApprovedLocked) {
+        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+        return;
+      }
+      setSourceModalOpen(true);
+    }}
+  ><Download className="size-3.5" /> Import</TBtn>
                         <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export</TBtn>
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>

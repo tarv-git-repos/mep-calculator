@@ -2033,7 +2033,7 @@ function SprinklerKFactorPage() {
                   </div>
 
                   <div className="ml-auto flex items-center gap-1">
-                    <TBtn onClick={handleImportClick}><Download className="size-3.5" /> Import</TBtn>
+                    <TBtn disabled={isApprovedLocked} onClick={handleImportClick}><Download className="size-3.5" /> Import</TBtn>
                     <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export</TBtn>
                     <TBtn primary onClick={addSprinkler} disabled={isApprovedLocked} title={isApprovedLocked ? "Calculation is Approved & Locked. Unlock to add sprinklers." : "Add Sprinkler"}><Plus className="size-3.5" /> Add Sprinkler</TBtn>
                     <input

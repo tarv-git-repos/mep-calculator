@@ -689,6 +689,10 @@ function SpacesView() {
 
   // Excel File upload parsing helper
   const parseExcelFile = (file: File) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
@@ -911,6 +915,10 @@ function SpacesView() {
 
   // Commit Excel parsed records to workspace store
   const handleCommitImports = async () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+      return;
+    }
     const toImport = pendingRecords.filter((rec) => selectedPending.has(rec.id));
     if (toImport.length === 0) {
       await confirm("No records selected!", {
@@ -2855,7 +2863,16 @@ function SpacesView() {
           </Popover>
           
           <div className="ml-auto flex items-center gap-1">
-            <TBtn onClick={() => setSourceModalOpen(true)}><Download className="size-3.5" /> Import</TBtn>
+            <TBtn 
+    disabled={isEffectiveReadOnly} 
+    onClick={() => {
+      if (isEffectiveReadOnly) {
+        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+        return;
+      }
+      setSourceModalOpen(true);
+    }}
+  ><Download className="size-3.5" /> Import</TBtn>
             <TBtn onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
             <TBtn onClick={triggerAutoZoning}><Sparkles className="size-3.5 text-primary" /> Auto-Zone</TBtn>
             <TBtn primary onClick={handleNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
