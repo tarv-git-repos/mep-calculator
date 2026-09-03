@@ -86,7 +86,11 @@ export function useCalculationLock(calculatorPath?: string, projectId?: string) 
 
     if (typeof window !== "undefined") {
       window.addEventListener("mep-review-state-updated", checkLock);
-      return () => window.removeEventListener("mep-review-state-updated", checkLock);
+      window.addEventListener("storage", checkLock);
+      return () => {
+        window.removeEventListener("mep-review-state-updated", checkLock);
+        window.removeEventListener("storage", checkLock);
+      };
     }
   }, [storageKey, effectiveProjectId]);
 
