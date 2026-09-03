@@ -652,7 +652,7 @@ export const workspaceStore = {
   },
 
   updateSpaces(updatedSpaces: Space[]) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
@@ -686,7 +686,7 @@ export const workspaceStore = {
   },
 
   updateZones(updatedZones: Zone[]) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
@@ -718,7 +718,7 @@ export const workspaceStore = {
 
 
   updateEquipment(updatedEquip: Equipment[]) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
@@ -735,7 +735,7 @@ export const workspaceStore = {
   },
 
   addCommentToTarget(targetId: string, targetType: 'space' | 'zone' | 'equipment', comment: any) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
@@ -795,7 +795,7 @@ export const workspaceStore = {
   },
 
   addSpace(newSpace: Space) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
@@ -846,7 +846,7 @@ export const workspaceStore = {
   },
 
   addSpacesBulk(newSpaces: Space[]) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
@@ -906,7 +906,7 @@ export const workspaceStore = {
   },
 
   deleteSpaces(idsToDelete: string[]) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
@@ -948,7 +948,7 @@ export const workspaceStore = {
   },
 
   bulkUpdateSpaces(ids: string[], updates: Partial<Space>) {
-    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
       if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
       return;
     }

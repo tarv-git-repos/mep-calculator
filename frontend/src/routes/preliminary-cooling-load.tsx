@@ -1026,6 +1026,10 @@ function PreliminaryCoolingLoadPage() {
 
   // Save to local storage and sync on rows change
   const saveRows = (newRows: PclRow[]) => {
+    if (calcReviewState?.status === "APPROVED") {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to make changes.", { id: "calc-locked" });
+      return;
+    }
     setRows(newRows);
     try {
       const projId = activeProjectId || project?.id || "default";
@@ -1370,6 +1374,10 @@ function PreliminaryCoolingLoadPage() {
 
   // Table operations
   const handleAddNewSpace = () => {
+    if (calcReviewState?.status === "APPROVED") {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to make changes.", { id: "calc-locked" });
+      return;
+    }
     const defaultNum = rows.length + 1;
     const defaultName = `GF-Space ${defaultNum}`;
     const floor = extractFloor(defaultName) || "GF";
@@ -1392,6 +1400,10 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const handleDeleteSelected = async () => {
+    if (calcReviewState?.status === "APPROVED") {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to make changes.", { id: "calc-locked" });
+      return;
+    }
     const selectedIds = Array.from(selected);
     if (selectedIds.length === 0) {
       alert("Please select at least one space to delete.");
@@ -1992,6 +2004,10 @@ function PreliminaryCoolingLoadPage() {
 
   // Bulk Edit Callback
   const handleBulkEditSave = () => {
+    if (calcReviewState?.status === "APPROVED") {
+      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to make changes.", { id: "calc-locked" });
+      return;
+    }
     const selectedIds = Array.from(selected);
     const updated = rows.map((r) => {
       if (selectedIds.includes(r.id)) {
