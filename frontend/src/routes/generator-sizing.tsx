@@ -546,6 +546,7 @@ function GeneratorSizingPage() {
   const handleDrop = () => setDraggedRowIndex(null);
 
   // Calculations
+  const calc = useMemo(() => {
     let totalAcl = 0;
     let totalEmergency = 0;
     let maxStartCur = 0;

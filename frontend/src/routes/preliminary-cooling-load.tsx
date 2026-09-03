@@ -770,6 +770,7 @@ function PreliminaryCoolingLoadPage() {
     }
     return { status: "DRAFT" };
   });
+  const isApprovedLocked = calcReviewState?.status === "APPROVED";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1411,8 +1412,6 @@ function PreliminaryCoolingLoadPage() {
   };
 
   // Table operations
-  const isApprovedLocked = calcReviewState?.status === "APPROVED";
-
   const handleAddNewSpace = () => {
     if (isApprovedLocked) {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add spaces.", { id: "readonly-notice" });

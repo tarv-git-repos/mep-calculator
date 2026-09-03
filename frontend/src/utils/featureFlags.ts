@@ -5,7 +5,6 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'preliminary-cooling-load',
   'plumbing-loading-unit',
   'busbar-calculation',
-  'generator-sizing',
   'plumbing-sprinkler-kfactor',
   'k-factor'
 ];

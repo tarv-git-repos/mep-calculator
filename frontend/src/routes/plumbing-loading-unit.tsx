@@ -671,10 +671,74 @@ function LoadingUnitPage() {
 
   // Selection states for Bulk Editing
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
   const [editingSpace, setEditingSpace] = useState<{ space: LUSpace; floor: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' } | null>(null);
+
+  // History & Clipboard States
+  const [undoStack, setUndoStack] = useState<IOPSpace[][]>([]);
+  const [redoStack, setRedoStack] = useState<IOPSpace[][]>([]);
+  const [clipboard, setClipboard] = useState<IOPSpace[]>([]);
+
+  const pushToUndo = (currentSpaces: IOPSpace[]) => {
+    setUndoStack(prev => [...prev.slice(-30), currentSpaces]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack(prev => [...prev, iopSpaces]);
+    setIopSpaces(previous);
+    setUndoStack(prev => prev.slice(0, -1));
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack(prev => [...prev, iopSpaces]);
+    setIopSpaces(next);
+    setRedoStack(prev => prev.slice(0, -1));
+  };
+
+  const handleCopy = () => {
+    if (selectedIds.length === 0) return;
+    const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
+    setClipboard(toCopy);
+    localStorage.setItem("mep_clipboard_loading_units", JSON.stringify(toCopy));
+    toast.info(`${toCopy.length} space(s) copied`);
+  };
+
+  const handleCut = () => {
+    if (selectedIds.length === 0) return;
+    const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
+    setClipboard(toCopy);
+    localStorage.setItem("mep_clipboard_loading_units", JSON.stringify(toCopy));
+    pushToUndo(iopSpaces);
+    setIopSpaces(prev => prev.filter(s => !selectedIds.includes(s.id)));
+    setSelectedIds([]);
+    toast.info(`${toCopy.length} space(s) cut`);
+  };
+
+  const handlePaste = () => {
+    try {
+      const stored = localStorage.getItem("mep_clipboard_loading_units");
+      const source = (clipboard.length > 0 ? clipboard : (stored ? JSON.parse(stored) : [])) as IOPSpace[];
+      if (source.length > 0) {
+        const pasted = source.map((sp, idx) => ({
+          ...sp,
+          id: Date.now() + idx + Math.floor(Math.random() * 1000),
+          name: `${sp.name} (Copy)`
+        }));
+        pushToUndo(iopSpaces);
+        setIopSpaces(prev => [...prev, ...pasted]);
+        setSelectedIds(pasted.map(p => p.id));
+        toast.success(`${pasted.length} space(s) pasted`);
+      }
+    } catch (e) {}
+  };
   // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -946,11 +1010,56 @@ function LoadingUnitPage() {
         }
         return;
       }
+
+      // 6. Ctrl+Z / Cmd+Z: Undo
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        if (!isInput) {
+          e.preventDefault();
+          handleUndo();
+        }
+        return;
+      }
+
+      // 7. Ctrl+Y / Cmd+Y / Ctrl+Shift+Z: Redo
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        if (!isInput) {
+          e.preventDefault();
+          handleRedo();
+        }
+        return;
+      }
+
+      // 8. Ctrl+C / Cmd+C: Copy
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (!isInput && selectedIds.length > 0) {
+          e.preventDefault();
+          handleCopy();
+        }
+        return;
+      }
+
+      // 9. Ctrl+X / Cmd+X: Cut
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (!isInput && selectedIds.length > 0) {
+          e.preventDefault();
+          handleCut();
+        }
+        return;
+      }
+
+      // 10. Ctrl+V / Cmd+V: Paste
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (!isInput) {
+          e.preventDefault();
+          handlePaste();
+        }
+        return;
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu]);
+  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu, undoStack, redoStack, clipboard]);
 
   // Click Outside to Close Context Menu
   useEffect(() => {
@@ -1083,12 +1192,35 @@ function LoadingUnitPage() {
     }
   };
 
-  const handleToggleSelect = (id: number, checked: boolean) => {
-    if (checked) {
-      setSelectedIds([...selectedIds, id]);
-    } else {
-      setSelectedIds(selectedIds.filter(x => x !== id));
+  const handleToggleSelect = (id: number, checked: boolean, e?: React.MouseEvent) => {
+    const isShift = e?.shiftKey || false;
+    const isCtrl = e?.ctrlKey || e?.metaKey || false;
+    if (isShift && lastSelectedId !== null) {
+      const lastIdx = iopSpaces.findIndex(s => s.id === lastSelectedId);
+      const currIdx = iopSpaces.findIndex(s => s.id === id);
+      if (lastIdx !== -1 && currIdx !== -1) {
+        const start = Math.min(lastIdx, currIdx);
+        const end = Math.max(lastIdx, currIdx);
+        const rangeIds = iopSpaces.slice(start, end + 1).map(s => s.id);
+        if (isCtrl) {
+          setSelectedIds(prev => Array.from(new Set([...prev, ...rangeIds])));
+        } else {
+          setSelectedIds(rangeIds);
+        }
+        setLastSelectedId(id);
+        return;
+      }
     }
+    if (checked) {
+      if (isCtrl) {
+        setSelectedIds(prev => Array.from(new Set([...prev, id])));
+      } else {
+        setSelectedIds([id]);
+      }
+    } else {
+      setSelectedIds(prev => prev.filter(x => x !== id));
+    }
+    setLastSelectedId(id);
   };
 
   // Bulk Edit Actions

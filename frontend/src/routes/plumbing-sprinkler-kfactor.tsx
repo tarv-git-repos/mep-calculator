@@ -252,6 +252,7 @@ function SprinklerKFactorPage() {
     }
     return { status: "DRAFT" };
   });
+  const isApprovedLocked = calcReviewState?.status === "APPROVED";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -801,8 +802,6 @@ function SprinklerKFactorPage() {
       })
     );
   };
-
-  const isApprovedLocked = calcReviewState?.status === "APPROVED";
 
   const addSprinkler = () => {
     if (isApprovedLocked) {
