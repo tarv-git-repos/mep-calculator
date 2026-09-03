@@ -1369,7 +1369,13 @@ function PreliminaryCoolingLoadPage() {
   };
 
   // Table operations
+  const isApprovedLocked = calcReviewState?.status === "APPROVED";
+
   const handleAddNewSpace = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add spaces.", { id: "readonly-notice" });
+      return;
+    }
     const defaultNum = rows.length + 1;
     const defaultName = `GF-Space ${defaultNum}`;
     const floor = extractFloor(defaultName) || "GF";
@@ -1392,6 +1398,10 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const handleDeleteSelected = async () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
+      return;
+    }
     const selectedIds = Array.from(selected);
     if (selectedIds.length === 0) {
       alert("Please select at least one space to delete.");
@@ -1404,6 +1414,10 @@ function PreliminaryCoolingLoadPage() {
   };
 
   const handleClearAll = async () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to clear spaces.", { id: "readonly-notice" });
+      return;
+    }
     if (await confirm("Are you sure you want to remove all spaces from the schedule? This action cannot be undone.")) {
       saveRows([]);
       setSelected(new Set());

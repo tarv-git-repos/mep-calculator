@@ -33,13 +33,13 @@ export function InlineInput({
       <span
         onDoubleClick={() => {
           if (isReadOnly) {
-            toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+            toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
             return;
           }
           setEditing(true);
         }}
-        className={`cursor-pointer hover:bg-primary/10 rounded px-1.5 py-0.5 transition-colors ${className}`}
-        title={isReadOnly ? "Read-Only mode" : "Double-click to edit"}
+        className={`cursor-pointer hover:bg-primary/10 rounded px-1.5 py-0.5 transition-colors ${className} ${isReadOnly ? "cursor-not-allowed opacity-80" : ""}`}
+        title={isReadOnly ? "Calculation is Approved and Locked. Unlock to edit." : "Double-click to edit"}
       >
         {val || placeholder || "-"}
       </span>
@@ -54,11 +54,19 @@ export function InlineInput({
       onChange={(e) => setVal(e.target.value)}
       onBlur={() => {
         setEditing(false);
+        if (isReadOnly) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
+          return;
+        }
         onCommit(val);
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           setEditing(false);
+          if (isReadOnly) {
+            toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
+            return;
+          }
           onCommit(val);
         } else if (e.key === "Escape") {
           setEditing(false);
@@ -88,12 +96,13 @@ export function InlineSelect({
       disabled={isReadOnly}
       onChange={(e) => {
         if (isReadOnly) {
-          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
           return;
         }
         onCommit(e.target.value);
       }}
       className={`bg-surface-2 border border-border/60 rounded px-2 py-1 outline-none text-xs ${isReadOnly ? "cursor-not-allowed opacity-75 pointer-events-none" : "cursor-pointer"} ${className}`}
+      title={isReadOnly ? "Calculation is Approved and Locked. Unlock to edit." : undefined}
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>

@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+﻿import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -44,7 +44,7 @@ import { dirtyStore } from "@/lib/dirty-store";
 export const Route = createFileRoute("/generator-sizing")({
   head: () => ({
     meta: [
-      { title: "Generator Sizing — MEP Calc" },
+      { title: "Generator Sizing ΓÇö MEP Calc" },
       {
         name: "description",
         content: "Calculate DG set size based on connected and emergency loads.",
@@ -2210,7 +2210,7 @@ function GeneratorSizingPage() {
                                 </SelectTrigger>
                                 <SelectContent className="max-h-[300px]">
                                   <SelectItem value="auto" className="text-[14px] font-semibold text-primary">
-                                    ⚡ Auto ({calc.autoSize} kVA)
+                                    ΓÜí Auto ({calc.autoSize} kVA)
                                   </SelectItem>
                                   {STANDARD_SIZES.map((size) => (
                                     <SelectItem key={size} value={size.toString()} className="text-[14px]">

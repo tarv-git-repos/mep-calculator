@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { 
   Network, Users, Plus, Shield, ShieldAlert, ShieldCheck, Mail, Trash2, Edit3, 
   ChevronDown, ChevronRight, Search, Sparkles, Save, RefreshCw, 
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
-  User, Check, ArrowRight, Eye
+  User, Check, ArrowRight, Eye, ZoomIn, ZoomOut, RotateCcw, Scan, Move, Maximize2
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
@@ -328,6 +328,72 @@ function CompanyHierarchyPage() {
   const [viewMode, setViewMode] = useState<"tree" | "table">("tree");
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
 
+  // 3D-Viewer Style Canvas Pan & Zoom State
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
+  const handleZoomIn = () => setZoom((prev) => Math.min(2.5, +(prev + 0.15).toFixed(2)));
+  const handleZoomOut = () => setZoom((prev) => Math.max(0.15, +(prev - 0.15).toFixed(2)));
+  const handleResetZoom = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const handleFitView = useCallback(() => {
+    if (!canvasRef.current || !contentRef.current) return;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const contentRect = contentRef.current.getBoundingClientRect();
+
+    const currentScale = zoom;
+    const unscaledWidth = contentRect.width / currentScale;
+    const unscaledHeight = contentRect.height / currentScale;
+
+    if (unscaledWidth === 0 || unscaledHeight === 0) return;
+
+    const padding = 60;
+    const scaleX = (canvasRect.width - padding * 2) / unscaledWidth;
+    const scaleY = (canvasRect.height - padding * 2) / unscaledHeight;
+    const newZoom = Math.max(0.15, Math.min(1.2, Math.min(scaleX, scaleY)));
+
+    setZoom(+newZoom.toFixed(2));
+    setPan({ x: 0, y: 20 });
+  }, [zoom]);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+    setZoom((prev) => Math.max(0.15, Math.min(2.5, +(prev * zoomFactor).toFixed(2))));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("button, input, select, a, textarea")) return;
+    setIsPanning(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPanning) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setPan({
+      x: dragStartRef.current.panX + dx,
+      y: dragStartRef.current.panY + dy,
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
+  };
+
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<HierarchyUser | null>(null);
@@ -592,125 +658,85 @@ function CompanyHierarchyPage() {
       title="Company Hierarchy" 
       subtitle={currentRole === "ORG_ADMIN" ? "Organization Admin & Team Hierarchy Builder" : "Super Admin & Organization Hierarchy Builder"}
       actions={
-        <div className="flex items-center gap-2">
-          {visibleMembers.length === 0 ? (
-            <button
-              onClick={handleCreateOrgHierarchy}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold transition-all shadow-md hover:shadow-lg cursor-pointer animate-pulse"
-            >
-              <Sparkles className="size-3.5" /> Create Hierarchy
-            </button>
-          ) : (
-            <button
-              onClick={handleCreateOrgHierarchy}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 text-xs font-bold transition-all cursor-pointer"
-              title="Generate / re-apply standard hierarchy structure"
-            >
-              <Sparkles className="size-3.5" /> Create Hierarchy
-            </button>
-          )}
+        <div className="flex items-center gap-2.5 flex-wrap justify-end">
+          {/* Search Input */}
+          <div className="relative w-48 sm:w-60">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search member, email, title..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-full pl-8 pr-3 py-1.5 text-xs outline-none transition-all text-foreground"
+            />
+          </div>
 
+          {/* Department Filter */}
+          <select
+            value={selectedDept}
+            onChange={(e) => setSelectedDept(e.target.value)}
+            className="bg-surface-2 border border-border/80 text-foreground font-semibold rounded-full px-3 py-1.5 text-xs outline-none focus:border-primary cursor-pointer shrink-0"
+          >
+            <option value="ALL">All Departments</option>
+            <option value="Management">Management</option>
+            <option value="HVAC">HVAC Engineering</option>
+            <option value="Electrical">Electrical Engineering</option>
+            <option value="Plumbing">Plumbing Engineering</option>
+            <option value="Fire Fighting">Fire Protection</option>
+            <option value="BIM & IT">BIM & Technology</option>
+          </select>
+
+          {/* View Toggle */}
+          <div className="flex bg-surface-2 p-0.5 rounded-full border border-border/80">
+            <button
+              onClick={() => setViewMode("tree")}
+              className={`px-2.5 py-1 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                viewMode === "tree"
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <GitFork className="size-3.5 inline mr-1" /> Tree View
+            </button>
+            <button
+              onClick={() => setViewMode("table")}
+              className={`px-2.5 py-1 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                viewMode === "table"
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Users className="size-3.5 inline mr-1" /> List Grid
+            </button>
+          </div>
+
+          {/* Add Member Button */}
           <button
             onClick={() => handleOpenAddModal(null)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs cursor-pointer"
+            className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-all shadow-xs cursor-pointer shrink-0"
+            title="Add Team Member"
+            aria-label="Add Team Member"
           >
-            <UserPlus className="size-3.5" /> Add Member
+            <UserPlus className="size-4" />
           </button>
 
-          <button
-            onClick={() => {
-              saveHierarchy([...members]);
-              toast.success("Company hierarchy configuration saved!");
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-surface-2 border border-border text-foreground hover:bg-surface-3 text-xs font-bold transition-all cursor-pointer"
-          >
-            <Save className="size-3.5 text-primary" /> Save Changes
-          </button>
+          {/* Clear All Button */}
+          {visibleMembers.length > 0 && (
+            <button
+              onClick={() => {
+                setDeleteConfirmText("");
+                setIsClearModalOpen(true);
+              }}
+              className="px-3 py-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:bg-rose-500/10 rounded-full transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+              title="Clear all hierarchy data"
+            >
+              <Trash2 className="size-3.5" /> Clear All
+            </button>
+          )}
         </div>
       }
     >
       <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-50/40 dark:bg-zinc-950/20 overflow-y-auto custom-scrollbar p-6 space-y-6">
-        
-        {/* Toolbar & Filter Options */}
-        <div className="bg-card border border-border p-3.5 rounded-2xl shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-3 w-full md:w-auto flex-1">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search member, email, title..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-full pl-9 pr-4 py-2 text-xs outline-none transition-all"
-              />
-            </div>
-
-            <select
-              value={selectedDept}
-              onChange={(e) => setSelectedDept(e.target.value)}
-              className="bg-surface-2 border border-border/80 text-foreground font-semibold rounded-full px-3.5 py-2 text-xs outline-none focus:border-primary cursor-pointer shrink-0"
-            >
-              <option value="ALL">All Departments</option>
-              <option value="Management">Management</option>
-              <option value="HVAC">HVAC Engineering</option>
-              <option value="Electrical">Electrical Engineering</option>
-              <option value="Plumbing">Plumbing Engineering</option>
-              <option value="Fire Fighting">Fire Protection</option>
-              <option value="BIM & IT">BIM & Technology</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-            <div className="flex bg-surface-2 p-1 rounded-full border border-border/80">
-              <button
-                onClick={() => setViewMode("tree")}
-                className={`px-3 py-1 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                  viewMode === "tree"
-                    ? "bg-background text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <GitFork className="size-3.5 inline mr-1" /> Tree View
-              </button>
-              <button
-                onClick={() => setViewMode("table")}
-                className={`px-3 py-1 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                  viewMode === "table"
-                    ? "bg-background text-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Users className="size-3.5 inline mr-1" /> List Grid
-              </button>
-            </div>
-
-            <button
-              onClick={handleCreateOrgHierarchy}
-              className="px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-full transition-all cursor-pointer flex items-center gap-1"
-              title="Create new hierarchy structure"
-            >
-              <Sparkles className="size-3.5" /> Create Hierarchy
-            </button>
-
-            <button
-              onClick={handleResetDefault}
-              className="px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground border border-border rounded-full hover:bg-surface-2 transition-all cursor-pointer"
-              title="Reset to default organization structure"
-            >
-              <RefreshCw className="size-3.5 inline mr-1" /> Reset
-            </button>
-
-            {visibleMembers.length > 0 && (
-              <button
-                onClick={handleClearAllHierarchy}
-                className="px-3 py-1.5 text-xs font-semibold text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:bg-rose-500/10 rounded-full transition-all cursor-pointer"
-                title="Clear all hierarchy data"
-              >
-                <Trash2 className="size-3.5 inline mr-1" /> Clear All
-              </button>
-            )}
-          </div>
-        </div>
 
         {/* EMPTY STATE COMPONENT WHEN NO HIERARCHY MEMBERS EXIST */}
         {visibleMembers.length === 0 ? (
@@ -752,40 +778,118 @@ function CompanyHierarchyPage() {
           </div>
         ) : (
           <>
-            {/* VIEW MODE 1: VISUAL TREE HIERARCHY */}
+            {/* VIEW MODE 1: VISUAL TREE HIERARCHY WITH 3D-VIEWER STYLE PAN & ZOOM CANVAS */}
             {viewMode === "tree" && (
-              <div className="bg-card border border-border rounded-3xl p-6 shadow-sm overflow-x-auto custom-scrollbar min-h-[500px]">
-                <div className="flex flex-col items-center min-w-[750px] space-y-6">
-                  {rootMembers.length === 0 ? (
-                    <div className="p-12 text-center text-muted-foreground text-sm space-y-3">
-                      <p>No hierarchy members found matching query.</p>
-                      {(searchQuery || selectedDept !== "ALL") && (
-                        <button
-                          onClick={() => {
-                            setSearchQuery("");
-                            setSelectedDept("ALL");
-                          }}
-                          className="px-4 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold rounded-full transition-all cursor-pointer"
-                        >
-                          Clear Search & Filters
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    rootMembers.map((root) => (
-                      <TreeNode
-                        key={root.id}
-                        member={root}
-                        reportsMap={reportsMap}
-                        collapsedNodes={collapsedNodes}
-                        onToggleCollapse={toggleCollapse}
-                        onAddReport={handleOpenAddModal}
-                        onEdit={handleOpenEditModal}
-                        onDelete={handleDeleteMember}
-                        allMembers={members}
-                      />
-                    ))
-                  )}
+              <div 
+                ref={canvasRef}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+                className={`relative bg-card border border-border rounded-3xl shadow-sm overflow-hidden min-h-[580px] h-[calc(100vh-140px)] flex flex-col select-none ${
+                  isPanning ? "cursor-grabbing" : "cursor-grab"
+                }`}
+                style={{
+                  backgroundImage: "radial-gradient(circle, rgba(148, 163, 184, 0.22) 1px, transparent 1px)",
+                  backgroundSize: "24px 24px",
+                }}
+              >
+                {/* Floating Canvas Navigation Controls (Bottom-Right) */}
+                <div className="absolute bottom-5 right-5 z-30 flex items-center gap-1.5 bg-card/95 backdrop-blur-md border border-border p-1.5 rounded-2xl shadow-xl">
+                  <button
+                    onClick={handleZoomOut}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Zoom Out (Scroll Down)"
+                  >
+                    <ZoomOut className="size-4" />
+                  </button>
+
+                  <div 
+                    onClick={handleResetZoom}
+                    className="px-2.5 py-1 text-[11px] font-mono font-bold text-foreground hover:text-primary cursor-pointer transition-colors select-none"
+                    title="Click to reset zoom to 100%"
+                  >
+                    {Math.round(zoom * 100)}%
+                  </div>
+
+                  <button
+                    onClick={handleZoomIn}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Zoom In (Scroll Up)"
+                  >
+                    <ZoomIn className="size-4" />
+                  </button>
+
+                  <div className="w-px h-5 bg-border/80 mx-0.5" />
+
+                  <button
+                    onClick={handleFitView}
+                    className="px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    title="Fit Entire Tree to Viewport"
+                  >
+                    <Scan className="size-3.5" /> Fit View
+                  </button>
+
+                  <button
+                    onClick={handleResetZoom}
+                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground flex items-center justify-center transition-all cursor-pointer"
+                    title="Reset Position & Zoom"
+                  >
+                    <RotateCcw className="size-3.5" />
+                  </button>
+                </div>
+
+                {/* Floating Navigation Hint Pill (Top-Left) */}
+                <div className="absolute top-4 left-4 z-20 pointer-events-none opacity-70 hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-xs border border-border/60 px-3 py-1.5 rounded-full text-[10.5px] font-semibold text-muted-foreground flex items-center gap-2 shadow-2xs">
+                  <span>🖱️ Drag canvas to pan</span>
+                  <span>•</span>
+                  <span>🔍 Scroll wheel to zoom</span>
+                  <span>•</span>
+                  <span>⚡ Unlimited scale</span>
+                </div>
+
+                {/* Scalable Transform Canvas Content */}
+                <div
+                  ref={contentRef}
+                  className="w-full h-full p-10 flex justify-center items-start transition-transform duration-75 ease-out origin-top"
+                  style={{
+                    transform: `translate3d(${pan.x}px, ${pan.y}px, 0px) scale(${zoom})`,
+                    transformOrigin: "center top",
+                  }}
+                >
+                  <div className="flex flex-col items-center min-w-max space-y-6 pb-36">
+                    {rootMembers.length === 0 ? (
+                      <div className="p-12 text-center text-muted-foreground text-sm space-y-3">
+                        <p>No hierarchy members found matching query.</p>
+                        {(searchQuery || selectedDept !== "ALL") && (
+                          <button
+                            onClick={() => {
+                              setSearchQuery("");
+                              setSelectedDept("ALL");
+                            }}
+                            className="px-4 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold rounded-full transition-all cursor-pointer"
+                          >
+                            Clear Search & Filters
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      rootMembers.map((root) => (
+                        <TreeNode
+                          key={root.id}
+                          member={root}
+                          reportsMap={reportsMap}
+                          collapsedNodes={collapsedNodes}
+                          onToggleCollapse={toggleCollapse}
+                          onAddReport={handleOpenAddModal}
+                          onEdit={handleOpenEditModal}
+                          onDelete={handleDeleteMember}
+                          allMembers={members}
+                        />
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
             )}

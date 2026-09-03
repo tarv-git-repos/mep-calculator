@@ -787,6 +787,10 @@ function SprinklerKFactorPage() {
 
   // Grid editing helpers
   const updateRow = (id: string, field: keyof SprinklerRow, val: any) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit values.", { id: "readonly-notice" });
+      return;
+    }
     pushToUndo(rows);
     setRows(prev =>
       prev.map(row => {
@@ -798,7 +802,13 @@ function SprinklerKFactorPage() {
     );
   };
 
+  const isApprovedLocked = calcReviewState?.status === "APPROVED";
+
   const addSprinkler = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add sprinklers.", { id: "readonly-notice" });
+      return;
+    }
     pushToUndo(rows);
     const newSprink: SprinklerRow = {
       id: `sprink_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -816,6 +826,10 @@ function SprinklerKFactorPage() {
   };
 
   const duplicateSelected = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to duplicate sprinklers.", { id: "readonly-notice" });
+      return;
+    }
     if (selected.size === 0) return;
     pushToUndo(rows);
     const duplicated: SprinklerRow[] = [];
@@ -833,6 +847,10 @@ function SprinklerKFactorPage() {
   };
 
   const confirmDeleteSelected = async () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete sprinklers.", { id: "readonly-notice" });
+      return;
+    }
     const proceed = await confirm(`Are you sure you want to delete ${selected.size} selected sprinkler(s)?`);
     if (proceed) {
       pushToUndo(rows);
@@ -844,6 +862,10 @@ function SprinklerKFactorPage() {
 
   // Bulk Edit Handler
   const handleBulkEditSave = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit values.", { id: "readonly-notice" });
+      return;
+    }
     if (selected.size === 0) return;
     pushToUndo(rows);
     setRows(prev =>
@@ -1016,6 +1038,10 @@ function SprinklerKFactorPage() {
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import data.", { id: "readonly-notice" });
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -2038,7 +2064,7 @@ function SprinklerKFactorPage() {
                   <div className="ml-auto flex items-center gap-1">
                     <TBtn onClick={handleImportClick}><Upload className="size-3.5" /> Import</TBtn>
                     <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export</TBtn>
-                    <TBtn primary onClick={addSprinkler}><Plus className="size-3.5" /> Add Sprinkler</TBtn>
+                    <TBtn primary onClick={addSprinkler} disabled={isApprovedLocked} title={isApprovedLocked ? "Calculation is Approved & Locked. Unlock to add sprinklers." : "Add Sprinkler"}><Plus className="size-3.5" /> Add Sprinkler</TBtn>
                     <input
                       type="file"
                       ref={fileInputRef}

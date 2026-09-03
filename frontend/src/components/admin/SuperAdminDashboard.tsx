@@ -1758,24 +1758,21 @@ export function SuperAdminDashboard() {
                               </div>
                             </td>
                             <td className="py-3.5 px-3 text-center">
-                              <select
-                                value={p.role || 'Design Engineer'}
-                                onChange={(e) => handleRoleChange(p.id, e.target.value)}
-                                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 font-semibold text-slate-800 dark:text-slate-200 cursor-pointer shadow-2xs focus:ring-1 focus:ring-blue-500 max-w-[170px] outline-none"
-                              >
-                                <option value="SUPER_ADMIN">⚡ SUPER_ADMIN</option>
-                                <option value="ORG_ADMIN">👑 ORG_ADMIN</option>
-                                <option value="Jr. Design Engineer">Jr. Design Engineer</option>
-                                <option value="Design Engineer">Design Engineer</option>
-                                <option value="Sr. Design Engineer">Sr. Design Engineer</option>
-                                <option value="Discipline Coordinator">Discipline Coordinator</option>
-                                <option value="BIM Modeler">BIM Modeler</option>
-                                <option value="BIM Coordinator">BIM Coordinator</option>
-                                <option value="Team Leader">Team Leader</option>
-                                <option value="2D Draftsman">2D Draftsman</option>
-                                <option value="Viewer">Viewer</option>
-                                <option value="Client">Client</option>
-                              </select>
+                              {p.role === 'SUPER_ADMIN' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 shadow-2xs">
+                                  <span>⚡</span>
+                                  <span>SUPER_ADMIN</span>
+                                </span>
+                              ) : p.role === 'ORG_ADMIN' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/50 shadow-2xs">
+                                  <Crown size={12} className="text-amber-500 shrink-0" />
+                                  <span>ORG_ADMIN</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                  {p.role || 'Design Engineer'}
+                                </span>
+                              )}
                             </td>
                             <td className="py-3.5 px-3 text-center">
                               {p.role === 'SUPER_ADMIN' ? (
@@ -1792,6 +1789,17 @@ export function SuperAdminDashboard() {
                                   ))}
                                 </select>
                               )}
+                            </td>
+                            <td className="py-3.5 px-3 text-center">
+                              <select 
+                                value={p.plan || p.subscription_status || (p.organization_id ? 'ENTERPRISE' : 'PRO')}
+                                onChange={(e) => handlePlanChange(p.id, e.target.value)}
+                                className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/90 cursor-pointer font-semibold text-slate-800 dark:text-slate-200 shadow-2xs outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                <option value="FREE_TRIAL">🎁 Free Trial</option>
+                                <option value="PRO">⭐ Pro</option>
+                                <option value="ENTERPRISE">🚀 Enterprise</option>
+                              </select>
                             </td>
                             <td className="py-3.5 px-3 text-slate-500 whitespace-nowrap text-center w-[210px]">
                               {editingExpiryFor === p.id ? (

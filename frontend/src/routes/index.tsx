@@ -427,7 +427,7 @@ function SpacesView() {
     redo,
   } = useWorkspace();
 
-  const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
+  const isEffectiveReadOnly = isReadOnly || isApprovedLocked || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
 
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
   const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
@@ -2639,7 +2639,7 @@ function SpacesView() {
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed.status === "APPROVED") {
-            toast.error("Calculation is APPROVED (Official Record). Editing is locked until the Discipline Coordinator rejects.");
+            toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
             return;
           }
         }

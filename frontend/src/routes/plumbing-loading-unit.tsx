@@ -1135,6 +1135,10 @@ function LoadingUnitPage() {
   };
 
   const handleAddSpace = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add spaces.", { id: "readonly-notice" });
+      return;
+    }
     const targetFloor = activeFloor || floorSections[0] || "6th FLOOR";
     const nextId = Date.now();
     setIopSpaces(prev => [...prev, {
@@ -1150,6 +1154,10 @@ function LoadingUnitPage() {
   };
 
   const handleAddSpaceToFloor = (floorTarget: string) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add spaces.", { id: "readonly-notice" });
+      return;
+    }
     if (!newDesc.trim()) {
       toast.error("Please enter a space description (e.g. 1 BHK)");
       return;
@@ -1178,6 +1186,10 @@ function LoadingUnitPage() {
   };
 
   const handleAddNewFloorSection = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add floors.", { id: "readonly-notice" });
+      return;
+    }
     const nextNum = floorSections.length + 6;
     const cleanName = `${nextNum}th FLOOR`;
     if (!floorSections.includes(cleanName)) {
@@ -1203,6 +1215,10 @@ function LoadingUnitPage() {
   };
 
   const handleDeleteFloorGroup = (floorToDelete: string) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete floors.", { id: "readonly-notice" });
+      return;
+    }
     if (confirm(`Delete floor section ${floorToDelete} and all its spaces?`)) {
       setFloorSections(floorSections.filter(f => f !== floorToDelete));
       setIopSpaces(iopSpaces.filter(s => s.floor !== floorToDelete));
@@ -2171,7 +2187,7 @@ function LoadingUnitPage() {
                     <Sparkles className="size-3.5" />
                     Intelligence
                   </button>
-                  <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
+                  <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" onReviewStateChange={setCalcReviewState} />
                 </div>
                 <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
                   Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
