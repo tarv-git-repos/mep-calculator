@@ -269,27 +269,27 @@ async function readUsers(forceRefresh = false) {
         if (locEmail) processedEmails.add(locEmail);
 
         const u = dbMap.get(locId) || dbMap.get(locEmail) || {};
-        const effRole = (u.role && u.role !== 'USER') ? u.role : (loc.role || u.features?.role || loc.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
+        const effRole = (loc.role && loc.role !== 'USER') ? loc.role : ((u.role && u.role !== 'USER') ? u.role : (loc.features?.role || u.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer')));
         const expDate = loc.subscription_expires || loc.features?.subscription_expires || u.subscription_expires || u.features?.subscription_expires || null;
         const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
         const orgId = loc.organization_id || loc.features?.organization_id || u.organization_id || u.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null);
         const comp = loc.company || loc.organization || loc.features?.company || loc.features?.organization || u.company || u.organization || u.features?.company || u.features?.organization || '';
 
         return {
-          ...loc,
           ...u,
+          ...loc,
           role: effRole,
           organization_id: orgId,
           company: comp,
           organization: comp,
-          designation: u.designation || loc.designation || u.features?.designation || '',
-          profile_photo: u.profile_photo !== undefined && u.profile_photo !== null ? u.profile_photo : (u.features?.profile_photo !== undefined && u.features?.profile_photo !== null ? u.features.profile_photo : (loc.profile_photo || '')),
-          settings: u.settings || loc.settings || u.features?.settings || {},
-          active_hwid: loc.active_hwid || u.active_hwid || u.features?.active_hwid || null,
+          designation: loc.designation || u.designation || loc.features?.designation || '',
+          profile_photo: loc.profile_photo !== undefined && loc.profile_photo !== null ? loc.profile_photo : (loc.features?.profile_photo || u.profile_photo || u.features?.profile_photo || ''),
+          settings: loc.settings || u.settings || loc.features?.settings || u.features?.settings || {},
+          active_hwid: loc.active_hwid || u.active_hwid || loc.features?.active_hwid || null,
           subscription_expires: expDate,
           features: {
-            ...(loc.features || {}),
             ...(u.features || {}),
+            ...(loc.features || {}),
             organization_id: orgId,
             company: comp,
             organization: comp,
@@ -327,7 +327,6 @@ async function readUsers(forceRefresh = false) {
       });
       users = users.filter(u => u.email !== 'parassadafuule05@gmail.com');
       
-      // Auto-clean expired unverified ghost accounts (only if expire timestamp is explicitly in the past)
       const nowTs = Date.now();
       const staleUnverified = users.filter(u => 
         u.isAccountVerified === false && 
@@ -389,8 +388,8 @@ async function writeUsers(users) {
   try {
     const safeUsers = users.map(u => {
       const { privacyPolicyAccepted, company, designation, profile_photo, settings, ...user } = u;
-      const expDate = u.subscription_expires || u.features?.subscription_expires || null;
-      const orgId = u.organization_id || u.features?.organization_id || null;
+      const expDate = u.subscription_expires !== undefined ? u.subscription_expires : (u.features?.subscription_expires || null);
+      const orgId = u.organization_id !== undefined ? u.organization_id : (u.features?.organization_id || null);
       const comp = company || u.company || u.organization || u.features?.company || u.features?.organization || '';
       const effRole = u.role || u.features?.role || 'Jr. Design Engineer';
       const features = {
@@ -422,13 +421,26 @@ async function writeUsers(users) {
     usersCache = safeUsers;
     usersCacheTime = Date.now();
 
-    const { error } = await supabase.from('custom_users').upsert(safeUsers);
+    const dbPayloads = safeUsers.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      password: u.password,
+      role: u.role,
+      isAccountVerified: u.isAccountVerified,
+      company: u.company,
+      organization: u.organization,
+      organization_id: u.organization_id,
+      subscription_expires: u.subscription_expires,
+      features: u.features
+    }));
+
+    const { error } = await supabase.from('custom_users').upsert(dbPayloads);
     if (error) {
-      for (const su of safeUsers) {
-        const { subscription_expires, organization_id, ...suFallback } = su;
-        const res = await supabase.from('custom_users').upsert([su]);
-        if (res.error) {
-          await supabase.from('custom_users').upsert([suFallback]);
+      for (const dbUser of dbPayloads) {
+        const res = await supabase.from('custom_users').upsert([dbUser]);
+        if (res.error && dbUser.email) {
+          await supabase.from('custom_users').update(dbUser).ilike('email', dbUser.email);
         }
       }
     }
@@ -2133,26 +2145,31 @@ const server = http.createServer(async (req, res) => {
           company: newComp,
           organization: newComp,
           organization_id: newOrgId,
+          subscription_expires: newExp,
           ...(updates.name ? { name: updates.name } : {}),
           ...(updates.designation !== undefined ? { designation: updates.designation } : {})
         };
-        if (newExp !== undefined) {
-          dbPayload.subscription_expires = newExp;
-        }
 
-        let updateRes = existing.id ? await supabase.from('custom_users').update(dbPayload).eq('id', existing.id) : { error: true };
-        if ((updateRes.error || updateRes.count === 0) && existing.email) {
-          updateRes = await supabase.from('custom_users').update(dbPayload).eq('email', existing.email);
+        let updateRes = existing.id ? await supabase.from('custom_users').update(dbPayload).eq('id', existing.id).select() : { error: true };
+        if ((updateRes.error || !updateRes.data || updateRes.data.length === 0) && existing.email) {
+          updateRes = await supabase.from('custom_users').update(dbPayload).ilike('email', existing.email).select();
         }
 
         if (updateRes.error) {
-          delete dbPayload.organization_id;
-          delete dbPayload.organization;
-          delete dbPayload.subscription_expires;
-          if (existing.id) await supabase.from('custom_users').update(dbPayload).eq('id', existing.id);
-          if (existing.email) await supabase.from('custom_users').update(dbPayload).eq('email', existing.email);
+          const fallbackPayload = {
+            features: updatedUser.features,
+            role: newRole,
+            company: newComp,
+            organization: newComp
+          };
+          if (existing.id) await supabase.from('custom_users').update(fallbackPayload).eq('id', existing.id);
+          if (existing.email) await supabase.from('custom_users').update(fallbackPayload).ilike('email', existing.email);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error("Error updating Supabase user profile:", e);
+      }
+      
+      invalidateUserCache();
     }
     
     logActivity(adminUser, 'ADMIN_UPDATE_PROFILE', { targetUser: profileId, updates });

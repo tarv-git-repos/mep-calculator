@@ -1751,7 +1751,7 @@ function SprinklerKFactorPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Report Summary
+                  Report
                 </button>
               </div>
             </div>

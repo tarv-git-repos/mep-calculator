@@ -2485,7 +2485,7 @@ function PreliminaryCoolingLoadPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Printable Report
+                  Report
                 </button>
               </div>
             </div>
