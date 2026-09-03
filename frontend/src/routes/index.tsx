@@ -47,14 +47,16 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 
 
 
+import { DashboardPage } from "./dashboard";
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Ventilation — MEP Calculator" },
-      { name: "description", content: "Fresh air, extract, and pressure balance for every space in the project." },
+      { title: "Dashboard — MEP Calculator" },
+      { name: "description", content: "MEP project analytics, compliance, alerts, and quick calculation access." },
     ],
   }),
-  component: VentilationModule,
+  component: DashboardPage,
 });
 
 const STATUS_STYLE: Record<SpaceStatus, string> = {

@@ -37,7 +37,7 @@ const saveAs: any = (saveAsPkg as any).saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useEditableGrid, useGridNavigation } from "@/core/gridEngine";
-import { toast } from "@/core/notifications";
+import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 

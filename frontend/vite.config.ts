@@ -56,7 +56,16 @@ export default defineConfig({
       watch: {
         usePolling: true,
         interval: 1000,
-        ignored: ["**/src-tauri/**"],
+        ignored: [
+          "**/src-tauri/**",
+          "**/dist/**",
+          "**/dist-nitro-3/**",
+          "**/dist-electron/**",
+          "**/scratch/**",
+          "**/MEP_Calculator_App/**",
+          "**/.system_generated/**",
+          "**/.git/**"
+        ],
       },
     },
     build: {

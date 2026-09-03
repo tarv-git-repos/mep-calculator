@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { VentilationModule } from "./index";
 
 export const Route = createFileRoute("/ventilation")({
   head: () => ({
@@ -8,13 +8,5 @@ export const Route = createFileRoute("/ventilation")({
       { name: "description", content: "Ventilation module: spaces, zones, equipment, and reports with live intelligence." },
     ],
   }),
-  component: VentilationRedirect,
+  component: VentilationModule,
 });
-
-function VentilationRedirect() {
-  const navigate = useNavigate();
-  useEffect(() => {
-    navigate({ to: "/", replace: true });
-  }, [navigate]);
-  return null;
-}

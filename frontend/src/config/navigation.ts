@@ -18,7 +18,7 @@ export type NavItem =
   | { kind: "group"; label: string; icon: any; children: NavLeaf[]; defaultOpen?: boolean };
 
 export const NAV: NavItem[] = [
-  { kind: "item", label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
+  { kind: "item", label: "Dashboard", to: "/", icon: LayoutDashboard },
   { kind: "item", label: "Projects", to: "/projects", icon: FolderKanban },
   { kind: "item", label: "BIM 3D Viewer", to: "/bim-viewer", icon: Box },
   {
@@ -30,7 +30,7 @@ export const NAV: NavItem[] = [
       { label: "CHW Pipe Sizer", to: "/chw-pipe-sizer" },
       { label: "CHW Pump Head", to: "/chw-pump-head" },
       { label: "LOAD & VENTILATION", isHeader: true },
-      { label: "VENTILATION", to: "/" },
+      { label: "VENTILATION", to: "/ventilation" },
       { label: "Fresh Air Cooling Load", to: "/fresh-air-cooling-load" },
       { label: "Condensate Drain Calc", to: "/condensate-drain-calc" },
       { label: "Heating Load", to: "/heating-load" },

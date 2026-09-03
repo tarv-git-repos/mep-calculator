@@ -587,6 +587,7 @@ export function getRecommendedPipeSize(lu: number, flowLPS: number): { sizeMM: n
 }
 
 function LoadingUnitPage() {
+  const { userData, profile } = useAuth();
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const [calcReviewState, setCalcReviewState] = useState<any>(() => {
     if (typeof window !== "undefined") {
@@ -3168,8 +3169,8 @@ function LoadingUnitPage() {
               calculatorTitle: "Loading Unit & Pipe Sizer",
               calculatorPath: "/plumbing-loading-unit",
               project,
-              currentUserName: (useAuth as any)?.()?.userData?.name || (useAuth as any)?.()?.profile?.name || "Design Engineer",
-              currentUserId: (useAuth as any)?.()?.userData?.id || (useAuth as any)?.()?.profile?.id
+              currentUserName: userData?.name || profile?.name || "Design Engineer",
+              currentUserId: userData?.id || profile?.id
             }).catch(console.error);
           }}
         />

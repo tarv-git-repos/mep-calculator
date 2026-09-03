@@ -1,16 +1,15 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
-  Save, Download, ChevronDown, ChevronUp, Trash2, Check
+  Save, FolderOpen, ChevronDown, ChevronUp, Trash2
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
-import { toast } from "sonner";
 
 export const Route = createFileRoute("/smoke-extract-fan")({
   head: () => ({
@@ -22,106 +21,140 @@ export const Route = createFileRoute("/smoke-extract-fan")({
   component: SmokeExtractFanPage,
 });
 
-function getInitialSmokeExtractState() {
-  if (typeof window === "undefined") return null;
-  try {
-    const activeId = localStorage.getItem("mep_active_project_id") || "default";
-    const raw =
-      localStorage.getItem(`mep_smoke_extract_state_${activeId}`) ||
-      localStorage.getItem(`smoke_extract_state_${activeId}`) ||
-      localStorage.getItem("mep_smoke_extract_state_latest");
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.error("Error loading initial smoke extract state:", e);
-  }
-  return null;
+interface SavedCalculation {
+  id: string;
+  type: string;
+  name: string;
+  savedAt: string;
+  values: Record<string, any>;
 }
 
 function SmokeExtractFanPage() {
-  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
-  const effectiveProjectId = project?.id || activeProjectId || "default";
-  const isApprovedLocked = useCalculationLock("/smoke-extract-fan", project?.id);
+  const [area, setArea] = useState<number | "">("");
+  const [height, setHeight] = useState<number | "">("");
+  const [acph, setAcph] = useState<number | "">("");
+  const [fanQty, setFanQty] = useState<number | "">("");
 
-  const initialState = useMemo(() => getInitialSmokeExtractState(), []);
+  const [ductLength, setDuctLength] = useState<number | "">("");
+  const [frictionFactor, setFrictionFactor] = useState<number | "">(""); // Pa/m
+  const [louverLoss, setLouverLoss] = useState<number | "">(""); // Pa
+  const [fanLoss, setFanLoss] = useState<number | "">(""); // Pa
 
-  const [area, setArea] = useState<number | "">(initialState?.area ?? "");
-  const [height, setHeight] = useState<number | "">(initialState?.height ?? "");
-  const [acph, setAcph] = useState<number | "">(initialState?.acph ?? "");
-  const [fanQty, setFanQty] = useState<number | "">(initialState?.fanQty ?? "");
-
-  const [ductLength, setDuctLength] = useState<number | "">(initialState?.ductLength ?? "");
-  const [frictionFactor, setFrictionFactor] = useState<number | "">(initialState?.frictionFactor ?? ""); // Pa/m
-  const [louverLoss, setLouverLoss] = useState<number | "">(initialState?.louverLoss ?? ""); // Pa
-  const [fanLoss, setFanLoss] = useState<number | "">(initialState?.fanLoss ?? ""); // Pa
-
-  const [effMotor, setEffMotor] = useState<number | "">(initialState?.effMotor ?? 90); // %
-  const [effFan, setEffFan] = useState<number | "">(initialState?.effFan ?? 75); // %
-  const [numFansMotor, setNumFansMotor] = useState<number | "">(initialState?.numFansMotor ?? "");
+  const [effMotor, setEffMotor] = useState<number | "">(90); // %
+  const [effFan, setEffFan] = useState<number | "">(75); // %
+  const [numFansMotor, setNumFansMotor] = useState<number | "">("");
 
   // Expandable sections
   const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
-  const [isSaved, setIsSaved] = useState<boolean>(true);
 
-  // Sync state if active project switches
+  const { project, forceSaveToCloud } = useWorkspace();
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`smoke_extract_state_${project.id}`);
+        if (stored) {
+          const data = JSON.parse(stored);
+          if (data.area !== undefined) setArea(data.area);
+          if (data.height !== undefined) setHeight(data.height);
+          if (data.acph !== undefined) setAcph(data.acph);
+          if (data.fanQty !== undefined) setFanQty(data.fanQty);
+          if (data.ductLength !== undefined) setDuctLength(data.ductLength);
+          if (data.frictionFactor !== undefined) setFrictionFactor(data.frictionFactor);
+          if (data.louverLoss !== undefined) setLouverLoss(data.louverLoss);
+          if (data.fanLoss !== undefined) setFanLoss(data.fanLoss);
+          if (data.effMotor !== undefined) setEffMotor(data.effMotor);
+          if (data.effFan !== undefined) setEffFan(data.effFan);
+          if (data.numFansMotor !== undefined) setNumFansMotor(data.numFansMotor);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setLoadedProjectId(project.id);
+    }
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = { area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor };
+      localStorage.setItem(`smoke_extract_state_${project.id}`, JSON.stringify(dataToSave));
+    }
+  }, [project?.id, loadedProjectId, area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor]);
+
+  // Custom Load/Save dialogs
+  const [saves, setSaves] = useState<SavedCalculation[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+  const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
+  const [saveName, setSaveName] = useState<string>("");
+
   useEffect(() => {
     try {
-      const raw =
-        localStorage.getItem(`mep_smoke_extract_state_${effectiveProjectId}`) ||
-        localStorage.getItem(`smoke_extract_state_${effectiveProjectId}`);
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (data.area !== undefined) setArea(data.area);
-        if (data.height !== undefined) setHeight(data.height);
-        if (data.acph !== undefined) setAcph(data.acph);
-        if (data.fanQty !== undefined) setFanQty(data.fanQty);
-        if (data.ductLength !== undefined) setDuctLength(data.ductLength);
-        if (data.frictionFactor !== undefined) setFrictionFactor(data.frictionFactor);
-        if (data.louverLoss !== undefined) setLouverLoss(data.louverLoss);
-        if (data.fanLoss !== undefined) setFanLoss(data.fanLoss);
-        if (data.effMotor !== undefined) setEffMotor(data.effMotor);
-        if (data.effFan !== undefined) setEffFan(data.effFan);
-        if (data.numFansMotor !== undefined) setNumFansMotor(data.numFansMotor);
+      const stored = localStorage.getItem("mep_custom_calculator_saves");
+      if (stored) {
+        setSaves(JSON.parse(stored));
       }
     } catch (e) {
-      console.error("Error switching smoke extract project:", e);
+      console.error("Failed to load custom saves", e);
     }
-  }, [effectiveProjectId]);
+  }, []);
 
-  // Save calculation to local storage and workspace cloud
-  const saveCalculation = useCallback((showNotification = false) => {
-    const dataToSave = {
-      area,
-      height,
-      acph,
-      fanQty,
-      ductLength,
-      frictionFactor,
-      louverLoss,
-      fanLoss,
-      effMotor,
-      effFan,
-      numFansMotor,
-      updatedAt: new Date().toISOString()
+  const saveToLocalStorage = (newSaves: SavedCalculation[]) => {
+    setSaves(newSaves);
+    localStorage.setItem("mep_custom_calculator_saves", JSON.stringify(newSaves));
+  };
+
+  const handleSaveCurrent = () => {
+    if (!saveName.trim()) return;
+    const newSave: SavedCalculation = {
+      id: "custom_calc_" + Date.now(),
+      type: "smoke-extract",
+      name: saveName.trim(),
+      savedAt: new Date().toISOString(),
+      values: {
+        "se-corridor-area": area,
+        "se-corridor-height": height,
+        "se-acph": acph,
+        "se-fan-qty": fanQty,
+        "se-smoke-duct-length": ductLength,
+        "se-smoke-duct-friction-factor": frictionFactor,
+        "se-smoke-losses-louvers": louverLoss,
+        "se-smoke-losses-fan": fanLoss,
+        "se-motor-eff-motor": effMotor,
+        "se-motor-eff-fan": effFan,
+        "se-motor-fan-qty": numFansMotor
+      }
     };
-    const jsonStr = JSON.stringify(dataToSave);
-    localStorage.setItem(`mep_smoke_extract_state_${effectiveProjectId}`, jsonStr);
-    localStorage.setItem(`smoke_extract_state_${effectiveProjectId}`, jsonStr);
-    localStorage.setItem("mep_smoke_extract_state_latest", jsonStr);
-    forceSaveToCloud(false);
-    setIsSaved(true);
-    if (showNotification) {
-      toast.success("Corridor smoke extract calculation saved successfully");
-    }
-  }, [area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor, effectiveProjectId, forceSaveToCloud]);
+    const updated = [newSave, ...saves];
+    saveToLocalStorage(updated);
+    setSaveName("");
+    setShowSaveModal(false);
+    forceSaveToCloud();
+  };
 
-  // Continuous auto-save with debounce
-  useEffect(() => {
-    setIsSaved(false);
-    const timer = setTimeout(() => {
-      saveCalculation(false);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [saveCalculation]);
+  const handleLoadSave = (id: string) => {
+    const target = saves.find(s => s.id === id);
+    if (!target) return;
+    const v = target.values;
+    if (v["se-corridor-area"] !== undefined) setArea(Number(v["se-corridor-area"]));
+    if (v["se-corridor-height"] !== undefined) setHeight(Number(v["se-corridor-height"]));
+    if (v["se-acph"] !== undefined) setAcph(Number(v["se-acph"]));
+    if (v["se-fan-qty"] !== undefined) setFanQty(Number(v["se-fan-qty"]));
+    if (v["se-smoke-duct-length"] !== undefined) setDuctLength(Number(v["se-smoke-duct-length"]));
+    if (v["se-smoke-duct-friction-factor"] !== undefined) setFrictionFactor(Number(v["se-smoke-duct-friction-factor"]));
+    if (v["se-smoke-losses-louvers"] !== undefined) setLouverLoss(Number(v["se-smoke-losses-louvers"]));
+    if (v["se-smoke-losses-fan"] !== undefined) setFanLoss(Number(v["se-smoke-losses-fan"]));
+    if (v["se-motor-eff-motor"] !== undefined) setEffMotor(Number(v["se-motor-eff-motor"]));
+    if (v["se-motor-eff-fan"] !== undefined) setEffFan(Number(v["se-motor-eff-fan"]));
+    if (v["se-motor-fan-qty"] !== undefined) setNumFansMotor(Number(v["se-motor-fan-qty"]));
+    setShowLoadModal(false);
+  };
+
+  const handleDeleteSave = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = saves.filter(s => s.id !== id);
+    saveToLocalStorage(updated);
+  };
 
   const calculatedData = useMemo(() => {
     const areaVal = area !== "" ? Number(area) : 100;
@@ -218,20 +251,7 @@ function SmokeExtractFanPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>
-              <CalculationReviewBar calculatorPath="/smoke-extract-fan" calculatorTitle="Smoke Extract Fan" />
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-muted-foreground bg-surface-2 border border-border select-none">
-                  <span className={`size-1.5 rounded-full ${isSaved ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
-                  {isSaved ? "Saved" : "Saving..."}
-                </div>
-                <TBtn onClick={() => saveCalculation(true)} primary className="h-8 text-xs">
-                  <Save className="size-3.5" /> Save
-                </TBtn>
-                <TBtn onClick={handleExportExcel} className="h-8 text-xs">
-                  <Download className="size-3.5" /> Export Excel
-                </TBtn>
+                <CalculationReviewBar calculatorPath="/smoke-extract-fan" calculatorTitle="Smoke Extract Fan" />
               </div>
             </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -251,19 +271,19 @@ function SmokeExtractFanPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Area of Corridor (m²)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={area} onChange={(e) => setArea(e.target.value === "" ? "" : Number(e.target.value))} placeholder="100" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={area} onChange={(e) => setArea(e.target.value === "" ? "" : Number(e.target.value))} placeholder="100" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Height of Corridor (m)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={height} onChange={(e) => setHeight(e.target.value === "" ? "" : Number(e.target.value))} placeholder="3.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={height} onChange={(e) => setHeight(e.target.value === "" ? "" : Number(e.target.value))} placeholder="3.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Air Changes per Hour (ACPH)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={acph} onChange={(e) => setAcph(e.target.value === "" ? "" : Number(e.target.value))} placeholder="10" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={acph} onChange={(e) => setAcph(e.target.value === "" ? "" : Number(e.target.value))} placeholder="10" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Quantity of Fans</label>
-                    <input type="number" min="1" step="1" disabled={isApprovedLocked} value={fanQty} onChange={(e) => { const v = e.target.value === "" ? "" : Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} placeholder="1" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" min="1" step="1" value={fanQty} onChange={(e) => { const v = e.target.value === "" ? "" : Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} placeholder="1" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>
@@ -278,19 +298,19 @@ function SmokeExtractFanPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Ducting Length (m)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={ductLength} onChange={(e) => setDuctLength(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={ductLength} onChange={(e) => setDuctLength(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Frictional Factor (Pa/m)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={frictionFactor} onChange={(e) => setFrictionFactor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={frictionFactor} onChange={(e) => setFrictionFactor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Louver &amp; Grille Pressure Drop (Pa)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={louverLoss} onChange={(e) => setLouverLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="50" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={louverLoss} onChange={(e) => setLouverLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="50" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Fan Internal Losses (Pa)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={fanLoss} onChange={(e) => setFanLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={fanLoss} onChange={(e) => setFanLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>
@@ -305,15 +325,15 @@ function SmokeExtractFanPage() {
                 <div className="flex flex-col gap-3.5 text-xs">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Motor Efficiency (%)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={effMotor} onChange={(e) => setEffMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="90" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={effMotor} onChange={(e) => setEffMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="90" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Fan Efficiency (%)</label>
-                    <input type="number" step="any" disabled={isApprovedLocked} value={effFan} onChange={(e) => setEffFan(e.target.value === "" ? "" : Number(e.target.value))} placeholder="75" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" step="any" value={effFan} onChange={(e) => setEffFan(e.target.value === "" ? "" : Number(e.target.value))} placeholder="75" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-foreground">Number of Fans (Motor calculation)</label>
-                    <input type="number" min="1" step="1" disabled={isApprovedLocked} value={numFansMotor} onChange={(e) => setNumFansMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 disabled:cursor-not-allowed" />
+                    <input type="number" min="1" step="1" value={numFansMotor} onChange={(e) => setNumFansMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
                   </div>
                 </div>
               </div>
@@ -486,6 +506,90 @@ function SmokeExtractFanPage() {
           </div>
         </div>
       </div>
+
+      {/* Save Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl">
+            <h3 className="font-bold text-base text-foreground">Save Current Smoke Extract</h3>
+            <div className="flex flex-col gap-1.5 text-xs">
+              <label className="font-semibold text-muted-foreground">Calculation Name</label>
+              <input
+                type="text"
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                placeholder="e.g. GF Entrance Corridor"
+                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+              />
+            </div>
+            <div className="flex justify-end gap-2.5 mt-2">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCurrent}
+                className="px-4 py-2 bg-primary text-primary-foreground font-bold rounded-lg text-xs transition hover:bg-primary/95 cursor-pointer"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Modal */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-6 flex flex-col gap-4 shadow-2xl">
+            <h3 className="font-bold text-base text-foreground">Load Saved Calculations</h3>
+            <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+              {saves.filter(s => s.type === "smoke-extract").length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground text-xs">
+                  📭 No saved calculations found.
+                </div>
+              ) : (
+                saves
+                  .filter(s => s.type === "smoke-extract")
+                  .map(s => (
+                    <div
+                      key={s.id}
+                      onClick={() => handleLoadSave(s.id)}
+                      className="border border-border/70 rounded-xl p-3.5 hover:border-primary/50 transition cursor-pointer bg-slate-50/20 dark:bg-slate-900/10 flex justify-between items-center gap-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="font-bold text-xs text-foreground block truncate">{s.name}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">
+                          Area: {s.values["se-corridor-area"]}m² · Ht: {s.values["se-corridor-height"]}m · ACPH: {s.values["se-acph"]}
+                        </span>
+                        <span className="text-[9.5px] text-muted-foreground/80 mt-1 block">
+                          Saved: {new Date(s.savedAt).toLocaleString()}
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteSave(s.id, e)}
+                        className="text-muted-foreground hover:text-red-500 transition p-2 cursor-pointer"
+                        title="Delete Save"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+                  ))
+              )}
+            </div>
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={() => setShowLoadModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

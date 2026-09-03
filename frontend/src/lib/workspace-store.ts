@@ -180,7 +180,7 @@ if (typeof window !== "undefined") {
 function executeWorkspaceSave() {
   if (!activeProjectId) return;
   const lsState: Record<string, string> = {};
-  const knownPrefixes = ['mep', 'smoke_extract', 'staircase_press', 'lobby_press', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
+  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
     if (key && knownPrefixes.some(p => key.startsWith(p)) && !key.includes('clipboard')) {
@@ -247,7 +247,7 @@ function saveState(immediate = false) {
 
 function injectLocalStorageCache(wdata: any) {
   if (typeof localStorage === "undefined") return;
-  const knownPrefixes = ['mep', 'smoke_extract', 'staircase_press', 'lobby_press', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
+  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
   const keysToRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
