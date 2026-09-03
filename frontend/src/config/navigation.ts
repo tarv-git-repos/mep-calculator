@@ -18,7 +18,7 @@ export type NavItem =
   | { kind: "group"; label: string; icon: any; children: NavLeaf[]; defaultOpen?: boolean };
 
 export const NAV: NavItem[] = [
-  { kind: "item", label: "Dashboard", to: "/", icon: LayoutDashboard },
+  { kind: "item", label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
   { kind: "item", label: "Projects", to: "/projects", icon: FolderKanban },
   { kind: "item", label: "BIM 3D Viewer", to: "/bim-viewer", icon: Box },
   {

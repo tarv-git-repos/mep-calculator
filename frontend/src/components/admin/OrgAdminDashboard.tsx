@@ -662,7 +662,7 @@ export function OrgAdminDashboard() {
       <div className="w-64 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800/80">
           <button 
-            onClick={() => navigate({ to: '/' })}
+            onClick={() => navigate({ to: '/dashboard' })}
             className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors mb-4"
           >
             <ArrowLeft className="w-4 h-4" />

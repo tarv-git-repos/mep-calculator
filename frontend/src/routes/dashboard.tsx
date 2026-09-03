@@ -9,6 +9,13 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
+  head: () => ({
+    meta: [
+      { title: "Dashboard — MEP Calculator" },
+      { name: "description", content: "MEP project analytics, compliance, alerts, and quick calculation access." },
+    ],
+  }),
+  component: DashboardPage,
 });
 
 export function DashboardPage() {
