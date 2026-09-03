@@ -420,11 +420,11 @@ function CircuitBreakerSizingPage() {
                 <RotateCcw className="size-3.5" /> Reset
               </button>
               <label className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-3 py-1 cursor-pointer transition-colors bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-sm">
-                <Upload className="size-3.5" /> Import
+                <Download className="size-3.5" /> Import
                 <input type="file" onChange={handleImportJSON} accept=".json" className="hidden" />
               </label>
               <button onClick={handleExportJSON} className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-3 py-1 transition-colors bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-sm">
-                <Download className="size-3.5" /> Export
+                <Upload className="size-3.5" /> Export
               </button>
               <button onClick={handleAddRow} className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-4 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 ml-2 shadow-sm">
                 <Plus className="size-3.5" /> Add Row

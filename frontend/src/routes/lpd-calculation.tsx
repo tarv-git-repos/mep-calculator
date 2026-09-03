@@ -445,7 +445,7 @@ function LPDCalculationPage() {
   const actions = (
     <div className="flex gap-2">
       <label className="flex items-center gap-2 cursor-pointer bg-surface-2 hover:bg-surface-3 border border-border rounded-xl px-3 py-1.5 text-[12.5px] font-medium transition-colors">
-        <Upload className="size-3.5" />
+        <Download className="size-3.5" />
         <span>Import Catalog</span>
         <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
       </label>

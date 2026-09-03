@@ -1867,7 +1867,7 @@ function BusbarCalculationPage() {
             </button>
 
             <label className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground transition-all ${isApproved ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer hover:bg-surface-3"}`}>
-              <Upload className="size-3.5" /> Import Ratings
+              <Download className="size-3.5" /> Import Ratings
               <input type="file" disabled={isApproved} accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
             </label>
 

@@ -984,7 +984,7 @@ function BusbarVoltageDropPage() {
                 
                 <div className="flex items-center">
                   <label className="flex items-center gap-1 cursor-pointer text-xs font-medium text-primary hover:bg-primary/10 px-2 py-1 rounded transition-colors">
-                    <Upload className="size-3.5" /> Import
+                    <Download className="size-3.5" /> Import
                     <input 
                       type="file" 
                       accept=".csv,.txt" 

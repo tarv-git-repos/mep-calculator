@@ -1,6 +1,6 @@
 import React, { useRef } from "react";
 import * as XLSX from "xlsx";
-import { Upload } from "lucide-react";
+import { Download } from "lucide-react";
 import { TBtn } from "./Button";
 import { toast } from "sonner";
 
@@ -206,7 +206,7 @@ export function ImportExcelBtn({ columnMapping, onImport, className, children }:
       <TBtn onClick={handleClick} className={className}>
         {children || (
           <>
-            <Upload className="size-3.5 mr-1" />
+            <Download className="size-3.5 mr-1" />
             Import Excel
           </>
         )}

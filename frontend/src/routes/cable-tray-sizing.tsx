@@ -1199,7 +1199,7 @@ function CableTraySizingPage() {
               onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 transition-all cursor-pointer"
             >
-              <Upload className="size-3.5" /> Import Catalog
+              <Download className="size-3.5" /> Import Catalog
             </button>
 
             <button

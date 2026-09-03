@@ -628,7 +628,7 @@ function generateHierarchyFlowNodesAndEdges(
   return { nodes, edges };
 }
 
-function HierarchyFlow({
+function HierarchyFlowContent({
   members,
   onAddReport,
   onEdit,
@@ -672,7 +672,7 @@ function HierarchyFlow({
   );
 
   return (
-    <div className="w-full h-full min-h-[600px] h-[calc(100vh-140px)] bg-card border border-border rounded-3xl overflow-hidden shadow-sm relative">
+    <div className="w-full h-full min-h-[580px] bg-card border border-border rounded-3xl overflow-hidden shadow-sm relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -695,13 +695,34 @@ function HierarchyFlow({
           <div className="bg-background/85 backdrop-blur-md border border-border/80 px-3.5 py-1.5 rounded-full text-[11px] font-semibold text-muted-foreground flex items-center gap-2.5 shadow-md">
             <span>🖱️ Drag cards anywhere</span>
             <span>•</span>
-            <span>⚡ Drag wires between blue handles to re-assign reporting lines</span>
+            <span>⚡ Drag wires between handles to connect reporting lines</span>
             <span>•</span>
             <span>🔍 Zoom in/out for 100+ members</span>
           </div>
         </Panel>
       </ReactFlow>
     </div>
+  );
+}
+
+function HierarchyFlow(props: any) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="w-full h-[580px] bg-card border border-border rounded-3xl flex items-center justify-center text-muted-foreground text-sm">
+        Loading Hierarchy Diagram...
+      </div>
+    );
+  }
+
+  return (
+    <ReactFlowProvider>
+      <HierarchyFlowContent {...props} />
+    </ReactFlowProvider>
   );
 }
 
@@ -714,15 +735,21 @@ function CompanyHierarchyPage() {
   // Access check: Visible only to SUPER_ADMIN and ORG_ADMIN
   const isAuthorized = ["SUPER_ADMIN", "ORG_ADMIN"].includes(currentRole);
 
-  const [members, setMembers] = useState<HierarchyUser[]>(() => {
-    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+  const [members, setMembers] = useState<HierarchyUser[]>(DEFAULT_HIERARCHY);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("mep_company_hierarchy");
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMembers(parsed);
+          }
+        }
       } catch (e) {}
     }
-    return DEFAULT_HIERARCHY;
-  });
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDept, setSelectedDept] = useState<string>("ALL");
@@ -1118,119 +1145,16 @@ function CompanyHierarchyPage() {
           </div>
         ) : (
           <>
-            {/* VIEW MODE 1: VISUAL TREE HIERARCHY WITH 3D-VIEWER STYLE PAN & ZOOM CANVAS */}
+            {/* VIEW MODE 1: INTERACTIVE DRAGGABLE REACT FLOW CANVAS (3D / SLD STYLE) */}
             {viewMode === "tree" && (
-              <div 
-                ref={canvasRef}
-                onWheel={handleWheel}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                className={`relative bg-card border border-border rounded-3xl shadow-sm overflow-hidden min-h-[580px] h-[calc(100vh-140px)] flex flex-col select-none ${
-                  isPanning ? "cursor-grabbing" : "cursor-grab"
-                }`}
-                style={{
-                  backgroundImage: "radial-gradient(circle, rgba(148, 163, 184, 0.22) 1px, transparent 1px)",
-                  backgroundSize: "24px 24px",
-                }}
-              >
-                {/* Floating Canvas Navigation Controls (Bottom-Right) */}
-                <div className="absolute bottom-5 right-5 z-30 flex items-center gap-1.5 bg-card/95 backdrop-blur-md border border-border p-1.5 rounded-2xl shadow-xl">
-                  <button
-                    onClick={handleZoomOut}
-                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
-                    title="Zoom Out (Scroll Down)"
-                  >
-                    <ZoomOut className="size-4" />
-                  </button>
-
-                  <div 
-                    onClick={handleResetZoom}
-                    className="px-2.5 py-1 text-[11px] font-mono font-bold text-foreground hover:text-primary cursor-pointer transition-colors select-none"
-                    title="Click to reset zoom to 100%"
-                  >
-                    {Math.round(zoom * 100)}%
-                  </div>
-
-                  <button
-                    onClick={handleZoomIn}
-                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-foreground flex items-center justify-center transition-all cursor-pointer"
-                    title="Zoom In (Scroll Up)"
-                  >
-                    <ZoomIn className="size-4" />
-                  </button>
-
-                  <div className="w-px h-5 bg-border/80 mx-0.5" />
-
-                  <button
-                    onClick={handleFitView}
-                    className="px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                    title="Fit Entire Tree to Viewport"
-                  >
-                    <Scan className="size-3.5" /> Fit View
-                  </button>
-
-                  <button
-                    onClick={handleResetZoom}
-                    className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground flex items-center justify-center transition-all cursor-pointer"
-                    title="Reset Position & Zoom"
-                  >
-                    <RotateCcw className="size-3.5" />
-                  </button>
-                </div>
-
-                {/* Floating Navigation Hint Pill (Top-Left) */}
-                <div className="absolute top-4 left-4 z-20 pointer-events-none opacity-70 hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-xs border border-border/60 px-3 py-1.5 rounded-full text-[10.5px] font-semibold text-muted-foreground flex items-center gap-2 shadow-2xs">
-                  <span>🖱️ Drag canvas to pan</span>
-                  <span>•</span>
-                  <span>🔍 Scroll wheel to zoom</span>
-                  <span>•</span>
-                  <span>⚡ Unlimited scale</span>
-                </div>
-
-                {/* Scalable Transform Canvas Content */}
-                <div
-                  ref={contentRef}
-                  className="w-full h-full p-10 flex justify-center items-start transition-transform duration-75 ease-out origin-top"
-                  style={{
-                    transform: `translate3d(${pan.x}px, ${pan.y}px, 0px) scale(${zoom})`,
-                    transformOrigin: "center top",
-                  }}
-                >
-                  <div className="flex flex-col items-center min-w-max space-y-6 pb-36">
-                    {rootMembers.length === 0 ? (
-                      <div className="p-12 text-center text-muted-foreground text-sm space-y-3">
-                        <p>No hierarchy members found matching query.</p>
-                        {(searchQuery || selectedDept !== "ALL") && (
-                          <button
-                            onClick={() => {
-                              setSearchQuery("");
-                              setSelectedDept("ALL");
-                            }}
-                            className="px-4 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-bold rounded-full transition-all cursor-pointer"
-                          >
-                            Clear Search & Filters
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      rootMembers.map((root) => (
-                        <TreeNode
-                          key={root.id}
-                          member={root}
-                          reportsMap={reportsMap}
-                          collapsedNodes={collapsedNodes}
-                          onToggleCollapse={toggleCollapse}
-                          onAddReport={handleOpenAddModal}
-                          onEdit={handleOpenEditModal}
-                          onDelete={handleDeleteMember}
-                          allMembers={members}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
+              <div className="w-full h-full min-h-[580px] h-[calc(100vh-140px)]">
+                <HierarchyFlow
+                  members={filteredMembers}
+                  onAddReport={handleOpenAddModal}
+                  onEdit={handleOpenEditModal}
+                  onDelete={handleDeleteMember}
+                  onReassignParent={handleReassignParent}
+                />
               </div>
             )}
 
@@ -1519,130 +1443,5 @@ function CompanyHierarchyPage() {
         </div>
       )}
     </AppShell>
-  );
-}
-
-// Sub-component: Tree Node Component (Recursive Tree Rendering)
-function TreeNode({
-  member,
-  reportsMap,
-  collapsedNodes,
-  onToggleCollapse,
-  onAddReport,
-  onEdit,
-  onDelete,
-  allMembers
-}: {
-  member: HierarchyUser;
-  reportsMap: Map<string, HierarchyUser[]>;
-  collapsedNodes: Set<string>;
-  onToggleCollapse: (id: string) => void;
-  onAddReport: (parentId: string) => void;
-  onEdit: (m: HierarchyUser) => void;
-  onDelete: (id: string, name: string) => void;
-  allMembers: HierarchyUser[];
-}) {
-  const children = reportsMap.get(member.id) || [];
-  const isCollapsed = collapsedNodes.has(member.id);
-
-  return (
-    <div className="flex flex-col items-center relative">
-      {/* Node Card */}
-      <div className="group relative bg-card border border-border hover:border-primary/50 p-4 rounded-2xl shadow-xs hover:shadow-md transition-all w-72 flex flex-col gap-2.5">
-        <div className="flex items-center justify-between gap-1.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <RoleBadge role={member.role} />
-            <AuthorityBadge authority={member.approvalAuthority} />
-          </div>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <button
-              onClick={() => onAddReport(member.id)}
-              className="p-1 hover:bg-primary/10 text-primary rounded-md transition-all cursor-pointer"
-              title="Add Subordinate"
-            >
-              <UserPlus className="size-3.5" />
-            </button>
-            <button
-              onClick={() => onEdit(member)}
-              className="p-1 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-md transition-all cursor-pointer"
-              title="Edit Member"
-            >
-              <Edit3 className="size-3.5" />
-            </button>
-            {member.parentId && (
-              <button
-                onClick={() => onDelete(member.id, member.name)}
-                className="p-1 hover:bg-rose-500/10 text-rose-500 rounded-md transition-all cursor-pointer"
-                title="Remove Member"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className={`size-10 rounded-2xl ${member.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs`}>
-            {member.name.charAt(0)}
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="font-extrabold text-foreground text-sm truncate">{member.name}</span>
-            <span className="text-[11px] font-medium text-muted-foreground truncate">{member.designation}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between pt-2 border-t border-border/50 text-[11px]">
-          <span className="px-2 py-0.5 rounded-full font-bold bg-primary/10 text-primary border border-primary/20 text-[10px]">
-            {member.department}
-          </span>
-          <span className="text-muted-foreground text-[10px] truncate max-w-[130px]" title={member.email}>
-            {member.email}
-          </span>
-        </div>
-
-        {/* Collapse / Expand Toggle Button */}
-        {children.length > 0 && (
-          <button
-            onClick={() => onToggleCollapse(member.id)}
-            className="absolute -bottom-3 left-1/2 -translate-x-1/2 size-6 rounded-full bg-card border border-border shadow-xs flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary transition-all cursor-pointer z-10"
-            title={isCollapsed ? "Expand Subordinates" : "Collapse Subordinates"}
-          >
-            {isCollapsed ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </button>
-        )}
-      </div>
-
-      {/* Children Nodes Branch */}
-      {children.length > 0 && !isCollapsed && (
-        <div className="flex flex-col items-center pt-6 relative w-full">
-          {/* Vertical connecting stem down from parent */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-6 bg-border/80"></div>
-
-          {/* Horizontal connecting bar across siblings */}
-          {children.length > 1 && (
-            <div className="absolute top-6 left-0 right-0 h-0.5 bg-border/80 mx-auto" style={{ width: `calc(100% - 18rem)` }}></div>
-          )}
-
-          <div className="flex items-start justify-center gap-6 pt-2">
-            {children.map((child) => (
-              <div key={child.id} className="relative pt-4">
-                {/* Vertical stem up to connector */}
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-border/80"></div>
-                <TreeNode
-                  member={child}
-                  reportsMap={reportsMap}
-                  collapsedNodes={collapsedNodes}
-                  onToggleCollapse={onToggleCollapse}
-                  onAddReport={onAddReport}
-                  onEdit={onEdit}
-                  onDelete={onDelete}
-                  allMembers={allMembers}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }

@@ -801,14 +801,14 @@ function FreshAirCoolingLoadPage() {
                       className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground font-medium rounded-lg transition-colors flex items-center gap-1"
                       title="Export JSON scenario"
                     >
-                      <Download className="size-3.5" />
+                      <Upload className="size-3.5" />
                       <span className="hidden sm:inline">Export</span>
                     </button>
                     <label
                       className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground font-medium rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                       title="Import JSON scenario"
                     >
-                      <Upload className="size-3.5" />
+                      <Download className="size-3.5" />
                       <span className="hidden sm:inline">Import</span>
                       <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
                     </label>

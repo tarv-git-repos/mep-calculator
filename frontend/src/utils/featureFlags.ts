@@ -1,6 +1,8 @@
 import { Profile } from "@/contexts/AuthContext";
 
 export const DEFAULT_UNLOCKED_FEATURES = [
+  'dashboard',
+  '3d-view',
   'preliminary-cooling-load',
   'chw-pipe-sizer',
   'chw-pump-head',
@@ -67,8 +69,8 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   }
 
   // System pages should never be locked
-  const systemPaths = ["", "/", "/projects", "/bim-viewer", "/reports", "/notifications", "/teams", "/settings", "/admin", "/company-hierarchy", "/login", "/register"];
-  if (systemPaths.includes(path)) {
+  const systemPaths = ["", "/", "/dashboard", "/projects", "/bim-viewer", "/3d-view", "/reports", "/notifications", "/teams", "/settings", "/admin", "/company-hierarchy", "/login", "/register", "/privacy", "/reset-password"];
+  if (systemPaths.includes(path) || systemPaths.includes(`/${path.replace(/^\//, '')}`)) {
     return false;
   }
 

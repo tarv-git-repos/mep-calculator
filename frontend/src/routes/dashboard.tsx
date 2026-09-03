@@ -18,7 +18,7 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
 });
 
-export function DashboardPage() {
+function DashboardPage() {
   const { spaces, zones, equipment, activeProjectId, refreshProjects } = useWorkspace();
   const { profile } = useAuth();
   

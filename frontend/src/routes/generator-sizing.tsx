@@ -2416,7 +2416,6 @@ function GeneratorSizingPage() {
           }}
         />
       )}
-        </div>
     </AppShell>
   );
 }

@@ -427,7 +427,7 @@ function SpacesView() {
     redo,
   } = useWorkspace();
 
-  const isEffectiveReadOnly = isReadOnly || isApprovedLocked || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
+  const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
 
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
   const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
@@ -2836,7 +2836,7 @@ function SpacesView() {
           </Popover>
           
           <div className="ml-auto flex items-center gap-1">
-            <TBtn onClick={() => setSourceModalOpen(true)}><Upload className="size-3.5" /> Import</TBtn>
+            <TBtn onClick={() => setSourceModalOpen(true)}><Download className="size-3.5" /> Import</TBtn>
             <TBtn onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
             <TBtn onClick={triggerAutoZoning}><Sparkles className="size-3.5 text-primary" /> Auto-Zone</TBtn>
             <TBtn primary onClick={handleNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
@@ -2915,7 +2915,7 @@ function SpacesView() {
             <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
               <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
                 <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
-                  <Upload className="size-6" />
+                  <Download className="size-6" />
                 </div>
                 <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Loaded</h3>
                 <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
@@ -2926,7 +2926,7 @@ function SpacesView() {
                     onClick={() => setSourceModalOpen(true)}
                     className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
                   >
-                    <Upload className="size-3.5" /> Import
+                    <Download className="size-3.5" /> Import
                   </button>
                   <button
                     onClick={handleNewSpace}
