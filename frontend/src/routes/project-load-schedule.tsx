@@ -1056,6 +1056,10 @@ function ProjectLoadSchedulePage() {
 
   return (
     <AppShell>
+      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Project Load Schedule Calculations</div>
+        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/project-load-schedule" calculatorTitle="Project Load Schedule" />
+      </div>
       <div className="flex flex-col h-full bg-slate-50 text-slate-800 font-sans">
         
         {/* Top Header */}

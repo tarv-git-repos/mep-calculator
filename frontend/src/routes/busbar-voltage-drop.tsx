@@ -863,6 +863,10 @@ function BusbarVoltageDropPage() {
       subtitle="Calculate busbar voltage drop with resistive and reactive components."
       actions={
         <div className="flex gap-2">
+      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Busbar Voltage Drop Calculations</div>
+        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/busbar-voltage-drop" calculatorTitle="Busbar Voltage Drop" />
+      </div>
           
           <ImportExcelBtn
             columnMapping={{

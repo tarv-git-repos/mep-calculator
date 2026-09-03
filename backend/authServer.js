@@ -294,11 +294,14 @@ async function readUsers(forceRefresh = false) {
               : (u.organization_id || u.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null)));
 
         const comp = loc.company || loc.organization || loc.features?.company || loc.features?.organization || u.company || u.organization || u.features?.company || u.features?.organization || '';
+        const userPlan = loc.plan || loc.subscription_status || loc.features?.plan || loc.features?.subscription_status || u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
 
         return {
           ...u,
           ...loc,
           role: effRole,
+          plan: userPlan,
+          subscription_status: userPlan,
           organization_id: orgId,
           company: comp,
           organization: comp,
@@ -310,6 +313,8 @@ async function readUsers(forceRefresh = false) {
           features: {
             ...(u.features || {}),
             ...(loc.features || {}),
+            plan: userPlan,
+            subscription_status: userPlan,
             organization_id: orgId,
             company: comp,
             organization: comp,
@@ -327,15 +332,20 @@ async function readUsers(forceRefresh = false) {
           const expDate = u.subscription_expires || u.features?.subscription_expires || null;
           const orgId = u.organization_id || u.features?.organization_id || null;
           const comp = u.company || u.organization || u.features?.company || u.features?.organization || '';
+          const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
           users.push({
             ...u,
             role: effRole,
+            plan: userPlan,
+            subscription_status: userPlan,
             organization_id: orgId,
             company: comp,
             organization: comp,
             subscription_expires: expDate,
             features: {
               ...(u.features || {}),
+              plan: userPlan,
+              subscription_status: userPlan,
               organization_id: orgId,
               company: comp,
               organization: comp,
@@ -432,6 +442,9 @@ function toSupabaseUserPayload(u) {
   if (u.subscription_expires !== undefined) feat.subscription_expires = u.subscription_expires;
   if (u.role) feat.role = u.role;
   if (u.organization_id !== undefined) feat.organization_id = u.organization_id;
+  const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (u.organization_id ? 'ENTERPRISE' : 'PRO');
+  feat.plan = userPlan;
+  feat.subscription_status = userPlan;
 
   for (const key of Object.keys(u)) {
     if (VALID_CUSTOM_USER_COLUMNS.has(key)) {
@@ -453,8 +466,11 @@ async function writeUsers(users) {
       const orgId = u.organization_id !== undefined ? u.organization_id : (u.features?.organization_id || null);
       const comp = company || u.company || u.organization || u.features?.company || u.features?.organization || '';
       const effRole = u.role || u.features?.role || 'Jr. Design Engineer';
+      const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
       const features = {
         ...(u.features || {}),
+        plan: userPlan,
+        subscription_status: userPlan,
         organization_id: orgId,
         company: comp,
         organization: comp,
@@ -470,6 +486,8 @@ async function writeUsers(users) {
       return {
         ...u,
         role: effRole,
+        plan: userPlan,
+        subscription_status: userPlan,
         organization_id: orgId,
         company: comp,
         organization: comp,
@@ -1364,12 +1382,15 @@ const server = http.createServer(async (req, res) => {
         if (orgObj && orgObj.name) resolvedCompany = orgObj.name;
       }
       const effRole = (u.role && u.role !== 'USER') ? u.role : (u.features?.role || 'Jr. Design Engineer');
+      const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
       return { 
         id: u.id, 
         name: u.name, 
         email: u.email, 
         role: effRole,
         features: u.features,
+        plan: userPlan,
+        subscription_status: userPlan,
         subscription_expires: u.subscription_expires || u.features?.subscription_expires || null,
         isAccountVerified: u.isAccountVerified,
         organization_id: orgId,
@@ -2187,10 +2208,13 @@ const server = http.createServer(async (req, res) => {
       const newOrgId = updates.organization_id !== undefined ? (updates.organization_id || null) : (existing.organization_id || existing.features?.organization_id || null);
       const newComp = updates.company || updates.organization || existing.company || existing.organization || existing.features?.company || existing.features?.organization || '';
       const newRole = updates.role || existing.role || existing.features?.role || 'Jr. Design Engineer';
+      const newPlan = updates.plan || updates.subscription_status || existing.plan || existing.subscription_status || existing.features?.plan || existing.features?.subscription_status || (newOrgId ? 'ENTERPRISE' : 'PRO');
 
       const updatedUser = {
         ...existing,
         ...updates,
+        plan: newPlan,
+        subscription_status: newPlan,
         organization_id: newOrgId,
         company: newComp,
         organization: newComp,
@@ -2199,6 +2223,8 @@ const server = http.createServer(async (req, res) => {
         features: {
           ...(existing.features || {}),
           ...(updates.features || {}),
+          plan: newPlan,
+          subscription_status: newPlan,
           organization_id: newOrgId,
           company: newComp,
           organization: newComp,

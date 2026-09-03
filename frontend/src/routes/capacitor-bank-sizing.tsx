@@ -419,6 +419,10 @@ function CapacitorBankSizingPage() {
 
   return (
     <AppShell title="Capacitor Bank Sizing" hideSubHeader={true}>
+      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Capacitor Bank Sizing Calculations</div>
+        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/capacitor-bank-sizing" calculatorTitle="Capacitor Bank Sizing" />
+      </div>
       <div className="flex flex-col h-full overflow-hidden pt-4 gap-4 bg-slate-50/30 dark:bg-slate-950/30 relative">
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>

@@ -67,7 +67,6 @@ interface BusbarRow {
 }
 
 export function getBusbarRowValidation(r?: Partial<BusbarRow>, vdPercent: number = 0) {
-  const isLocked = useCalculationLock("/busbar-calculation", activeProjectId || (project as any)?.id || "default");
   const warnings: string[] = [];
   if (!r) return { isAutoFlagged: false, isFlagged: false, warnings: [] };
 

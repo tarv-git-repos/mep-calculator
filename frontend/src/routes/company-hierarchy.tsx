@@ -595,18 +595,6 @@ function CompanyHierarchyPage() {
     <AppShell 
       title="Company Hierarchy" 
       subtitle={currentRole === "ORG_ADMIN" ? "Organization Admin & Team Hierarchy Builder" : "Super Admin & Organization Hierarchy Builder"}
-      actions={
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleOpenAddModal(null)}
-            className="size-8.5 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-all shadow-xs cursor-pointer"
-            title="Add Team Member"
-            aria-label="Add Team Member"
-          >
-            <UserPlus className="size-4" />
-          </button>
-        </div>
-      }
     >
       <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-50/40 dark:bg-zinc-950/20 overflow-y-auto custom-scrollbar p-6 space-y-6">
         
@@ -662,6 +650,15 @@ function CompanyHierarchyPage() {
                 <Users className="size-3.5 inline mr-1" /> List Grid
               </button>
             </div>
+
+            <button
+              onClick={() => handleOpenAddModal(null)}
+              className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-all shadow-xs cursor-pointer shrink-0"
+              title="Add Team Member"
+              aria-label="Add Team Member"
+            >
+              <UserPlus className="size-4" />
+            </button>
 
             {visibleMembers.length > 0 && (
               <button

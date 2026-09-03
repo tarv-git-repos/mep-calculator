@@ -2506,6 +2506,28 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                       return null;
                     }
 
+                    // Electrical routes display review and unlock buttons in their dedicated calculation tab bar below
+                    const ELECTRICAL_ROUTES = new Set([
+                      "/generator-sizing",
+                      "/busbar-calculation",
+                      "/busbar-voltage-drop",
+                      "/cable-tray-sizing",
+                      "/cable-voltage-drop",
+                      "/conductor-sizing",
+                      "/circuit-breaker-sizing",
+                      "/transformer-sizing",
+                      "/ups-sizing-calculation",
+                      "/central-battery-sizing",
+                      "/capacitor-bank-sizing",
+                      "/lighting-lux-calculation",
+                      "/lpd-calculation",
+                      "/short-circuit-calculations",
+                      "/project-load-schedule"
+                    ]);
+                    if (ELECTRICAL_ROUTES.has(pathname)) {
+                      return null;
+                    }
+
                     if (isMepCalcRoute) {
                       return (
                         <CalculationReviewBar

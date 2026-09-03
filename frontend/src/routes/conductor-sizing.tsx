@@ -473,6 +473,10 @@ function ConductorSizingPage() {
 
   return (
     <AppShell title="Conductor (Cable) Sizing" hideSubHeader>
+      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Conductor Sizing Calculations</div>
+        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/conductor-sizing" calculatorTitle="Conductor Sizing" />
+      </div>
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6">
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">

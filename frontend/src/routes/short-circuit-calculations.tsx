@@ -814,6 +814,10 @@ function ShortCircuitCalculationsPage() {
       title="Short Circuit Sizing" 
       hideSubHeader={true}
     >
+      <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 flex items-center justify-between shrink-0 no-print">
+        <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Short Circuit Calculations Calculations</div>
+        <CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculations" />
+      </div>
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6">
           

@@ -399,6 +399,7 @@ function CircuitBreakerSizingPage() {
 
         {/* Tabs */}
         <div className="flex items-center gap-2 mb-6 border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div className="shrink-0 ml-auto pr-3"><CalculationReviewBar projectId={activeProjectId || (project as any)?.id || "default"} calculatorPath="/circuit-breaker-sizing" calculatorTitle="Circuit Breaker Sizing" /></div>
           <button 
             onClick={() => setActiveTab('calculator')}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeTab === 'calculator' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
