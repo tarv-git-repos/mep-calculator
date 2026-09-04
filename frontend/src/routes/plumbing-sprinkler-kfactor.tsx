@@ -465,6 +465,86 @@ function SprinklerKFactorPage() {
     setRedoStack([]);
   }, [project?.id]);
 
+  const [highlightedSprinklerId, setHighlightedSprinklerId] = useState<string | null>(null);
+
+  // Listen for comment scroll/highlight navigation from notifications
+  useEffect(() => {
+    const handleNotificationTarget = (targetId?: string | null, targetName?: string | null) => {
+      if (!targetId && !targetName) return;
+
+      // 1. Ensure schedule tab is active so DataGrid is mounted
+      setTab("schedule");
+
+      // 2. Clear any active filters that might hide the target sprinkler row
+      setSearchQuery("");
+      setFloorFilter("All");
+      setHazardFilter("All");
+      setKFilter("All");
+      setFlagFilterOnly(false);
+
+      // 3. Find and select the target row in state
+      const cleanId = String(targetId || "").toLowerCase().trim();
+      const cleanIdNorm = cleanId.replace(/[^a-z0-9]/g, "");
+      const cleanTarget = String(targetName || "").toLowerCase().trim();
+      const cleanTargetNorm = cleanTarget.replace(/[^a-z0-9]/g, "");
+
+      const matched = rows.find(r => {
+        const rId = String(r.id || "").toLowerCase().trim();
+        const rIdNorm = rId.replace(/[^a-z0-9]/g, "");
+        if (cleanId && (rId === cleanId || (cleanIdNorm && rIdNorm === cleanIdNorm))) return true;
+
+        if (cleanTargetNorm) {
+          const rLabel = String(r.label || "").toLowerCase().trim().replace(/[^a-z0-9]/g, "");
+          if (rLabel && (rLabel === cleanTargetNorm || rLabel.includes(cleanTargetNorm) || cleanTargetNorm.includes(rLabel))) return true;
+          if (rIdNorm && (rIdNorm === cleanTargetNorm || rIdNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rIdNorm))) return true;
+        }
+        return false;
+      });
+
+      const finalId = matched ? matched.id : (cleanId || targetId || "");
+      if (finalId) {
+        setSelected(new Set([finalId]));
+        setLastSelectedId(finalId);
+        setHighlightedSprinklerId(finalId);
+        setTimeout(() => setHighlightedSprinklerId(null), 5000);
+      }
+
+      // 4. Staggered trigger to guarantee DataGrid and DOM scroll & highlight
+      const intervals = [50, 150, 300, 500, 800, 1200];
+      intervals.forEach(delay => {
+        setTimeout(() => {
+          window.dispatchEvent(
+            new CustomEvent("mep-scroll-to-item", {
+              detail: { id: finalId, name: matched?.label || targetName },
+            })
+          );
+        }, delay);
+      });
+    };
+
+    // Check URL query parameters
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("commentTargetId");
+      const targetName = params.get("commentTargetName");
+      if (targetId || targetName) {
+        handleNotificationTarget(targetId, targetName);
+      }
+    }
+
+    // Listen to mep-scroll-to-item window event
+    const handleScrollEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ id?: string; name?: string; type?: string }>;
+      if (!customEvent || !customEvent.detail) return;
+      handleNotificationTarget(customEvent.detail.id, customEvent.detail.name);
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+    };
+  }, [rows]);
+
   const handleUnitToggle = (newSystem: "si" | "ip") => {
     if (newSystem === unitSystem) return;
     setUnitSystem(newSystem);
@@ -2083,8 +2163,11 @@ function SprinklerKFactorPage() {
                       groupOrder={allUniqueFloors}
                       renderGroupHeader={renderFloorGroupHeader}
                       renderGroupContextMenu={renderFloorGroupContextMenu}
+                      activeRowId={highlightedSprinklerId || undefined}
                       rowClassName={(row, index) =>
-                        index % 2 === 0
+                        highlightedSprinklerId === row.id
+                          ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 font-bold shadow-lg"
+                          : index % 2 === 0
                           ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
                           : "bg-card hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
                       }

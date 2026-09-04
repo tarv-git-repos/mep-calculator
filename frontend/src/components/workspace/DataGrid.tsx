@@ -250,18 +250,55 @@ export function DataGrid<T extends { id: string }>({
       const customEvent = e as CustomEvent<{ id?: string; name?: string; type?: string }>;
       if (!customEvent || !customEvent.detail) return;
       const { id: itemId, name: targetName } = customEvent.detail;
-      const currentItems = itemsRef.current;
       const currentHeight = heightRef.current;
       
       const cleanId = itemId ? String(itemId).trim().toLowerCase() : "";
+      const cleanIdNorm = cleanId.replace(/[^a-z0-9]/g, "");
       const cleanTarget = targetName ? String(targetName).trim().toLowerCase() : "";
+      const cleanTargetNorm = cleanTarget.replace(/[^a-z0-9]/g, "");
 
-      const itemIndex = currentItems.findIndex((item) => {
+      // If target row is inside a collapsed group, uncollapse that group first
+      const matchingRow = rows.find((r: any) => {
+        const rId = String(r.id || "").trim().toLowerCase();
+        const rIdNorm = rId.replace(/[^a-z0-9]/g, "");
+        if (cleanId && (rId === cleanId || (cleanIdNorm && rIdNorm === cleanIdNorm))) return true;
+
+        if (cleanTargetNorm) {
+          const rName = String(r.name || "").trim().toLowerCase();
+          const rLabel = String(r.label || "").trim().toLowerCase();
+          const rDesc = String(r.desc || "").trim().toLowerCase();
+          const rNameNorm = rName.replace(/[^a-z0-9]/g, "");
+          const rLabelNorm = rLabel.replace(/[^a-z0-9]/g, "");
+          const rDescNorm = rDesc.replace(/[^a-z0-9]/g, "");
+
+          if (rNameNorm && (rNameNorm === cleanTargetNorm || rNameNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rNameNorm))) return true;
+          if (rLabelNorm && (rLabelNorm === cleanTargetNorm || rLabelNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rLabelNorm))) return true;
+          if (rDescNorm && (rDescNorm === cleanTargetNorm || rDescNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rDescNorm))) return true;
+          if (rIdNorm && (rIdNorm === cleanTargetNorm || rIdNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rIdNorm))) return true;
+        }
+
+        return false;
+      });
+
+      if (matchingRow && groupBy) {
+        const gVal = groupBy(matchingRow) || "Unknown";
+        setCollapsedGroups(prev => {
+          if (prev.has(gVal)) {
+            const next = new Set(prev);
+            next.delete(gVal);
+            return next;
+          }
+          return prev;
+        });
+      }
+
+      const matchFn = (item: any) => {
         const rowData = item.data as any;
         const rId = String(item.id || rowData?.id || "").trim().toLowerCase();
-        if (cleanId && rId === cleanId) return true;
+        const rIdNorm = rId.replace(/[^a-z0-9]/g, "");
+        if (cleanId && (rId === cleanId || (cleanIdNorm && rIdNorm === cleanIdNorm))) return true;
 
-        if (cleanTarget && rowData) {
+        if (cleanTargetNorm && rowData) {
           const rName = String(rowData.name || "").trim().toLowerCase();
           const rLabel = String(rowData.label || "").trim().toLowerCase();
           const rDesc = String(rowData.desc || "").trim().toLowerCase();
@@ -270,32 +307,46 @@ export function DataGrid<T extends { id: string }>({
           const rLoc = String(rowData.location || "").trim().toLowerCase();
           const rRef = String(rowData.ref || "").trim().toLowerCase();
 
-          if (rName && (rName === cleanTarget || rName.includes(cleanTarget) || cleanTarget.includes(rName))) return true;
-          if (rLabel && (rLabel === cleanTarget || rLabel.includes(cleanTarget) || cleanTarget.includes(rLabel))) return true;
-          if (rDesc && (rDesc === cleanTarget || rDesc.includes(cleanTarget) || cleanTarget.includes(rDesc))) return true;
-          if (rTag && (rTag === cleanTarget || rTag.includes(cleanTarget) || cleanTarget.includes(rTag))) return true;
-          if (rFrom && (rFrom === cleanTarget || rFrom.includes(cleanTarget) || cleanTarget.includes(rFrom))) return true;
-          if (rLoc && (rLoc === cleanTarget || rLoc.includes(cleanTarget) || cleanTarget.includes(rLoc))) return true;
-          if (rRef && (rRef === cleanTarget || rRef.includes(cleanTarget) || cleanTarget.includes(rRef))) return true;
+          const rNameNorm = rName.replace(/[^a-z0-9]/g, "");
+          const rLabelNorm = rLabel.replace(/[^a-z0-9]/g, "");
+          const rDescNorm = rDesc.replace(/[^a-z0-9]/g, "");
+          const rTagNorm = rTag.replace(/[^a-z0-9]/g, "");
+
+          if (rNameNorm && (rNameNorm === cleanTargetNorm || rNameNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rNameNorm))) return true;
+          if (rLabelNorm && (rLabelNorm === cleanTargetNorm || rLabelNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rLabelNorm))) return true;
+          if (rDescNorm && (rDescNorm === cleanTargetNorm || rDescNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rDescNorm))) return true;
+          if (rTagNorm && (rTagNorm === cleanTargetNorm || rTagNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rTagNorm))) return true;
+          if (rIdNorm && (rIdNorm === cleanTargetNorm || rIdNorm.includes(cleanTargetNorm) || cleanTargetNorm.includes(rIdNorm))) return true;
         }
 
         return false;
-      });
+      };
 
-      if (itemIndex !== -1 && ref.current) {
-        const matchedItem = currentItems[itemIndex];
-        const actualId = matchedItem.data?.id || matchedItem.id;
+      const doScroll = () => {
+        const currentItems = itemsRef.current;
+        const itemIndex = currentItems.findIndex(matchFn);
 
-        const topOffset = itemIndex * ROW_H;
-        ref.current.scrollTop = Math.max(0, topOffset - (currentHeight / 2) + (ROW_H / 2));
-        
-        setHighlightedRowId(actualId);
-        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-        highlightTimeoutRef.current = setTimeout(() => {
-          setHighlightedRowId(null);
-          highlightTimeoutRef.current = null;
-        }, 4500);
-      }
+        if (itemIndex !== -1 && ref.current) {
+          const matchedItem = currentItems[itemIndex];
+          const actualId = matchedItem.data?.id || matchedItem.id;
+
+          const topOffset = itemIndex * ROW_H;
+          const newScrollTop = Math.max(0, topOffset - (currentHeight / 2) + (ROW_H / 2));
+          ref.current.scrollTop = newScrollTop;
+          setScrollTop(newScrollTop);
+          
+          setHighlightedRowId(actualId);
+          if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+          highlightTimeoutRef.current = setTimeout(() => {
+            setHighlightedRowId(null);
+            highlightTimeoutRef.current = null;
+          }, 4500);
+        }
+      };
+
+      doScroll();
+      setTimeout(doScroll, 100);
+      setTimeout(doScroll, 300);
     };
     
     window.addEventListener("mep-scroll-to-item", handleScrollToItem);
@@ -500,6 +551,9 @@ export function DataGrid<T extends { id: string }>({
                     <ContextMenuTrigger asChild>
                       <div
                         id={`row-${row.id}`}
+                        data-row-id={row.id}
+                        data-item-id={row.id}
+                        data-sprinkler-id={row.id}
                         onClick={(e) => {
                           const target = e.target as HTMLElement;
                           const isTextInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
@@ -549,7 +603,7 @@ export function DataGrid<T extends { id: string }>({
                             : ""
                         } ${
                           highlightedRowId === row.id
-                            ? "row-highlight-flash"
+                            ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                             : ""
                         } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
                         style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}
@@ -565,6 +619,9 @@ export function DataGrid<T extends { id: string }>({
               return (
                 <div
                   id={`row-${row.id}`}
+                  data-row-id={row.id}
+                  data-item-id={row.id}
+                  data-sprinkler-id={row.id}
                   key={row.id}
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
@@ -602,7 +659,7 @@ export function DataGrid<T extends { id: string }>({
                       : ""
                   } ${
                     highlightedRowId === row.id
-                      ? "row-highlight-flash"
+                      ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                       : ""
                   } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
                   style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import {
   Bell, CheckCircle2, Trash2, Search, CheckCheck, Clock,
   FolderKanban, Sparkles, MessageSquare, ShieldCheck, Layers, X,
-  ExternalLink, RotateCcw, Inbox, AlertCircle, Check
+  ExternalLink, RotateCcw, Inbox, AlertCircle, Check, ArrowRight, MoveRight
 } from "lucide-react";
 
 interface NotificationCenterViewProps {
@@ -147,6 +147,26 @@ export function NotificationCenterView({
         clearAllDeletedNotifications(e);
       }
     }
+  };
+  // Extract clean direct comment text (strips '... commented on ...: "comment"')
+  const extractDirectComment = (n: any): string => {
+    let text = n.text || n.message || n.metadata?.text || n.commentText || "";
+    text = String(text).trim();
+
+    const colonIndex = text.lastIndexOf(":");
+    const commentKeyword = /commented\s+on\b/i;
+    if (commentKeyword.test(text) && colonIndex !== -1) {
+      const afterColon = text.substring(colonIndex + 1).trim();
+      if (afterColon) {
+        text = afterColon;
+      }
+    }
+
+    if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”')) || (text.startsWith("'") && text.endsWith("'"))) {
+      text = text.slice(1, -1).trim();
+    }
+
+    return text;
   };
 
   return (
@@ -357,7 +377,7 @@ export function NotificationCenterView({
               const isDeleted = activeTab === "deleted" || Boolean(notif.deleted || (notif.id && deletedNotifIds.includes(notif.id)));
               const isUnread = Boolean(notif.id && !readNotifIds.includes(notif.id) && !isCompleted && !isDeleted);
 
-              const rawText = notif.text || notif.message || notif.metadata?.text || "";
+              const rawText = extractDirectComment(notif);
               const rawAuthor = notif.authorName || notif.metadata?.authorName || "Design Engineer";
               const rawTargetType = notif.targetType || notif.metadata?.targetType || "Location";
               const rawTargetName = notif.targetName || notif.metadata?.targetName || notif.targetId || "";
@@ -368,6 +388,9 @@ export function NotificationCenterView({
               const formattedDate = (!rawDate || isNaN(dateObj.getTime()))
                 ? (rawDate || "Just now")
                 : `${dateObj.toLocaleDateString()}, ${dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}`;
+
+              const rawCalculatorTitle = notif.calculatorTitle || notif.metadata?.calculatorTitle || "";
+              const calcName = rawCalculatorTitle || (notif.calculatorPath ? notif.calculatorPath.replace('/', '').replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()) : "Ventilation");
 
               return (
                 <div
@@ -390,7 +413,7 @@ export function NotificationCenterView({
                     <div className="absolute top-0 left-0 bottom-0 w-1 bg-primary" />
                   )}
 
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3.5 flex-1 min-w-0">
                       {/* Icon Avatar */}
                       <div
@@ -417,8 +440,9 @@ export function NotificationCenterView({
 
                       {/* Main Info */}
                       <div className="flex-1 min-w-0">
+                        {/* 1. TOP: SENDER NAME + BADGES + TIME */}
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-bold text-[13.5px] text-foreground">
+                          <span className="font-bold text-[14px] text-foreground tracking-tight">
                             {rawAuthor}
                           </span>
 
@@ -446,50 +470,35 @@ export function NotificationCenterView({
                           </span>
                         </div>
 
-                        {/* Comment / Notification Text */}
+                        {/* 2. MIDDLE: PROJECT NAME -> CALCULATOR NAME */}
+                        <div className="flex flex-wrap items-center gap-2.5 text-[12.5px] font-semibold text-muted-foreground mb-2">
+                          <span className="font-bold text-primary flex items-center gap-1.5 bg-primary/5 px-2.5 py-0.5 rounded-md border border-primary/15 shadow-2xs" title={rawProjectName}>
+                            <FolderKanban className="size-3.5 text-primary/80" />
+                            {rawProjectName}
+                          </span>
+                          <MoveRight className="w-5.5 h-4 text-muted-foreground/80 stroke-[2.5] shrink-0" />
+                          <span className="font-bold text-foreground bg-surface-2 px-2.5 py-0.5 rounded-md border border-border/80 shadow-2xs">
+                            {calcName}
+                          </span>
+                        </div>
+
+                        {/* 3. BOTTOM: ACTUAL COMMENT TEXT */}
                         {rawText && (
-                          <p className={`text-[12.5px] font-medium leading-relaxed mb-2.5 text-left break-words ${
+                          <p className={`text-[13px] font-medium leading-relaxed text-left break-words ${
                             isDeleted
                               ? "text-muted-foreground/80"
                               : isCompleted
                               ? "text-muted-foreground/80 line-through"
-                              : "text-foreground/90"
+                              : "text-foreground/95"
                           }`}>
                             {rawText}
                           </p>
                         )}
-
-                        {/* Location & Project Pills */}
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
-                          {rawTargetType && (
-                            <span className="px-2 py-0.5 bg-primary/10 text-primary font-extrabold rounded-md text-[9.5px] uppercase tracking-wider flex items-center gap-1 border border-primary/20">
-                              <Layers className="size-3" />
-                              {rawTargetType}
-                            </span>
-                          )}
-
-                          {rawTargetName && (
-                            <span className={`text-foreground/90 font-bold truncate max-w-[240px] ${isCompleted ? "line-through" : ""}`}>
-                              {rawTargetName}
-                            </span>
-                          )}
-
-                          {rawProjectName && (
-                            <>
-                              <span className="text-muted-foreground/70 text-[11px]">in</span>
-                              <span className="font-bold text-primary truncate max-w-[220px] flex items-center gap-1 bg-primary/5 px-2 py-0.5 rounded-md border border-primary/15" title={rawProjectName}>
-                                <FolderKanban className="size-3 text-primary/80" />
-                                {rawProjectName}
-                              </span>
-                            </>
-                          )}
-                        </div>
                       </div>
                     </div>
 
-                    {/* Right Action Control Buttons */}
-                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-border/40">
-                      
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-1.5 shrink-0 self-start mt-0.5">
                       {/* RECEIVED TAB ACTIONS */}
                       {activeTab === "received" && (
                         <>
@@ -499,11 +508,10 @@ export function NotificationCenterView({
                                 e.stopPropagation();
                                 completeTaskAndNotifyAuthor(notif, e);
                               }}
-                              className="h-8 px-3 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 text-[11.5px] font-bold border text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
-                              title="Mark task as completed (moves to Completed tab)"
+                              className="size-8 rounded-full border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15 hover:border-emerald-500 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                              title="Mark task as completed"
                             >
-                              <CheckCircle2 className="size-3.5 text-emerald-500" />
-                              <span>Mark Done</span>
+                              <Check className="size-4 stroke-[2.5]" />
                             </button>
                           )}
 
@@ -512,8 +520,8 @@ export function NotificationCenterView({
                               e.stopPropagation();
                               deleteNotification(notif, e);
                             }}
-                            className="p-1.5 text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/30 rounded-lg transition-all cursor-pointer"
-                            title="Delete notification (moves to Deleted tab)"
+                            className="size-8 rounded-full border border-destructive/30 text-muted-foreground hover:text-destructive hover:bg-destructive/15 hover:border-destructive flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                            title="Delete notification"
                           >
                             <Trash2 className="size-3.5" />
                           </button>
@@ -523,9 +531,8 @@ export function NotificationCenterView({
                       {/* COMPLETED TAB ACTIONS */}
                       {activeTab === "completed" && (
                         <>
-                          <div className="h-8 px-2.5 rounded-lg flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 select-none">
-                            <Check className="size-3.5 text-emerald-500" />
-                            <span>Completed</span>
+                          <div className="size-8 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center select-none" title="Completed">
+                            <Check className="size-4 stroke-[2.5]" />
                           </div>
 
                           <button
@@ -533,8 +540,8 @@ export function NotificationCenterView({
                               e.stopPropagation();
                               deleteNotification(notif, e);
                             }}
-                            className="p-1.5 text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/30 rounded-lg transition-all cursor-pointer"
-                            title="Delete notification (moves to Deleted tab)"
+                            className="size-8 rounded-full border border-destructive/30 text-muted-foreground hover:text-destructive hover:bg-destructive/15 hover:border-destructive flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                            title="Delete notification"
                           >
                             <Trash2 className="size-3.5" />
                           </button>
@@ -550,11 +557,10 @@ export function NotificationCenterView({
                                 e.stopPropagation();
                                 restoreNotification(notif, e);
                               }}
-                              className="h-8 px-3 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 text-[11.5px] font-bold border text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
-                              title="Restore notification back to Received"
+                              className="size-8 rounded-full border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15 hover:border-emerald-500 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                              title="Restore notification"
                             >
-                              <RotateCcw className="size-3.5 text-emerald-500" />
-                              <span>Restore</span>
+                              <RotateCcw className="size-3.5" />
                             </button>
                           )}
 
@@ -564,7 +570,7 @@ export function NotificationCenterView({
                                 e.stopPropagation();
                                 permanentlyDeleteNotification(notif, e);
                               }}
-                              className="p-1.5 text-destructive/70 hover:text-destructive hover:bg-destructive/15 border border-transparent hover:border-destructive/30 rounded-lg transition-all cursor-pointer"
+                              className="size-8 rounded-full border border-destructive/40 text-destructive hover:bg-destructive/20 hover:border-destructive flex items-center justify-center transition-all cursor-pointer shadow-2xs"
                               title="Delete permanently"
                             >
                               <Trash2 className="size-3.5" />
@@ -572,20 +578,6 @@ export function NotificationCenterView({
                           )}
                         </>
                       )}
-
-                      {/* Common View Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (notif.id) markNotifAsRead(notif.id);
-                          onNavigateToItem(notif);
-                        }}
-                        className="h-8 px-3 bg-primary text-primary-foreground hover:bg-primary/95 border border-primary/20 rounded-lg transition-all flex items-center gap-1 text-[11.5px] font-bold cursor-pointer shadow-2xs"
-                        title="View item in calculator and highlight"
-                      >
-                        <span>View</span>
-                        <ExternalLink className="size-3 text-primary-foreground" />
-                      </button>
                     </div>
                   </div>
                 </div>

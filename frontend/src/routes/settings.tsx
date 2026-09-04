@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/services/api";
+import { toast } from "sonner";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { 
   Settings, 
@@ -160,7 +162,7 @@ export function SettingsPage() {
         }
 
         // 2. Direct organization/company field assigned by Admin
-        const directOrg = myRecord?.organization || myRecord?.company || profile?.organization || profile?.company || userData?.organization || userData?.company;
+        const directOrg = myRecord?.organization || myRecord?.company || (profile as any)?.organization || profile?.company || (userData as any)?.organization || userData?.company;
         if (directOrg && directOrg.trim() && directOrg.trim() !== 'No Organization Assigned' && directOrg.trim() !== 'null') {
           const resolvedName = directOrg.trim() === 'Consitent' ? 'Consistent Engineering Consultants' : directOrg.trim();
           setAssignedOrgName(resolvedName);

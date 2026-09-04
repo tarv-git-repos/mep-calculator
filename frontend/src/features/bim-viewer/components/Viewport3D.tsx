@@ -845,9 +845,16 @@ export function Viewport3D() {
                 };
 
                 const update2dSpaceOverlays = (selectedExpressId: string) => {
-                    const is2DView = ui.btn2d.classList.contains('active');
-                    const isSpacesActive = is2DView && ui.btnSpaces.classList.contains('active');
+                    const is2DView = ui.btn2d.classList.contains('active') || store().viewMode === '2d';
+                    const isSpacesActive = is2DView && (ui.btnSpaces.classList.contains('active') || store().isSpacesActive);
                     const activeExpressId = (window as any)._currentlySelectedExpressId;
+
+                    if (!is2DView) {
+                        space2dFillMeshes.forEach(mesh => { mesh.visible = false; });
+                        space2dOutlineMeshes.forEach(mesh => { mesh.visible = false; });
+                        space2dPickMeshes.forEach(mesh => { mesh.visible = false; });
+                        return;
+                    }
 
                     space2dFillMeshes.forEach(mesh => {
                         const storeyId = (mesh as any).storeyExpressId;
@@ -1190,16 +1197,18 @@ export function Viewport3D() {
                 ui.btn2d.onclick = async () => {
                     if (ui.btn2d.classList.contains('active')) return;
                     ui.btn2d.classList.add('active'); ui.btn3d.classList.remove('active');
+                    store().setViewMode('2d');
                     ui.btnOrbit.style.display = 'none'; ui.btnWalk.style.display = 'none'; ui.btnClip.style.display = 'none';
-                    if (ui.btnWalk.classList.contains('active')) { document.exitPointerLock(); ui.btnWalk.classList.remove('active'); ui.btnOrbit.classList.add('active'); }
+                    if (ui.btnWalk.classList.contains('active')) { document.exitPointerLock(); ui.btnWalk.classList.remove('active'); ui.btnOrbit.classList.add('active'); store().setCameraMode('orbit'); }
                     ui.selectLevel.style.display = 'inline-block';
                     await floorPlanManager.enter2DMode();
-                    if (!ui.btnSpaces.classList.contains('active')) { ui.btnSpaces.classList.add('active'); }
-                    if (!ui.btnTags.classList.contains('active')) { ui.btnTags.classList.add('active'); }
+                    if (!ui.btnSpaces.classList.contains('active')) { ui.btnSpaces.classList.add('active'); store().setIsSpacesActive(true); }
+                    if (!ui.btnTags.classList.contains('active')) { ui.btnTags.classList.add('active'); store().setIsTagsActive(true); }
                     await hider.set(ui.btnSpaces.classList.contains('active'), spaceMap);
                     const gfStorey = storeys.find(st => /ground/i.test(st.name) || /^gf/i.test(st.name)) || storeys.find(st => st.spaces && st.spaces.length > 0) || storeys[0];
                     if (gfStorey) {
                         ui.selectLevel.value = gfStorey.expressId.toString();
+                        store().setSelectedLevel(gfStorey.expressId.toString());
                     }
                     await (ui.selectLevel as any).onchange();
                 };
@@ -1207,6 +1216,7 @@ export function Viewport3D() {
                 ui.btn3d.onclick = async () => {
                     if (ui.btn3d.classList.contains('active')) return;
                     ui.btn3d.classList.add('active'); ui.btn2d.classList.remove('active');
+                    store().setViewMode('3d');
                     ui.btnOrbit.style.display = 'inline-block'; ui.btnWalk.style.display = 'inline-block'; ui.btnClip.style.display = 'inline-block';
                     await floorPlanManager.enter3DMode();
                     await hider.set(false, spaceMap);
@@ -1217,22 +1227,23 @@ export function Viewport3D() {
                     space2dPickMeshes.forEach(mesh => mesh.visible = false);
                     updateTagsForLevel('');
                     
-                    if (lastHoveredId !== null || ui.selectedSpaceInfo.innerHTML !== 'Click on a space in 2D view to select it.') {
+                    if (lastHoveredId !== null || ui.selectedSpaceInfo.innerHTML !== 'Click on a space in 3D view to select it.') {
                         lastHoveredId = null;
                         setSelectedSpaceHighlight(-1, false);
-                        ui.selectedSpaceInfo.innerHTML = 'Click on a space in 2D view to select it.';
+                        ui.selectedSpaceInfo.innerHTML = 'Click on a space in 3D view to select it.';
                     }
 
                     if (ui.btnClip.classList.contains('active')) {
                         ui.selectLevel.style.display = 'inline-block'; 
-                        if (lastHoveredId !== null || ui.selectedSpaceInfo.innerHTML !== 'Click on a space in 2D view to select it.') {
+                        if (lastHoveredId !== null || ui.selectedSpaceInfo.innerHTML !== 'Click on a space in 3D view to select it.') {
                             lastHoveredId = null;
                             setSelectedSpaceHighlight(-1, false);
-                            ui.selectedSpaceInfo.innerHTML = 'Click on a space in 2D view to select it.';
+                            ui.selectedSpaceInfo.innerHTML = 'Click on a space in 3D view to select it.';
                         }
                         await (ui.selectLevel as any).onchange();
                     } else {
                         ui.selectLevel.value = ''; ui.selectLevel.style.display = 'none';
+                        store().setSelectedLevel('');
                         await floorPlanManager.deleteClipPlane(floorPlanManager.activePlaneId || undefined);
                         floorPlanManager.activePlaneId = null;
                         
@@ -1472,6 +1483,7 @@ export function Viewport3D() {
                         fillMesh.renderOrder = 9999;
                         fillMesh.rotation.x = Math.PI / 2;
                         fillMesh.position.y = targetY;
+                        fillMesh.visible = false;
 
                         (fillMesh as any).spaceExpressId = s.expressId;
                         (fillMesh as any).spaceData = s;
@@ -1486,6 +1498,7 @@ export function Viewport3D() {
                         const outlineMesh = new THREE.LineLoop(lineGeom, lineMat);
                         outlineMesh.frustumCulled = false;
                         outlineMesh.renderOrder = 9998;
+                        outlineMesh.visible = false;
                         (outlineMesh as any).spaceExpressId = s.expressId;
                         (outlineMesh as any).storeyExpressId = parentStorey?.expressId;
 
@@ -1641,24 +1654,24 @@ export function Viewport3D() {
         };
     }, []);
 
-    const cb = (window as any)._toolbarCallbacks || {};
+    const getCb = () => (window as any)._toolbarCallbacks || {};
 
     return (
         <div className="flex-1 relative w-full h-full">
             <DropOverlay />
             <div id="viewport" ref={viewportRef} className="absolute inset-0 z-0"></div>
             <Toolbar 
-                on3dToggle={cb.on3dToggle}
-                on2dToggle={cb.on2dToggle}
-                onColorToggle={cb.onColorToggle}
-                onOrbitToggle={cb.onOrbitToggle}
-                onWalkToggle={cb.onWalkToggle}
-                onClipToggle={cb.onClipToggle}
-                onTagsToggle={cb.onTagsToggle}
-                onSpacesToggle={cb.onSpacesToggle}
-                onLevelChange={cb.onLevelChange}
-                onExportSchedule={cb.onExportSchedule}
-                onRemoveModel={cb.onRemoveModel}
+                on3dToggle={() => getCb().on3dToggle?.()}
+                on2dToggle={() => getCb().on2dToggle?.()}
+                onColorToggle={(mode: string) => getCb().onColorToggle?.(mode)}
+                onOrbitToggle={() => getCb().onOrbitToggle?.()}
+                onWalkToggle={() => getCb().onWalkToggle?.()}
+                onClipToggle={() => getCb().onClipToggle?.()}
+                onTagsToggle={() => getCb().onTagsToggle?.()}
+                onSpacesToggle={() => getCb().onSpacesToggle?.()}
+                onLevelChange={(val: string) => getCb().onLevelChange?.(val)}
+                onExportSchedule={() => getCb().onExportSchedule?.()}
+                onRemoveModel={() => getCb().onRemoveModel?.()}
             />
 
             {/* TARV Brand Watermark Badge (Bottom-Left) */}

@@ -1,5 +1,6 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
@@ -101,6 +102,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 
 function TransformerSizingPage() {
   const { userData, profile } = useAuth();
+  const { project, activeProjectId } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -350,8 +352,8 @@ function TransformerSizingPage() {
     sheet.addRow(["Transformer Utilization (%)", `${calculatedData.utilization.toFixed(1)}%`]);
 
     
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "transformer-sizing");
+    const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, activeProjectId || "default", "transformer-sizing");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `transformer_sizing_report.xlsx`);
   };

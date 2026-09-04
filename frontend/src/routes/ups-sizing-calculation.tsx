@@ -1,5 +1,6 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
@@ -86,6 +87,7 @@ const TABS: { id: Tab; label: string }[] = [
 
 function UpsSizingCalculationPage() {
   const { userData, profile } = useAuth();
+  const { project, activeProjectId } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -286,8 +288,8 @@ function UpsSizingCalculationPage() {
     });
 
     
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "ups-sizing-calculation");
+    const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, activeProjectId || "default", "ups-sizing-calculation");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), "UPS_Sizing_Report.xlsx");
   };

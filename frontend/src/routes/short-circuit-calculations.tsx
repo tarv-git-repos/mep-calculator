@@ -1,5 +1,6 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
@@ -98,6 +99,7 @@ const STANDARD_REACTANCE_LOOKUP = (size: number): number => {
 
 function ShortCircuitCalculationsPage() {
   const { userData, profile } = useAuth();
+  const { project, activeProjectId } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -437,8 +439,8 @@ function ShortCircuitCalculationsPage() {
     });
 
     
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "short-circuit-calculations");
+    const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, activeProjectId || "default", "short-circuit-calculations");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), "Short_Circuit_Report.xlsx");
   };
