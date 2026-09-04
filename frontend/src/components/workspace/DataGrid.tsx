@@ -247,17 +247,40 @@ export function DataGrid<T extends { id: string }>({
 
   useEffect(() => {
     const handleScrollToItem = (e: Event) => {
-      const customEvent = e as CustomEvent<{ id?: string; name?: string }>;
+      const customEvent = e as CustomEvent<{ id?: string; name?: string; type?: string }>;
       if (!customEvent || !customEvent.detail) return;
       const { id: itemId, name: targetName } = customEvent.detail;
       const currentItems = itemsRef.current;
       const currentHeight = heightRef.current;
       
-      const itemIndex = currentItems.findIndex(
-        (item) =>
-          (itemId && (item.id === itemId || (item.data && item.data.id === itemId))) ||
-          (targetName && item.data && String((item.data as any).name).toLowerCase().trim() === String(targetName).toLowerCase().trim())
-      );
+      const cleanId = itemId ? String(itemId).trim().toLowerCase() : "";
+      const cleanTarget = targetName ? String(targetName).trim().toLowerCase() : "";
+
+      const itemIndex = currentItems.findIndex((item) => {
+        const rowData = item.data as any;
+        const rId = String(item.id || rowData?.id || "").trim().toLowerCase();
+        if (cleanId && rId === cleanId) return true;
+
+        if (cleanTarget && rowData) {
+          const rName = String(rowData.name || "").trim().toLowerCase();
+          const rLabel = String(rowData.label || "").trim().toLowerCase();
+          const rDesc = String(rowData.desc || "").trim().toLowerCase();
+          const rTag = String(rowData.tag || "").trim().toLowerCase();
+          const rFrom = String(rowData.from || "").trim().toLowerCase();
+          const rLoc = String(rowData.location || "").trim().toLowerCase();
+          const rRef = String(rowData.ref || "").trim().toLowerCase();
+
+          if (rName && (rName === cleanTarget || rName.includes(cleanTarget) || cleanTarget.includes(rName))) return true;
+          if (rLabel && (rLabel === cleanTarget || rLabel.includes(cleanTarget) || cleanTarget.includes(rLabel))) return true;
+          if (rDesc && (rDesc === cleanTarget || rDesc.includes(cleanTarget) || cleanTarget.includes(rDesc))) return true;
+          if (rTag && (rTag === cleanTarget || rTag.includes(cleanTarget) || cleanTarget.includes(rTag))) return true;
+          if (rFrom && (rFrom === cleanTarget || rFrom.includes(cleanTarget) || cleanTarget.includes(rFrom))) return true;
+          if (rLoc && (rLoc === cleanTarget || rLoc.includes(cleanTarget) || cleanTarget.includes(rLoc))) return true;
+          if (rRef && (rRef === cleanTarget || rRef.includes(cleanTarget) || cleanTarget.includes(rRef))) return true;
+        }
+
+        return false;
+      });
 
       if (itemIndex !== -1 && ref.current) {
         const matchedItem = currentItems[itemIndex];
@@ -271,13 +294,15 @@ export function DataGrid<T extends { id: string }>({
         highlightTimeoutRef.current = setTimeout(() => {
           setHighlightedRowId(null);
           highlightTimeoutRef.current = null;
-        }, 3000);
+        }, 4500);
       }
     };
     
     window.addEventListener("mep-scroll-to-item", handleScrollToItem);
+    window.addEventListener("mep-data-grid-scroll", handleScrollToItem);
     return () => {
       window.removeEventListener("mep-scroll-to-item", handleScrollToItem);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollToItem);
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     };
   }, []);

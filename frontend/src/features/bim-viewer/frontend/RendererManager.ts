@@ -28,6 +28,22 @@ export class RendererManager {
         
         this.world.renderer.onBeforeUpdate.add(() => this.css2DRenderer.render(this.world.scene.three, this.world.camera.three));
 
+        // Purge any ThatOpen company watermark/branding injected by OBC
+        const purgeWatermarks = () => {
+            try {
+                const elements = this.viewport.querySelectorAll('a, img, div, svg');
+                elements.forEach((el: any) => {
+                    const str = (el.outerHTML || '').toLowerCase();
+                    if (str.includes('thatopen') || str.includes('that open') || str.includes('that-open')) {
+                        el.remove();
+                    }
+                });
+            } catch {}
+        };
+        setTimeout(purgeWatermarks, 100);
+        setTimeout(purgeWatermarks, 1000);
+        setTimeout(purgeWatermarks, 3000);
+
         new ResizeObserver(() => { 
             this.world.renderer?.resize(); 
             this.world.camera?.updateAspect(); 

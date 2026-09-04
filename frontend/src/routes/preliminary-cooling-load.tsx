@@ -584,7 +584,7 @@ function PclIntelligenceDrawer({
   const avgDensity = totalArea > 0 ? totalWatts / totalArea : 0;
 
   return (
-    <div className="h-full w-[360px] border-l border-border bg-card flex flex-col animate-fade-in shrink-0 z-20">
+    <div className="h-full w-full bg-card flex flex-col animate-fade-in">
       <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0 bg-surface-1">
         <div className="flex items-center gap-2">
           <Sparkles className="size-3.5 text-primary animate-pulse" />
@@ -3068,7 +3068,7 @@ function PreliminaryCoolingLoadPage() {
                                     <td colSpan={7} className="p-2 font-sans">Floor: {floor}</td>
                                   </tr>
                                   {grouped[floor].map(r => (
-                                    <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                    <tr key={r.id} id={`space-row-${r.id}`} data-row-id={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                                       <td className="p-2 text-center border-r border-border/40 text-muted-foreground">{sNo++}</td>
                                       <td className="p-2 border-r border-border/40 font-medium">{r.name}</td>
                                       <td className="p-2 text-right border-r border-border/40 font-mono">{(typeof r.area === 'number' ? r.area : (parseFloat(String(r.area)) || 0)).toFixed(1)}</td>
@@ -3114,6 +3114,25 @@ function PreliminaryCoolingLoadPage() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Intelligence drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg flex flex-col" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <PclIntelligenceDrawer
+              rows={rows}
+              onClose={() => setIntelOpen(false)}
+              onSelectSpace={(id) => {
+                setSelected(new Set([id]));
+                const el = document.getElementById(`space-row-${id}`);
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -3513,69 +3532,19 @@ function PreliminaryCoolingLoadPage() {
           onClose={() => setCommentModalOpen(false)}
           targetId={commentTargetItem.id}
           targetName={commentTargetItem.name}
-          targetType={commentTargetItem.type}
+          targetType="Cooling Space"
+          calculatorTitle="Preliminary Cooling Load"
+          calculatorPath="/preliminary-cooling-load"
           existingComments={rows.find(r => r.id === commentTargetItem.id)?.comments || []}
-          onSave={async (comment) => {
-            try {
-              const currentUserName = userData?.name || profile?.name || "Design Engineer";
-              const userIds = comment.assignedUsers || [];
-              const projId = activeProjectId || project?.id || "default";
-              const projName = project?.name || projectInfo.projectName || "Active Project";
-
-              const commentWithMeta = {
-                ...comment,
-                targetId: commentTargetItem.id,
-                targetName: commentTargetItem.name,
-                targetType: "Cooling Space",
-                projectName: projName,
-                projectId: projId,
-                calculatorPath: "/preliminary-cooling-load",
-              };
-
-              // Attach comment to row state so visual comment badge appears
-              const updatedRows = rows.map(r => r.id === commentTargetItem.id ? {
-                ...r,
-                comments: [...(r.comments || []), commentWithMeta]
-              } : r);
-              saveRows(updatedRows);
-              if (project?.id) {
-                localStorage.setItem(`mep_pcl_rows_${project.id}`, JSON.stringify(updatedRows));
-              }
-
-              // Instant notification event dispatch
-              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
-              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
-              window.dispatchEvent(new Event("storage"));
-
-              toast.success(`Task comment saved for space ${commentTargetItem.name}`);
-              notifyCommentAssigned({
-                comment: commentWithMeta,
-                targetId: commentTargetItem.id,
-                targetName: commentTargetItem.name,
-                targetType: "Cooling Space",
-                calculatorTitle: "Preliminary Cooling Load",
-                calculatorPath: "/preliminary-cooling-load",
-                project,
-                currentUserName,
-                currentUserId: userData?.id || profile?.id
-              }).catch(console.error);
-            } catch(e) {
-              toast.success(`Task comment added for ${commentTargetItem.name}`);
+          onSave={(comment) => {
+            const updatedRows = rows.map(r => r.id === commentTargetItem.id ? {
+              ...r,
+              comments: [...(r.comments || []), comment]
+            } : r);
+            saveRows(updatedRows);
+            if (project?.id) {
+              localStorage.setItem(`mep_pcl_rows_${project.id}`, JSON.stringify(updatedRows));
             }
-            setCommentModalOpen(false);
-          }}
-        />
-      )}
-
-      {/* Intelligence Drawer */}
-      {intelOpen && (
-        <PclIntelligenceDrawer
-          rows={rows}
-          onClose={() => setIntelOpen(false)}
-          onSelectSpace={(id) => {
-            setSelected(new Set([id]));
-            const el = document.getElementById(`space-row-${id}`);
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
           }}
         />
       )}

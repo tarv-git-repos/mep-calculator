@@ -207,24 +207,6 @@ export function CalculationReviewBar({
     return { status: "DRAFT" };
   });
 
-  // Active Workflow Role (supports switching/testing and official role detection)
-  const [activeRole, setActiveRole] = useState<WorkflowRole>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("mep_workflow_active_role");
-      if (saved === "Discipline Coordinator" || saved === "Sr. Design Engineer" || saved === "Jr. / Design Engineer") {
-        return saved;
-      }
-    }
-    return userRole;
-  });
-
-  const handleRoleChange = (newRole: WorkflowRole) => {
-    setActiveRole(newRole);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("mep_workflow_active_role", newRole);
-    }
-  };
-
   // Modal States
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
@@ -726,7 +708,7 @@ export function CalculationReviewBar({
       {/* 2. ROLE-BASED ACTION CONTROLS */}
       
       {/* A. DISCIPLINE COORDINATOR (Approve / Reject / Unlock only) */}
-      {activeRole === "Discipline Coordinator" && (
+      {userRole === "Discipline Coordinator" && (
         <div className="inline-flex items-center gap-1.5 shrink-0">
           {isApproved ? (
             <button
@@ -759,7 +741,7 @@ export function CalculationReviewBar({
       )}
 
       {/* B. SR. DESIGN ENGINEER (Review only) */}
-      {activeRole === "Sr. Design Engineer" && !isApproved && (
+      {userRole === "Sr. Design Engineer" && !isApproved && (
         <button
           onClick={() => setShowReviewModal(true)}
           className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
@@ -770,7 +752,7 @@ export function CalculationReviewBar({
       )}
 
       {/* C. JR / DESIGN ENGINEER NOTES BUTTON (Only when Reviewed by Sr. Engineer and NOT Rejected/Approved) */}
-      {activeRole === "Jr. / Design Engineer" && isReviewed && reviewState.reviewerComments && !isApproved && !isRejected && (
+      {userRole === "Jr. / Design Engineer" && isReviewed && reviewState.reviewerComments && !isApproved && !isRejected && (
         <button
           onClick={() => setShowDetailsModal(true)}
           className="px-3 py-1 bg-surface-2 hover:bg-surface-3 text-foreground/80 border border-border/70 text-xs font-semibold rounded-full transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
@@ -779,21 +761,6 @@ export function CalculationReviewBar({
           <span>Review Notes</span>
         </button>
       )}
-
-      {/* D. ROLE SELECTOR SWITCHER (Discipline Coordinator / Sr. Design Engineer / Jr. Engineer) */}
-      <div className="relative inline-flex items-center ml-1">
-        <select
-          value={activeRole}
-          onChange={(e) => handleRoleChange(e.target.value as WorkflowRole)}
-          className="bg-surface-2 hover:bg-surface-3 text-[11px] font-semibold text-foreground/80 py-1 pl-2.5 pr-6 rounded-full border border-border/70 appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors shadow-2xs"
-          title="Switch Active Engineering Role"
-        >
-          <option value="Discipline Coordinator">👑 Discipline Coordinator</option>
-          <option value="Sr. Design Engineer">🛡️ Sr. Design Engineer</option>
-          <option value="Jr. / Design Engineer">📐 Jr. / Design Engineer</option>
-        </select>
-        <ChevronDown className="size-3 text-muted-foreground absolute right-2 pointer-events-none" />
-      </div>
 
       {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
       {showReviewModal && typeof document !== "undefined" && createPortal(

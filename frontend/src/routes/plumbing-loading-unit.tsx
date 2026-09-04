@@ -2820,13 +2820,20 @@ function LoadingUnitPage() {
                               </td>
                               <td className="p-1.5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
                                 <div className="flex items-center gap-1.5 w-full">
-                                  {s.comments && s.comments.length > 0 && (
-                                    <span 
-                                      title={`${s.comments.length} comment(s):\n${s.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`} 
-                                      className="inline-flex items-center justify-center p-1 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0 cursor-help"
+                                  {Array.isArray(s.comments) && s.comments.length > 0 && (
+                                    <button 
+                                      type="button"
+                                      title={`${s.comments.length} comment(s)/task(s) assigned to space "${s.desc}"`} 
+                                      className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
+                                        setAssignCommentOpen(true);
+                                      }}
                                     >
-                                      <MessageSquare className="size-3.5" />
-                                    </span>
+                                      <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                      <span className="text-[10px] font-bold">{s.comments.length}</span>
+                                    </button>
                                   )}
                                   <input 
                                     type="text" 
@@ -3152,7 +3159,7 @@ function LoadingUnitPage() {
             }}
             className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400"
           >
-            <MessageSquare className="size-3.5" /> Add comment
+            <MessageSquare className="size-3.5" /> Add Comment / Assign Task
           </button>
           {(() => {
             const targetSpace = iopSpaces.find(s => s.id === contextMenu.spaceId);
@@ -3200,57 +3207,38 @@ function LoadingUnitPage() {
           targetId={commentTarget.id}
           targetName={commentTarget.name}
           targetType={commentTarget.type}
+          calculatorTitle="Loading Unit & Pipe Sizer"
+          calculatorPath="/plumbing-loading-unit"
           existingComments={iopSpaces.find((s) => String(s.id) === commentTarget.id)?.comments || []}
           onSave={(newComment) => {
-            setIopSpaces(prev => {
-              const next = prev.map(s => {
-                if (String(s.id) === commentTarget.id) {
-                  const comments = [...(s.comments || []), newComment];
-                  return { ...s, comments };
-                }
-                return s;
-              });
-
-              const projId = project?.id || "default";
-              try {
-                const existingData = JSON.parse(localStorage.getItem(`mep_loading_unit_calc_${projId}`) || '{}');
-                localStorage.setItem(`mep_loading_unit_calc_${projId}`, JSON.stringify({
-                  ...existingData,
-                  iopSpaces: next,
-                  updatedAt: new Date().toISOString()
-                }));
-              } catch (e) {}
-
-              if (project?.id) {
-                try {
-                  let wdata = project.workspace_data || {};
-                  if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
-                  wdata.loading_unit_calc = { ...(wdata.loading_unit_calc || {}), iopSpaces: next, updatedAt: new Date().toISOString() };
-                  api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
-                } catch(e) {}
+            const next = iopSpaces.map(s => {
+              if (String(s.id) === commentTarget.id) {
+                const comments = [...(s.comments || []), newComment];
+                return { ...s, comments };
               }
-
-              return next;
+              return s;
             });
 
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: newComment }));
-              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: newComment }));
-              window.dispatchEvent(new Event("storage"));
-            }
+            setIopSpaces(next);
 
-            toast.success(`Comment assigned on space "${commentTarget.name}"`);
-            notifyCommentAssigned({
-              comment: newComment,
-              targetId: commentTarget.id,
-              targetName: commentTarget.name,
-              targetType: commentTarget.type || "Loading Unit Space",
-              calculatorTitle: "Loading Unit & Pipe Sizer",
-              calculatorPath: "/plumbing-loading-unit",
-              project,
-              currentUserName: userData?.name || profile?.name || "Design Engineer",
-              currentUserId: userData?.id || profile?.id
-            }).catch(console.error);
+            const projId = project?.id || "default";
+            try {
+              const existingData = JSON.parse(localStorage.getItem(`mep_loading_unit_calc_${projId}`) || '{}');
+              localStorage.setItem(`mep_loading_unit_calc_${projId}`, JSON.stringify({
+                ...existingData,
+                iopSpaces: next,
+                updatedAt: new Date().toISOString()
+              }));
+            } catch (e) {}
+
+            if (project?.id) {
+              try {
+                let wdata = project.workspace_data || {};
+                if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
+                wdata.loading_unit_calc = { ...(wdata.loading_unit_calc || {}), iopSpaces: next, updatedAt: new Date().toISOString() };
+                api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+              } catch(e) {}
+            }
           }}
         />
       )}

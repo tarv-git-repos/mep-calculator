@@ -27,6 +27,7 @@ import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { AutoUpdateModal } from "./AutoUpdateModal";
 import { NotificationCenterView } from "./NotificationCenterView";
 import { CalculationReviewBar } from "./CalculationReviewBar";
+import { navigateToNotificationTarget, executeHighlightAndScroll } from "@/utils/notificationHelpers";
 
 import {
   DropdownMenu,
@@ -532,6 +533,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return [];
   });
 
+  const [deletedNotifications, setDeletedNotifications] = useState<any[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const uId = userData?.id || profile?.id;
+        const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
+        const saved = localStorage.getItem(key) || localStorage.getItem("mep_deleted_notifications");
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {}
+    }
+    return [];
+  });
+
   const [completedNotifIds, setCompletedNotifIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -564,6 +577,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const saved2 = localStorage.getItem(`mep_deleted_notif_ids_${uId}`);
           const list2 = saved2 ? JSON.parse(saved2) : [];
           setDeletedNotifIds(Array.from(new Set([...list1, ...list2])));
+
+          const savedDelNotifs = localStorage.getItem(`mep_deleted_notifications_${uId}`) || localStorage.getItem("mep_deleted_notifications");
+          if (savedDelNotifs) setDeletedNotifications(JSON.parse(savedDelNotifs));
 
           const savedComp = localStorage.getItem("mep_completed_notif_ids");
           if (savedComp) setCompletedNotifIds(JSON.parse(savedComp));
@@ -607,17 +623,20 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }).catch(() => null);
   };
 
-  const deleteNotification = (id: string, e?: React.MouseEvent) => {
+  const deleteNotification = (idOrNotif: any, e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
+    const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
+    const id = notifObj ? (notifObj.id || notifObj.text) : idOrNotif;
     if (!id) return;
 
     // Collect ALL matching notifications from myNotifications and persistentNotifs
     const matchingNotifs = [
       ...(myNotifications || []),
-      ...(persistentNotifs || [])
+      ...(persistentNotifs || []),
+      ...(notifObj ? [notifObj] : [])
     ].filter((n: any) => {
       if (!n) return false;
       return (
@@ -663,35 +682,30 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
 
     matchingNotifs.forEach(processNotifItem);
-
-    // Fallback lookup if id wasn't directly in array
-    const fallbackNotif = (myNotifications || []).find((n: any) => n && n.id === id);
-    if (fallbackNotif) processNotifItem(fallbackNotif);
-
     const keysToDelete = Array.from(keysToDeleteSet);
 
-    // 0. Update active in-memory workspace store
-    workspaceStore.deleteCommentFromWorkspace(keysToDelete);
-
-    // 1. Update persistent notifications state & storage
-    setPersistentNotifs(prev => {
-      const updated = prev.filter((n: any) => {
-        if (!n) return false;
-        if (keysToDelete.includes(n.id)) return false;
-        if (n.text && keysToDelete.includes(n.text)) return false;
-        if (n.message && keysToDelete.includes(n.message)) return false;
-        if (n.metadata?.id && keysToDelete.includes(n.metadata.id)) return false;
-        return true;
+    // 1. Add deleted item to deletedNotifications store for Deleted tab
+    setDeletedNotifications(prev => {
+      const map = new Map<string, any>();
+      prev.forEach(item => {
+        const k = item.id || item.text;
+        if (k) map.set(k, item);
       });
+      matchingNotifs.forEach(item => {
+        const k = item.id || item.text || String(Math.random());
+        map.set(k, { ...item, deletedAt: new Date().toISOString(), deleted: true });
+      });
+      const updated = Array.from(map.values());
       if (typeof window !== "undefined") {
         const uId = userId || userData?.id;
-        const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+        const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
         localStorage.setItem(key, JSON.stringify(updated));
+        localStorage.setItem("mep_deleted_notifications", JSON.stringify(updated));
       }
       return updated;
     });
 
-    // 2. Update state & localStorage permanently with ALL matching keys
+    // 2. Update deletedNotifIds state & localStorage permanently
     setDeletedNotifIds(prev => {
       const updated = Array.from(new Set([...prev, ...keysToDelete]));
       if (typeof window !== "undefined") {
@@ -703,190 +717,34 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return updated;
     });
 
-    // 3. Send backend delete request
-    fetch("/api/notifications/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: keysToDelete })
-    }).catch(() => null);
-
-    // 4. Remove comment from ALL projects' workspace_data on backend DB and state
-    const allProjects = useWorkspace.getState().projects || [];
-    allProjects.forEach(proj => {
-      if (proj.workspace_data) {
-        let changed = false;
-        let wdata = proj.workspace_data;
-        if (typeof wdata === 'string') {
-          try { wdata = JSON.parse(wdata); } catch(e) {}
-        }
-        const updatedWdata = { ...wdata };
-
-        const removeCommentFromList = (list: any[]) => {
-          if (!Array.isArray(list)) return list;
-          return list.map((item: any) => {
-            if (Array.isArray(item.comments)) {
-              const nextComments = item.comments.filter((c: any) => {
-                if (!c) return false;
-                const isMatch = Boolean(
-                  keysToDelete.includes(c.id) ||
-                  keysToDelete.includes(c.text) ||
-                  (c.timestamp && keysToDelete.includes(`notif_${item.id}_${c.timestamp}`)) ||
-                  (c.timestamp && keysToDelete.includes(`${item.id}_${c.timestamp}`)) ||
-                  (c.text && keysToDelete.includes(`${item.id}_${c.text}`)) ||
-                  (c.metadata?.id && keysToDelete.includes(c.metadata.id)) ||
-                  c.deleted === true
-                );
-                if (isMatch) changed = true;
-                return !isMatch;
-              });
-              return { ...item, comments: nextComments };
-            }
-            return item;
-          });
-        };
-
-        if (updatedWdata.spaces) updatedWdata.spaces = removeCommentFromList(updatedWdata.spaces);
-        if (updatedWdata.zones) updatedWdata.zones = removeCommentFromList(updatedWdata.zones);
-        if (updatedWdata.equipment) updatedWdata.equipment = removeCommentFromList(updatedWdata.equipment);
-        if (updatedWdata.pcl_rows) updatedWdata.pcl_rows = removeCommentFromList(updatedWdata.pcl_rows);
-        if (updatedWdata.sprinklers) updatedWdata.sprinklers = removeCommentFromList(updatedWdata.sprinklers);
-        if (updatedWdata.sprinkler_rows) updatedWdata.sprinkler_rows = removeCommentFromList(updatedWdata.sprinkler_rows);
-
-        if (Array.isArray(wdata.notifications)) {
-          const origLen = wdata.notifications.length;
-          updatedWdata.notifications = wdata.notifications.filter((n: any) => 
-            !keysToDelete.includes(n.id) && 
-            !keysToDelete.includes(n.text) &&
-            !keysToDelete.includes(n.message) &&
-            !(n.metadata?.id && keysToDelete.includes(n.metadata.id))
-          );
-          if (updatedWdata.notifications.length !== origLen) changed = true;
-        }
-
-        if (Array.isArray(wdata.rejection_notifs)) {
-          const origLen = wdata.rejection_notifs.length;
-          updatedWdata.rejection_notifs = wdata.rejection_notifs.filter((n: any) => !keysToDelete.includes(n.id));
-          if (updatedWdata.rejection_notifs.length !== origLen) changed = true;
-        }
-        if (Array.isArray(wdata.coord_notifs)) {
-          const origLen = wdata.coord_notifs.length;
-          updatedWdata.coord_notifs = wdata.coord_notifs.filter((n: any) => !keysToDelete.includes(n.id));
-          if (updatedWdata.coord_notifs.length !== origLen) changed = true;
-        }
-        if (Array.isArray(wdata.task_completion_notifs)) {
-          const origLen = wdata.task_completion_notifs.length;
-          updatedWdata.task_completion_notifs = wdata.task_completion_notifs.filter((n: any) => !keysToDelete.includes(n.id));
-          if (updatedWdata.task_completion_notifs.length !== origLen) changed = true;
-        }
-
-        if (changed) {
-          api.saveWorkspace(proj.id, updatedWdata).catch(console.error);
-          useWorkspace.getState().updateProject({ ...proj, workspace_data: updatedWdata });
-        }
-      }
-    });
-
-    // 5. Purge comment from ALL localStorage calculation stores
-    if (typeof localStorage !== "undefined") {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (
-          k.startsWith("mep_spaces_") ||
-          k.startsWith("mep_pcl_rows_") ||
-          k.startsWith("mep_sprinklers_") ||
-          k.startsWith("mep_sprinkler_rows_") ||
-          k.startsWith("mep_loading_unit_calc_") ||
-          k.startsWith("mep_busbar_calc_") ||
-          k.startsWith("mep_gen_projects_") ||
-          k.startsWith("mep_cable_tray_")
-        )) {
-          try {
-            const raw = localStorage.getItem(k);
-            if (raw) {
-              const data = JSON.parse(raw);
-              let modified = false;
-              if (Array.isArray(data)) {
-                data.forEach((item: any) => {
-                  if (Array.isArray(item.comments)) {
-                    const filtered = item.comments.filter((c: any) => {
-                      if (!c) return false;
-                      const isMatch = Boolean(
-                        keysToDelete.includes(c.id) ||
-                        keysToDelete.includes(c.text) ||
-                        (c.timestamp && keysToDelete.includes(`notif_${item.id}_${c.timestamp}`)) ||
-                        (c.timestamp && keysToDelete.includes(`${item.id}_${c.timestamp}`))
-                      );
-                      if (isMatch) modified = true;
-                      return !isMatch;
-                    });
-                    item.comments = filtered;
-                  }
-                });
-                if (modified) localStorage.setItem(k, JSON.stringify(data));
-              }
-            }
-          } catch (e) {}
-        }
-      }
-    }
+    setNotifTick(t => t + 1);
+    toast.success("Notification moved to Deleted tab.");
   };
 
-  const clearAllNotifications = (e?: React.MouseEvent) => {
+  const restoreNotification = (idOrNotif: any, e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
-    const keysToDeleteSet = new Set<string>();
+    const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
+    const id = notifObj ? (notifObj.id || notifObj.text) : idOrNotif;
+    if (!id) return;
 
-    const processItem = (n: any) => {
-      if (!n) return;
-      if (n.id) keysToDeleteSet.add(n.id);
-      if (n.text) keysToDeleteSet.add(n.text);
-      if (n.message) keysToDeleteSet.add(n.message);
-      if (n.targetId) keysToDeleteSet.add(n.targetId);
-      if (n.timestamp) keysToDeleteSet.add(n.timestamp);
-      if (n.createdAt) keysToDeleteSet.add(n.createdAt);
+    const notifText = notifObj?.text || "";
+    const targetId = notifObj?.targetId || "";
+    const timestamp = notifObj?.timestamp || "";
 
-      if (n.metadata) {
-        if (n.metadata.id) keysToDeleteSet.add(n.metadata.id);
-        if (n.metadata.targetId) keysToDeleteSet.add(n.metadata.targetId);
-        if (n.metadata.text) keysToDeleteSet.add(n.metadata.text);
-      }
+    const keysToRemove = new Set([
+      id,
+      notifText,
+      targetId ? `${targetId}_${notifText}` : null,
+      targetId && timestamp ? `notif_${targetId}_${timestamp}` : null,
+      targetId && timestamp ? `${targetId}_${timestamp}` : null,
+    ].filter(Boolean) as string[]);
 
-      const nText = n.text || n.message || n.metadata?.text || "";
-      const nTargetId = n.targetId || n.metadata?.targetId || "";
-      const nTimestamp = n.timestamp || n.createdAt || "";
-
-      if (nTargetId && nText) {
-        keysToDeleteSet.add(`${nTargetId}_${nText}`);
-      }
-      if (nTargetId && nTimestamp) {
-        keysToDeleteSet.add(`notif_${nTargetId}_${nTimestamp}`);
-        keysToDeleteSet.add(`${nTargetId}_${nTimestamp}`);
-      }
-    };
-
-    (myNotifications || []).forEach(processItem);
-    (persistentNotifs || []).forEach(processItem);
-
-    const keysToDelete = Array.from(keysToDeleteSet);
-
-    if (keysToDelete.length === 0) return;
-
-    // 0. Instantly clear active workspace store comments
-    workspaceStore.clearAllCommentsFromWorkspace();
-
-    // 1. Clear persistent notifications store
-    setPersistentNotifs([]);
-    if (typeof window !== "undefined") {
-      const uId = userId || userData?.id;
-      const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
-      localStorage.removeItem(key);
-    }
-
-    // 2. Update state & localStorage permanently
+    // 1. Remove from deletedNotifIds
     setDeletedNotifIds(prev => {
-      const updated = Array.from(new Set([...prev, ...keysToDelete]));
+      const updated = prev.filter(k => !keysToRemove.has(k));
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
         if (userId) {
@@ -896,70 +754,139 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return updated;
     });
 
-    // 3. Notify backend to clear
-    fetch("/api/notifications/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: keysToDelete })
-    }).catch(() => null);
-
-    // 4. Clear LocalStorage notification caches
-    if (typeof localStorage !== "undefined") {
-      ['mep_calc_coord_notifs', 'mep_calc_rejection_notifs'].forEach(key => {
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-              const filtered = parsed.filter((n: any) => !keysToDelete.includes(n.id) && !keysToDelete.includes(n.text));
-              localStorage.setItem(key, JSON.stringify(filtered));
-            }
-          } catch(err) {}
-        }
-      });
-    }
-
-    // 5. Purge from ALL projects' workspace_data on backend DB and state
-    const allProjects = useWorkspace.getState().projects || [];
-    allProjects.forEach(proj => {
-      if (proj.workspace_data) {
-        let changed = false;
-        let wdata = proj.workspace_data;
-        if (typeof wdata === 'string') {
-          try { wdata = JSON.parse(wdata); } catch(e) {}
-        }
-        const updatedWdata = { ...wdata };
-
-        const removeAllComments = (list: any[]) => {
-          if (!Array.isArray(list)) return list;
-          return list.map((item: any) => {
-            if (Array.isArray(item.comments) && item.comments.length > 0) {
-              changed = true;
-              return { ...item, comments: [] };
-            }
-            return item;
-          });
-        };
-
-        if (updatedWdata.spaces) updatedWdata.spaces = removeAllComments(updatedWdata.spaces);
-        if (updatedWdata.zones) updatedWdata.zones = removeAllComments(updatedWdata.zones);
-        if (updatedWdata.equipment) updatedWdata.equipment = removeAllComments(updatedWdata.equipment);
-        if (updatedWdata.pcl_rows) updatedWdata.pcl_rows = removeAllComments(updatedWdata.pcl_rows);
-        if (updatedWdata.sprinklers) updatedWdata.sprinklers = removeAllComments(updatedWdata.sprinklers);
-        if (updatedWdata.sprinkler_rows) updatedWdata.sprinkler_rows = removeAllComments(updatedWdata.sprinkler_rows);
-
-        if (Array.isArray(wdata.rejection_notifs)) { updatedWdata.rejection_notifs = []; changed = true; }
-        if (Array.isArray(wdata.coord_notifs)) { updatedWdata.coord_notifs = []; changed = true; }
-        if (Array.isArray(wdata.task_completion_notifs)) { updatedWdata.task_completion_notifs = []; changed = true; }
-
-        if (changed) {
-          api.saveWorkspace(proj.id, updatedWdata).catch(console.error);
-          useWorkspace.getState().updateProject({ ...proj, workspace_data: updatedWdata });
-        }
+    // 2. Remove from deletedNotifications store
+    setDeletedNotifications(prev => {
+      const restoredItem = prev.find(n => keysToRemove.has(n.id) || keysToRemove.has(n.text));
+      const updated = prev.filter(n => !keysToRemove.has(n.id) && !keysToRemove.has(n.text));
+      if (typeof window !== "undefined") {
+        const uId = userId || userData?.id;
+        const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
+        localStorage.setItem(key, JSON.stringify(updated));
+        localStorage.setItem("mep_deleted_notifications", JSON.stringify(updated));
       }
+
+      if (restoredItem) {
+        setPersistentNotifs(pPrev => {
+          if (pPrev.some(p => p.id === restoredItem.id)) return pPrev;
+          const pUpdated = [{ ...restoredItem, deleted: false }, ...pPrev];
+          if (typeof window !== "undefined") {
+            const uId = userId || userData?.id;
+            const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+            localStorage.setItem(key, JSON.stringify(pUpdated));
+          }
+          return pUpdated;
+        });
+      }
+
+      return updated;
     });
 
-    toast.success("All notifications cleared.");
+    setNotifTick(t => t + 1);
+    toast.success("Notification restored to Received tab!");
+  };
+
+  const permanentlyDeleteNotification = (idOrNotif: any, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
+    const id = notifObj ? (notifObj.id || notifObj.text) : idOrNotif;
+    if (!id) return;
+
+    setDeletedNotifications(prev => {
+      const updated = prev.filter(n => n.id !== id && n.text !== id);
+      if (typeof window !== "undefined") {
+        const uId = userId || userData?.id;
+        const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
+        localStorage.setItem(key, JSON.stringify(updated));
+        localStorage.setItem("mep_deleted_notifications", JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    setNotifTick(t => t + 1);
+    toast.success("Notification permanently deleted.");
+  };
+
+  const clearAllReceivedNotifications = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const toDelete = myNotifications.filter(n => {
+      const isCompleted = Boolean(completedNotifIds.includes(n.id));
+      const isDel = Boolean(deletedNotifIds.includes(n.id));
+      return !isCompleted && !isDel;
+    });
+    toDelete.forEach(n => deleteNotification(n));
+  };
+
+  const clearAllCompletedNotifications = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const toDelete = myNotifications.filter(n => {
+      const isCompleted = Boolean(completedNotifIds.includes(n.id));
+      const isDel = Boolean(deletedNotifIds.includes(n.id));
+      return isCompleted && !isDel;
+    });
+    toDelete.forEach(n => deleteNotification(n));
+  };
+
+  const clearAllDeletedNotifications = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setDeletedNotifications([]);
+    if (typeof window !== "undefined") {
+      const uId = userId || userData?.id;
+      const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
+      localStorage.removeItem(key);
+      localStorage.removeItem("mep_deleted_notifications");
+    }
+    setNotifTick(t => t + 1);
+    toast.success("Trash emptied permanently.");
+  };
+
+  const restoreAllDeletedNotifications = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setPersistentNotifs(pPrev => {
+      const map = new Map();
+      pPrev.forEach(p => p.id && map.set(p.id, p));
+      deletedNotifications.forEach(d => d.id && map.set(d.id, { ...d, deleted: false }));
+      const pUpdated = Array.from(map.values());
+      if (typeof window !== "undefined") {
+        const uId = userId || userData?.id;
+        const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+        localStorage.setItem(key, JSON.stringify(pUpdated));
+      }
+      return pUpdated;
+    });
+
+    setDeletedNotifIds([]);
+    setDeletedNotifications([]);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("mep_deleted_notif_ids");
+      if (userId) {
+        localStorage.setItem(`mep_deleted_notif_ids_${userId}`, JSON.stringify([]));
+      }
+      const uId = userId || userData?.id;
+      const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
+      localStorage.removeItem(key);
+      localStorage.removeItem("mep_deleted_notifications");
+    }
+    setNotifTick(t => t + 1);
+    toast.success("All notifications restored to Received!");
+  };
+
+  const clearAllNotifications = (e?: React.MouseEvent) => {
+    clearAllReceivedNotifications(e);
   };
 
   const completeTaskAndNotifyAuthor = async (notif: any, e?: React.MouseEvent) => {
@@ -1095,7 +1022,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       items.forEach(item => {
         if (item && item.comments && Array.isArray(item.comments)) {
           item.comments.forEach((c: any) => {
-            if (!c || c.deleted === true) return;
+            if (!c) return;
 
             const cText = String(c.text || "").trim();
             if (!cText) return; // Reject empty/blank comment cards!
@@ -1103,7 +1030,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             const notifId = c.id || `notif_${item.id}_${c.timestamp}`;
             const targetIdText = item.id ? `${item.id}_${cText}` : "";
 
-            if (
+            const isDel = Boolean(
+              c.deleted === true ||
               deletedNotifIds.includes(notifId) ||
               (c.id && deletedNotifIds.includes(c.id)) ||
               (cText && deletedNotifIds.includes(cText)) ||
@@ -1111,9 +1039,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               (c.timestamp && deletedNotifIds.includes(`notif_${item.id}_${c.timestamp}`)) ||
               (c.timestamp && deletedNotifIds.includes(`${item.id}_${c.timestamp}`)) ||
               (c.metadata?.id && deletedNotifIds.includes(c.metadata.id))
-            ) {
-              return;
-            }
+            );
 
             const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
             const authorIdStr = String(c.authorId || "").toLowerCase().trim();
@@ -1223,12 +1149,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         wdata.notifications.forEach((wn: any) => {
           if (!wn || !wn.id || !wn.text) return;
           const wnId = wn.id;
-
-          // Skip deleted notifications
-          if (
-            deletedNotifIds.includes(wnId) ||
-            (wn.text && deletedNotifIds.includes(wn.text))
-          ) return;
 
           // Skip duplicates
           if (notifs.some(n => n.id === wnId)) return;
@@ -1393,10 +1313,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
     const filtered = combinedList.filter(n => {
       if (!n || !n.id) return false;
-      const nId = String(n.id);
       const nText = String(n.text || n.message || n.metadata?.text || "").trim();
       if (!nText) return false; // Reject empty/blank notification cards!
+      return true;
+    });
 
+    const mapped = filtered.map(n => {
+      const nId = String(n.id);
+      const nText = String(n.text || n.message || n.metadata?.text || "").trim();
       const nMetaId = n.metadata?.id ? String(n.metadata.id) : "";
       const nTargetId = n.targetId || n.metadata?.targetId || "";
       const nTimestamp = n.timestamp || n.createdAt || "";
@@ -1410,11 +1334,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         (nTargetId && nTimestamp && deletedNotifIds.includes(`${nTargetId}_${nTimestamp}`)) ||
         n.deleted === true
       );
-      if (isDel) return false;
-      return true;
-    });
 
-    const mapped = filtered.map(n => {
       const isCompleted = Boolean(
         completedNotifIds.includes(n.id) ||
         (n.text && completedNotifIds.includes(n.text)) ||
@@ -1448,7 +1368,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         timestamp: resolvedTimestamp,
         calculatorPath: resolvedCalcPath,
         completed: isCompleted,
-        read: isRead
+        read: isRead,
+        deleted: isDel
       };
     });
 
@@ -1457,13 +1378,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds, persistentNotifs, completedNotifIds, readNotifIds]);
 
   const unreadNotifications = useMemo(() => {
-    return myNotifications.filter(n => n.id && !readNotifIds.includes(n.id) && !completedNotifIds.includes(n.id));
+    return myNotifications.filter(n => !n.deleted && n.id && !readNotifIds.includes(n.id) && !completedNotifIds.includes(n.id));
   }, [myNotifications, readNotifIds, completedNotifIds]);
 
   const unreadCount = unreadNotifications.length;
 
   const markAllNotifsAsRead = useCallback(() => {
-    const allIds = myNotifications.map((n: any) => n.id).filter(Boolean);
+    const allIds = myNotifications.filter((n: any) => !n.deleted && !completedNotifIds.includes(n.id)).map((n: any) => n.id).filter(Boolean);
     setReadNotifIds((prev) => {
       const set = new Set([...prev, ...allIds]);
       const updated = Array.from(set);
@@ -1472,7 +1393,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
       return updated;
     });
-  }, [myNotifications]);
+  }, [myNotifications, completedNotifIds]);
 
   useEffect(() => {
     const fetchBackendNotifs = async () => {
@@ -1532,6 +1453,28 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const handleFocus = () => fetchBackendNotifs();
 
     const handleNotifAdded = (e?: any) => {
+      setNotifTick(t => t + 1);
+
+      // Reload persistent notifications from localStorage on storage or custom event
+      if (typeof window !== "undefined") {
+        try {
+          const uId = userId || userData?.id;
+          const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+          const raw = localStorage.getItem(key) || localStorage.getItem("mep_persistent_user_notifs");
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              setPersistentNotifs(prev => {
+                const combined = [...parsed, ...prev];
+                const map = new Map();
+                combined.forEach(n => { if (n && n.id) map.set(n.id, n); });
+                return Array.from(map.values());
+              });
+            }
+          }
+        } catch (e) {}
+      }
+
       if (e?.detail) {
         const item = e.detail;
         if (!item || !item.id) return;
@@ -1571,7 +1514,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
         if (!isForMe) return;
 
-        setNotifTick(t => t + 1);
         setPersistentNotifs(prev => {
           if (prev.some(n => n.id === item.id)) return prev;
           const updated = [item, ...prev];
@@ -1581,6 +1523,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             localStorage.setItem(key, JSON.stringify(updated));
           }
           return updated;
+        });
+
+        // Show instant floating toast alert for real-time awareness across any project
+        toast.info(`💬 Task / Comment in "${item.projectName || 'Project'}": "${item.text}"`, {
+          description: `From ${item.authorName || 'Team Member'} on ${item.targetType || 'Item'} "${item.targetName || 'Item'}" — Click to open & switch project`,
+          action: {
+            label: "Open Project",
+            onClick: () => navigateToNotificationTarget(item, navigate, selectProject, markNotifAsRead)
+          },
+          duration: 8000
         });
       }
     };
@@ -1635,6 +1587,41 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
   }, [userId, userData, profile, projects, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin]);
+
+  // Global notification deep-linking and highlight execution
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleScrollEvent = (e: any) => {
+      if (e?.detail) {
+        executeHighlightAndScroll(e.detail);
+      }
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+
+    // Also inspect URL query params whenever the route/search changes
+    const params = new URLSearchParams(window.location.search);
+    const targetId = params.get("commentTargetId") || params.get("targetId");
+    const targetName = params.get("commentTargetName") || params.get("targetName");
+    const targetType = params.get("commentTargetType") || params.get("targetType");
+    if (targetId || targetName) {
+      const dispatchDetail = {
+        id: targetId || undefined,
+        name: targetName || undefined,
+        type: targetType || undefined,
+      };
+      [200, 500, 900, 1500].forEach((delay) => {
+        setTimeout(() => {
+          executeHighlightAndScroll(dispatchDetail);
+        }, delay);
+      });
+    }
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+    };
+  }, [pathname]);
 
   // Initial project list load on user login (real-time updates handled by Supabase Realtime & custom events)
   useEffect(() => {
@@ -2690,16 +2677,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                         </span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">
-                          {myNotifications.length} total
+                          {myNotifications.filter((n: any) => !n.deleted).length} total
                         </span>
                       )}
                     </div>
                     
-                    {myNotifications.length === 0 ? (
+                    {myNotifications.filter((n: any) => !n.deleted).length === 0 ? (
                       <div className="py-5 text-center text-xs text-muted-foreground font-medium">No new notifications</div>
                     ) : (
                       <div className="space-y-2 max-h-64 overflow-hidden">
-                        {myNotifications.slice(0, 3).map((notif, idx) => {
+                        {myNotifications.filter((n: any) => !n.deleted).slice(0, 3).map((notif, idx) => {
                           const isUnread = notif.id && !readNotifIds.includes(notif.id);
                           const isCompleted = notif.id && completedNotifIds.includes(notif.id);
                           return (
@@ -2714,7 +2701,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                               }`}
                               onClick={() => {
                                 setIsNotifHoverOpen(false);
-                                navigate({ to: "/notifications" as any });
+                                navigateToNotificationTarget(notif, navigate, selectProject, markNotifAsRead);
                               }}
                             >
                               <div className="flex items-center justify-between gap-1 mb-1">
@@ -3033,25 +3020,23 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             ) : pathname === '/notifications' ? (
               <NotificationCenterView
                 myNotifications={myNotifications}
+                deletedNotifications={deletedNotifications}
                 readNotifIds={readNotifIds}
                 completedNotifIds={completedNotifIds}
+                deletedNotifIds={deletedNotifIds}
                 markNotifAsRead={markNotifAsRead}
                 markAllNotifsAsRead={markAllNotifsAsRead}
                 completeTaskAndNotifyAuthor={completeTaskAndNotifyAuthor}
                 deleteNotification={deleteNotification}
+                restoreNotification={restoreNotification}
+                permanentlyDeleteNotification={permanentlyDeleteNotification}
+                clearAllReceivedNotifications={clearAllReceivedNotifications}
+                clearAllCompletedNotifications={clearAllCompletedNotifications}
+                clearAllDeletedNotifications={clearAllDeletedNotifications}
+                restoreAllDeletedNotifications={restoreAllDeletedNotifications}
                 clearAllNotifications={clearAllNotifications}
                 onNavigateToItem={(notif: any) => {
-                  if (notif.id) markNotifAsRead(notif.id);
-                  if (notif.projectId) selectProject(notif.projectId);
-                  const targetPath = notif.calculatorPath || '/ventilation';
-                  navigate({ to: targetPath as any });
-                  setTimeout(() => {
-                    window.dispatchEvent(
-                      new CustomEvent("mep-scroll-to-item", {
-                        detail: { id: notif.targetId, name: notif.targetName, type: notif.targetType?.toLowerCase() },
-                      })
-                    );
-                  }, 400);
+                  navigateToNotificationTarget(notif, navigate, selectProject, markNotifAsRead);
                 }}
               />
             ) : (

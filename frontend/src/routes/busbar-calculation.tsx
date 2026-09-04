@@ -1,6 +1,7 @@
 import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
@@ -233,16 +234,17 @@ function BusbarCalculationPage() {
     rowId: string;
   } | null>(null);
 
-  const [commentTarget, setCommentTarget] = useState<{
-    id: string;
-    name: string;
-    type: 'space' | 'zone' | 'equipment';
-    panelId: string;
-    sectionId: string;
-  } | null>(null);
+  // Comment & Task Assignment Modal State (Exact Preliminary Parity)
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type: "space" | "zone" | "equipment" } | null>(null);
 
-  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
-  // Deep-linking and auto-scroll from notifications (exact Ventilation logic)
+  const handleOpenComment = (row: BusbarRow | { id: string; name?: string; desc?: string; from?: string; ref?: string; label?: string }) => {
+    const itemName = (row as any).name || (row as any).desc || (row as any).from || (row as any).label || ((row as any).ref ? `Tap Off ${(row as any).ref}` : "Tap Off Row");
+    setCommentTargetItem({ id: String(row.id), name: itemName, type: "space" });
+    setCommentModalOpen(true);
+  };
+
+  // Deep-linking and auto-scroll from notifications (exact Ventilation & Preliminary logic)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleScrollToItem = (e: any) => {
@@ -252,14 +254,7 @@ function BusbarCalculationPage() {
         for (const s of p.sections) {
           const r = s.rows.find(rw => rw.id === id || rw.desc === name || rw.from === name);
           if (r) {
-            setCommentTarget({
-              id: r.id,
-              name: r.desc || r.from || "Tap Off Row",
-              type: "equipment",
-              panelId: p.id,
-              sectionId: s.id
-            });
-            setAssignCommentOpen(true);
+            handleOpenComment(r);
             setTimeout(() => {
               const el = document.getElementById(`busbar-row-${r.id}`) || document.getElementById(`row-${r.id}`) || document.querySelector(`[data-row-id="${r.id}"]`);
               if (el) {
@@ -2243,24 +2238,19 @@ function BusbarCalculationPage() {
                                          <td style={{ width: busbarColWidths.no, minWidth: busbarColWidths.no, maxWidth: busbarColWidths.no }} className="text-center text-muted-foreground font-medium px-0.5 text-[11.5px]">{idx + 1}</td>
                                          <td style={{ width: busbarColWidths.desc, minWidth: busbarColWidths.desc, maxWidth: busbarColWidths.desc }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
                                           <div className="flex items-center gap-1.5 w-full px-1">
-                                            {r.comments && r.comments.length > 0 && (
-                                              <span 
-                                                className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
-                                                title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
+                                            {Array.isArray(r.comments) && r.comments.length > 0 && (
+                                              <button 
+                                                type="button"
+                                                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                                title={`${r.comments.length} comment(s)/task(s) assigned to "${r.desc || r.from || `Tap Off ${r.ref || r.id}`}"`}
                                                 onClick={(e) => {
                                                   e.stopPropagation();
-                                                  setCommentTarget({
-                                                    id: r.id,
-                                                    name: r.desc || r.from || `Tap Off ${r.ref || r.id}`,
-                                                    type: 'space',
-                                                    panelId: panel.id,
-                                                    sectionId: section.id
-                                                  });
-                                                  setAssignCommentOpen(true);
+                                                  handleOpenComment(r);
                                                 }}
                                               >
-                                                <MessageSquare className="size-3.5" />
-                                              </span>
+                                                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                                <span className="text-[10px] font-bold">{r.comments.length}</span>
+                                              </button>
                                             )}
                                             <input 
                                               disabled={isApproved}
@@ -2321,13 +2311,6 @@ function BusbarCalculationPage() {
                                         
                                         <td style={{ width: busbarColWidths.actions, minWidth: busbarColWidths.actions, maxWidth: busbarColWidths.actions }} className="text-center p-0">
                                          <div className="flex items-center justify-center gap-1 px-1">
-                                           <button 
-                                             onClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }} 
-                                             className="text-primary/70 hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors"
-                                             title="Edit Parameters & Calculations Preview"
-                                           >
-                                             <Info className="size-3.5" />
-                                           </button>
                                            {(() => {
                                              const { isAutoFlagged, isFlagged, warnings } = getBusbarRowValidation(r, r.vdPercent);
                                              const tooltipText = isFlagged
@@ -2412,24 +2395,27 @@ function BusbarCalculationPage() {
             <Edit3 className="size-3.5 text-amber-500" /> Edit Parameters
           </button>
           <button
-            onClick={() => {
-              let targetRowName = "";
-              panels.forEach(p => p.sections.forEach(s => s.rows.forEach(r => {
-                if (r.id === contextMenu.rowId) targetRowName = r.desc || r.from || `Tap Off ${r.ref || contextMenu.rowId}`;
-              })));
-              setCommentTarget({
-                id: contextMenu.rowId,
-                name: targetRowName,
-                type: 'space',
-                panelId: contextMenu.panelId,
-                sectionId: contextMenu.sectionId
-              });
-              setAssignCommentOpen(true);
+            onClick={(e) => {
+              e.stopPropagation();
+              let targetRow: any = null;
+              for (const p of panels) {
+                for (const s of p.sections) {
+                  const found = s.rows.find(r => r.id === contextMenu.rowId);
+                  if (found) {
+                    targetRow = found;
+                    break;
+                  }
+                }
+                if (targetRow) break;
+              }
+              const rowToComment = targetRow || { id: contextMenu.rowId, name: `Tap Off ${contextMenu.rowId}` };
+              handleOpenComment(rowToComment);
               setContextMenu(null);
             }}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400"
+            className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400 rounded"
           >
-            <MessageSquare className="size-3.5" /> Add comment
+            <MessageSquare className="size-3.5" />
+            <span>Add Comment / Assign Task</span>
           </button>
           <button
             onClick={() => {
@@ -2469,21 +2455,23 @@ function BusbarCalculationPage() {
         </div>
       )}
 
-      {/* Assign Comment Modal Overlay */}
-      {commentTarget && (
+      {/* Assign Comment & Task Modal (Exact Preliminary Parity) */}
+      {commentModalOpen && commentTargetItem && (
         <AssignCommentModal
-          isOpen={assignCommentOpen}
+          isOpen={commentModalOpen}
           onClose={() => {
-            setAssignCommentOpen(false);
-            setCommentTarget(null);
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
           }}
-          targetId={commentTarget.id}
-          targetName={commentTarget.name}
-          targetType={commentTarget.type}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType={commentTargetItem.type}
+          calculatorTitle="Busbar Calculation"
+          calculatorPath="/busbar-calculation"
           existingComments={(() => {
             for (const p of panels) {
               for (const s of p.sections) {
-                const r = s.rows.find(rw => rw.id === commentTarget.id);
+                const r = s.rows.find(rw => String(rw.id) === String(commentTargetItem.id));
                 if (r) return r.comments || [];
               }
             }
@@ -2491,69 +2479,38 @@ function BusbarCalculationPage() {
           })()}
           onSave={(newComment) => {
             pushToUndo(panels);
-            setPanels(prev => {
-              const next = prev.map(p => {
-                if (p.id === commentTarget.panelId) {
-                  return {
-                    ...p,
-                    sections: p.sections.map(s => {
-                      if (s.id === commentTarget.sectionId) {
-                        return {
-                          ...s,
-                          rows: s.rows.map(r => {
-                            if (r.id === commentTarget.id) {
-                              const comments = [...(r.comments || []), newComment];
-                              return { ...r, comments };
-                            }
-                            return r;
-                          })
-                        };
-                      }
-                      return s;
-                    })
-                  };
-                }
-                return p;
-              });
+            const nextPanels = panels.map(p => ({
+              ...p,
+              sections: p.sections.map(s => ({
+                ...s,
+                rows: s.rows.map(r => {
+                  if (String(r.id) === String(commentTargetItem.id)) {
+                    const comments = [...(r.comments || []), newComment];
+                    return { ...r, comments };
+                  }
+                  return r;
+                })
+              }))
+            }));
 
-              const projId = project?.id || "default";
+            setPanels(nextPanels);
+
+            const projId = project?.id || "default";
+            try {
+              localStorage.setItem(`mep_busbar_calc_${projId}`, JSON.stringify({
+                panels: nextPanels,
+                updatedAt: new Date().toISOString()
+              }));
+            } catch (e) {}
+
+            if (project?.id) {
               try {
-                localStorage.setItem(`mep_busbar_calc_${projId}`, JSON.stringify({
-                  panels: next,
-                  updatedAt: new Date().toISOString()
-                }));
-              } catch (e) {}
-
-              if (project?.id) {
-                try {
-                  let wdata = project.workspace_data || {};
-                  if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
-                  wdata.busbar_calc = { panels: next, updatedAt: new Date().toISOString() };
-                  api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
-                } catch(e) {}
-              }
-
-              return next;
-            });
-
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: newComment }));
-              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: newComment }));
-              window.dispatchEvent(new Event("storage"));
+                let wdata = project.workspace_data || {};
+                if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
+                wdata.busbar_calc = { panels: nextPanels, updatedAt: new Date().toISOString() };
+                api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+              } catch(e) {}
             }
-
-            toast.success(`Comment assigned on "${commentTarget.name}"`);
-            notifyCommentAssigned({
-              comment: newComment,
-              targetId: commentTarget.id,
-              targetName: commentTarget.name,
-              targetType: commentTarget.type || "Busbar Row",
-              calculatorTitle: "Busbar Calculation",
-              calculatorPath: "/busbar-calculation",
-              project,
-              currentUserName: userData?.name || profile?.name,
-              currentUserId: userData?.id || profile?.id
-            }).catch(console.error);
           }}
         />
       )}

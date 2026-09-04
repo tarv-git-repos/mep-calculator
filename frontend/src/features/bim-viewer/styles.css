@@ -45,6 +45,21 @@
   margin-bottom: 15px;
 }
 
+/* Hide default That Open Company watermark logo */
+img[src*="thatopen" i],
+img[src*="that-open" i],
+img[alt*="That Open" i],
+a[href*="thatopen" i],
+[class*="thatopen" i],
+[class*="that-open" i],
+div[style*="thatopen" i],
+div[style*="that-open" i] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 @keyframes rotation {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }

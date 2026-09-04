@@ -2600,6 +2600,7 @@ function SprinklerKFactorPage() {
           </div>
         </div>
       )}
+
       {/* Assign Comment & Task Modal */}
       {commentModalOpen && commentTargetItem && (
         <AssignCommentModal
@@ -2607,58 +2608,20 @@ function SprinklerKFactorPage() {
           onClose={() => setCommentModalOpen(false)}
           targetId={commentTargetItem.id}
           targetName={commentTargetItem.name}
-          targetType={commentTargetItem.type}
+          targetType="Sprinkler Head"
+          calculatorTitle="Sprinkler K-Factor"
+          calculatorPath="/plumbing-sprinkler-kfactor"
           existingComments={rows.find(r => r.id === commentTargetItem.id)?.comments || []}
-          onSave={async (comment) => {
-            try {
-              const currentUserName = userData?.name || profile?.name || "Design Engineer";
-              const userIds = comment.assignedUsers || [];
-              const projId = activeProjectId || project?.id || "default";
-              const projName = project?.name || "Active Project";
-
-              const commentWithMeta = {
-                ...comment,
-                targetId: commentTargetItem.id,
-                targetName: commentTargetItem.name,
-                targetType: "Sprinkler Head",
-                projectName: projName,
-                projectId: projId,
-                calculatorPath: "/plumbing-sprinkler-kfactor",
-              };
-
-              // Attach comment to row state so visual comment badge appears
-              const updatedRows = rows.map(r => r.id === commentTargetItem.id ? {
-                ...r,
-                comments: [...(r.comments || []), commentWithMeta]
-              } : r);
-              pushToUndo(rows);
-              saveRows(updatedRows);
-              if (project?.id) {
-                localStorage.setItem(`mep_sprinklers_${project.id}`, JSON.stringify(updatedRows));
-                localStorage.setItem(`mep_sprinkler_rows_${project.id}`, JSON.stringify(updatedRows));
-              }
-
-              // Instant notification event dispatch
-              window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
-              window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
-              window.dispatchEvent(new Event("storage"));
-
-              toast.success(`Task comment saved for space ${commentTargetItem.name}`);
-              notifyCommentAssigned({
-                comment: commentWithMeta,
-                targetId: commentTargetItem.id,
-                targetName: commentTargetItem.name,
-                targetType: "Sprinkler Head",
-                calculatorTitle: "Sprinkler K-Factor",
-                calculatorPath: "/plumbing-sprinkler-kfactor",
-                project,
-                currentUserName,
-                currentUserId: userData?.id || profile?.id
-              }).catch(console.error);
-            } catch(e) {
-              toast.success(`Task comment added for ${commentTargetItem.name}`);
+          onSave={(comment) => {
+            const updatedRows = rows.map(r => r.id === commentTargetItem.id ? {
+              ...r,
+              comments: [...(r.comments || []), comment]
+            } : r);
+            saveRows(updatedRows);
+            if (project?.id) {
+              localStorage.setItem(`mep_sprinklers_${project.id}`, JSON.stringify(updatedRows));
+              localStorage.setItem(`mep_sprinkler_rows_${project.id}`, JSON.stringify(updatedRows));
             }
-            setCommentModalOpen(false);
           }}
         />
       )}

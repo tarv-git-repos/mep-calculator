@@ -54,7 +54,7 @@ export function DropOverlay() {
       onDrop={handleDrop}
       className={`absolute inset-0 flex flex-col items-center justify-center z-20 transition-all duration-200 select-none ${
         isLoading
-          ? 'bg-[#18181b]/80 backdrop-blur-xs pointer-events-none'
+          ? 'bg-[#18181b]/80 backdrop-blur-xs pointer-events-auto'
           : isDragOver
           ? 'm-[20px] rounded-[12px] border-[#4da6ff] bg-[rgba(36,36,38,0.96)] shadow-xl scale-[0.99] border-dashed border-2 cursor-pointer pointer-events-auto'
           : 'm-[20px] rounded-[12px] border-[#555] bg-[rgba(36,36,38,0.9)] hover:border-[#888] hover:bg-[rgba(36,36,38,0.94)] border-dashed border-2 cursor-pointer pointer-events-auto'
@@ -68,13 +68,30 @@ export function DropOverlay() {
         className="hidden" 
       />
       {isLoading ? (
-        <div className="flex flex-col items-center gap-3.5 animate-in fade-in duration-200">
-          <Loader2 className="size-9 text-sky-400 animate-spin" />
-          <h2 className="text-[17px] font-semibold tracking-tight text-slate-100">{loadingText || "Loading your 3D model..."}</h2>
+        <div className="flex flex-col items-center gap-3 animate-in fade-in duration-200 pointer-events-auto">
+          <Loader2 className="size-10 text-sky-400 animate-spin" />
+          <h2 className="text-[16px] font-medium tracking-tight text-slate-100 text-center px-4">
+            {loadingText || "Loading your 3D model..."}
+          </h2>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (typeof (window as any)._cancelIfcProcessing === 'function') {
+                (window as any)._cancelIfcProcessing();
+              }
+              useViewerStore.getState().setIsLoading(false);
+              useViewerStore.getState().setLoadingText('');
+            }}
+            className="mt-2 text-xs px-3.5 py-1.5 bg-rose-700/80 hover:bg-rose-600 active:bg-rose-800 text-white rounded border border-rose-500/80 shadow-md transition cursor-pointer font-medium"
+          >
+            Cancel Loading
+          </button>
         </div>
       ) : (
         <>
-          <h2 className="text-[22px] font-semibold text-center px-4 text-white mb-2">{loadingText}</h2>
+          <h2 className="text-[22px] font-semibold text-center px-4 text-white mb-2">{loadingText || "Drag & Drop .ifc file here"}</h2>
           <p className="text-[13px] text-[#aaa] font-medium transition-colors hover:text-white">
             📁 Click anywhere to select an .ifc file or drop it here
           </p>

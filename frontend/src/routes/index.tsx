@@ -1649,10 +1649,10 @@ function SpacesView() {
             setCommentTarget({ id: row.id, name: row.name, type: 'space' });
             setAssignCommentOpen(true);
           }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
-          <MessageSquare className="size-3.5 text-muted-foreground" />
-          <span>Add comment</span>
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment / Assign Task</span>
         </ContextMenuItem>
         
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -2093,13 +2093,20 @@ function SpacesView() {
         : r.name;
       return (
         <div className="flex items-center gap-1.5 w-full">
-          {r.comments && r.comments.length > 0 && (
-            <span 
-              title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`} 
-              className="inline-flex items-center justify-center p-1 rounded bg-primary/10 text-primary shrink-0 cursor-help"
+          {Array.isArray(r.comments) && r.comments.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCommentTarget({ id: r.id, name: r.name, type: 'space' });
+                setAssignCommentOpen(true);
+              }}
+              title={`${r.comments.length} comment(s)/task(s) assigned to space "${r.name}"`}
+              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
             >
-              <MessageSquare className="size-3.5" />
-            </span>
+              <MessageSquare className="size-3.5 fill-blue-500/20" />
+              <span className="text-[10px] font-bold">{r.comments.length}</span>
+            </button>
           )}
           <InlineInput disabled={isEffectiveReadOnly}
             value={displayName}
@@ -3028,9 +3035,17 @@ function SpacesView() {
             targetId={commentTarget.id}
             targetName={commentTarget.name}
             targetType={commentTarget.type}
+            calculatorTitle="Ventilation & Air Balance"
+            calculatorPath="/ventilation"
+            existingComments={
+              commentTarget.type === 'space'
+                ? spaces.find(s => s.id === commentTarget.id)?.comments || []
+                : commentTarget.type === 'zone'
+                ? zones.find(z => z.id === commentTarget.id)?.comments || []
+                : equipment.find(e => e.id === commentTarget.id)?.comments || []
+            }
             onSave={(comment) => {
               workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
-              toast.success(`Comment assigned on ${commentTarget.type} "${commentTarget.name}"`);
             }}
           />
         )}
@@ -5017,10 +5032,10 @@ function ZonesView() {
           setCommentTarget({ id: z.id, name: z.name, type: 'zone' });
           setAssignCommentOpen(true);
         }}
-        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent hover:text-accent-foreground cursor-pointer"
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
       >
         <MessageSquare className="size-3.5" />
-        <span>Add comment</span>
+        <span>Add Comment / Assign Task</span>
       </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem
@@ -6206,10 +6221,10 @@ function EquipmentView() {
           setCommentTarget({ id: e.id, name: e.tag || e.type, type: 'equipment' });
           setAssignCommentOpen(true);
         }}
-        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
       >
         <MessageSquare className="size-3.5" />
-        <span>Add comment</span>
+        <span>Add Comment / Assign Task</span>
       </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem

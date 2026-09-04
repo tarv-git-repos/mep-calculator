@@ -155,7 +155,7 @@ function TeamsPage() {
 
   return (
     <AppShell title="Teams" subtitle="Manage Organization Teams">
-      <div className="flex flex-col h-[calc(100vh-80px)] overflow-hidden bg-slate-50/50 dark:bg-zinc-950/20 p-6 md:p-8 custom-scrollbar">
+      <div className="flex flex-col h-[calc(100vh-80px)] overflow-y-auto bg-slate-50/50 dark:bg-zinc-950/20 p-6 md:p-8 custom-scrollbar">
          
          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-6xl mx-auto w-full">
             

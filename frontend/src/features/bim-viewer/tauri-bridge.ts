@@ -14,6 +14,20 @@ const isElectron = typeof window !== 'undefined' && (window as any).api && typeo
 const webFileStore = new Map<string, File>();
 const webMemoryCache = new Map<string, Uint8Array>();
 const webConvertedCache = new Map<string, { frag: string; json: string }>();
+const inFlightConversions = new Map<string, Promise<{ frag: string; json: string }>>();
+import { useViewerStore } from './store/viewer-store';
+
+let activeWorker: Worker | null = null;
+
+export function cancelActiveIfcProcessing() {
+  if (activeWorker) {
+    activeWorker.terminate();
+    activeWorker = null;
+    inFlightConversions.clear();
+    console.log("🛑 Cancelled background IFC worker conversion.");
+  }
+}
+(window as any)._cancelIfcProcessing = cancelActiveIfcProcessing;
 
 async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: string }> {
   const cacheKey = `${file.name}_${file.size}_${file.lastModified}`;
@@ -22,59 +36,82 @@ async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: st
     return webConvertedCache.get(cacheKey)!;
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const fileBytes = new Uint8Array(arrayBuffer);
-  const localWasmPath = typeof window !== 'undefined' ? `${window.location.origin}/` : './';
-
-  // 1. Generate 3D Fragments geometry
-  const geometryGenerator = new GeometryGenerator(localWasmPath);
-  const fragResult = await geometryGenerator.generateFragments(fileBytes);
-  if (!fragResult) {
-    throw new Error('Failed to generate 3D geometry fragments from IFC file.');
-  }
-  const fragBytes = new Uint8Array(fragResult.buffer ?? fragResult);
-
-  // 2. Extract full IFC metadata, storeys, spaces, polygons & properties
-  const parser = new IfcParser();
-  await parser.init(localWasmPath);
-  parser.openModel(fileBytes);
-
-  let projectTree = null;
-  let elements: Record<number, any> = {};
-
-  try {
-    const propertyManager = new PropertyManager(parser);
-    const relationshipManager = new RelationshipManager(parser);
-    const spaceGeometryExtractor = new SpaceGeometryExtractor(parser);
-    const cacheManager = new CacheManager(parser, propertyManager, relationshipManager, spaceGeometryExtractor);
-
-    const coordVals = parser.getCoordinationMatrix();
-    const coordMatrix = new Matrix4().fromArray(coordVals);
-
-    relationshipManager.extractRelationships();
-
-    const rootIds = parser.getIds(WEBIFC.IFCPROJECT);
-    const rootId = rootIds.length > 0 ? rootIds[0] : null;
-
-    projectTree = rootId ? cacheManager.buildTree(rootId, coordMatrix) : null;
-    elements = cacheManager.buildElements(coordMatrix);
-  } finally {
-    parser.closeModel();
+  if (inFlightConversions.has(cacheKey)) {
+    console.log(`⏳ Hooking into IFC conversion already in progress for "${file.name}"`);
+    return inFlightConversions.get(cacheKey)!;
   }
 
-  const jsonStr = JSON.stringify({ project: projectTree, elements }, null, 2);
-  const jsonBytes = new TextEncoder().encode(jsonStr);
+  const setProgress = (text: string) => {
+    try {
+      useViewerStore.getState().setLoadingText(text);
+    } catch {}
+  };
 
-  const fragId = `web-cache-${cacheKey}.frag`;
-  const jsonId = `web-cache-${cacheKey}.json`;
+  const conversionPromise = (async () => {
+    setProgress('Reading IFC file data (Step 1/5)...');
+    await new Promise(r => setTimeout(r, 16));
 
-  webMemoryCache.set(fragId, fragBytes);
-  webMemoryCache.set(jsonId, jsonBytes);
+    const arrayBuffer = await file.arrayBuffer();
+    const fileBytes = new Uint8Array(arrayBuffer);
+    const wasmPath = typeof window !== 'undefined' ? `${window.location.origin}/` : './';
 
-  const result = { frag: fragId, json: jsonId };
-  webConvertedCache.set(cacheKey, result);
+    // Terminate any previous worker
+    cancelActiveIfcProcessing();
 
-  return result;
+    return new Promise<{ frag: string; json: string }>((resolve, reject) => {
+      try {
+        const worker = new Worker(new URL('./ifc-worker.ts', import.meta.url), { type: 'module' });
+        activeWorker = worker;
+
+        worker.onmessage = (e: MessageEvent) => {
+          const data = e.data;
+          if (data.type === 'progress') {
+            setProgress(data.text);
+          } else if (data.type === 'complete') {
+            const { fragBytes, jsonStr } = data;
+            const jsonBytes = new TextEncoder().encode(jsonStr);
+            const fragId = `web-cache-${cacheKey}.frag`;
+            const jsonId = `web-cache-${cacheKey}.json`;
+
+            if (webMemoryCache.size > 12) {
+              webMemoryCache.clear();
+              webConvertedCache.clear();
+            }
+
+            webMemoryCache.set(fragId, fragBytes);
+            webMemoryCache.set(jsonId, jsonBytes);
+
+            const result = { frag: fragId, json: jsonId };
+            webConvertedCache.set(cacheKey, result);
+
+            activeWorker = null;
+            worker.terminate();
+            resolve(result);
+          } else if (data.type === 'error') {
+            activeWorker = null;
+            worker.terminate();
+            reject(new Error(data.error));
+          }
+        };
+
+        worker.onerror = (err) => {
+          activeWorker = null;
+          worker.terminate();
+          reject(err);
+        };
+
+        worker.postMessage({ fileBytes, wasmPath }, [fileBytes.buffer]);
+      } catch (workerErr) {
+        activeWorker = null;
+        reject(workerErr);
+      }
+    });
+  })().finally(() => {
+    inFlightConversions.delete(cacheKey);
+  });
+
+  inFlightConversions.set(cacheKey, conversionPromise);
+  return conversionPromise;
 }
 
 export function ensureApiBridge() {

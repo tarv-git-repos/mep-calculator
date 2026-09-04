@@ -5,14 +5,17 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/lib/workspace-store';
 import { TaskComment } from '@/lib/ventilation-calc';
 import { toast } from 'sonner';
+import { dispatchGlobalCommentNotification } from '@/utils/notificationHelpers';
 
 interface AssignCommentModalProps {
   isOpen: boolean;
   onClose: () => void;
   targetId: string;
   targetName: string;
-  targetType: 'space' | 'zone' | 'equipment';
-  onSave: (comment: TaskComment) => void;
+  targetType?: string;
+  calculatorTitle?: string;
+  calculatorPath?: string;
+  onSave: (comment: TaskComment) => void | Promise<void>;
   existingComments?: TaskComment[];
 }
 
@@ -21,7 +24,9 @@ export function AssignCommentModal({
   onClose,
   targetId,
   targetName,
-  targetType,
+  targetType = 'space',
+  calculatorTitle,
+  calculatorPath,
   onSave,
   existingComments = []
 }: AssignCommentModalProps) {
@@ -213,9 +218,26 @@ export function AssignCommentModal({
       await onSave(newComment);
     } catch(e) {
       console.error(e);
-    } finally {
-      onClose();
     }
+
+    try {
+      dispatchGlobalCommentNotification({
+        ...newComment,
+        targetId,
+        targetName,
+        targetType: targetType || 'space',
+        calculatorTitle: calculatorTitle || (typeof document !== 'undefined' ? document.title.split('—')[0].trim() : 'MEP Calculator'),
+        calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/')
+      }, {
+        project,
+        currentUserName: userData?.name || profile?.name || 'SystemAdmin',
+        currentUserId: profile?.id || userData?.id || 'unknown'
+      });
+    } catch(e) {
+      console.error(e);
+    }
+
+    onClose();
   };
 
   const formatAssignedUsers = (assignedList: string[]) => {

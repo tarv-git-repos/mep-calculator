@@ -134,6 +134,10 @@ function GeneratorSizingPage() {
   const [filterEmergency, setFilterEmergency] = useState<string>("all");
   const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
   const [sortBy, setSortBy] = useState<"none" | "desc" | "kw">("none");
+  const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: string } | null>(null);
+  const [editingRow, setEditingRow] = useState<{ row: GenRow; index: number } | null>(null);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;

@@ -9,9 +9,13 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 const asyncHooksPolyfill = {
   name: 'async-hooks-polyfill',
+  enforce: 'pre' as const,
   resolveId(id: string) {
     if (id === 'node:async_hooks' || id === 'async_hooks') {
       return id;
+    }
+    if (id.startsWith('https:') || id.startsWith('http:')) {
+      return '\0http-external';
     }
   },
   load(id: string) {
@@ -26,17 +30,41 @@ const asyncHooksPolyfill = {
         export default { AsyncLocalStorage };
       `;
     }
+    if (id === '\0http-external') {
+      return `export default {};`;
+    }
   }
 };
 
+const ssrErrorPrinter = {
+  name: 'ssr-error-printer',
+  enforce: 'pre' as const,
+  configureServer() {
+    (globalThis as any).__LOVABLE_TANSTACK_CAPTURE_SSR_ERROR__ = (err: any) => {
+      console.error('\n******************** TANSTACK SSR ERROR ********************\n', err, '\n*************************************************************\n');
+    };
+    process.on('unhandledRejection', (err) => {
+      console.error('=== SSR UNHANDLED REJECTION ===\n', err);
+    });
+    process.on('uncaughtException', (err) => {
+      console.error('=== SSR UNCAUGHT EXCEPTION ===\n', err);
+    });
+  }
+};
+
+import os from "os";
+
+const localCacheDir = path.join(os.tmpdir(), "mep_calculator_vite_cache");
+
 export default defineConfig({
   vite: {
-    plugins: [asyncHooksPolyfill],
+    cacheDir: localCacheDir,
+    plugins: [asyncHooksPolyfill, ssrErrorPrinter],
     clearScreen: false,
     server: {
       host: true,
       port: 8081,
-      strictPort: true,
+      strictPort: false,
       fs: {
         strict: false,
         allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.')],
@@ -106,9 +134,5 @@ export default defineConfig({
       serverDir: path.resolve(__dirname, 'dist-nitro-build/server'),
       publicDir: path.resolve(__dirname, 'dist-nitro-build/public')
     }
-  },
-  tanstackStart: {
-    ssr: false,
-    server: { entry: "server" },
   },
 });
