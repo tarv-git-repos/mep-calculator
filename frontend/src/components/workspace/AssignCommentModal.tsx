@@ -216,8 +216,10 @@ export function AssignCommentModal({
 
     try {
       await onSave(newComment);
+      toast.success("Comment sent!");
     } catch(e) {
       console.error(e);
+      toast.error("Failed to send comment");
     }
 
     try {

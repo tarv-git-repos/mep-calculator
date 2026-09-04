@@ -52,6 +52,27 @@ export function SharedAssignmentModal({
 
   const prevIsOpenRef = useRef(false);
 
+  const getAssignedInstancesForEquip = (eq: Equipment) => {
+    const mode = getEquipVentMode(eq);
+    const instances = new Set<string>();
+    zones.forEach((z) => {
+      const mult = z.multiplier || 1;
+      for (let idx = 1; idx <= mult; idx++) {
+        const inst = z.instances?.find((i) => i.instanceIndex === idx);
+        const faId = inst?.faEquipId ?? (idx === 1 ? z.faAssignment : null);
+        const eaId = inst?.eaEquipId ?? (idx === 1 ? z.eaAssignment : null);
+        let assigned = false;
+        if (mode === "Fresh Air Only" && faId === eq.id) assigned = true;
+        if (mode === "Exhaust Air Only" && eaId === eq.id) assigned = true;
+        if (mode === "Fresh + Exhaust" && (faId === eq.id || eaId === eq.id)) assigned = true;
+        if (assigned) {
+          instances.add(`${z.id}_${idx}`);
+        }
+      }
+    });
+    return instances;
+  };
+
   // Sync initial selection state only when modal transitions to open
   useEffect(() => {
     const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
@@ -66,42 +87,16 @@ export function SharedAssignmentModal({
         setSelectedEquipId(initialEquipmentId);
         const eq = equipment.find((e) => e.id === initialEquipmentId);
         if (eq) {
-          const mode = getEquipVentMode(eq);
-          const instances = new Set<string>();
-          zones.forEach((z) => {
-            const mult = z.multiplier || 1;
-            for (let idx = 1; idx <= mult; idx++) {
-              const inst = z.instances?.find((i) => i.instanceIndex === idx);
-              const faId = inst?.faEquipId ?? (idx === 1 ? z.faAssignment : null);
-              const eaId = inst?.eaEquipId ?? (idx === 1 ? z.eaAssignment : null);
-              let assigned = false;
-              if (mode === "Fresh Air Only" && faId === eq.id) assigned = true;
-              if (mode === "Exhaust Air Only" && eaId === eq.id) assigned = true;
-              if (mode === "Fresh + Exhaust" && (faId === eq.id || eaId === eq.id)) assigned = true;
-              if (assigned) {
-                instances.add(`${z.id}_${idx}`);
-              }
-            }
-          });
-          setSelectedInstances(instances);
+          setSelectedInstances(getAssignedInstancesForEquip(eq));
+        } else {
+          setSelectedInstances(new Set());
         }
       } else if (initialZoneId || (initialZoneIds && initialZoneIds.length > 0)) {
         setSelectedEquipId(null);
         const targetIds = initialZoneIds && initialZoneIds.length > 0 ? Array.from(initialZoneIds) : initialZoneId ? [initialZoneId] : [];
-        const instances = new Set<string>();
-        const expanded = new Set<string>();
-        targetIds.forEach((id) => {
-          const z = zones.find((zone) => zone.id === id);
-          if (z) {
-            const mult = z.multiplier || 1;
-            for (let idx = 1; idx <= mult; idx++) {
-              instances.add(`${z.id}_${idx}`);
-            }
-            expanded.add(z.id);
-          }
-        });
-        setSelectedInstances(instances);
+        const expanded = new Set<string>(targetIds);
         setExpandedZones(expanded);
+        setSelectedInstances(new Set());
       } else {
         setSelectedEquipId(null);
         setSelectedInstances(new Set());
@@ -115,41 +110,7 @@ export function SharedAssignmentModal({
     setSelectedEquipId(eqId);
     const eq = equipment.find((e) => e.id === eqId);
     if (!eq) return;
-    const mode = getEquipVentMode(eq);
-    const instances = new Set<string>();
-    const hasTargetZone = !!initialZoneId || (!!initialZoneIds && initialZoneIds.length > 0);
-
-    if (hasTargetZone) {
-      // ONLY check target zones
-      const targetIds = initialZoneIds && initialZoneIds.length > 0 ? Array.from(initialZoneIds) : initialZoneId ? [initialZoneId] : [];
-      targetIds.forEach((id) => {
-        const z = zones.find((zone) => zone.id === id);
-        if (z) {
-          const mult = z.multiplier || 1;
-          for (let idx = 1; idx <= mult; idx++) {
-            instances.add(`${z.id}_${idx}`);
-          }
-        }
-      });
-    } else {
-      // Manage Equipment mode: check all zones/instances currently assigned to this equipment
-      zones.forEach((z) => {
-        const mult = z.multiplier || 1;
-        for (let idx = 1; idx <= mult; idx++) {
-          const inst = z.instances?.find((i) => i.instanceIndex === idx);
-          const faId = inst?.faEquipId ?? (idx === 1 ? z.faAssignment : null);
-          const eaId = inst?.eaEquipId ?? (idx === 1 ? z.eaAssignment : null);
-          let assigned = false;
-          if (mode === "Fresh Air Only" && faId === eq.id) assigned = true;
-          if (mode === "Exhaust Air Only" && eaId === eq.id) assigned = true;
-          if (mode === "Fresh + Exhaust" && (faId === eq.id || eaId === eq.id)) assigned = true;
-          if (assigned) {
-            instances.add(`${z.id}_${idx}`);
-          }
-        }
-      });
-    }
-    setSelectedInstances(instances);
+    setSelectedInstances(getAssignedInstancesForEquip(eq));
   };
 
   const selectedEquipment = useMemo(

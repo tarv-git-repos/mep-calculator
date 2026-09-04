@@ -22,22 +22,27 @@ export function dispatchGlobalCommentNotification(commentWithMeta: any, options?
 
   // 1. Instant local window event broadcast (< 1ms)
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: enrichedComment }));
-    window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: enrichedComment }));
-    window.dispatchEvent(new CustomEvent("mep_notif_tick"));
-    window.dispatchEvent(new Event("storage"));
-
-    // Save directly to persistent localStorage queues so all project views immediately receive it
+    // Save directly to persistent localStorage queues for recipients
     try {
-      const globalKey = "mep_persistent_user_notifs";
-      const existingGlobal = JSON.parse(localStorage.getItem(globalKey) || '[]');
-      if (!existingGlobal.some((n: any) => n.id === enrichedComment.id)) {
-        localStorage.setItem(globalKey, JSON.stringify([enrichedComment, ...existingGlobal]));
-      }
+      const currentAuthorId = String(options?.currentUserId || commentWithMeta.authorId || '').toLowerCase().trim();
+      const currentAuthorName = String(options?.currentUserName || commentWithMeta.authorName || '').toLowerCase().trim();
 
       const recipients: string[] = Array.isArray(enrichedComment.assignedUsers) ? enrichedComment.assignedUsers.filter(Boolean) : [];
+      
+      // Only save to global queue if unassigned (so other project members see it, but exclude author when reading)
+      if (recipients.length === 0) {
+        const globalKey = "mep_persistent_user_notifs";
+        const existingGlobal = JSON.parse(localStorage.getItem(globalKey) || '[]');
+        if (!existingGlobal.some((n: any) => n.id === enrichedComment.id)) {
+          localStorage.setItem(globalKey, JSON.stringify([enrichedComment, ...existingGlobal]));
+        }
+      }
+
       recipients.forEach(r => {
         const clean = String(r).trim();
+        const cleanLower = clean.toLowerCase();
+        // Never store in the author's personal queue
+        if (cleanLower && (cleanLower === currentAuthorId || cleanLower === currentAuthorName)) return;
         if (clean) {
           const uKey = `mep_persistent_user_notifs_${clean}`;
           const existingU = JSON.parse(localStorage.getItem(uKey) || '[]');

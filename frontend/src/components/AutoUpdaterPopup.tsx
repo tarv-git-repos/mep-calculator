@@ -54,11 +54,16 @@ export function AutoUpdaterPopup() {
     return () => window.removeEventListener('mep_check_updates_manual', handleManualCheck);
   }, []);
 
-  const handleSkip = () => {
-    if (update?.version) {
+  const handleOpenChange = (open: boolean) => {
+    if (isInstalling) return;
+    if (!open && update?.version) {
       localStorage.setItem('ignored_update_version', update.version);
     }
-    setIsOpen(false);
+    setIsOpen(open);
+  };
+
+  const handleSkip = () => {
+    handleOpenChange(false);
   };
 
   const handleInstall = async () => {
@@ -97,7 +102,7 @@ export function AutoUpdaterPopup() {
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !isInstalling && setIsOpen(open)}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New Update Available</DialogTitle>

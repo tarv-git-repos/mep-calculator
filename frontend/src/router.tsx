@@ -72,6 +72,33 @@ React.createElement = function (type: any, props: any, ...children: any[]) {
 export const getRouter = () => {
   const queryClient = new QueryClient();
 
+  if (typeof window !== 'undefined') {
+    if ((window as any).__TAURI_INTERNALS__) {
+      try {
+        (window as any).$_TSR = {
+          t: new Map(),
+          buffer: [],
+          initialized: true,
+          matches: [],
+          streamEnded: true,
+          h: () => {},
+          dehydrated: {},
+          router: {
+            matches: [],
+            lastMatchId: undefined,
+            manifest: undefined,
+            dehydratedData: undefined
+          }
+        };
+      } catch (e) {}
+    }
+    if (window.location.pathname === '/index.html' || window.location.pathname.endsWith('/index.html')) {
+      try {
+        window.history.replaceState(null, '', '/');
+      } catch (e) {}
+    }
+  }
+
   const router = createRouter({
     routeTree,
     context: { queryClient },

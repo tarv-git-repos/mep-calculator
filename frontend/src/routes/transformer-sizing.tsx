@@ -455,7 +455,7 @@ function TransformerSizingPage() {
   };
 
   return (
-    <AppShell>
+    <AppShell title="Transformer Sizing" subtitle="Calculate transformer rating based on connected and maximum demand loads">
       <div className="p-6 h-full flex flex-col bg-slate-50 dark:bg-slate-950 font-sans overflow-y-auto">
         
         {/* Header & Title */}

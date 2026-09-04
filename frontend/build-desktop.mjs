@@ -1,5 +1,4 @@
-import { execSync } from 'child_process';
-import { fork } from 'child_process';
+import { execSync, fork } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
@@ -30,112 +29,153 @@ while (attempts < 5) {
   }
 }
 
-console.log('Starting local Nitro server to capture index.html...');
+const publicDir = path.join(__dirname, 'dist-nitro-2', 'public');
+const assetsDir = path.join(publicDir, 'assets');
+
+let htmlCaptured = false;
+
+console.log('Capturing index.html...');
 const port = 8085;
-const serverProcess = fork(path.join(__dirname, 'dist-nitro-2/server/index.mjs'), [], {
-  env: { ...process.env, PORT: port },
-  cwd: __dirname,
-  silent: true,
-});
+const serverPath = path.join(__dirname, 'dist-nitro-2', 'server', 'index.mjs');
 
-serverProcess.stdout.on('data', (data) => {
-  const str = data.toString();
-  if (str.includes('Listening on')) {
-    console.log('Server is ready. Fetching index.html...');
-    http.get(`http://localhost:${port}/`, (res) => {
-      let html = '';
-      res.on('data', (chunk) => { html += chunk; });
-      res.on('end', () => {
-        let fixedHtml = html
-          .replace(/href="\/assets\//g, 'href="./assets/')
-          .replace(/src="\/assets\//g, 'src="./assets/')
-          .replace(/href="\/favicon/g, 'href="./favicon');
+if (fs.existsSync(serverPath)) {
+  const serverProcess = fork(serverPath, [], {
+    env: { ...process.env, PORT: port },
+    cwd: __dirname,
+    silent: true,
+  });
 
-        fs.writeFileSync(path.join(__dirname, 'dist-nitro-2/public/index.html'), fixedHtml);
-        console.log('Successfully wrote dist-nitro-2/public/index.html with relative paths');
+  serverProcess.stdout.on('data', (data) => {
+    const str = data.toString();
+    if (str.includes('Listening on') && !htmlCaptured) {
+      console.log('Nitro server is ready. Fetching index.html...');
+      http.get(`http://localhost:${port}/`, (res) => {
+        let html = '';
+        res.on('data', (chunk) => { html += chunk; });
+        res.on('end', () => {
+          if (html && html.includes('<html') && !htmlCaptured) {
+            htmlCaptured = true;
+            let fixedHtml = html
+              .replace(/href="\/assets\//g, 'href="./assets/')
+              .replace(/src="\/assets\//g, 'src="./assets/')
+              .replace(/href="\/favicon/g, 'href="./favicon');
 
-        // Copy dist-nitro-2/public to dist for electron compatibility
-        const distDir = path.join(__dirname, 'dist');
-        if (!fs.existsSync(distDir)) {
-          fs.mkdirSync(distDir, { recursive: true });
-        }
-        fs.cpSync(path.join(__dirname, 'dist-nitro-2/public'), distDir, { recursive: true, force: true });
-        console.log('Successfully mirrored dist-nitro-2/public to dist/');
+            fs.mkdirSync(publicDir, { recursive: true });
+            fs.writeFileSync(path.join(publicDir, 'index.html'), fixedHtml);
+            console.log('✅ Captured index.html via Nitro server');
+            finishBuild(serverProcess);
+          }
+        });
+      }).on('error', () => {});
+    }
+  });
 
-        serverProcess.kill();
+  // Fallback timeout in case Nitro server fails or errors
+  setTimeout(() => {
+    if (!htmlCaptured) {
+      console.log('⚠️  Nitro server html capture fallback triggered.');
+      generateFallbackHtml();
+      finishBuild(serverProcess);
+    }
+  }, 12000);
+} else {
+  generateFallbackHtml();
+  finishBuild();
+}
 
-        // Apply Tauri CSR patch to the built JS bundle
-        patchTauriCSR();
+function generateFallbackHtml() {
+  if (htmlCaptured) return;
+  htmlCaptured = true;
+  fs.mkdirSync(publicDir, { recursive: true });
 
-        process.exit(0);
-      });
-    }).on('error', (err) => {
-      console.error('Error fetching HTML:', err);
-      serverProcess.kill();
-      process.exit(1);
-    });
+  let jsFile = '';
+  let cssFiles = [];
+
+  if (fs.existsSync(assetsDir)) {
+    const files = fs.readdirSync(assetsDir);
+    jsFile = files.find(f => f.startsWith('index-') && f.endsWith('.js')) || files.find(f => f.endsWith('.js')) || '';
+    cssFiles = files.filter(f => f.endsWith('.css'));
   }
-});
 
-serverProcess.stderr.on('data', (data) => {
-  console.error(`Server error: ${data}`);
-});
+  const cssLinks = cssFiles.map(f => `<link rel="stylesheet" href="./assets/${f}">`).join('\n    ');
 
-// Fallback timeout in case server doesn't output 'Listening on'
-setTimeout(() => {
-  console.error('Timeout waiting for server to start.');
-  serverProcess.kill();
-  process.exit(1);
-}, 10000);
+  const fallbackHtml = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MEP Calculator</title>
+    ${cssLinks}
+  </head>
+  <body>
+    <div id="root"></div>
+    ${jsFile ? `<script type="module" src="./assets/${jsFile}"></script>` : ''}
+  </body>
+</html>`;
 
-/**
- * Patches the built JS bundle to use React.createRoot (CSR) in Tauri
- * instead of hydrateRoot (SSR), avoiding the white screen issue.
- * 
- * In Tauri, window.__TAURI_INTERNALS__ is present. We detect it and
- * wipe the SSR-rendered body, then mount React fresh via createRoot.
- */
+  fs.writeFileSync(path.join(publicDir, 'index.html'), fallbackHtml);
+  console.log('✅ Generated robust static index.html fallback with all CSS stylesheets');
+}
+
+function finishBuild(serverProcess) {
+  if (serverProcess) {
+    try { serverProcess.kill(); } catch (e) {}
+  }
+
+  // Mirror dist-nitro-2/public to dist for electron/tauri compatibility
+  const distDir = path.join(__dirname, 'dist');
+  if (!fs.existsSync(distDir)) {
+    fs.mkdirSync(distDir, { recursive: true });
+  }
+  fs.cpSync(publicDir, distDir, { recursive: true, force: true });
+  console.log('Successfully mirrored dist-nitro-2/public to dist/');
+
+  // Apply Tauri CSR patch to the built JS bundle
+  patchTauriCSR();
+
+  process.exit(0);
+}
+
 function patchTauriCSR() {
   console.log('\nApplying Tauri CSR patch...');
-  const assetsDir = path.join(__dirname, 'dist-nitro-2', 'public', 'assets');
   if (!fs.existsSync(assetsDir)) {
     console.warn('⚠️  assetsDir not found, skipping patch.');
     return;
   }
-  const files = fs.readdirSync(assetsDir).filter(f => f.startsWith('index-') && f.endsWith('.js'));
+  const files = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
 
   if (files.length === 0) {
-    console.warn('⚠️  No index-*.js found, skipping patch.');
+    console.warn('⚠️  No .js found, skipping patch.');
     return;
   }
 
-  const jsFile = path.join(assetsDir, files[0]);
-  let js = fs.readFileSync(jsFile, 'utf8');
-
-  // Match the hydrateRoot call dynamically using a regex to handle variable renaming by the minifier
   const regex = /\(0,(\w+)\.hydrateRoot\)\(document,\(0,(\w+)\.jsx\)\((\w+)\.StrictMode,\{children:\(0,\2\.jsx\)\((\w+),\{\}\)\}\)\)/;
 
-  if (!regex.test(js)) {
-    console.warn('⚠️  Mount pattern not found — patch skipped. App may show white screen in Tauri.');
-    const idx = js.lastIndexOf('hydrateRoot');
-    if (idx > -1) {
-      console.log('hydrateRoot context:', js.slice(Math.max(0, idx - 100), idx + 200));
+  let patchedCount = 0;
+  for (const file of files) {
+    const jsFile = path.join(assetsDir, file);
+    let js = fs.readFileSync(jsFile, 'utf8');
+    if (regex.test(js)) {
+      js = js.replace(regex, (match, reactDomClient, jsxCreator, strictMode, rootComponent) => {
+        return (
+          `window.__TAURI_INTERNALS__ ? (` +
+            `window.$_TSR = { t: new Map(), buffer: [], initialized: true, matches: [], streamEnded: true, h: () => {}, dehydrated: {}, router: { matches: [] } }, ` +
+            `document.body.innerHTML = '', ` +
+            `(0,${reactDomClient}.createRoot)(document.body).render((0,${jsxCreator}.jsx)(${strictMode}.StrictMode,{children:(0,${jsxCreator}.jsx)(${rootComponent},{})}))` +
+          `) : (` +
+            `${match}` +
+          `)`
+        );
+      });
+      fs.writeFileSync(jsFile, js);
+      console.log(`✅ Tauri CSR patch applied to ${file}`);
+      patchedCount++;
     }
-    return;
   }
 
-  // Replace: detect Tauri and use createRoot instead of hydrateRoot
-  js = js.replace(regex, (match, reactDomClient, jsxCreator, strictMode, rootComponent) => {
-    return (
-      `window.__TAURI_INTERNALS__ ? (` +
-        `document.body.innerHTML = '', ` +
-        `(0,${reactDomClient}.createRoot)(document.body).render((0,${jsxCreator}.jsx)(${strictMode}.StrictMode,{children:(0,${jsxCreator}.jsx)(${rootComponent},{})}))` +
-      `) : (` +
-        `${match}` +
-      `)`
-    );
-  });
-  fs.writeFileSync(jsFile, js);
-  console.log(`✅ Tauri CSR patch applied to ${files[0]}`);
-  console.log('   → Tauri: createRoot (CSR) | Browser: hydrateRoot (SSR)');
+  if (patchedCount === 0) {
+    console.warn('⚠️  Mount pattern not found in any JS file — patch skipped.');
+  } else {
+    console.log(`   → Patched ${patchedCount} file(s). Tauri: createRoot (CSR) | Browser: hydrateRoot (SSR)`);
+  }
 }

@@ -89,6 +89,7 @@ const detectInputUnit = (el: HTMLElement) => {
 
 // React element value setter overrides to bypass synthetic event interception
 const setReactInputValue = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+  if ((el as HTMLInputElement).type === "file") return;
   const descriptor = Object.getOwnPropertyDescriptor(el, "value");
   const prototype = Object.getPrototypeOf(el);
   const prototypeDescriptor = Object.getOwnPropertyDescriptor(prototype, "value");
@@ -1043,9 +1044,20 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
             const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
             const authorIdStr = String(c.authorId || "").toLowerCase().trim();
+            const authorNameStr = String(c.authorName || "").toLowerCase().trim();
             const currentIdStr = String(currentId || "").toLowerCase().trim();
+            const currentEmailStr = String(currentEmail || "").toLowerCase().trim();
+            const currentNameStr = String(currentName || "").toLowerCase().trim();
 
-            let isAssigned = true; // By default deliver project comments/tasks to workspace members
+            const isAuthor = Boolean(
+              (authorIdStr && currentIdStr && authorIdStr === currentIdStr) ||
+              (authorIdStr && currentEmailStr && authorIdStr === currentEmailStr) ||
+              (authorNameStr && currentNameStr && (authorNameStr === currentNameStr || currentNameStr.includes(authorNameStr) || authorNameStr.includes(currentNameStr))) ||
+              (c.authorId && (c.authorId === userId || c.authorId === userData?.id || c.authorId === profile?.id)) ||
+              (c.authorName && (c.authorName === userData?.name || c.authorName === profile?.name))
+            );
+
+            let isAssigned = false;
 
             if (c.isCompletionNotif) {
               const origAuthor = String(c.originalAuthorId || c.authorId || "").toLowerCase().trim();
@@ -1062,24 +1074,23 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               }
             } else {
               // Comment / Task:
-              if (assignedUsers.length > 0) {
+              if (isAuthor) {
+                // Author must NEVER see their own sent comment/task in their "Received" inbox
+                isAssigned = false;
+              } else if (assignedUsers.length > 0) {
                 // If specific assignees were selected:
                 const isTargeted = assignedUsers.some((u: any) => {
                   const uStr = String(u).toLowerCase().trim();
                   return (
                     (currentIdStr && uStr === currentIdStr) ||
-                    (currentName && uStr === currentName) ||
-                    (currentEmail && uStr === currentEmail)
+                    (currentNameStr && uStr === currentNameStr) ||
+                    (currentEmailStr && uStr === currentEmailStr)
                   );
                 });
                 isAssigned = isTargeted; // STRICTLY TARGETED ASSIGNEES ONLY!
               } else {
                 // Unassigned comment: deliver to other project members EXCEPT the author
-                isAssigned = Boolean(
-                  (authorIdStr !== currentIdStr) &&
-                  (!currentEmail || authorIdStr !== currentEmail) &&
-                  (!currentName || authorIdStr !== currentName)
-                );
+                isAssigned = true;
               }
             }
 
@@ -1303,7 +1314,30 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     // 3. Merge persistent and backend notifications
     const combinedMap = new Map();
     (persistentNotifs || []).forEach((pn: any) => {
-      if (pn && pn.id) combinedMap.set(pn.id, pn);
+      if (!pn || !pn.id) return;
+      const pnAuthorId = String(pn.authorId || pn.metadata?.authorId || "").toLowerCase().trim();
+      const pnAuthorName = String(pn.authorName || pn.metadata?.authorName || "").toLowerCase().trim();
+      const isPnAuthor = Boolean(
+        (pnAuthorId && currentId && pnAuthorId === currentId) ||
+        (pnAuthorId && currentEmail && pnAuthorId === currentEmail) ||
+        (pnAuthorName && currentName && (pnAuthorName === currentName || currentName.includes(pnAuthorName) || pnAuthorName.includes(currentName))) ||
+        (pn.authorId && (pn.authorId === userId || pn.authorId === userData?.id || pn.authorId === profile?.id)) ||
+        (pn.authorName && (pn.authorName === userData?.name || pn.authorName === profile?.name))
+      );
+
+      // Senders should never receive their own sent tasks/comments in Received tab
+      if (isPnAuthor && !pn.isCompletionNotif) return;
+
+      const pnAssigned = Array.isArray(pn.assignedUsers) ? pn.assignedUsers : (pn.metadata?.assignedUsers || []);
+      if (pnAssigned.length > 0) {
+        const isTargetedToMe = pnAssigned.some((u: any) => {
+          const uStr = String(u).toLowerCase().trim();
+          return (currentId && uStr === currentId) || (currentEmail && uStr === currentEmail) || (currentName && uStr === currentName);
+        });
+        if (!isTargetedToMe) return; // Assigned to someone else -> exclude!
+      }
+
+      combinedMap.set(pn.id, pn);
     });
     (notifs || []).forEach(n => {
       if (n && n.id) combinedMap.set(n.id, n);
@@ -1315,6 +1349,30 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (!n || !n.id) return false;
       const nText = String(n.text || n.message || n.metadata?.text || "").trim();
       if (!nText) return false; // Reject empty/blank notification cards!
+
+      const nAuthorId = String(n.authorId || n.metadata?.authorId || "").toLowerCase().trim();
+      const nAuthorName = String(n.authorName || n.metadata?.authorName || "").toLowerCase().trim();
+      const isAuthor = Boolean(
+        (nAuthorId && currentId && nAuthorId === currentId) ||
+        (nAuthorId && currentEmail && nAuthorId === currentEmail) ||
+        (nAuthorName && currentName && (nAuthorName === currentName || currentName.includes(nAuthorName) || nAuthorName.includes(currentName))) ||
+        (n.authorId && (n.authorId === userId || n.authorId === userData?.id || n.authorId === profile?.id)) ||
+        (n.authorName && (n.authorName === userData?.name || n.authorName === profile?.name))
+      );
+
+      // If authored by current user and not a completion confirmation, never show in Received inbox
+      if (isAuthor && !n.isCompletionNotif) return false;
+
+      // If targeted to specific assignees, verify current user is one of them
+      const assigned = Array.isArray(n.assignedUsers) ? n.assignedUsers : (n.metadata?.assignedUsers || []);
+      if (assigned.length > 0) {
+        const isTargetedToMe = assigned.some((u: any) => {
+          const uStr = String(u).toLowerCase().trim();
+          return (currentId && uStr === currentId) || (currentEmail && uStr === currentEmail) || (currentName && uStr === currentName);
+        });
+        if (!isTargetedToMe) return false;
+      }
+
       return true;
     });
 
@@ -1484,9 +1542,21 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         const cName = String(userData?.name || profile?.name || "").toLowerCase().trim();
 
         const authorIdStr = String(item.authorId || item.metadata?.authorId || "").toLowerCase().trim();
+        const authorNameStr = String(item.authorName || item.metadata?.authorName || "").toLowerCase().trim();
         const assignedUsers = Array.isArray(item.assignedUsers) ? item.assignedUsers : (item.metadata?.assignedUsers || []);
         const itemTargetRole = item.targetRole || item.metadata?.targetRole || "";
         const itemIsReviewNotif = Boolean(item.isReviewStateNotif || item.metadata?.isReviewStateNotif);
+
+        // 1. Author must NEVER receive notification popups for their own comment
+        const isAuthor = Boolean(
+          (authorIdStr && cId && authorIdStr === cId) ||
+          (authorIdStr && cEmail && authorIdStr === cEmail) ||
+          (authorNameStr && cName && (authorNameStr === cName || cName.includes(authorNameStr) || authorNameStr.includes(cName))) ||
+          (item.authorId && (item.authorId === userId || item.authorId === userData?.id || item.authorId === profile?.id)) ||
+          (item.authorName && (item.authorName === userData?.name || item.authorName === profile?.name))
+        );
+
+        if (isAuthor) return;
 
         let isForMe = false;
 
@@ -1506,9 +1576,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           });
         } else {
           isForMe = Boolean(
-            (authorIdStr !== cId) &&
+            (!cId || authorIdStr !== cId) &&
             (!cEmail || authorIdStr !== cEmail) &&
-            (!cName || authorIdStr !== cName)
+            (!cName || (authorNameStr !== cName && !authorNameStr.includes(cName)))
           );
         }
 

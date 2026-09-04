@@ -4,6 +4,7 @@ import { X, Info, CheckCircle2, AlertTriangle, Sparkles, Flag, Gauge } from "luc
 
 export interface SprinklerModalRow {
   id: string;
+  floor?: string;
   label: string;
   kFactor: number;
   solveFor: "Q" | "P";
@@ -14,6 +15,7 @@ export interface SprinklerModalRow {
   notes?: string;
   flagged?: boolean;
   flagReason?: string;
+  comments?: any[];
 }
 
 interface EditSprinklerCustomModalProps {
@@ -21,6 +23,7 @@ interface EditSprinklerCustomModalProps {
   onClose: () => void;
   onSave: (updated: SprinklerModalRow) => void;
   unitSystem: "ip" | "si";
+  availableFloors?: string[];
 }
 
 const STANDARD_K_FACTORS_IP = [2.8, 4.2, 5.6, 8.0, 11.2, 14.0, 16.8, 19.6, 22.4, 25.2, 28.0];
@@ -40,6 +43,7 @@ export function EditSprinklerCustomModal({
   onClose,
   onSave,
   unitSystem,
+  availableFloors = [],
 }: EditSprinklerCustomModalProps) {
   const isSI = unitSystem === "si";
   const pressureUnit = isSI ? "bar" : "psi";
@@ -57,7 +61,7 @@ export function EditSprinklerCustomModal({
 
   const [customKInput, setCustomKInput] = useState<string>(() => String(tempRow.kFactor));
   const [customHazardInput, setCustomHazardInput] = useState<string>(() => {
-    if (tempRow.hazard.endsWith(" (Custom)")) {
+    if (tempRow.hazard?.endsWith(" (Custom)")) {
       return tempRow.hazard.replace(/\s*\(Custom\)$/, "");
     }
     return tempRow.hazard || "Custom Hazard";
@@ -110,7 +114,7 @@ export function EditSprinklerCustomModal({
     const kVal = parseFloat(customKInput) || (isSI ? 80.0 : 5.6);
     let resolvedHazard = tempRow.hazard;
 
-    if (tempRow.hazard === "Other" || tempRow.hazard.endsWith(" (Custom)")) {
+    if (tempRow.hazard === "Other" || tempRow.hazard?.endsWith(" (Custom)")) {
       const cleanH = customHazardInput.trim() || "Custom Hazard";
       resolvedHazard = cleanH.endsWith(" (Custom)") ? cleanH : `${cleanH} (Custom)`;
     }
@@ -134,7 +138,7 @@ export function EditSprinklerCustomModal({
     };
 
     onSave(finalized);
-    toast.success(`Custom parameters updated for ${finalized.label}`);
+    toast.success(`Updated parameters for ${finalized.label}`);
     onClose();
   };
 
@@ -153,14 +157,13 @@ export function EditSprinklerCustomModal({
         <header className="px-6 py-4 border-b border-border/60 flex items-center justify-between bg-card shrink-0">
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-primary" />
-              <h2 className="text-[17px] font-bold text-foreground tracking-tight">Configure Custom Parameters</h2>
+              <h2 className="text-[17px] font-bold text-foreground tracking-tight">Edit Space Parameters</h2>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary uppercase tracking-wider border border-primary/20">
-                {tempRow.label || "Sprinkler Head"}
+                {tempRow.floor ? `${tempRow.floor} - ${tempRow.label}` : tempRow.label || "Sprinkler Head"}
               </span>
             </div>
             <p className="text-[12px] text-muted-foreground">
-              Define custom orifice coefficients, operating pressures, and design hazard classes.
+              Configure room geometry, heat density factors, and cooling load capacity.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -199,160 +202,212 @@ export function EditSprinklerCustomModal({
           </div>
         </header>
 
-        {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-6 flex flex-col lg:flex-row gap-6 custom-scrollbar">
-          {/* Form Fields */}
-          <div className="flex-1 space-y-4">
-            {/* Label / Name */}
-            <div>
-              <label className={labelClass}>Sprinkler Label / Room Location</label>
-              <input
-                type="text"
-                value={tempRow.label}
-                onChange={(e) => setTempRow((prev) => ({ ...prev, label: e.target.value }))}
-                placeholder="e.g. Master Bedroom Sprinkler, Level 1 Lobby"
-                className={inputClass}
-              />
-            </div>
-
-            {/* K-Factor Input */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              <div>
-                <label className={labelClass}>
-                  K-Factor ({isSI ? "SI Metric" : "US IP"})
-                </label>
-                <div className="relative">
+        {/* Content Body */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          <div className="flex-1 min-w-0 p-6 space-y-6 overflow-y-auto custom-scrollbar">
+            {/* GENERAL PARAMETERS */}
+            <div className="space-y-4">
+              <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-border/40 pb-2 flex items-center gap-2">
+                <span className="size-1.5 rounded-full bg-primary" /> General Parameters
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Space Name</label>
                   <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    value={customKInput}
-                    onChange={(e) => setCustomKInput(e.target.value)}
-                    placeholder={isSI ? "80.0" : "5.6"}
-                    className={`${inputClass} font-mono font-bold text-primary`}
+                    type="text"
+                    value={tempRow.label}
+                    onChange={(e) => setTempRow((prev) => ({ ...prev, label: e.target.value }))}
+                    placeholder="e.g. GF-Space 1"
+                    className={inputClass}
                   />
-                  <span className="absolute right-3 top-2 text-[11px] font-bold text-muted-foreground uppercase pointer-events-none">
-                    K-Coeff
-                  </span>
+                </div>
+                <div>
+                  <label className={labelClass}>Category Classification</label>
+                  <select
+                    value={tempRow.hazard?.endsWith(" (Custom)") ? "Other" : tempRow.hazard || "Light Hazard"}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "Other") {
+                        setTempRow((prev) => ({ ...prev, hazard: "Other" }));
+                      } else {
+                        setTempRow((prev) => ({ ...prev, hazard: val }));
+                      }
+                    }}
+                    className={inputClass}
+                  >
+                    <option value="Light Hazard">Light Hazard</option>
+                    <option value="Ordinary Hazard Gp 1">Ordinary Hazard Gp 1</option>
+                    <option value="Ordinary Hazard Gp 2">Ordinary Hazard Gp 2</option>
+                    <option value="Extra Hazard Gp 1">Extra Hazard Gp 1</option>
+                    <option value="Extra Hazard Gp 2">Extra Hazard Gp 2</option>
+                    <option value="Storage / ESFR">Storage / ESFR</option>
+                    <option value="Other">Other (Custom Hazard)...</option>
+                  </select>
                 </div>
               </div>
 
-              {/* Sizing Target */}
-              <div>
-                <label className={labelClass}>Hydraulic Sizing Target</label>
-                <select
-                  value={tempRow.solveFor}
-                  onChange={(e) => setTempRow((prev) => ({ ...prev, solveFor: e.target.value as "Q" | "P" }))}
-                  className={inputClass}
-                >
-                  <option value="Q">Solve for Flow (Q) from Pressure</option>
-                  <option value="P">Solve for Pressure (P) from Flow</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Operating Pressure & Flow */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              <div>
-                <label className={labelClass}>
-                  Operating Pressure ({pressureUnit}) {tempRow.solveFor === "P" && <span className="text-primary font-normal">(Calculated)</span>}
-                </label>
-                <input
-                  type="number"
-                  step={isSI ? "0.05" : "0.5"}
-                  min="0"
-                  disabled={tempRow.solveFor === "P"}
-                  value={tempRow.solveFor === "P" ? liveCalcs.p : tempRow.pressure}
-                  onChange={(e) => setTempRow((prev) => ({ ...prev, pressure: parseFloat(e.target.value) || 0 }))}
-                  className={`${inputClass} font-mono ${tempRow.solveFor === "P" ? "bg-muted/30 text-primary font-bold cursor-not-allowed" : ""}`}
-                />
-              </div>
+              {(tempRow.hazard === "Other" || tempRow.hazard?.endsWith(" (Custom)")) && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                  <label className={labelClass}>Custom Category Name</label>
+                  <input
+                    type="text"
+                    value={customHazardInput}
+                    onChange={(e) => setCustomHazardInput(e.target.value)}
+                    placeholder="e.g. Clean Room or High Bay"
+                    className={inputClass}
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Custom categories will be saved with the suffix <code className="font-semibold text-foreground">"(Custom)"</code>.
+                  </p>
+                </div>
+              )}
 
               <div>
-                <label className={labelClass}>
-                  Design Flow ({flowUnit}) {tempRow.solveFor === "Q" && <span className="text-primary font-normal">(Calculated)</span>}
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  disabled={tempRow.solveFor === "Q"}
-                  value={tempRow.solveFor === "Q" ? liveCalcs.q : tempRow.flow}
-                  onChange={(e) => setTempRow((prev) => ({ ...prev, flow: parseFloat(e.target.value) || 0 }))}
-                  className={`${inputClass} font-mono ${tempRow.solveFor === "Q" ? "bg-muted/30 text-primary font-bold cursor-not-allowed" : ""}`}
-                />
-              </div>
-            </div>
-
-            {/* Hazard & Coverage */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              <div>
-                <label className={labelClass}>Hazard Classification</label>
-                <select
-                  value={tempRow.hazard.endsWith(" (Custom)") ? "Other" : tempRow.hazard}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "Other") {
-                      setTempRow((prev) => ({ ...prev, hazard: "Other" }));
-                    } else {
-                      setTempRow((prev) => ({ ...prev, hazard: val }));
-                    }
-                  }}
-                  className={inputClass}
-                >
-                  <option value="Light Hazard">Light Hazard</option>
-                  <option value="Ordinary Hazard Gp 1">Ordinary Hazard Gp 1</option>
-                  <option value="Ordinary Hazard Gp 2">Ordinary Hazard Gp 2</option>
-                  <option value="Extra Hazard Gp 1">Extra Hazard Gp 1</option>
-                  <option value="Extra Hazard Gp 2">Extra Hazard Gp 2</option>
-                  <option value="Storage / ESFR">Storage / ESFR</option>
-                  <option value="Other">Other (Custom Hazard)...</option>
-                </select>
-              </div>
-
-              <div>
-                <label className={labelClass}>Coverage Area ({areaUnit})</label>
-                <input
-                  type="number"
-                  step="1"
-                  min="0"
-                  value={tempRow.coverage}
-                  onChange={(e) => setTempRow((prev) => ({ ...prev, coverage: parseFloat(e.target.value) || 0 }))}
-                  className={`${inputClass} font-mono`}
-                />
-              </div>
-            </div>
-
-            {/* Custom Hazard Name (if Other selected) */}
-            {(tempRow.hazard === "Other" || tempRow.hazard.endsWith(" (Custom)")) && (
-              <div>
-                <label className={labelClass}>Custom Hazard Label</label>
+                <label className={labelClass}>Floor Assigned</label>
                 <input
                   type="text"
-                  value={customHazardInput}
-                  onChange={(e) => setCustomHazardInput(e.target.value)}
-                  placeholder="e.g. Clean Agent Protected Room, High-Bay Deluge"
+                  list="sprinkler-floors-list"
+                  value={tempRow.floor || ""}
+                  onChange={(e) => setTempRow((prev) => ({ ...prev, floor: e.target.value }))}
+                  placeholder="e.g. GF"
                   className={inputClass}
                 />
+                <datalist id="sprinkler-floors-list">
+                  {availableFloors.map((f) => (
+                    <option key={f} value={f} />
+                  ))}
+                </datalist>
               </div>
-            )}
+            </div>
 
-            {/* Notes */}
-            <div>
-              <label className={labelClass}>Engineering Notes & Comments</label>
-              <textarea
-                value={tempRow.notes || ""}
-                onChange={(e) => setTempRow((prev) => ({ ...prev, notes: e.target.value }))}
-                placeholder="Optional design comments or specification requirements..."
-                rows={2}
-                className={`${inputClass} resize-none`}
-              />
+            {/* GEOMETRY & HYDRAULIC PARAMETERS */}
+            <div className="space-y-4">
+              <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-border/40 pb-2 flex items-center gap-2">
+                <span className="size-1.5 rounded-full bg-primary" /> Geometry & Heat Dissipation Density
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Area ({areaUnit})</label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={tempRow.coverage || ""}
+                    onChange={(e) => setTempRow((prev) => ({ ...prev, coverage: parseFloat(e.target.value) || 0 }))}
+                    className={`${inputClass} font-mono`}
+                    placeholder="17"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>
+                    K-Factor ({isSI ? "SI Metric" : "US IP"})
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={customKInput}
+                      onChange={(e) => setCustomKInput(e.target.value)}
+                      placeholder={isSI ? "80.0" : "5.6"}
+                      className={`${inputClass} font-mono font-bold text-primary`}
+                    />
+                    <span className="absolute right-3 top-2 text-[11px] font-bold text-muted-foreground uppercase pointer-events-none">
+                      K-Coeff
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className={labelClass}>Hydraulic Sizing Target</label>
+                  <select
+                    value={tempRow.solveFor}
+                    onChange={(e) => setTempRow((prev) => ({ ...prev, solveFor: e.target.value as "Q" | "P" }))}
+                    className={inputClass}
+                  >
+                    <option value="Q">Solve for Flow (Q)</option>
+                    <option value="P">Solve for Pressure (P)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>
+                    Operating Pressure ({pressureUnit}) {tempRow.solveFor === "P" && <span className="text-primary font-normal">(Calculated)</span>}
+                  </label>
+                  <input
+                    type="number"
+                    step={isSI ? "0.05" : "0.5"}
+                    min="0"
+                    disabled={tempRow.solveFor === "P"}
+                    value={tempRow.solveFor === "P" ? liveCalcs.p : tempRow.pressure}
+                    onChange={(e) => setTempRow((prev) => ({ ...prev, pressure: parseFloat(e.target.value) || 0 }))}
+                    className={`${inputClass} font-mono ${tempRow.solveFor === "P" ? "bg-muted/30 text-primary font-bold cursor-not-allowed" : ""}`}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>
+                    Design Flow ({flowUnit}) {tempRow.solveFor === "Q" && <span className="text-primary font-normal">(Calculated)</span>}
+                  </label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    disabled={tempRow.solveFor === "Q"}
+                    value={tempRow.solveFor === "Q" ? liveCalcs.q : tempRow.flow}
+                    onChange={(e) => setTempRow((prev) => ({ ...prev, flow: parseFloat(e.target.value) || 0 }))}
+                    className={`${inputClass} font-mono ${tempRow.solveFor === "Q" ? "bg-muted/30 text-primary font-bold cursor-not-allowed" : ""}`}
+                  />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className={labelClass}>Engineering Notes & Comments</label>
+                <textarea
+                  value={tempRow.notes || ""}
+                  onChange={(e) => setTempRow((prev) => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Optional design comments or specification requirements..."
+                  rows={2}
+                  className={`${inputClass} resize-none`}
+                />
+              </div>
+            </div>
+
+            {/* COMPUTED METRICS */}
+            <div className="space-y-4">
+              <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-border/40 pb-2 flex items-center gap-2">
+                <span className="size-1.5 rounded-full bg-primary" /> Computed Cooling Load Capacity
+              </h3>
+              
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-surface-2 p-3.5 rounded-2xl border border-border/70 flex flex-col gap-1">
+                  <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider">Total Dissipation</span>
+                  <div className="text-[18px] font-extrabold text-foreground font-mono">
+                    {liveCalcs.q.toFixed(2)} <span className="text-xs font-semibold text-muted-foreground">{flowUnit}</span>
+                  </div>
+                </div>
+
+                <div className="bg-primary/5 p-3.5 rounded-2xl border border-primary/20 flex flex-col gap-1">
+                  <span className="text-[10.5px] font-bold text-primary uppercase tracking-wider">Cooling Load (kW)</span>
+                  <div className="text-[18px] font-extrabold text-primary font-mono">
+                    {liveCalcs.p.toFixed(2)} <span className="text-xs font-semibold text-primary/70">{pressureUnit}</span>
+                  </div>
+                </div>
+
+                <div className="bg-emerald-500/5 p-3.5 rounded-2xl border border-emerald-500/20 flex flex-col gap-1">
+                  <span className="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Cooling Load (TR)</span>
+                  <div className="text-[18px] font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
+                    {liveCalcs.isLowPressure ? "Low Pressure" : liveCalcs.isOverCoverage ? "Exceeds Area" : "0.00"} <span className="text-xs font-semibold text-emerald-600/70 dark:text-emerald-400/70">{liveCalcs.isLowPressure || liveCalcs.isOverCoverage ? "" : "TR"}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Right Column: Live Calculations Preview */}
           {showPreview && (
-            <div className="w-full lg:w-[320px] shrink-0 border border-border/70 rounded-2xl p-4 bg-surface-1/50 flex flex-col gap-4 animate-in slide-in-from-right-4 duration-200">
+            <div className="w-full lg:w-[320px] shrink-0 border-l border-border/70 p-6 bg-surface-1/50 flex flex-col gap-4 overflow-y-auto animate-in slide-in-from-right-4 duration-200">
               <div className="flex items-center gap-2 border-b border-border/60 pb-2.5">
                 <Gauge className="size-4 text-primary" />
                 <h4 className="font-bold text-[13px] text-foreground">Hydraulic Formulas & Audit</h4>
@@ -396,7 +451,7 @@ export function EditSprinklerCustomModal({
                       {liveCalcs.isOverCoverage ? "Coverage Area Exceeded" : "Coverage Compliant"}
                     </span>
                     <span className="text-[11px] opacity-90 leading-tight block mt-0.5">
-                      Max coverage for ${tempRow.hazard}: ${liveCalcs.maxCoverage} ${areaUnit}.
+                      Max coverage for {tempRow.hazard}: {liveCalcs.maxCoverage} {areaUnit}.
                     </span>
                   </div>
                 </div>
@@ -406,27 +461,21 @@ export function EditSprinklerCustomModal({
         </div>
 
         {/* Footer Actions */}
-        <footer className="px-6 py-4 border-t border-border/60 flex items-center justify-between bg-surface-1/40 shrink-0">
-          <span className="text-xs text-muted-foreground">
-            {isStandardK ? "Standard NFPA Orifice" : "Custom Orifice Coefficient"}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold rounded-xl border border-border hover:bg-surface-2 transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="px-5 py-2 text-xs font-bold rounded-xl bg-primary text-primary-foreground hover:bg-primary/95 transition-all shadow-md shadow-primary/20 cursor-pointer flex items-center gap-1.5"
-            >
-              <Sparkles className="size-3.5" />
-              Save Parameters
-            </button>
-          </div>
+        <footer className="px-6 py-4 border-t border-border/60 flex items-center justify-end gap-2 bg-card shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold rounded-xl border border-border hover:bg-surface-2 transition-colors cursor-pointer text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="px-5 py-2 text-xs font-bold rounded-xl bg-primary text-primary-foreground hover:bg-primary/95 transition-all shadow-md shadow-primary/20 cursor-pointer flex items-center gap-1.5"
+          >
+            Save Changes
+          </button>
         </footer>
       </div>
     </div>

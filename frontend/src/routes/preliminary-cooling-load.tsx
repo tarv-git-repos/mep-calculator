@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useWorkspace } from "@/lib/workspace-store";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
@@ -434,6 +434,9 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
+      if (localVal !== (value === "" ? "" : String(value))) {
+        onCommit(localVal);
+      }
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
       setLocalVal(value === "" ? "" : String(value));
@@ -748,6 +751,7 @@ function PreliminaryCoolingLoadPage() {
   const [editingSpace, setEditingSpace] = useState<PclRow | null>(null);
 
   // Review & Approval State
+  const isCalcLock = useCalculationLock("/preliminary-cooling-load");
   const [calcReviewState, setCalcReviewState] = useState<any>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -757,7 +761,14 @@ function PreliminaryCoolingLoadPage() {
     }
     return { status: "DRAFT" };
   });
-  const isApprovedLocked = calcReviewState?.status === "APPROVED";
+  const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
+
+  useEffect(() => {
+    if (isApprovedLocked) {
+      setSelected(new Set());
+      setSelectedPending(new Set());
+    }
+  }, [isApprovedLocked]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2755,7 +2766,7 @@ function PreliminaryCoolingLoadPage() {
                       </div>
 
                       {/* Bulk actions bar overlay matching Ventilation */}
-                      {selected.size > 0 && (
+                      {!isApprovedLocked && selected.size > 0 && (
                         <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                           <span className="font-semibold">{selected.size} selected</span>
                           <span className="text-primary/30">·</span>
@@ -2848,6 +2859,7 @@ function PreliminaryCoolingLoadPage() {
                           selected={selected}
                           onToggle={toggle}
                           onToggleAll={toggleAll}
+                          isReadOnly={isApprovedLocked}
                           onRowDoubleClick={(r) => setEditingSpace(r)}
                           renderContextMenu={renderSpaceContextMenu}
                           groupBy={(r) => r.floor}

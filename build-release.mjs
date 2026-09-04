@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-const version = "0.0.6";
+const version = "0.0.8";
 console.log(`🚀 Packaging MEP Calculator Desktop App & NSIS Setup Installer (v${version})...`);
 
 if (process.argv.includes('--build')) {

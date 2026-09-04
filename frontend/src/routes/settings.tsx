@@ -604,7 +604,7 @@ export function SettingsPage() {
         if (res && res.ok) {
           const data = await res.json();
           if (data && data.version) {
-            const currentVer = "0.0.6";
+            const currentVer = "0.0.9";
             const parse = (v: string) => v.split('.').map(n => parseInt(n) || 0);
             const [c1, c2, c3] = parse(currentVer);
             const [l1, l2, l3] = parse(data.version);
@@ -638,7 +638,7 @@ export function SettingsPage() {
         }
       } catch (e) {}
 
-      setUpdateStatus("You are on the latest version (v0.0.6).");
+      setUpdateStatus("You are on the latest version (v0.0.9).");
     } catch (e: any) {
       setUpdateStatus("You are on the latest version.");
     } finally {

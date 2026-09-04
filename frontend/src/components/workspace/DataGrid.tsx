@@ -33,6 +33,7 @@ export function DataGrid<T extends { id: string }>({
   rowClassName,
   stickyHeaderTop,
   gridId,
+  isReadOnly: isReadOnlyProp,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -50,22 +51,11 @@ export function DataGrid<T extends { id: string }>({
   rowClassName?: (row: T, index: number) => string;
   stickyHeaderTop?: number | string;
   gridId?: string;
+  isReadOnly?: boolean;
 }) {
-  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
-  const onToggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
-    if (isReadOnly) {
-       toast.info("Workspace is in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
-       return;
-    }
-    onToggleProp(id, isShift, isCtrl);
-  };
-  const onToggleAll = () => {
-    if (isReadOnly) {
-       toast.info("Workspace is in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
-       return;
-    }
-    onToggleAllProp();
-  };
+  const isReadOnly = Boolean(isReadOnlyProp || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly)));
+  const onToggle = onToggleProp;
+  const onToggleAll = onToggleAllProp;
 
   const ref = useRef<HTMLDivElement>(null);
    const headerRef = useRef<HTMLDivElement>(null);
@@ -244,6 +234,7 @@ export function DataGrid<T extends { id: string }>({
   const heightRef = useRef(height);
   heightRef.current = height;
   const highlightTimeoutRef = useRef<any>(null);
+  const lastTapRef = useRef<{ id: string; time: number }>({ id: "", time: 0 });
 
   useEffect(() => {
     const handleScrollToItem = (e: Event) => {
@@ -382,7 +373,19 @@ export function DataGrid<T extends { id: string }>({
           style={{ gridTemplateColumns: gridTemplate }}
         >
           <div className="px-2 grid place-items-center">
-            <input type="checkbox" checked={allSelected} disabled={isReadOnly} onChange={onToggleAll} className="size-3 accent-primary disabled:cursor-not-allowed disabled:opacity-60" />
+            <input
+              type="checkbox"
+              checked={allSelected && !isReadOnly}
+              disabled={isReadOnly}
+              onChange={() => {
+                if (isReadOnly) {
+                  toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                  return;
+                }
+                onToggleAll();
+              }}
+              className="size-3 accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            />
           </div>
           {columns.map((c) => {
             const k = String(c.key);
@@ -433,6 +436,10 @@ export function DataGrid<T extends { id: string }>({
 
                 const handleGroupClick = (e: React.MouseEvent) => {
                   e.stopPropagation();
+                  if (isReadOnly) {
+                    toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                    return;
+                  }
                   onToggleGroup?.(groupRowIds, !allSelected);
                 };
 
@@ -524,8 +531,41 @@ export function DataGrid<T extends { id: string }>({
 
               const renderRowContent = () => (
                 <>
-                  <div className="px-2 grid place-items-center" onClick={(e) => { e.stopPropagation(); blurActiveInput(); onToggle(row.id, e.shiftKey, true); }}>
-                    <input type="checkbox" checked={sel} disabled={isReadOnly} onChange={() => {}} className="size-3 accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-60" />
+                  <div
+                    className="px-2 grid place-items-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isReadOnly) {
+                        toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                        return;
+                      }
+                      if (e.target === e.currentTarget) {
+                        blurActiveInput();
+                        onToggle(row.id, e.shiftKey, true);
+                      }
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sel && !isReadOnly}
+                      disabled={isReadOnly}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isReadOnly) {
+                          toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                        }
+                      }}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        if (isReadOnly) {
+                          toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                          return;
+                        }
+                        blurActiveInput();
+                        onToggle(row.id, (e.nativeEvent as any)?.shiftKey || e.shiftKey, true);
+                      }}
+                      className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                    />
                   </div>
                   {columns.map((c) => {
                     const isEditable = c.editable;
@@ -535,8 +575,8 @@ export function DataGrid<T extends { id: string }>({
                         className={`px-2 truncate flex items-center ${
                           c.align === "right" ? "justify-end text-right" :
                           c.align === "center" ? "justify-center text-center w-full" : ""
-                        } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${isEditable ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors" : ""}`}
-                        title={isEditable ? "Double-click to edit" : undefined}
+                        } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${isEditable && !isReadOnly ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors" : ""}`}
+                        title={isEditable && !isReadOnly ? "Double-click to edit" : undefined}
                       >
                         {c.render ? c.render(row) : (row as any)[c.key]}
                       </div>
@@ -561,6 +601,19 @@ export function DataGrid<T extends { id: string }>({
                             target.tagName === "SELECT" ||
                             target.isContentEditable ||
                             target.getAttribute("contenteditable") === "true";
+                          
+                          const now = Date.now();
+                          const isDoubleTap = lastTapRef.current.id === row.id && (now - lastTapRef.current.time) < 350;
+                          lastTapRef.current = { id: row.id, time: now };
+
+                          if (isDoubleTap && !isTextInputTarget) {
+                            if (!selected.has(row.id)) {
+                              onToggle(row.id, false, false);
+                            }
+                            onRowDoubleClick?.(row);
+                            return;
+                          }
+
                           if (!isTextInputTarget) {
                             blurActiveInput();
                             onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
@@ -571,20 +624,16 @@ export function DataGrid<T extends { id: string }>({
                           }
                         }}
                         onDoubleClick={() => {
-                          if ((window as any).__mep_is_readonly) {
-                            toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-                            return;
-                          }
                           if (!selected.has(row.id)) {
                             onToggle(row.id, false, false);
                           }
                           onRowDoubleClick?.(row);
                         }}
                         onContextMenu={(e) => {
-                          if ((window as any).__mep_is_readonly) {
+                          if (isReadOnly) {
                             e.preventDefault();
                             e.stopPropagation();
-                            toast.info("Workspace is in Read-Only mode. Context menu is disabled.", { id: "readonly-notice" });
+                            toast.info("Calculation is Approved and Locked. Context menu is locked.", { id: "readonly-notice" });
                             return;
                           }
                           if (!selected.has(row.id)) {
@@ -630,6 +679,19 @@ export function DataGrid<T extends { id: string }>({
                       target.tagName === "SELECT" ||
                       target.isContentEditable ||
                       target.getAttribute("contenteditable") === "true";
+                    
+                    const now = Date.now();
+                    const isDoubleTap = lastTapRef.current.id === row.id && (now - lastTapRef.current.time) < 350;
+                    lastTapRef.current = { id: row.id, time: now };
+
+                    if (isDoubleTap && !isTextInputTarget) {
+                      if (!selected.has(row.id)) {
+                        onToggle(row.id, false, false);
+                      }
+                      onRowDoubleClick?.(row);
+                      return;
+                    }
+
                     if (!isTextInputTarget) {
                       blurActiveInput();
                       onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
@@ -640,10 +702,6 @@ export function DataGrid<T extends { id: string }>({
                     }
                   }}
                   onDoubleClick={() => {
-                    if ((window as any).__mep_is_readonly) {
-                      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-                      return;
-                    }
                     if (!selected.has(row.id)) {
                       onToggle(row.id, false, false);
                     }

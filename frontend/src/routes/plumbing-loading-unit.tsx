@@ -671,6 +671,12 @@ function LoadingUnitPage() {
 
   // Selection states for Bulk Editing
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (isApprovedLocked) {
+      setSelectedIds([]);
+    }
+  }, [isApprovedLocked]);
   const [editingSpace, setEditingSpace] = useState<{ space: LUSpace; floor: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
@@ -685,12 +691,6 @@ function LoadingUnitPage() {
       const targetSpace = iopSpaces.find(s => String(s.id) === id || s.desc === name);
       if (targetSpace) {
         setSelectedIds([targetSpace.id]);
-        setCommentTarget({
-          id: String(targetSpace.id),
-          name: targetSpace.desc || "Loading Unit Space",
-          type: "space"
-        });
-        setAssignCommentOpen(true);
         setTimeout(() => {
           const el = document.getElementById(`lu-space-${targetSpace.id}`) || document.getElementById(`row-${targetSpace.id}`);
           if (el) {
@@ -1166,6 +1166,10 @@ function LoadingUnitPage() {
 
   // Selection Handlers
   const handleToggleSelectAll = (checked: boolean) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and locked in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     if (checked) {
       setSelectedIds(iopSpaces.map(s => s.id));
     } else {
@@ -1174,6 +1178,10 @@ function LoadingUnitPage() {
   };
 
   const handleToggleSelect = (id: number, checked: boolean) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and locked in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     if (checked) {
       setSelectedIds([...selectedIds, id]);
     } else {
@@ -2538,7 +2546,7 @@ function LoadingUnitPage() {
           </div>
 
           {/* Bulk Action Toolbar Bar (Visible when items selected) */}
-          {selectedIds.length > 0 && (
+          {!isApprovedLocked && selectedIds.length > 0 && (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-[#0A7BC7]/10 border border-[#0A7BC7]/30 text-foreground p-2.5 sm:p-3 rounded-2xl animate-in fade-in duration-150 shadow-xs gap-2">
               <div className="flex items-center gap-2">
                 <span className="bg-[#0A7BC7] text-white font-extrabold px-2.5 py-0.5 rounded-full text-xs font-mono">

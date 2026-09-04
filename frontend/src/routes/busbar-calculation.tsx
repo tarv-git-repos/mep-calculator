@@ -254,7 +254,6 @@ function BusbarCalculationPage() {
         for (const s of p.sections) {
           const r = s.rows.find(rw => rw.id === id || rw.desc === name || rw.from === name);
           if (r) {
-            handleOpenComment(r);
             setTimeout(() => {
               const el = document.getElementById(`busbar-row-${r.id}`) || document.getElementById(`row-${r.id}`) || document.querySelector(`[data-row-id="${r.id}"]`);
               if (el) {
@@ -327,6 +326,12 @@ function BusbarCalculationPage() {
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (isApproved) {
+      setSelectedRows(new Set());
+    }
+  }, [isApproved]);
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
 
   const [busbarColWidths, setBusbarColWidths] = useState<Record<string, number>>(() => {
@@ -407,6 +412,10 @@ function BusbarCalculationPage() {
   };
 
   const toggleRowSelect = (rowId: string, isShift: boolean, isCtrl: boolean) => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelectedRows(prev => {
       const next = new Set(prev);
       const allRows: any[] = [];

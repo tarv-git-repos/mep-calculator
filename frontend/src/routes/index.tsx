@@ -140,6 +140,12 @@ export function VentilationModule() {
   const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__mep_approved_readonly = isApprovedLocked;
+    }
+  }, [isApprovedLocked]);
+
+  useEffect(() => {
     setCalcReviewState(getSyncedReviewState);
   }, [getSyncedReviewState]);
 
@@ -346,6 +352,9 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
+      if (!isEffectiveDisabled && localVal !== getCleanVal(value)) {
+        onCommit(localVal);
+      }
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
       setLocalVal(getCleanVal(value));
@@ -365,6 +374,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
         if (isEffectiveDisabled) return;
         setLocalVal(e.target.value);
       }}
+      onKeyDown={handleKeyDown}
       onBlur={() => {
         if (isEffectiveDisabled) {
           setLocalVal(getCleanVal(value));
@@ -377,6 +387,9 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onClick={(e) => {
         if (isEffectiveDisabled) e.stopPropagation();
       }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+      }}
       className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
         isEffectiveDisabled 
           ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent" 
@@ -385,8 +398,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
     />
   );
 }
-
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€ Spaces â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────── Spaces ─────────── */
 interface SavedView {
   id: string;
   name: string;
@@ -400,7 +412,7 @@ interface SavedView {
   };
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€ Spaces â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─────────── Spaces ─────────── */
 function SpacesView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -1822,6 +1834,10 @@ function SpacesView() {
   };
 
   const handleToggleGroup = (ids: string[], select: boolean) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (select) {
@@ -2451,34 +2467,26 @@ function SpacesView() {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
 
   const toggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and Locked. Row selection is locked.", { id: "readonly-notice" });
-      return;
-    }
     setSelected((prev) => {
-      const clickedIndex = orderedRows.findIndex((r) => r.id === id);
+      const targetList = orderedRows.length > 0 ? orderedRows : rows;
+      const clickedIndex = targetList.findIndex((r) => r.id === id);
       if (clickedIndex === -1) return prev;
 
       const next = new Set(prev);
 
-      if (isShift && lastClickedIndex !== null) {
-        const start = Math.min(lastClickedIndex, clickedIndex);
-        const end = Math.max(lastClickedIndex, clickedIndex);
+      if (isShift) {
+        const pivotIndex = lastClickedIndex !== null ? lastClickedIndex : 0;
+        const start = Math.min(pivotIndex, clickedIndex);
+        const end = Math.max(pivotIndex, clickedIndex);
         
         if (!isCtrl) {
           next.clear();
         }
 
-        const shouldSelect = prev.has(orderedRows[lastClickedIndex]?.id || "") || true;
-
         for (let i = start; i <= end; i++) {
-          const rId = orderedRows[i]?.id;
+          const rId = targetList[i]?.id;
           if (rId) {
-            if (shouldSelect) {
-              next.add(rId);
-            } else {
-              next.delete(rId);
-            }
+            next.add(rId);
           }
         }
       } else if (isCtrl) {
@@ -2489,7 +2497,7 @@ function SpacesView() {
         }
         setLastClickedIndex(clickedIndex);
       } else {
-        if (prev.has(id)) {
+        if (prev.has(id) && prev.size === 1) {
           next.delete(id);
           setLastClickedIndex(null);
         } else {
@@ -2502,10 +2510,6 @@ function SpacesView() {
     });
   };
   const toggleAll = () => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and Locked. Row selection is locked.", { id: "readonly-notice" });
-      return;
-    }
     setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id))));
   };
 
@@ -2557,6 +2561,7 @@ function SpacesView() {
           e.preventDefault();
           setSelected(new Set());
           setSelectedPending(new Set());
+          setLastClickedIndex(null);
         }
         return;
       }
@@ -2580,15 +2585,25 @@ function SpacesView() {
           setSelectedPending(new Set(pendingRecords.map((r) => r.id)));
         } else if (!importOpen && rows.length > 0) {
           setSelected(new Set(rows.map((r) => r.id)));
+          toast.info(`Selected all ${rows.length} space(s)`);
         }
         return;
       }
 
-      // 2. Delete / Backspace
+      // 2. Delete / Backspace (Shows confirmation popup)
       if (e.key === "Delete" || e.key === "Backspace") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
         if (importOpen && selectedPending.size > 0) {
           e.preventDefault();
-          confirm(`Are you sure you want to remove the ${selectedPending.size} selected pending spaces?`).then((ok) => {
+          confirm(`Are you sure you want to remove the ${selectedPending.size} selected pending space(s)?`, {
+            title: "Delete Pending Spaces",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive"
+          }).then((ok) => {
             if (ok) {
               setPendingRecords((prev) => prev.filter((r) => !selectedPending.has(r.id)));
               setSelectedPending(new Set());
@@ -2596,10 +2611,18 @@ function SpacesView() {
           });
         } else if (!importOpen && selected.size > 0) {
           e.preventDefault();
-          confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`).then((ok) => {
+          confirm(`Are you sure you want to delete the ${selected.size} selected space(s)?`, {
+            title: "Delete Spaces",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive"
+          }).then((ok) => {
             if (ok) {
+              const count = selected.size;
               deleteSpaces(Array.from(selected));
               setSelected(new Set());
+              setLastClickedIndex(null);
+              toast.info(`Deleted ${count} space(s)`);
             }
           });
         }
@@ -2611,41 +2634,56 @@ function SpacesView() {
         if (!importOpen && selected.size > 0) {
           e.preventDefault();
           copySpaces(Array.from(selected));
+          toast.info(`${selected.size} space(s) copied to clipboard`);
         }
         return;
       }
 
       // 4. Cut: Ctrl+X
       if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
         if (!importOpen && selected.size > 0) {
           e.preventDefault();
+          const count = selected.size;
           cutSpaces(Array.from(selected));
           setSelected(new Set());
+          setLastClickedIndex(null);
+          toast.info(`${count} space(s) cut to clipboard`);
         }
         return;
       }
 
       // 5. Paste: Ctrl+V
       if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
         if (!importOpen) {
           e.preventDefault();
           const pasted = pasteSpaces();
           if (pasted.length > 0) {
             setSelected(new Set(pasted.map((s) => s.id)));
+            toast.success(`${pasted.length} space(s) pasted`);
           }
         }
         return;
       }
 
-      // 6. Undo/Redo: Ctrl+Z / Ctrl+Y
+      // 6. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
       if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
-        undo();
+        const ok = undo();
+        if (ok) toast.info("Undo");
         return;
       }
       if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
         e.preventDefault();
-        redo();
+        const ok = redo();
+        if (ok) toast.info("Redo");
         return;
       }
     };
@@ -2658,6 +2696,7 @@ function SpacesView() {
     rows,
     selected,
     selectedPending,
+    isEffectiveReadOnly,
     deleteSpaces,
     copySpaces,
     cutSpaces,
@@ -2894,7 +2933,7 @@ function SpacesView() {
           </div>
 
           {/* Bulk actions bar overlay */}
-          {selected.size > 0 && (
+          {!isEffectiveReadOnly && selected.size > 0 && (
             <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
               <span className="font-semibold">{selected.size} selected</span>
               <span className="text-primary/30">Â·</span>
@@ -3002,10 +3041,6 @@ function SpacesView() {
               renderGroupContextMenu={renderFloorGroupContextMenu}
               onToggleGroup={handleToggleGroup}
               onRowDoubleClick={(r) => {
-                if (isEffectiveReadOnly) {
-                  toast.info("Workspace is in Read-Only mode. Editing is locked.", { id: "readonly-notice" });
-                  return;
-                }
                 setEditingSpace(r);
               }}
               activeRowId={editingSpace?.id}
@@ -4358,11 +4393,11 @@ function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React
   );
 }
 
-/* â”€â”€â”€â”€â”€â”€â”€â”€â”€ Zones â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function ZonesView() {
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
-  const { spaces, zones, deleteZone, addZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, updateZoneInstances, addEquipment, updateEquipment, updateSpaces, updateZones, bulkUpdateSpaces, setWorkspaceState, undo, redo } = useWorkspace();
+  const { spaces, zones, deleteZone, addZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, updateZoneInstances, addEquipment, updateEquipment, updateSpaces, updateZones, bulkUpdateSpaces, setWorkspaceState, undo, redo, isReadOnly } = useWorkspace();
+  const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
   const confirm = useConfirm();
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
   const [customParamModalSpace, setCustomParamModalSpace] = useState<Space | null>(null);
@@ -4370,6 +4405,8 @@ function ZonesView() {
 
   const [selectedZones, setSelectedZones] = useState<Set<string>>(new Set());
   const [lastClickedZoneIndex, setLastClickedZoneIndex] = useState<number | null>(null);
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
 
   useEffect(() => {
     if (openId) {
@@ -4395,24 +4432,19 @@ function ZonesView() {
 
       const next = new Set(prev);
 
-      if (isShift && lastClickedZoneIndex !== null) {
-        const start = Math.min(lastClickedZoneIndex, clickedIndex);
-        const end = Math.max(lastClickedZoneIndex, clickedIndex);
+      if (isShift) {
+        const pivotIndex = lastClickedZoneIndex !== null ? lastClickedZoneIndex : 0;
+        const start = Math.min(pivotIndex, clickedIndex);
+        const end = Math.max(pivotIndex, clickedIndex);
         
         if (!isCtrl) {
           next.clear();
         }
 
-        const shouldSelect = prev.has(rows[lastClickedZoneIndex]?.id || "") || true;
-
         for (let i = start; i <= end; i++) {
           const rId = rows[i]?.id;
           if (rId) {
-            if (shouldSelect) {
-              next.add(rId);
-            } else {
-              next.delete(rId);
-            }
+            next.add(rId);
           }
         }
       } else if (isCtrl) {
@@ -4762,6 +4794,21 @@ function ZonesView() {
       width: 180,
       render: (z) => (
         <div className="flex items-center gap-1.5 font-sans font-medium">
+          {Array.isArray(z.comments) && z.comments.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCommentTarget({ id: z.id, name: z.name, type: 'zone' });
+                setAssignCommentOpen(true);
+              }}
+              title={`${z.comments.length} comment(s)/task(s) assigned to zone "${z.name}"`}
+              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+            >
+              <MessageSquare className="size-3.5 fill-blue-500/20" />
+              <span className="text-[10px] font-bold">{z.comments.length}</span>
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -5106,7 +5153,7 @@ function ZonesView() {
         </div>
 
         {/* Bulk actions bar overlay for zones */}
-        {selectedZones.size > 0 && (
+        {!isEffectiveReadOnly && selectedZones.size > 0 && (
           <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
             <span className="font-semibold">{selectedZones.size} selected</span>
             <span className="text-primary/30">Â·</span>
@@ -5963,6 +6010,31 @@ function ZonesView() {
           </div>
         </div>
       )}
+      {/* Assign Comment Modal overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          calculatorTitle="Ventilation & Air Balance"
+          calculatorPath="/ventilation"
+          existingComments={
+            commentTarget.type === 'space'
+              ? spaces.find(s => s.id === commentTarget.id)?.comments || []
+              : commentTarget.type === 'zone'
+              ? zones.find(z => z.id === commentTarget.id)?.comments || []
+              : equipment.find(e => e.id === commentTarget.id)?.comments || []
+          }
+          onSave={(comment) => {
+            workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -5970,8 +6042,12 @@ function ZonesView() {
 /* ─────────── Equipment ─────────── */
 function EquipmentView() {
   const [query, setQuery] = useState("");
-  const { spaces, zones, equipment, updateEquipment, deleteEquipment, setWorkspaceState, undo, redo } = useWorkspace();
+  const { spaces, zones, equipment, updateEquipment, deleteEquipment, setWorkspaceState, undo, redo, isReadOnly } = useWorkspace();
+  const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
   const confirm = useConfirm();
+
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
 
   const [sizerOpen, setSizerOpen] = useState(false);
   const [sizerEquipId, setSizerEquipId] = useState<string | null>(null);
@@ -5980,6 +6056,7 @@ function EquipmentView() {
 
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [selectedEquips, setSelectedEquips] = useState<Set<string>>(new Set());
+
   const [lastClickedEquipIndex, setLastClickedEquipIndex] = useState<number | null>(null);
 
   const toggleEquipment = (id: string, isShift?: boolean, isCtrl?: boolean) => {
@@ -5989,24 +6066,19 @@ function EquipmentView() {
 
       const next = new Set(prev);
 
-      if (isShift && lastClickedEquipIndex !== null) {
-        const start = Math.min(lastClickedEquipIndex, clickedIndex);
-        const end = Math.max(lastClickedEquipIndex, clickedIndex);
+      if (isShift) {
+        const pivotIndex = lastClickedEquipIndex !== null ? lastClickedEquipIndex : 0;
+        const start = Math.min(pivotIndex, clickedIndex);
+        const end = Math.max(pivotIndex, clickedIndex);
         
         if (!isCtrl) {
           next.clear();
         }
 
-        const shouldSelect = prev.has(rows[lastClickedEquipIndex]?.id || "") || true;
-
         for (let i = start; i <= end; i++) {
           const rId = rows[i]?.id;
           if (rId) {
-            if (shouldSelect) {
-              next.add(rId);
-            } else {
-              next.delete(rId);
-            }
+            next.add(rId);
           }
         }
       } else if (isCtrl) {
@@ -6039,7 +6111,24 @@ function EquipmentView() {
 
   const columns: Column<Equipment>[] = [
     { key: "tag", header: "Equipment", width: 220, render: (r) => (
-      <span className="font-semibold text-foreground text-[13px]">{r.tag}</span>
+      <div className="flex items-center gap-1.5">
+        {Array.isArray(r.comments) && r.comments.length > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCommentTarget({ id: r.id, name: r.tag || r.type, type: 'equipment' });
+              setAssignCommentOpen(true);
+            }}
+            title={`${r.comments.length} comment(s)/task(s) assigned to equipment "${r.tag}"`}
+            className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+          >
+            <MessageSquare className="size-3.5 fill-blue-500/20" />
+            <span className="text-[10px] font-bold">{r.comments.length}</span>
+          </button>
+        )}
+        <span className="font-semibold text-foreground text-[13px]">{r.tag}</span>
+      </div>
     ) },
     { key: "type", header: "Type", width: 140, render: (r) => (
       <span className="text-muted-foreground text-[12.5px]">{r.type}</span>
@@ -6284,7 +6373,7 @@ function EquipmentView() {
         </div>
 
         {/* Bulk actions bar overlay for equipment */}
-        {selectedEquips.size > 0 && (
+        {!isEffectiveReadOnly && selectedEquips.size > 0 && (
           <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
             <span className="font-semibold">{selectedEquips.size} selected</span>
             <span className="text-primary/30">·</span>
@@ -6326,6 +6415,31 @@ function EquipmentView() {
           setSizerShowAdd(false);
         }}
       />
+      {/* Assign Comment Modal overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          calculatorTitle="Ventilation & Air Balance"
+          calculatorPath="/ventilation"
+          existingComments={
+            commentTarget.type === 'space'
+              ? spaces.find(s => s.id === commentTarget.id)?.comments || []
+              : commentTarget.type === 'zone'
+              ? zones.find(z => z.id === commentTarget.id)?.comments || []
+              : equipment.find(e => e.id === commentTarget.id)?.comments || []
+          }
+          onSave={(comment) => {
+            workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
+          }}
+        />
+      )}
     </div>
   );
 }

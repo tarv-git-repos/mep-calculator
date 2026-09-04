@@ -1,7 +1,7 @@
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { EditSprinklerCustomModal } from "@/components/workspace/EditSprinklerCustomModal";
 import { SprinklerKFactorSelect } from "@/components/workspace/SprinklerKFactorSelect";
 import { SprinklerHazardSelect } from "@/components/workspace/SprinklerHazardSelect";
@@ -243,6 +243,7 @@ function SprinklerKFactorPage() {
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Review & Approval State
+  const isCalcLock = useCalculationLock("/plumbing-sprinkler-kfactor");
   const [calcReviewState, setCalcReviewState] = useState<any>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -252,7 +253,13 @@ function SprinklerKFactorPage() {
     }
     return { status: "DRAFT" };
   });
-  const isApprovedLocked = calcReviewState?.status === "APPROVED";
+  const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
+
+  useEffect(() => {
+    if (isApprovedLocked) {
+      setSelected(new Set());
+    }
+  }, [isApprovedLocked]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -964,7 +971,7 @@ function SprinklerKFactorPage() {
   };
 
   // Grid context menu builder
-    const renderFloorGroupHeader = (floor: string) => {
+  const renderFloorGroupHeader = (floor: string) => {
     const floorRows = filteredRows.filter((r) => (r.floor || "Ground Floor") === floor);
     return (
       <span className="flex items-center gap-1.5 font-medium">
@@ -1007,7 +1014,7 @@ function SprinklerKFactorPage() {
               }
             }
           }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
         >
           <Trash2 className="size-3.5" />
           <span>Delete Floor Group</span>
@@ -1025,6 +1032,7 @@ function SprinklerKFactorPage() {
         <ContextMenuItem
           onClick={() => {
             setSelected(new Set([row.id]));
+            setEditingSprinkler(row);
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-foreground"
         >
@@ -1390,9 +1398,10 @@ function SprinklerKFactorPage() {
     step?: string;
     min?: number;
     disabled?: boolean;
+    onDoubleClick?: (e: React.MouseEvent) => void;
   }
 
-  function InlineInput({ value, onCommit, className = "", type = "text", step, min, disabled = false }: InlineInputProps) {
+  function InlineInput({ value, onCommit, className = "", type = "text", step, min, disabled = false, onDoubleClick }: InlineInputProps) {
     const [localVal, setLocalVal] = useState(String(value));
 
     useEffect(() => {
@@ -1401,6 +1410,9 @@ function SprinklerKFactorPage() {
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") {
+        if (!disabled && localVal !== String(value)) {
+          onCommit(localVal);
+        }
         e.currentTarget.blur();
       } else if (e.key === "Escape") {
         setLocalVal(String(value));
@@ -1423,7 +1435,12 @@ function SprinklerKFactorPage() {
         }}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
-        onDoubleClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          if (onDoubleClick) {
+            e.stopPropagation();
+            onDoubleClick(e);
+          }
+        }}
         className={`bg-transparent w-full border border-transparent hover:border-border hover:bg-surface-2 focus:bg-background focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl px-1.5 py-1 text-foreground transition-all cursor-text disabled:opacity-40 outline-none ${className}`}
       />
     );
@@ -1691,6 +1708,10 @@ function SprinklerKFactorPage() {
   ], [rows, unitSystem, selected, toggleFlag, updateRow]);
 
   const toggleSelect = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected(prev => {
       const next = new Set(prev);
       if (isShift && lastSelectedId) {
@@ -1720,6 +1741,10 @@ function SprinklerKFactorPage() {
   };
 
   const toggleSelectAll = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected(prev => {
       if (prev.size === rows.length) {
         return new Set();
@@ -2049,7 +2074,6 @@ function SprinklerKFactorPage() {
               </div>
             )}
 
-            {/* Sprinkler Schedule Tab */}
             {tab === "schedule" && (
               <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                 <div className="relative flex items-center justify-between border-b border-border px-4 py-2.5 bg-background select-none shrink-0 gap-4 flex-wrap">
@@ -2125,7 +2149,7 @@ function SprinklerKFactorPage() {
                   </div>
 
                   {/* Bulk actions bar overlay matching Ventilation and Preliminary */}
-                  {selected.size > 0 && (
+                  {!isApprovedLocked && selected.size > 0 && (
                     <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                       <span className="font-semibold">{selected.size} selected</span>
                       <span className="text-primary/30">·</span>
@@ -2158,7 +2182,9 @@ function SprinklerKFactorPage() {
                       selected={selected}
                       onToggle={toggleSelect}
                       onToggleAll={toggleSelectAll}
+                      isReadOnly={isApprovedLocked}
                       renderContextMenu={renderSprinklerContextMenu}
+                      onRowDoubleClick={(row) => setEditingSprinkler(row)}
                       groupBy={(r) => r.floor || "Ground Floor"}
                       groupOrder={allUniqueFloors}
                       renderGroupHeader={renderFloorGroupHeader}

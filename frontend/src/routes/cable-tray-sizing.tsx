@@ -275,12 +275,6 @@ function CableTraySizingPage() {
       if (!id && !name) return;
       for (const t of trays) {
         if (t.id === id || t.name === name) {
-          setCommentTarget({
-            id: t.id,
-            name: t.name,
-            type: "equipment"
-          });
-          setAssignCommentOpen(true);
           setTimeout(() => {
             const el = document.getElementById(`tray-card-${t.id}`) || document.getElementById(`cable-row-${t.id}`);
             if (el) {
@@ -294,12 +288,6 @@ function CableTraySizingPage() {
         const c = t.cables.find(cb => cb.id === id || cb.to === name || cb.from === name);
         if (c) {
           setSelectedRows(new Set([c.id]));
-          setCommentTarget({
-            id: c.id,
-            name: c.to ? `${c.from || 'Cable'} -> ${c.to}` : (c.from || "Cable Row"),
-            type: "equipment"
-          });
-          setAssignCommentOpen(true);
           setTimeout(() => {
             const el = document.getElementById(`cable-row-${c.id}`) || document.getElementById(`tray-card-${t.id}`);
             if (el) {
