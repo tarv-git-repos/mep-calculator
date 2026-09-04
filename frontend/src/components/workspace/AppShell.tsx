@@ -561,7 +561,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       try {
         const uId = userId || userData?.id;
         const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
-        const saved = localStorage.getItem(key);
+        const saved = localStorage.getItem(key) || localStorage.getItem("mep_persistent_user_notifs");
         return saved ? JSON.parse(saved) : [];
       } catch (e) {}
     }
@@ -1453,6 +1453,27 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     });
   }, [myNotifications, completedNotifIds]);
 
+  // Continuously preserve full notifications list in local storage so on next reload it appears instantly (0ms)
+  useEffect(() => {
+    if (typeof window !== "undefined" && Array.isArray(myNotifications) && myNotifications.length > 0) {
+      const uId = userId || userData?.id || profile?.id;
+      if (uId) {
+        try {
+          const key = `mep_persistent_user_notifs_${uId}`;
+          const currentRaw = localStorage.getItem(key);
+          const currentList = currentRaw ? JSON.parse(currentRaw) : [];
+          
+          const map = new Map();
+          currentList.forEach((n: any) => { if (n && n.id) map.set(n.id, n); });
+          myNotifications.forEach((n: any) => { if (n && n.id) map.set(n.id, n); });
+          
+          const merged = Array.from(map.values());
+          localStorage.setItem(key, JSON.stringify(merged));
+        } catch (e) {}
+      }
+    }
+  }, [myNotifications, userId, userData?.id, profile?.id]);
+
   useEffect(() => {
     const fetchBackendNotifs = async () => {
       try {
@@ -1593,16 +1614,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             localStorage.setItem(key, JSON.stringify(updated));
           }
           return updated;
-        });
-
-        // Show instant floating toast alert for real-time awareness across any project
-        toast.info(`💬 Task / Comment in "${item.projectName || 'Project'}": "${item.text}"`, {
-          description: `From ${item.authorName || 'Team Member'} on ${item.targetType || 'Item'} "${item.targetName || 'Item'}" — Click to open & switch project`,
-          action: {
-            label: "Open Project",
-            onClick: () => navigateToNotificationTarget(item, navigate, selectProject, markNotifAsRead)
-          },
-          duration: 8000
         });
       }
     };

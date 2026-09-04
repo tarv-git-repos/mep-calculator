@@ -1,13 +1,13 @@
 {
-  "version": "0.0.8",
-  "pub_date": "2026-09-04T12:28:08.128Z",
-  "notes": "MEP Calculator v0.0.8 Release Update - Performance improvements, enhanced calculations, and UI stability updates.",
+  "version": "0.0.9",
+  "pub_date": "2026-09-04T13:12:27.403Z",
+  "notes": "MEP Calculator v0.0.9 Release Update - Performance improvements, enhanced calculations, and UI stability updates.",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocDFyd1JjVU5HRS9YVmRhWDlHdy9ReWQ2YitBdFErV0FmVWJKMTFuSFQwU3EwMzFncE9YRXpoWmtCczRQVERJRDRnSHptL2pSRVplV3YyWVl6ZVVSRUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NTI0ODg1CWZpbGU6TUVQIENhbGN1bGF0b3JfMC4wLjhfeDY0LXNldHVwLmV4ZQpsNXVmV0RCZE1jM2o4MEhnVmNwRi9XQ2VFMWcraDNVZ1JkUHpaK2Q5emV0WnBBcFFvZFNhY1doSUtFOEFKV1kvYXdrbXIrbXQvd2ZUVTlXYTdxSXBCQT09Cg==",
-      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.8_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocDRzNmNpRnM5dXB0K1ZHNjRkbENyYlNBcmM4RlBvOVBMcE42eHUrQXVjTy9WUWtONXBmSm9RUm1KZ0xpMGM3TWYxVllIV1E1dWoxYnd2eW9FTkZtendJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NTI3NTQ0CWZpbGU6TUVQIENhbGN1bGF0b3JfMC4wLjlfeDY0LXNldHVwLmV4ZQpnK0NSRkF5b01oMDE5d2VJS2g4VGFqcEk0NnFhRUw4cFNMOXRzRXFIdVdzdmlyMzhkckhlbzhteSt3QS9CQW5ncWlXaG5NT0NmRXF3bnEzM0QrTjBBZz09Cg==",
+      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.9_x64-setup.exe"
     }
   },
-  "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.8_x64-setup.exe",
+  "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/MEP_Calculator_0.0.9_x64-setup.exe",
   "mandatory": false
 }

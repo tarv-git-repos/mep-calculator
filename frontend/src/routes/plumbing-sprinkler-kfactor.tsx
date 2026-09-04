@@ -510,8 +510,6 @@ function SprinklerKFactorPage() {
 
       const finalId = matched ? matched.id : (cleanId || targetId || "");
       if (finalId) {
-        setSelected(new Set([finalId]));
-        setLastSelectedId(finalId);
         setHighlightedSprinklerId(finalId);
         setTimeout(() => setHighlightedSprinklerId(null), 5000);
       }
@@ -2189,7 +2187,7 @@ function SprinklerKFactorPage() {
                       groupOrder={allUniqueFloors}
                       renderGroupHeader={renderFloorGroupHeader}
                       renderGroupContextMenu={renderFloorGroupContextMenu}
-                      activeRowId={highlightedSprinklerId || undefined}
+                      activeRowId={editingSprinkler?.id}
                       rowClassName={(row, index) =>
                         highlightedSprinklerId === row.id
                           ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 font-bold shadow-lg"
