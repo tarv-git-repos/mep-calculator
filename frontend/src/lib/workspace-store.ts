@@ -347,13 +347,13 @@ export const workspaceStore = {
     }
   },
   async initCloud() {
-    // Safety fallback: Ensure workspace initialization never locks UI for more than 2.5 seconds
+    // Safety fallback: Ensure workspace initialization never locks UI for more than 800ms
     const initTimer = setTimeout(() => {
       if (isInitializing) {
         isInitializing = false;
         notify();
       }
-    }, 2500);
+    }, 800);
 
     try {
       if (!cloudInitDone) {

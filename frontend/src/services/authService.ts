@@ -6,14 +6,15 @@ const getBackendUrl = () => {
     return import.meta.env.VITE_API_URL;
   }
   if (typeof window !== 'undefined') {
-    if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
-      return 'https://mep-calculator.onrender.com';
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
+      return `http://${host}:4000`;
     }
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
       return 'http://localhost:4000';
     }
   }
-  return 'https://mep-calculator.onrender.com';
+  return 'http://localhost:4000';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -226,6 +227,10 @@ export const authService = {
 
   async getUserData(): Promise<AuthResponse> {
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+      if (!token) {
+        return { success: false, message: 'No auth token' };
+      }
       const { data } = await axios.get<AuthResponse>(`${getBackendUrl()}/api/user/data`);
       return data;
     } catch (error: any) {

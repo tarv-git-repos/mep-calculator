@@ -21,14 +21,15 @@ export const NetworkConnectionGuard: React.FC<NetworkConnectionGuardProps> = ({ 
       return import.meta.env.VITE_API_URL;
     }
     if (typeof window !== 'undefined') {
-      if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
-        return 'https://mep-calculator.onrender.com';
+      const host = window.location.hostname;
+      if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
+        return `http://${host}:4000`;
       }
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
         return 'http://localhost:4000';
       }
     }
-    return 'https://mep-calculator.onrender.com';
+    return 'http://localhost:4000';
   };
 
   const checkConnectivity = useCallback(async () => {

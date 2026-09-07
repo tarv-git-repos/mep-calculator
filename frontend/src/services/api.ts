@@ -6,14 +6,15 @@ const getBackendUrl = () => {
     return import.meta.env.VITE_API_URL;
   }
   if (typeof window !== 'undefined') {
-    if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
-      return 'https://mep-calculator.onrender.com';
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
+      return `http://${host}:4000`;
     }
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
       return 'http://localhost:4000';
     }
   }
-  return 'https://mep-calculator.onrender.com';
+  return 'http://localhost:4000';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -51,14 +52,12 @@ axios.interceptors.response.use(
     const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
     const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('auth_token') || localStorage.getItem('mep_calculator_user_data'));
 
-    if (error.response?.status === 401 && !isAuthEndpoint && !isLoginPage && hasToken) {
-      const respData = error.response?.data;
-      if (respData?.sessionRevoked || respData?.requireForceLogout || respData?.message?.includes('another device')) {
-        if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
-          lastRevokedEventTime = Date.now();
-          const msg = respData?.message || 'Your session has been transferred to another device. You are now logged out.';
-          window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: msg }));
-        }
+    if (error.response?.status === 401 && !isAuthEndpoint && !isLoginPage) {
+      if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
+        lastRevokedEventTime = Date.now();
+        const respData = error.response?.data;
+        const msg = respData?.message || 'Session expired or unauthorized. Please sign in again.';
+        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: msg }));
       }
     }
     return Promise.reject(error);
@@ -68,23 +67,14 @@ axios.interceptors.response.use(
 let isHeartbeatEndpointAvailable = true;
 
 const getAuthHeaders = () => {
-  let token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
-  if (!token && typeof localStorage !== 'undefined') {
-    try {
-      const userData = JSON.parse(localStorage.getItem('mep_calculator_user_data') || '{}');
-      if (userData && userData.id) {
-        token = `desktop-token-${userData.id}`;
-      } else if (userData && userData.email) {
-        token = `desktop-token-${userData.email}`;
-      }
-    } catch(e) {}
-  }
-  if (!token) token = 'desktop-token-admin@tarv.ai';
-
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
   const hwid = getHardwareFingerprint();
+  const deviceId = getOrCreateDeviceId();
   return {
-    Authorization: `Bearer ${token}`,
-    ...(hwid ? { 'x-hwid': hwid } : {})
+    Authorization: token ? `Bearer ${token}` : '',
+    'x-hwid': hwid || '',
+    'x-device-id': deviceId || '',
+    'Content-Type': 'application/json',
   };
 };
 
