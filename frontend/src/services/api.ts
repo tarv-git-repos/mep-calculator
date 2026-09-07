@@ -139,6 +139,7 @@ export const api = {
           const finalRole = (c?.role && c?.role !== 'USER')
             ? c.role
             : ((u.role && u.role !== 'USER') ? u.role : (c?.features?.role || u.features?.role || 'Jr. Design Engineer'));
+          const finalDesignation = u.designation || c?.designation || u.features?.designation || c?.features?.designation || finalRole || '';
 
           // Prioritize live server data from backend, fallback to local cache if missing
           const finalExpires = (u.subscription_expires !== undefined && u.subscription_expires !== null)
@@ -156,6 +157,7 @@ export const api = {
             ...u,
             organization_id: finalOrgId,
             role: finalRole,
+            designation: finalDesignation,
             plan: finalPlan,
             subscription_status: finalPlan,
             subscription_expires: finalExpires,
@@ -166,6 +168,7 @@ export const api = {
               subscription_status: finalPlan,
               organization_id: finalOrgId,
               role: finalRole,
+              designation: finalDesignation,
               subscription_expires: finalExpires
             }
           };
@@ -188,17 +191,19 @@ export const api = {
       if (!users || !Array.isArray(users)) {
         users = await this.getUsers();
       }
-      const pidLower = String(profileId).toLowerCase();
+      const pidLower = String(profileId).toLowerCase().trim();
       users = users.map((u: any) => {
-        const uId = String(u.id || '').toLowerCase();
-        const uEmail = String(u.email || '').toLowerCase();
+        const uId = String(u.id || '').toLowerCase().trim();
+        const uEmail = String(u.email || '').toLowerCase().trim();
         if (uId === pidLower || uEmail === pidLower) {
           return { 
             ...u, 
             role: newRole,
+            designation: u.designation || newRole,
             features: {
               ...(u.features || {}),
-              role: newRole
+              role: newRole,
+              designation: u.features?.designation || newRole
             } 
           };
         }
@@ -206,6 +211,40 @@ export const api = {
       });
       localStorage.setItem('mep_local_users', JSON.stringify(users));
       localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+
+      // Also sync company hierarchy if user is present
+      try {
+        const hierStr = localStorage.getItem('mep_company_hierarchy');
+        if (hierStr) {
+          let hier = JSON.parse(hierStr);
+          let hierChanged = false;
+          hier = hier.map((m: any) => {
+            if (String(m.id).toLowerCase().trim() === pidLower || (m.email && String(m.email).toLowerCase().trim() === pidLower)) {
+              hierChanged = true;
+              return { ...m, role: newRole };
+            }
+            return m;
+          });
+          if (hierChanged) {
+            localStorage.setItem('mep_company_hierarchy', JSON.stringify(hier));
+          }
+        }
+      } catch (e) {}
+
+      // Sync active logged in user
+      try {
+        const curUserStr = localStorage.getItem('currentUser');
+        if (curUserStr) {
+          const curUser = JSON.parse(curUserStr);
+          if (String(curUser.id).toLowerCase().trim() === pidLower || (curUser.email && String(curUser.email).toLowerCase().trim() === pidLower)) {
+            curUser.role = newRole;
+            if (!curUser.features) curUser.features = {};
+            curUser.features.role = newRole;
+            localStorage.setItem('currentUser', JSON.stringify(curUser));
+          }
+        }
+      } catch (e) {}
+
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, role: newRole } }));
       }
@@ -242,8 +281,8 @@ export const api = {
       if (!users || !Array.isArray(users)) {
         users = await this.getUsers();
       }
-      const targetLower = String(profileId || '').toLowerCase();
-      const updateEmailLower = String(updates?.email || '').toLowerCase();
+      const targetLower = String(profileId || '').toLowerCase().trim();
+      const updateEmailLower = String(updates?.email || '').toLowerCase().trim();
       
       let orgMap: Record<string, string> = {};
       try { orgMap = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
@@ -255,12 +294,13 @@ export const api = {
       }
 
       users = users.map((u: any) => {
-        const uId = String(u.id || '').toLowerCase();
-        const uEmail = String(u.email || '').toLowerCase();
+        const uId = String(u.id || '').toLowerCase().trim();
+        const uEmail = String(u.email || '').toLowerCase().trim();
         if (uId === targetLower || uEmail === targetLower || (updateEmailLower && (uId === updateEmailLower || uEmail === updateEmailLower))) {
           const updatedOrg = updates.organization_id !== undefined ? (updates.organization_id || '') : (u.organization_id || u.features?.organization_id || '');
           const updatedComp = updates.company || updates.organization || u.company || u.organization || u.features?.company || '';
           const updatedRole = updates.role || u.role || u.features?.role;
+          const updatedDesignation = updates.designation !== undefined ? updates.designation : (u.designation || u.features?.designation || updatedRole || '');
           const updatedExpires = updates.subscription_expires !== undefined ? updates.subscription_expires : (u.subscription_expires || u.features?.subscription_expires || null);
           const updatedPlan = updates.plan || updates.subscription_status || u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status;
           return {
@@ -272,6 +312,7 @@ export const api = {
             subscription_expires: updatedExpires,
             ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
             ...(updatedRole ? { role: updatedRole } : {}),
+            ...(updatedDesignation ? { designation: updatedDesignation } : {}),
             features: {
               ...(u.features || {}),
               ...(updates.features || {}),
@@ -280,7 +321,8 @@ export const api = {
               organization: updatedComp,
               subscription_expires: updatedExpires,
               ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
-              ...(updatedRole ? { role: updatedRole } : {})
+              ...(updatedRole ? { role: updatedRole } : {}),
+              ...(updatedDesignation ? { designation: updatedDesignation } : {})
             }
           };
         }
@@ -289,6 +331,53 @@ export const api = {
 
       localStorage.setItem('mep_local_users', JSON.stringify(users));
       localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+
+      // Also sync company hierarchy if user is present
+      try {
+        const hierStr = localStorage.getItem('mep_company_hierarchy');
+        if (hierStr) {
+          let hier = JSON.parse(hierStr);
+          let hierChanged = false;
+          hier = hier.map((m: any) => {
+            const mId = String(m.id || '').toLowerCase().trim();
+            const mEmail = String(m.email || '').toLowerCase().trim();
+            if (mId === targetLower || mEmail === targetLower || (updateEmailLower && (mId === updateEmailLower || mEmail === updateEmailLower))) {
+              hierChanged = true;
+              return {
+                ...m,
+                ...(updates.role ? { role: updates.role } : {}),
+                ...(updates.designation !== undefined ? { designation: updates.designation } : {}),
+                ...(updates.name ? { name: updates.name } : {})
+              };
+            }
+            return m;
+          });
+          if (hierChanged) {
+            localStorage.setItem('mep_company_hierarchy', JSON.stringify(hier));
+          }
+        }
+      } catch (e) {}
+
+      // Sync active logged in user
+      try {
+        const curUserStr = localStorage.getItem('currentUser');
+        if (curUserStr) {
+          const curUser = JSON.parse(curUserStr);
+          const cId = String(curUser.id || '').toLowerCase().trim();
+          const cEmail = String(curUser.email || '').toLowerCase().trim();
+          if (cId === targetLower || cEmail === targetLower || (updateEmailLower && (cId === updateEmailLower || cEmail === updateEmailLower))) {
+            const updatedRole = updates.role || curUser.role;
+            const updatedDesignation = updates.designation !== undefined ? updates.designation : curUser.designation;
+            curUser.role = updatedRole;
+            curUser.designation = updatedDesignation;
+            if (!curUser.features) curUser.features = {};
+            curUser.features.role = updatedRole;
+            curUser.features.designation = updatedDesignation;
+            localStorage.setItem('currentUser', JSON.stringify(curUser));
+          }
+        }
+      } catch (e) {}
+
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, updates } }));
       }

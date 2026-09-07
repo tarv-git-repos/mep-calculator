@@ -128,6 +128,17 @@ function cleanStaleLicenseSessions(orgId) {
   return Array.from(sessionsMap.values());
 }
 
+function isAuthorizedAdmin(u) {
+  if (!u) return false;
+  const email = String(u.email || '').toLowerCase().trim();
+  if (email === 'admin@tarv.ai') return true;
+  const r = String(u.role || '').toUpperCase().trim();
+  const fr = String(u.features?.role || '').toUpperCase().trim();
+  if (r === 'SUPER_ADMIN' || r === 'ORG_ADMIN' || r.includes('ADMIN') || r.includes('DIRECTOR') || r.includes('PROJECT_MANAGER') || r.includes('MANAGER')) return true;
+  if (fr === 'SUPER_ADMIN' || fr === 'ORG_ADMIN' || fr.includes('ADMIN') || fr.includes('DIRECTOR') || fr.includes('PROJECT_MANAGER') || fr.includes('MANAGER')) return true;
+  return false;
+}
+
 function readOrgSettings() {
   try { return JSON.parse(fs.readFileSync(ORG_SETTINGS_FILE, 'utf8') || '{}'); } catch (e) { return {}; }
 }
@@ -273,7 +284,9 @@ async function readUsers(forceRefresh = false) {
           ? loc.role
           : ((loc.features && loc.features.role && loc.features.role !== 'USER')
               ? loc.features.role
-              : ((u.role && u.role !== 'USER') ? u.role : (u.features?.role || ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'))));
+              : ((u.features && u.features.role && u.features.role !== 'USER')
+                  ? u.features.role
+                  : ((u.role && u.role !== 'USER') ? u.role : ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'))));
 
         let expDate = null;
         if (loc.subscription_expires !== undefined) {
@@ -295,6 +308,7 @@ async function readUsers(forceRefresh = false) {
 
         const comp = loc.company || loc.organization || loc.features?.company || loc.features?.organization || u.company || u.organization || u.features?.company || u.features?.organization || '';
         const userPlan = loc.plan || loc.subscription_status || loc.features?.plan || loc.features?.subscription_status || u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
+        const desig = loc.designation || loc.features?.designation || u.features?.designation || u.designation || effRole;
 
         return {
           ...u,
@@ -305,7 +319,7 @@ async function readUsers(forceRefresh = false) {
           organization_id: orgId,
           company: comp,
           organization: comp,
-          designation: loc.designation || u.designation || loc.features?.designation || '',
+          designation: desig,
           profile_photo: (loc.profile_photo !== undefined && loc.profile_photo !== null) ? loc.profile_photo : ((loc.features?.profile_photo !== undefined && loc.features?.profile_photo !== null) ? loc.features.profile_photo : (u.profile_photo !== undefined ? u.profile_photo : (u.features?.profile_photo || ''))),
           settings: loc.settings || u.settings || loc.features?.settings || u.features?.settings || {},
           active_hwid: loc.active_hwid || u.active_hwid || loc.features?.active_hwid || null,
@@ -313,6 +327,7 @@ async function readUsers(forceRefresh = false) {
           features: {
             ...(u.features || {}),
             ...(loc.features || {}),
+            designation: desig,
             plan: userPlan,
             subscription_status: userPlan,
             organization_id: orgId,
@@ -328,14 +343,18 @@ async function readUsers(forceRefresh = false) {
         const uId = String(u.id || '').toLowerCase();
         const uEmail = String(u.email || '').toLowerCase();
         if ((!uId || !processedIds.has(uId)) && (!uEmail || !processedEmails.has(uEmail))) {
-          const effRole = (u.role && u.role !== 'USER') ? u.role : (u.features?.role || ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
+          const effRole = (u.features && u.features.role && u.features.role !== 'USER')
+            ? u.features.role
+            : ((u.role && u.role !== 'USER') ? u.role : ((u.email && u.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'));
           const expDate = u.subscription_expires || u.features?.subscription_expires || null;
           const orgId = u.organization_id || u.features?.organization_id || null;
           const comp = u.company || u.organization || u.features?.company || u.features?.organization || '';
           const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
+          const desig = u.features?.designation || u.designation || effRole;
           users.push({
             ...u,
             role: effRole,
+            designation: desig,
             plan: userPlan,
             subscription_status: userPlan,
             organization_id: orgId,
@@ -344,6 +363,7 @@ async function readUsers(forceRefresh = false) {
             subscription_expires: expDate,
             features: {
               ...(u.features || {}),
+              designation: desig,
               plan: userPlan,
               subscription_status: userPlan,
               organization_id: orgId,
@@ -451,6 +471,16 @@ function toSupabaseUserPayload(u) {
       payload[key] = u[key];
     }
   }
+
+  const rawRole = String(u.role || feat.role || '').toUpperCase().trim();
+  if (rawRole === 'SUPER_ADMIN' || (u.email && u.email.toLowerCase() === 'admin@tarv.ai')) {
+    payload.role = 'SUPER_ADMIN';
+  } else if (rawRole === 'ORG_ADMIN' || rawRole === 'ORGANIZATION ADMIN') {
+    payload.role = 'ORG_ADMIN';
+  } else {
+    payload.role = 'USER';
+  }
+
   payload.features = feat;
   if (u.subscription_expires !== undefined) {
     payload.subscription_expires = u.subscription_expires;
@@ -1163,8 +1193,24 @@ const server = http.createServer(async (req, res) => {
     const dbUser = users[userIndex];
 
     if (name !== undefined && name.trim()) dbUser.name = name.trim();
-    if (company !== undefined) dbUser.company = company.trim();
-    if (designation !== undefined) dbUser.designation = designation.trim();
+    if (company !== undefined) {
+      dbUser.company = company.trim();
+      dbUser.organization = company.trim();
+      if (!dbUser.features) dbUser.features = {};
+      dbUser.features.company = company.trim();
+      dbUser.features.organization = company.trim();
+    }
+    if (designation !== undefined) {
+      const cleanDesig = designation.trim();
+      dbUser.designation = cleanDesig;
+      if (!dbUser.features) dbUser.features = {};
+      dbUser.features.designation = cleanDesig;
+      // If setting a standard hierarchy role or custom title, also sync role
+      if (cleanDesig) {
+        dbUser.role = cleanDesig;
+        dbUser.features.role = cleanDesig;
+      }
+    }
     if (profile_photo !== undefined) {
       dbUser.profile_photo = profile_photo;
       if (!dbUser.features) dbUser.features = {};
@@ -1196,6 +1242,14 @@ const server = http.createServer(async (req, res) => {
 
     users[userIndex] = dbUser;
     await writeUsers(users);
+    invalidateUserCache();
+
+    try {
+      const dbPayload = toSupabaseUserPayload(dbUser);
+      if (dbUser.id) await supabase.from('custom_users').update(dbPayload).eq('id', dbUser.id);
+      if (dbUser.email) await supabase.from('custom_users').update(dbPayload).ilike('email', dbUser.email);
+    } catch (e) {}
+
     logActivity(dbUser, 'UPDATE_PROFILE', 'User updated profile details/settings');
 
     return sendJSON(res, 200, {
@@ -1384,12 +1438,14 @@ const server = http.createServer(async (req, res) => {
         if (orgObj && orgObj.name) resolvedCompany = orgObj.name;
       }
       const effRole = (u.role && u.role !== 'USER') ? u.role : (u.features?.role || 'Jr. Design Engineer');
+      const effDesignation = u.designation || u.features?.designation || effRole || '';
       const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
       return { 
         id: u.id, 
         name: u.name, 
         email: u.email, 
         role: effRole,
+        designation: effDesignation,
         features: u.features,
         plan: userPlan,
         subscription_status: userPlan,
@@ -1994,18 +2050,15 @@ const server = http.createServer(async (req, res) => {
   
   if (req.method === 'POST' && url === '/api/admin/toggle-role') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN') {
+    if (!adminUser || !isAuthorizedAdmin(adminUser)) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
     }
     const { profileId, newRole } = await getRequestBody(req);
     if (!profileId || !newRole) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
-    if (adminUser.id === profileId || adminUser.email.toLowerCase() === String(profileId).toLowerCase()) {
-      return sendJSON(res, 400, { success: false, message: 'Cannot change your own role' });
-    }
     
     let users = await readUsers(true);
-    const pidLower = String(profileId).toLowerCase();
-    const targetUserIndex = users.findIndex(u => String(u.id).toLowerCase() === pidLower || (u.email && u.email.toLowerCase() === pidLower));
+    const pidLower = String(profileId).toLowerCase().trim();
+    const targetUserIndex = users.findIndex(u => String(u.id).toLowerCase().trim() === pidLower || (u.email && u.email.toLowerCase().trim() === pidLower));
     if (targetUserIndex === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
     
     users[targetUserIndex].role = newRole;
@@ -2019,7 +2072,7 @@ const server = http.createServer(async (req, res) => {
       const existing = users[targetUserIndex];
       const dbPayload = toSupabaseUserPayload(existing);
       if (existing.id) await supabase.from('custom_users').update(dbPayload).eq('id', existing.id);
-      if (existing.email) await supabase.from('custom_users').update(dbPayload).eq('email', existing.email);
+      if (existing.email) await supabase.from('custom_users').update(dbPayload).ilike('email', existing.email);
     } catch (e) {
       console.error('Supabase update role error:', e);
     }
@@ -2173,7 +2226,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && url === '/api/admin/update-profile') {
     const adminUser = await getUserFromReq(req);
-    if (!adminUser || (adminUser.role !== 'SUPER_ADMIN' && adminUser.role !== 'ORG_ADMIN')) {
+    if (!adminUser || !isAuthorizedAdmin(adminUser)) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
     }
     const { profileId, updates } = await getRequestBody(req);
@@ -2215,6 +2268,7 @@ const server = http.createServer(async (req, res) => {
       const newOrgId = updates.organization_id !== undefined ? (updates.organization_id || null) : (existing.organization_id || existing.features?.organization_id || null);
       const newComp = updates.company || updates.organization || existing.company || existing.organization || existing.features?.company || existing.features?.organization || '';
       const newRole = updates.role || existing.role || existing.features?.role || 'Jr. Design Engineer';
+      const newDesignation = updates.designation !== undefined ? updates.designation : (existing.designation || existing.features?.designation || newRole);
       const newPlan = updates.plan || updates.subscription_status || existing.plan || existing.subscription_status || existing.features?.plan || existing.features?.subscription_status || (newOrgId ? 'ENTERPRISE' : 'PRO');
 
       const updatedUser = {
@@ -2226,6 +2280,7 @@ const server = http.createServer(async (req, res) => {
         company: newComp,
         organization: newComp,
         role: newRole,
+        designation: newDesignation,
         subscription_expires: newExp,
         features: {
           ...(existing.features || {}),
@@ -2236,6 +2291,7 @@ const server = http.createServer(async (req, res) => {
           company: newComp,
           organization: newComp,
           role: newRole,
+          designation: newDesignation,
           subscription_expires: newExp
         }
       };

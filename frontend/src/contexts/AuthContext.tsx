@@ -289,8 +289,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoggedin(false);
     };
 
-    window.addEventListener('mep_session_revoked', handleRevoked as EventListener);
-    const handleProfileUpdate = () => {
+    const handleProfileUpdate = (e?: any) => {
+      if (e?.detail?.updates) {
+        const updates = e.detail.updates;
+        const targetId = String(e.detail.profileId || '').toLowerCase();
+        setUserDataState(prev => {
+          if (!prev) return prev;
+          const matches = !targetId || 
+            String(prev.id || '').toLowerCase() === targetId || 
+            String(prev.email || '').toLowerCase() === targetId ||
+            (updates.email && String(prev.email || '').toLowerCase() === String(updates.email).toLowerCase());
+          if (matches) {
+            const updated = {
+              ...prev,
+              ...updates,
+              designation: updates.designation || prev.designation,
+              features: {
+                ...(prev.features || {}),
+                ...(updates.features || {}),
+                designation: updates.designation || (prev.features as any)?.designation
+              }
+            };
+            const jsonStr = JSON.stringify(updated);
+            localStorage.setItem(LOCAL_STORAGE_USER_KEY, jsonStr);
+            localStorage.setItem('mep_user_data', jsonStr);
+            localStorage.setItem('mep_profile', jsonStr);
+            if (updates.designation && prev.id) {
+              localStorage.setItem(`mep_user_designation_${prev.id}`, updates.designation);
+            }
+            return updated;
+          }
+          return prev;
+        });
+      }
       getUserData();
     };
     window.addEventListener('mep_user_profile_updated', handleProfileUpdate as EventListener);
@@ -329,23 +360,75 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const session = userData ? { user: { id: userData.id, email: userData.email } } : null;
   const user = session?.user ?? null;
-  const profile: Profile | null = userData ? {
-    id: userData.id,
-    email: userData.email,
-    name: userData.name,
-    role: (userData.role === 'USER' || !userData.role) 
-      ? (userData.email === 'admin@tarv.ai' ? 'SUPER_ADMIN' : ((userData.email && userData.email.toLowerCase().includes('kirtan')) || userData.organization_id === '8343112c-110b-4c26-bce9-b5786b05f241' ? 'ORG_ADMIN' : 'Jr. Design Engineer')) 
-      : userData.role,
-    subscription_status: 'ACTIVE',
-    isAccountVerified: userData.isAccountVerified,
-    features: userData.features || {},
-    subscription_expires: userData.subscription_expires || '2026-10-01T00:00:00.000Z',
-    company: userData.company || '',
-    designation: userData.designation || '',
-    profile_photo: userData.profile_photo || '',
-    settings: userData.settings || {},
-    status: userData.status
-  } : null;
+  const profile: Profile | null = userData ? (() => {
+    let hierarchyDesignation = '';
+    let hierarchyRole = '';
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('mep_company_hierarchy');
+        if (saved) {
+          const members = JSON.parse(saved);
+          if (Array.isArray(members)) {
+            const uEmail = String(userData.email || '').toLowerCase().trim();
+            const uName = String(userData.name || '').toLowerCase().trim();
+            const uId = String(userData.id || '').toLowerCase().trim();
+            const found = members.find((m: any) => {
+              const mEmail = String(m.email || '').toLowerCase().trim();
+              const mName = String(m.name || '').toLowerCase().trim();
+              const mId = String(m.id || '').toLowerCase().trim();
+              return (uEmail && mEmail === uEmail) || 
+                     (uId && mId === uId) ||
+                     (uName && mName === uName) ||
+                     (uEmail && mEmail && (uEmail.includes(mEmail) || mEmail.includes(uEmail))) ||
+                     (uName && mName && (uName.includes(mName) || mName.includes(uName)));
+            });
+            if (found) {
+              hierarchyDesignation = found.designation || '';
+              hierarchyRole = found.role || '';
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    const ROLE_MAP: Record<string, string> = {
+      SUPER_ADMIN: "Super Admin",
+      ORG_ADMIN: "Organization Admin",
+      PROJECT_MANAGER: "Project Manager",
+      TEAM_LEADER: "Team Leader",
+      DISCIPLINE_COORDINATOR: "Discipline Coordinator",
+      SR_DESIGN_ENGINEER: "Sr. Design Engineer",
+      DESIGN_ENGINEER: "Design Engineer",
+      JR_DESIGN_ENGINEER: "Jr. Design Engineer",
+      BIM_COORDINATOR: "BIM Coordinator",
+      BIM_MODELER: "BIM Modeler",
+      DRAFTSMAN_2D: "2D Draftsman",
+      VIEWER: "Viewer",
+      CLIENT: "Client",
+      ENGINEER: "Design Engineer",
+      USER: "Jr. Design Engineer"
+    };
+
+    const effectiveRole = hierarchyRole || (userData.features as any)?.role || (userData.role !== 'USER' ? userData.role : null);
+    const finalRole = effectiveRole || (userData.email === 'admin@tarv.ai' ? 'SUPER_ADMIN' : 'Jr. Design Engineer');
+    const effectiveDesignation = hierarchyDesignation || (hierarchyRole ? (ROLE_MAP[hierarchyRole] || hierarchyRole) : '') || userData.designation || (userData.features as any)?.designation || ROLE_MAP[finalRole] || finalRole;
+
+    return {
+      id: userData.id,
+      email: userData.email,
+      name: userData.name,
+      role: finalRole as any,
+      subscription_status: 'ACTIVE',
+      isAccountVerified: userData.isAccountVerified,
+      features: userData.features || {},
+      subscription_expires: userData.subscription_expires || '2026-10-01T00:00:00.000Z',
+      company: userData.company || '',
+      designation: effectiveDesignation,
+      profile_photo: userData.profile_photo || '',
+      settings: userData.settings || {},
+      status: userData.status
+    };
+  })() : null;
 
   return (
     <AuthContext.Provider value={{

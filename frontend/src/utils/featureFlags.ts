@@ -6,7 +6,15 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'plumbing-loading-unit',
   'busbar-calculation',
   'plumbing-sprinkler-kfactor',
-  'k-factor'
+  'k-factor',
+  'plumbing-sprinkler-density',
+  'sprinkler-density',
+  'chw-pipe-sizer',
+  'chw-pump-head',
+  'condensate-drain',
+  'condensate-drain-calc',
+  'condensate',
+  'condensate-calc'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -30,7 +38,7 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
 
   // Subscription expiry check (non-SUPER_ADMIN)
   const expStr = profile?.subscription_expires || profile?.features?.subscription_expires;
-  if (expStr) {
+  if (expStr && typeof expStr === 'string') {
     const expDate = new Date(expStr);
     if (!isNaN(expDate.getTime()) && expDate.getTime() < Date.now()) {
       return true;
@@ -40,12 +48,20 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   const rawKey = path.startsWith('/') ? path.substring(1) : path;
   const routeKey = rawKey.split('?')[0].toLowerCase().replace(/\/$/, '');
 
-  // Keep Loading Unit & Fixture Unit Calculators in Plumbing unlocked for everyone right now
+  // Keep Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density & Condensate Drain Calculators unlocked for everyone right now
   if (
     routeKey === 'plumbing-loading-unit' ||
     routeKey === 'loading-unit' ||
     routeKey === 'plumbing-fixture-unit' ||
-    routeKey === 'fixture-unit'
+    routeKey === 'fixture-unit' ||
+    routeKey === 'chw-pipe-sizer' ||
+    routeKey === 'chw-pump-head' ||
+    routeKey === 'plumbing-sprinkler-density' ||
+    routeKey === 'sprinkler-density' ||
+    routeKey === 'condensate-drain' ||
+    routeKey === 'condensate-drain-calc' ||
+    routeKey === 'condensate' ||
+    routeKey === 'condensate-calc'
   ) {
     return false;
   }

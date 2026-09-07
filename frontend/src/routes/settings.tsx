@@ -191,17 +191,121 @@ export function SettingsPage() {
 
   // Requirement 8: Designation / Role
   const [designation, setDesignation] = useState<string>(() => {
-    if (isSuperAdminUser) return 'Super Admin';
-    return userData?.designation || userData?.role || profile?.designation || profile?.role || (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_designation_${uId}`) || 'Design Engineer' : 'Design Engineer');
+    const ROLE_MAP: Record<string, string> = {
+      SUPER_ADMIN: "Super Admin",
+      ORG_ADMIN: "Organization Admin",
+      PROJECT_MANAGER: "Project Manager",
+      TEAM_LEADER: "Team Leader",
+      DISCIPLINE_COORDINATOR: "Discipline Coordinator",
+      SR_DESIGN_ENGINEER: "Sr. Design Engineer",
+      DESIGN_ENGINEER: "Design Engineer",
+      JR_DESIGN_ENGINEER: "Jr. Design Engineer",
+      BIM_COORDINATOR: "BIM Coordinator",
+      BIM_MODELER: "BIM Modeler",
+      DRAFTSMAN_2D: "2D Draftsman",
+      VIEWER: "Viewer",
+      CLIENT: "Client",
+      ENGINEER: "Design Engineer",
+      USER: "Jr. Design Engineer"
+    };
+
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('mep_company_hierarchy');
+        if (saved) {
+          const members = JSON.parse(saved);
+          if (Array.isArray(members)) {
+            const currentEmail = String(userData?.email || profile?.email || '').toLowerCase().trim();
+            const currentName = String(fullName || userData?.name || profile?.name || '').toLowerCase().trim();
+            const currentId = String(profile?.id || userData?.id || uId || '').toLowerCase().trim();
+            const found = members.find((m: any) => {
+              const mEmail = String(m.email || '').toLowerCase().trim();
+              const mName = String(m.name || '').toLowerCase().trim();
+              const mId = String(m.id || '').toLowerCase().trim();
+              return (currentEmail && mEmail === currentEmail) || 
+                     (currentId && mId === currentId) ||
+                     (currentName && mName === currentName) ||
+                     (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
+                     (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
+            });
+            if (found) {
+              if (found.designation && found.designation !== "USER" && found.designation !== "ENGINEER") {
+                return ROLE_MAP[found.designation] || found.designation;
+              }
+              if (found.role) {
+                return ROLE_MAP[found.role] || found.role;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    const rawFallback = userData?.designation || (userData?.features as any)?.designation || userData?.role || profile?.designation || profile?.role || (userData?.email === 'admin@tarv.ai' ? 'Super Admin' : (uId && typeof window !== 'undefined' ? localStorage.getItem(`mep_user_designation_${uId}`) || 'Design Engineer' : 'Design Engineer'));
+    return ROLE_MAP[rawFallback] || rawFallback;
   });
 
   useEffect(() => {
     async function resolveUserRole() {
       const currentEmail = userData?.email || profile?.email;
-      if (currentEmail === 'admin@tarv.ai' || profile?.role === 'SUPER_ADMIN' || userData?.role === 'SUPER_ADMIN') {
+      const currentName = fullName || userData?.name || profile?.name;
+
+      const ROLE_MAP: Record<string, string> = {
+        SUPER_ADMIN: "Super Admin",
+        ORG_ADMIN: "Organization Admin",
+        PROJECT_MANAGER: "Project Manager",
+        TEAM_LEADER: "Team Leader",
+        DISCIPLINE_COORDINATOR: "Discipline Coordinator",
+        SR_DESIGN_ENGINEER: "Sr. Design Engineer",
+        DESIGN_ENGINEER: "Design Engineer",
+        JR_DESIGN_ENGINEER: "Jr. Design Engineer",
+        BIM_COORDINATOR: "BIM Coordinator",
+        BIM_MODELER: "BIM Modeler",
+        DRAFTSMAN_2D: "2D Draftsman",
+        VIEWER: "Viewer",
+        CLIENT: "Client",
+        ENGINEER: "Design Engineer",
+        USER: "Jr. Design Engineer"
+      };
+
+      // 1. Check hierarchy first
+      if (typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('mep_company_hierarchy');
+          if (saved) {
+            const members = JSON.parse(saved);
+            if (Array.isArray(members)) {
+              const uEmail = String(currentEmail || '').toLowerCase().trim();
+              const uName = String(currentName || '').toLowerCase().trim();
+              const currentId = String(profile?.id || userData?.id || uId || '').toLowerCase().trim();
+              const found = members.find((m: any) => {
+                const mEmail = String(m.email || '').toLowerCase().trim();
+                const mName = String(m.name || '').toLowerCase().trim();
+                const mId = String(m.id || '').toLowerCase().trim();
+                return (uEmail && mEmail === uEmail) || 
+                       (currentId && mId === currentId) ||
+                       (uName && mName === uName) ||
+                       (uEmail && mEmail && (uEmail.includes(mEmail) || mEmail.includes(uEmail))) ||
+                       (uName && mName && (uName.includes(mName) || mName.includes(uName)));
+              });
+              if (found) {
+                const finalTitle = (found.designation && found.designation !== "USER" && found.designation !== "ENGINEER") 
+                  ? (ROLE_MAP[found.designation] || found.designation)
+                  : (ROLE_MAP[found.role] || found.role || found.designation);
+                if (finalTitle) {
+                  setDesignation(finalTitle);
+                  return;
+                }
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (currentEmail === 'admin@tarv.ai') {
         setDesignation('Super Admin');
         return;
       }
+
       try {
         const allUsers = await api.getUsers();
         const myRecord = Array.isArray(allUsers) ? allUsers.find((u: any) => 
@@ -211,15 +315,43 @@ export function SettingsPage() {
         if (myRecord) {
           const resRole = myRecord.designation || myRecord.role;
           if (resRole) {
-            setDesignation(resRole);
+            const ROLE_MAP: Record<string, string> = {
+              SUPER_ADMIN: "Super Admin",
+              ORG_ADMIN: "Organization Admin",
+              PROJECT_MANAGER: "Project Manager",
+              TEAM_LEADER: "Team Leader",
+              DISCIPLINE_COORDINATOR: "Discipline Coordinator",
+              SR_DESIGN_ENGINEER: "Sr. Design Engineer",
+              DESIGN_ENGINEER: "Design Engineer",
+              JR_DESIGN_ENGINEER: "Jr. Design Engineer",
+              BIM_COORDINATOR: "BIM Coordinator",
+              BIM_MODELER: "BIM Modeler",
+              DRAFTSMAN_2D: "2D Draftsman",
+              VIEWER: "Viewer",
+              CLIENT: "Client",
+              ENGINEER: "Design Engineer",
+              USER: "Jr. Design Engineer"
+            };
+            const mapped = ROLE_MAP[resRole] || resRole;
+            setDesignation(mapped);
             if (typeof window !== 'undefined' && uId) {
-              localStorage.setItem(`mep_user_designation_${uId}`, resRole);
+              localStorage.setItem(`mep_user_designation_${uId}`, mapped);
             }
           }
         }
       } catch (e) {}
     }
     resolveUserRole();
+
+    const handleProfileUpdate = () => {
+      resolveUserRole();
+    };
+    window.addEventListener('mep_user_profile_updated', handleProfileUpdate);
+    window.addEventListener('storage', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('mep_user_profile_updated', handleProfileUpdate);
+      window.removeEventListener('storage', handleProfileUpdate);
+    };
   }, [userData?.email, profile?.email, profile?.role, userData?.role, userData?.id, profile?.id, uId]);
 
   // Requirement 12: Auto save
@@ -259,19 +391,34 @@ export function SettingsPage() {
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const [hasUpdate, setHasUpdate] = useState<any>(null);
 
-  // Sync profile fields if updated from AuthContext
+  // Sync profile fields if updated from AuthContext or custom event
   useEffect(() => {
-    if (profile || userData) {
-      if (profile?.name || userData?.name) setFullName(profile?.name || userData?.name || '');
-      if (profile?.company || userData?.company) setCompany(profile?.company || userData?.company || '');
-      const activeRole = profile?.role || profile?.designation || userData?.role || userData?.designation;
-      if (activeRole) setDesignation(activeRole);
-      const photoVal = profile?.profile_photo !== undefined ? profile.profile_photo : userData?.profile_photo;
-      if (photoVal !== undefined) {
-        setProfilePhoto(photoVal);
+    const syncProfile = () => {
+      if (profile || userData) {
+        if (profile?.name || userData?.name) setFullName(profile?.name || userData?.name || '');
+        if (profile?.company || userData?.company) setCompany(profile?.company || userData?.company || '');
+        const activeDesig = profile?.designation || userData?.designation || (profile?.features as any)?.designation || (userData?.features as any)?.designation || profile?.role || userData?.role;
+        if (activeDesig) setDesignation(activeDesig);
+        const photoVal = profile?.profile_photo !== undefined ? profile.profile_photo : userData?.profile_photo;
+        if (photoVal !== undefined) {
+          setProfilePhoto(photoVal);
+        }
       }
-    }
-  }, [profile?.name, userData?.name, profile?.company, userData?.company, profile?.role, userData?.role, profile?.profile_photo, userData?.profile_photo]);
+    };
+    syncProfile();
+
+    const handleUpdated = (e: any) => {
+      if (e?.detail?.updates) {
+        const u = e.detail.updates;
+        if (u.name) setFullName(u.name);
+        if (u.designation) setDesignation(u.designation);
+        if (u.company) setCompany(u.company);
+      }
+      syncProfile();
+    };
+    window.addEventListener('mep_user_profile_updated', handleUpdated);
+    return () => window.removeEventListener('mep_user_profile_updated', handleUpdated);
+  }, [profile?.name, userData?.name, profile?.company, userData?.company, profile?.role, userData?.role, (profile as any)?.designation, (userData as any)?.designation, profile?.profile_photo, userData?.profile_photo]);
 
   const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
     setTheme(newTheme);
@@ -461,6 +608,22 @@ export function SettingsPage() {
         safety_margin: safetyMargin,
       },
     });
+
+    if (typeof window !== 'undefined') {
+      const email = userData?.email || profile?.email || '';
+      window.dispatchEvent(new CustomEvent('mep_user_profile_updated', {
+        detail: {
+          profileId: email,
+          updates: {
+            name: fullName,
+            company,
+            designation,
+            role: designation
+          }
+        }
+      }));
+    }
+
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
     return true;
@@ -855,12 +1018,9 @@ export function SettingsPage() {
                 </div>
                 <input
                   type="text"
-                  value={
-                    designation === 'SUPER_ADMIN' ? 'Super Admin' :
-                    designation === 'ORG_ADMIN' ? 'Organization Admin' :
-                    designation
-                  }
+                  value={designation || "Design Engineer"}
                   disabled
+                  placeholder="e.g. BIM Coordinator, Lead HVAC Engineer, Director"
                   className="bg-surface/50 border border-border/70 rounded-md px-3 py-1.5 text-[13px] text-muted-foreground outline-none cursor-not-allowed font-semibold"
                 />
               </div>

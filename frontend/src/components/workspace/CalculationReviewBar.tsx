@@ -121,70 +121,77 @@ export function CalculationReviewBar({
   const currentUserName = userData?.name || profile?.name || "Engineering User";
   const currentUserEmail = userData?.email || profile?.email || "";
 
-  // 1. Workflow Role derived automatically from admin-assigned designation & profile role
+  // Dynamic Review & Approval Authority (Single Source of Truth: Company Hierarchy)
+  const userAuthority = useMemo<"APPROVE_REJECT" | "REVIEW" | "NONE">(() => {
+    let activeProfile: any = profile || userData || {};
+    
+    // Check local storage caches
+    if ((!activeProfile.role && !activeProfile.designation) && typeof window !== "undefined") {
+      try {
+        const storedProfile = localStorage.getItem('mep_profile');
+        const storedUserData = localStorage.getItem('mep_user_data');
+        if (storedProfile) activeProfile = JSON.parse(storedProfile);
+        else if (storedUserData) activeProfile = JSON.parse(storedUserData);
+      } catch (e) {}
+    }
+
+    const currentEmail = String(currentUserEmail || activeProfile.email || "").toLowerCase().trim();
+    const currentName = String(currentUserName || activeProfile.name || "").toLowerCase().trim();
+    const currentId = String(activeProfile.id || "").toLowerCase().trim();
+
+    // 1. Check Company Hierarchy FIRST (Single Source of Truth)
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_company_hierarchy");
+        if (saved) {
+          const members = JSON.parse(saved);
+          if (Array.isArray(members)) {
+            const found = members.find((m: any) => {
+              const mEmail = String(m.email || "").toLowerCase().trim();
+              const mName = String(m.name || "").toLowerCase().trim();
+              const mId = String(m.id || "").toLowerCase().trim();
+              return (currentEmail && mEmail === currentEmail) ||
+                     (currentId && mId === currentId) ||
+                     (currentName && mName === currentName) ||
+                     (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
+                     (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
+            });
+
+            if (found && found.approvalAuthority) {
+              return found.approvalAuthority;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. Check direct approvalAuthority property on active profile / features
+    if (activeProfile.approvalAuthority) return activeProfile.approvalAuthority;
+    if (activeProfile.features?.approvalAuthority) return activeProfile.features.approvalAuthority;
+
+    // 3. Fallback defaults if no explicit authority was configured in hierarchy:
+    const roleVal = String(activeProfile?.role || "").toUpperCase();
+    const desVal = String(activeProfile?.designation || "").toLowerCase();
+
+    if (roleVal === "SUPER_ADMIN" || roleVal === "ORG_ADMIN" || currentEmail === "admin@tarv.ai") {
+      return "APPROVE_REJECT";
+    }
+    if (roleVal === "PROJECT_MANAGER" || roleVal === "TEAM_LEADER" || roleVal === "DISCIPLINE_COORDINATOR" || desVal.includes("coordinator")) {
+      return "APPROVE_REJECT";
+    }
+    if (roleVal === "SR_DESIGN_ENGINEER" || desVal.includes("senior") || desVal.includes("sr.")) {
+      return "REVIEW";
+    }
+
+    return "NONE";
+  }, [profile, userData, currentUserEmail, currentUserName]);
+
+  // Backward compatibility alias
   const userRole = useMemo<WorkflowRole>(() => {
-    const activeProfile = profile || userData || {};
-    
-    const roleVal = String(activeProfile.role || userData?.role || "").trim();
-    const desVal = String(activeProfile.designation || userData?.designation || "").trim();
-    const metaRole = String(userData?.user_metadata?.role || "").trim();
-    
-    const roleUpper = roleVal.toUpperCase();
-    const metaUpper = metaRole.toUpperCase();
-
-    if (
-      roleUpper === "ORG_ADMIN" || 
-      roleUpper === "SUPER_ADMIN" || 
-      roleUpper === "ADMIN" ||
-      roleUpper === "PROJECT_MANAGER" ||
-      metaUpper === "ORG_ADMIN" ||
-      metaUpper === "SUPER_ADMIN" ||
-      metaUpper === "ADMIN" ||
-      metaUpper === "PROJECT_MANAGER"
-    ) {
-      return "Discipline Coordinator";
-    }
-
-    if (roleUpper === "VIEWER" || metaUpper === "VIEWER") {
-      return "Jr. / Design Engineer";
-    }
-
-    const isExplicitCoordinator = 
-      roleVal === "Discipline Coordinator" ||
-      desVal === "Discipline Coordinator" ||
-      roleVal.toLowerCase() === "discipline coordinator" ||
-      desVal.toLowerCase() === "discipline coordinator" ||
-      metaRole.toLowerCase() === "discipline coordinator" ||
-      roleVal.toLowerCase().replace(/_/g, " ") === "discipline coordinator" ||
-      desVal.toLowerCase().replace(/_/g, " ") === "discipline coordinator" ||
-      metaRole.toLowerCase().replace(/_/g, " ") === "discipline coordinator";
-
-    if (isExplicitCoordinator) {
-      return "Discipline Coordinator";
-    }
-
-    const isExplicitSenior = 
-      roleVal === "Sr. Design Engineer" ||
-      desVal === "Sr. Design Engineer" ||
-      roleVal === "Senior Design Engineer" ||
-      desVal === "Senior Design Engineer" ||
-      roleVal.toLowerCase() === "sr. design engineer" ||
-      desVal.toLowerCase() === "sr. design engineer" ||
-      roleVal.toLowerCase() === "senior design engineer" ||
-      desVal.toLowerCase() === "senior design engineer" ||
-      metaRole.toLowerCase() === "sr. design engineer" ||
-      metaRole.toLowerCase() === "senior design engineer" ||
-      roleVal.toLowerCase().replace(/_/g, " ").includes("sr design") ||
-      desVal.toLowerCase().replace(/_/g, " ").includes("sr design") ||
-      roleVal.toLowerCase().replace(/_/g, " ").includes("senior design") ||
-      desVal.toLowerCase().replace(/_/g, " ").includes("senior design");
-
-    if (isExplicitSenior) {
-      return "Sr. Design Engineer";
-    }
-
-    return "Discipline Coordinator";
-  }, [profile, userData]);
+    if (userAuthority === "APPROVE_REJECT") return "Discipline Coordinator";
+    if (userAuthority === "REVIEW") return "Sr. Design Engineer";
+    return "Jr. / Design Engineer";
+  }, [userAuthority]);
 
   const storageKey = `mep_calc_review_${effectiveProjectId}_${calculatorPath || "ventilation"}`;
 

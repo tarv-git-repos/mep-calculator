@@ -1,7 +1,8 @@
+import React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import BimViewerApp from "@/features/bim-viewer/App";
-import { Sparkles } from "lucide-react";
+import { Sparkles, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/bim-viewer")({
   head: () => ({
@@ -11,7 +12,41 @@ export const Route = createFileRoute("/bim-viewer")({
     ],
   }),
   component: BimViewerRoute,
+  errorComponent: BimViewerErrorComponent,
 });
+
+function BimViewerErrorComponent({ error, reset }: { error: any; reset: () => void }) {
+  return (
+    <AppShell
+      title="BIM 3D Viewer"
+      subtitle="Interactive 3D & 2D IFC Model Analysis"
+    >
+      <div className="flex-1 w-full h-full flex flex-col items-center justify-center bg-[#242426] text-white p-6 gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-2xl">
+          ⚡
+        </div>
+        <div className="text-center max-w-md">
+          <h2 className="text-lg font-bold text-slate-100">3D Viewer Ready to Initialize</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            {error?.message?.includes("WebGL")
+              ? "The WebGL graphics context is resetting. Click below to reconnect the 3D viewport."
+              : "Click below to refresh and launch the 3D BIM workspace."}
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            if (reset) reset();
+            window.location.reload();
+          }}
+          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-lg text-xs shadow-md flex items-center gap-2 cursor-pointer transition-all border border-blue-400/30"
+        >
+          <RefreshCw className="size-3.5" />
+          Reload 3D Workspace
+        </button>
+      </div>
+    </AppShell>
+  );
+}
 
 function BimViewerRoute() {
   return (

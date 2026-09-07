@@ -576,6 +576,7 @@ export function SuperAdminDashboard() {
       email: u.email,
       role: u.role || 'USER',
       name: u.name,
+      designation: u.designation || u.features?.designation || '',
       subscription_expires: u.subscription_expires || null,
       status: u.isAccountVerified ? 'ACTIVE' : 'TRIAL',
       plan: u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (u.organization_id ? 'ENTERPRISE' : 'PRO'),
@@ -1752,9 +1753,14 @@ export function SuperAdminDashboard() {
                                 <div className="size-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-extrabold flex items-center justify-center text-[11px] shrink-0 border border-slate-200 dark:border-slate-700">
                                   {(p.email || 'U')[0].toUpperCase()}
                                 </div>
-                                <div className="flex items-center gap-1 min-w-0">
+                                <div className="flex items-center gap-1 min-w-0 flex-wrap">
                                   {p.role === 'ORG_ADMIN' && <Crown size={14} className="text-amber-500 shrink-0" title="Organization Admin Representative" />}
                                   <span className="truncate text-xs">{p.email}</span>
+                                  {((p as any).designation || (p as any).features?.designation) && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
+                                      {(p as any).designation || (p as any).features?.designation}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </td>

@@ -161,7 +161,8 @@ const EXCLUDED_PERSIST_PATHS = [
   "/basement-smoke-calc",
   "/condensate-drain-calc",
   "/plumbing-pressure-vessel",
-  "/plumbing-storm-water"
+  "/plumbing-storm-water",
+  "/plumbing-sprinkler-density"
 ];
 
 const NON_VERSION_PATHS = [
@@ -439,19 +440,96 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }, 250);
   };
 
+  const [, setProfileSyncTick] = useState(0);
+
+  useEffect(() => {
+    const handleProfileUpdated = () => {
+      setProfileSyncTick(t => t + 1);
+    };
+    window.addEventListener('mep_user_profile_updated', handleProfileUpdated);
+    window.addEventListener('storage', handleProfileUpdated);
+    return () => {
+      window.removeEventListener('mep_user_profile_updated', handleProfileUpdated);
+      window.removeEventListener('storage', handleProfileUpdated);
+    };
+  }, []);
+
   const roleVal = String(profile?.role || userData?.user_metadata?.role || userData?.role || "").trim();
   const rawRole = roleVal.toLowerCase();
   const activeProfile = profile || userData || {};
   const des = String(activeProfile.designation || "").toLowerCase().trim();
 
+  // Dynamic Review & Approval Authority (Single Source of Truth: Company Hierarchy)
+  const currentUserAuthority = useMemo<"APPROVE_REJECT" | "REVIEW" | "NONE">(() => {
+    let ap: any = profile || userData || {};
+    if ((!ap.role && !ap.designation) && typeof window !== "undefined") {
+      try {
+        const storedProfile = localStorage.getItem('mep_profile');
+        const storedUserData = localStorage.getItem('mep_user_data');
+        if (storedProfile) ap = JSON.parse(storedProfile);
+        else if (storedUserData) ap = JSON.parse(storedUserData);
+      } catch (e) {}
+    }
+
+    const currentEmail = String(userData?.email || profile?.email || ap.email || "").toLowerCase().trim();
+    const currentName = String(userData?.name || profile?.name || ap.name || "").toLowerCase().trim();
+    const currentId = String(userId || userData?.id || profile?.id || ap.id || "").toLowerCase().trim();
+
+    // 1. Check Company Hierarchy FIRST (Single Source of Truth)
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_company_hierarchy");
+        if (saved) {
+          const members = JSON.parse(saved);
+          if (Array.isArray(members)) {
+            const found = members.find((m: any) => {
+              const mEmail = String(m.email || "").toLowerCase().trim();
+              const mName = String(m.name || "").toLowerCase().trim();
+              const mId = String(m.id || "").toLowerCase().trim();
+              return (currentEmail && mEmail === currentEmail) ||
+                     (currentId && mId === currentId) ||
+                     (currentName && mName === currentName) ||
+                     (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
+                     (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
+            });
+
+            if (found && found.approvalAuthority) {
+              return found.approvalAuthority;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. Direct property
+    if (ap.approvalAuthority) return ap.approvalAuthority;
+    if (ap.features?.approvalAuthority) return ap.features.approvalAuthority;
+
+    // 3. Fallbacks
+    const roleUpper = String(ap.role || roleVal || "").toUpperCase();
+    const desLower = String(ap.designation || des || "").toLowerCase();
+
+    if (roleUpper === "SUPER_ADMIN" || roleUpper === "ORG_ADMIN" || currentEmail === "admin@tarv.ai") {
+      return "APPROVE_REJECT";
+    }
+    if (roleUpper === "PROJECT_MANAGER" || roleUpper === "TEAM_LEADER" || roleUpper === "DISCIPLINE_COORDINATOR" || desLower.includes("coordinator")) {
+      return "APPROVE_REJECT";
+    }
+    if (roleUpper === "SR_DESIGN_ENGINEER" || desLower.includes("senior") || desLower.includes("sr.")) {
+      return "REVIEW";
+    }
+
+    return "NONE";
+  }, [profile, userData, userId, roleVal, des]);
+
   const isCoordinatorOrAdmin = useMemo(() => {
-    return (
+    return currentUserAuthority === "APPROVE_REJECT" || (
       roleVal === "Discipline Coordinator" ||
       rawRole === "discipline coordinator" ||
       rawRole.includes("coordinator") ||
       des.includes("coordinator")
     );
-  }, [roleVal, rawRole, des]);
+  }, [currentUserAuthority, roleVal, rawRole, des]);
 
   const isViewerRole = useMemo(() => {
     return roleVal === "VIEWER" || rawRole === "viewer" || rawRole.includes("viewer");
@@ -1064,11 +1142,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               isAssigned = (origAuthor === currentIdStr || (currentEmail && origAuthor === currentEmail));
             } else if (c.isReviewStateNotif) {
               if (c.targetRole === 'discipline_coordinator') {
-                isAssigned = isCoordinatorOrAdmin;
+                isAssigned = (currentUserAuthority === "APPROVE_REJECT");
               } else if (c.targetRole === 'sr_design_engineer') {
-                isAssigned = isSrDesignEngineer;
+                isAssigned = (currentUserAuthority === "REVIEW");
               } else if (c.targetRole === 'all_engineers') {
-                isAssigned = !isCoordinatorOrAdmin;
+                isAssigned = (currentUserAuthority !== "APPROVE_REJECT");
               } else {
                 isAssigned = Boolean(c.recipientEmail && currentEmail && c.recipientEmail.toLowerCase().trim() === currentEmail);
               }
@@ -1433,7 +1511,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
     mapped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return mapped;
-  }, [userId, userData, profile, projects, notifTick, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds, persistentNotifs, completedNotifIds, readNotifIds]);
+  }, [userId, userData, profile, projects, notifTick, currentUserAuthority, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin, deletedNotifIds, persistentNotifs, completedNotifIds, readNotifIds]);
 
   const unreadNotifications = useMemo(() => {
     return myNotifications.filter(n => !n.deleted && n.id && !readNotifIds.includes(n.id) && !completedNotifIds.includes(n.id));
@@ -1581,14 +1659,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
         let isForMe = false;
 
-        // Review state notifications: route by role first
+        // Review state notifications: route by authority first
         if (itemIsReviewNotif && itemTargetRole) {
           if (itemTargetRole === 'discipline_coordinator') {
-            isForMe = isCoordinatorOrAdmin;
+            isForMe = (currentUserAuthority === "APPROVE_REJECT");
           } else if (itemTargetRole === 'sr_design_engineer') {
-            isForMe = isSrDesignEngineer;
+            isForMe = (currentUserAuthority === "REVIEW");
           } else if (itemTargetRole === 'all_engineers') {
-            isForMe = !isCoordinatorOrAdmin;
+            isForMe = (currentUserAuthority !== "APPROVE_REJECT");
           }
         } else if (assignedUsers.length > 0) {
           isForMe = assignedUsers.some((u: any) => {
@@ -1639,12 +1717,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
       if (!isMember()) return;
 
-      if (e?.detail?.status === "REJECTED" && !isCoordinatorOrAdmin) {
+      if (e?.detail?.status === "REJECTED" && currentUserAuthority !== "APPROVE_REJECT") {
         toast.error(`⚠️ CALCULATION REJECTED: Reason from ${e.detail.rejectedBy || "Discipline Coordinator"}: "${e.detail.rejectionDescription || "Revision required"}"`, {
           duration: 7000
         });
       }
-      if (e?.detail?.status === "SR_REVIEW_SUBMITTED" && isCoordinatorOrAdmin) {
+      if (e?.detail?.status === "SR_REVIEW_SUBMITTED" && currentUserAuthority === "APPROVE_REJECT") {
         toast.success(`✅ CALCULATION REVIEWED: ${e.detail.calculatorTitle || "Calculation"} reviewed by ${e.detail.reviewedBy || "Sr. Design Engineer"}. Ready for your approval!`, {
           duration: 7000
         });
@@ -1667,7 +1745,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         window.removeEventListener("storage", handleNotifAdded);
       }
     };
-  }, [userId, userData, profile, projects, isSrDesignEngineer, isJrDesignEngineer, isCoordinatorOrAdmin]);
+  }, [userId, userData, profile, projects, currentUserAuthority]);
 
   // Global notification deep-linking and highlight execution
   useEffect(() => {
@@ -2320,8 +2398,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       ? [{ kind: "item" as const, label: "Sprinkler K-Factor", to: "/plumbing-sprinkler-kfactor", icon: Droplets }]
       : [
           ...NAV,
+          { kind: "item" as const, label: "Company Hierarchy", to: "/company-hierarchy", icon: Network },
           ...(isAdmin ? [
-            { kind: "item" as const, label: "Company Hierarchy", to: "/company-hierarchy", icon: Network },
             { kind: "item" as const, label: "Admin Panel", to: "/admin", icon: ShieldAlert }
           ] : [])
         ];
@@ -2845,6 +2923,69 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     <div className="flex flex-col min-w-0 flex-1">
                       <div className="text-sm font-semibold text-foreground truncate">{userData?.name || profile?.name || 'MEP User'}</div>
                       <div className="text-xs text-muted-foreground truncate">{userData?.email || myEmail}</div>
+                      {(() => {
+                        // Priority 1: Check hierarchy storage
+                        let hierarchyBadge = "";
+                        if (typeof window !== "undefined") {
+                          try {
+                            const saved = localStorage.getItem("mep_company_hierarchy");
+                            if (saved) {
+                              const members = JSON.parse(saved);
+                              if (Array.isArray(members)) {
+                                const userEmail = String(userData?.email || myEmail || "").toLowerCase().trim();
+                                const userName = String(userData?.name || profile?.name || "").toLowerCase().trim();
+                                const userId = String(userData?.id || "").toLowerCase().trim();
+                                const found = members.find((m: any) => {
+                                  const mEmail = String(m.email || "").toLowerCase().trim();
+                                  const mName = String(m.name || "").toLowerCase().trim();
+                                  const mId = String(m.id || "").toLowerCase().trim();
+                                  return (userEmail && mEmail === userEmail) || 
+                                         (userId && mId === userId) ||
+                                         (userName && mName === userName) ||
+                                         (userEmail && mEmail && (userEmail.includes(mEmail) || mEmail.includes(userEmail))) ||
+                                         (userName && mName && (userName.includes(mName) || mName.includes(userName)));
+                                });
+                                if (found) {
+                                  if (found.designation && found.designation !== "USER" && found.designation !== "ENGINEER") {
+                                    hierarchyBadge = found.designation;
+                                  } else if (found.role) {
+                                    hierarchyBadge = found.role;
+                                  }
+                                }
+                              }
+                            }
+                          } catch (e) {}
+                        }
+
+                        const ROLE_MAP: Record<string, string> = {
+                          SUPER_ADMIN: "Super Admin",
+                          ORG_ADMIN: "Organization Admin",
+                          PROJECT_MANAGER: "Project Manager",
+                          TEAM_LEADER: "Team Leader",
+                          DISCIPLINE_COORDINATOR: "Discipline Coordinator",
+                          SR_DESIGN_ENGINEER: "Sr. Design Engineer",
+                          DESIGN_ENGINEER: "Design Engineer",
+                          JR_DESIGN_ENGINEER: "Jr. Design Engineer",
+                          BIM_COORDINATOR: "BIM Coordinator",
+                          BIM_MODELER: "BIM Modeler",
+                          DRAFTSMAN_2D: "2D Draftsman",
+                          VIEWER: "Viewer",
+                          CLIENT: "Client",
+                          ENGINEER: "Design Engineer",
+                          USER: "Jr. Design Engineer"
+                        };
+
+                        const raw = hierarchyBadge || userData?.designation || profile?.designation || (userData?.features as any)?.designation || (profile?.features as any)?.designation || userData?.role || profile?.role;
+                        if (!raw) return null;
+                        const display = ROLE_MAP[raw] || raw;
+                        return (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary border border-primary/20 max-w-full truncate">
+                              {display}
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
                         <div className="size-1.5 rounded-full bg-green-500"></div>
                         Verified License Active

@@ -908,9 +908,14 @@ export function OrgAdminDashboard() {
                                   {(u.name || u.email || 'U')[0].toUpperCase()}
                                 </div>
                                 <div>
-                                  <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                                  <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
                                     {u.role === 'ORG_ADMIN' && <Crown size={14} className="text-amber-500 shrink-0" title="Org Admin" />}
                                     <span>{u.name || u.email}</span>
+                                    {(u.designation || u.features?.designation) && (
+                                      <span className="text-[10px] px-2 py-0.5 rounded font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
+                                        {u.designation || u.features?.designation}
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="text-slate-500 text-xs mt-0.5">{u.email}</div>
                                 </div>

@@ -4,10 +4,12 @@ import {
   Network, Users, Plus, Shield, ShieldAlert, ShieldCheck, Mail, Trash2, Edit3, 
   ChevronDown, ChevronRight, Search, Sparkles, Save, RefreshCw, 
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
-  User, Check, ArrowRight, Eye, ZoomIn, ZoomOut, RotateCcw, Scan, Move, Maximize2
+  User, Check, ArrowRight, Eye, ZoomIn, ZoomOut, RotateCcw, Scan, Move, Maximize2,
+  AlertTriangle
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
+import { api } from "@/services/api";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/company-hierarchy")({
@@ -50,6 +52,60 @@ export interface HierarchyUser {
   parentId: string | null; // ID of manager
   avatarColor?: string;
   status: "active" | "away" | "offline";
+}
+
+export function normalizeHierarchyRole(role?: string | null): HierarchyRole {
+  if (!role) return "USER";
+  const r = String(role).toUpperCase().replace(/[\s.-]/g, "_").trim();
+  if (r.includes("SUPER_ADMIN") || r.includes("CEO")) return "SUPER_ADMIN";
+  if (r.includes("ORG_ADMIN") || r.includes("DIRECTOR")) return "ORG_ADMIN";
+  if (r.includes("PROJECT_MANAGER") || r.includes("LEAD_PM") || r.includes("PM")) return "PROJECT_MANAGER";
+  if (r.includes("TEAM_LEAD")) return "TEAM_LEADER";
+  if (r.includes("DISCIPLINE_COORDINATOR")) return "DISCIPLINE_COORDINATOR";
+  if (r.includes("SR_DESIGN") || r.includes("SENIOR_DESIGN") || r.includes("SENIOR_ENGINEER") || r.includes("SR_ENGINEER") || r === "SR") return "SR_DESIGN_ENGINEER";
+  if (r.includes("JR_DESIGN") || r.includes("JUNIOR_DESIGN") || r.includes("JUNIOR_ENGINEER") || r.includes("JR_ENGINEER") || r === "JR") return "JR_DESIGN_ENGINEER";
+  if (r.includes("DESIGN_ENGINEER") || r === "ENGINEER") return "DESIGN_ENGINEER";
+  if (r.includes("BIM_COORD")) return "BIM_COORDINATOR";
+  if (r.includes("BIM_MODEL")) return "BIM_MODELER";
+  if (r.includes("DRAFTSMAN") || r.includes("2D")) return "DRAFTSMAN_2D";
+  if (r.includes("VIEWER")) return "VIEWER";
+  if (r.includes("CLIENT")) return "CLIENT";
+  return "USER";
+}
+
+export const ROLE_TITLE_MAP: Record<string, string> = {
+  SUPER_ADMIN: "Super Admin (CEO)",
+  ORG_ADMIN: "Director of MEP Engineering",
+  PROJECT_MANAGER: "Lead Project Manager",
+  TEAM_LEADER: "Team Leader",
+  DISCIPLINE_COORDINATOR: "Discipline Coordinator",
+  SR_DESIGN_ENGINEER: "Sr. Design Engineer",
+  DESIGN_ENGINEER: "Design Engineer",
+  JR_DESIGN_ENGINEER: "Jr. Design Engineer",
+  BIM_COORDINATOR: "BIM Coordinator",
+  BIM_MODELER: "BIM Modeler",
+  DRAFTSMAN_2D: "2D Draftsman",
+  VIEWER: "Viewer",
+  CLIENT: "Client",
+  ENGINEER: "Design Engineer",
+  USER: "Jr. Design Engineer"
+};
+
+export function getMemberDisplayDesignation(member: HierarchyUser): string {
+  const normRole = normalizeHierarchyRole(member.role);
+  const expectedTitle = ROLE_TITLE_MAP[normRole] || ROLE_TITLE_MAP[member.role] || member.role;
+  if (!member.designation || member.designation === "USER" || member.designation === "ENGINEER") {
+    return expectedTitle;
+  }
+  const normDesig = normalizeHierarchyRole(member.designation);
+  if (normDesig !== "USER" && normDesig !== normRole) {
+    return expectedTitle;
+  }
+  const allStandardTitles = Object.values(ROLE_TITLE_MAP);
+  if (allStandardTitles.includes(member.designation) && member.designation !== expectedTitle) {
+    return expectedTitle;
+  }
+  return member.designation;
 }
 
 const DEFAULT_HIERARCHY: HierarchyUser[] = [
@@ -320,8 +376,8 @@ function CompanyHierarchyPage() {
   const currentUserName = userData?.name || profile?.name || "David Vance";
   const currentUserEmail = userData?.email || profile?.email || "david.vance@mep-calc.com";
   
-  // Access check: Visible only to SUPER_ADMIN and ORG_ADMIN
-  const isAuthorized = ["SUPER_ADMIN", "ORG_ADMIN"].includes(currentRole);
+  // Access check: Open to everyone in the organization
+  const isAuthorized = true;
 
   const [members, setMembers] = useState<HierarchyUser[]>(() => {
     if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
@@ -407,6 +463,9 @@ function CompanyHierarchyPage() {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<HierarchyUser | null>(null);
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   // Form State
   const [formName, setFormName] = useState("");
@@ -416,6 +475,176 @@ function CompanyHierarchyPage() {
   const [formRole, setFormRole] = useState<HierarchyUser["role"]>("ENGINEER");
   const [formApprovalAuthority, setFormApprovalAuthority] = useState<ApprovalAuthority>("NONE");
   const [formParentId, setFormParentId] = useState<string | null>(null);
+
+  // Organization Users Auto-Suggest State
+  const [orgUsersList, setOrgUsersList] = useState<any[]>([]);
+  const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadOrgUsers = async () => {
+      try {
+        let fetchedUsers = await api.getOrgUsers().catch(() => []);
+        if (!fetchedUsers || fetchedUsers.length === 0) {
+          fetchedUsers = await api.getUsers().catch(() => []);
+        }
+        
+        const combined = new Map<string, any>();
+        
+        // Also merge local users cache if available
+        try {
+          const raw = localStorage.getItem("mep_local_users");
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((u: any) => {
+                if (u && u.email) combined.set(String(u.email).toLowerCase().trim(), u);
+              });
+            }
+          }
+        } catch (e) {}
+
+        (fetchedUsers || []).forEach((u: any) => {
+          if (u && u.email) {
+            const existing = combined.get(String(u.email).toLowerCase().trim());
+            combined.set(String(u.email).toLowerCase().trim(), { ...(existing || {}), ...u });
+          }
+        });
+
+        let finalUsers = Array.from(combined.values());
+        if (currentRole === "ORG_ADMIN") {
+          finalUsers = finalUsers.filter((u: any) => u.role !== 'SUPER_ADMIN' && u.email !== 'admin@tarv.ai');
+        }
+
+        if (isMounted) {
+          setOrgUsersList(finalUsers);
+        }
+      } catch (e) {
+        console.error("Failed to load org users:", e);
+      }
+    };
+    loadOrgUsers();
+
+    const handleProfileUpdated = (e: any) => {
+      loadOrgUsers();
+      const targetId = String(e?.detail?.profileId || e?.detail?.updates?.email || e?.detail?.updates?.id || '').toLowerCase().trim();
+      const rawNewRole = e?.detail?.updates?.role || e?.detail?.role;
+      const newRole = rawNewRole ? normalizeHierarchyRole(rawNewRole) : undefined;
+      const newDesignation = e?.detail?.updates?.designation || (newRole ? (ROLE_TITLE_MAP[newRole] || newRole) : undefined);
+      const newName = e?.detail?.updates?.name;
+      const newDept = e?.detail?.updates?.department;
+
+      if (targetId) {
+        setMembers(prev => {
+          let changed = false;
+          const next = prev.map(m => {
+            const mEmail = String(m.email || '').toLowerCase().trim();
+            const mId = String(m.id || '').toLowerCase().trim();
+            if (mEmail === targetId || mId === targetId) {
+              changed = true;
+              const updatedRole = newRole || m.role;
+              const updatedDesignation = newDesignation || (newRole ? (ROLE_TITLE_MAP[newRole] || newRole) : undefined) || m.designation;
+              return {
+                ...m,
+                ...(newName ? { name: newName } : {}),
+                ...(updatedRole ? { role: updatedRole } : {}),
+                ...(updatedDesignation ? { designation: updatedDesignation } : {}),
+                ...(newDept ? { department: newDept } : {})
+              };
+            }
+            return m;
+          });
+          if (changed && typeof window !== 'undefined') {
+            try { localStorage.setItem("mep_company_hierarchy", JSON.stringify(next)); } catch (err) {}
+          }
+          return changed ? next : prev;
+        });
+      }
+    };
+
+    window.addEventListener('mep_user_profile_updated', handleProfileUpdated);
+    window.addEventListener('storage', loadOrgUsers);
+
+    return () => { 
+      isMounted = false;
+      window.removeEventListener('mep_user_profile_updated', handleProfileUpdated);
+      window.removeEventListener('storage', loadOrgUsers);
+    };
+  }, [currentRole]);
+
+  // Suggestions for Email Address input
+  const emailSuggestions = useMemo(() => {
+    if (!formEmail.trim()) {
+      return orgUsersList;
+    }
+    const q = formEmail.toLowerCase().trim();
+    return orgUsersList.filter((u: any) => 
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      (u.name && u.name.toLowerCase().includes(q))
+    );
+  }, [orgUsersList, formEmail]);
+
+  // Suggestions for Name input
+  const nameSuggestions = useMemo(() => {
+    if (!formName.trim()) {
+      return orgUsersList;
+    }
+    const q = formName.toLowerCase().trim();
+    return orgUsersList.filter((u: any) => 
+      (u.name && u.name.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q))
+    );
+  }, [orgUsersList, formName]);
+
+  const handleSelectOrgUser = (user: any) => {
+    if (user.email) setFormEmail(user.email);
+    if (user.name) setFormName(user.name);
+
+    let mappedRole: HierarchyRole = "ENGINEER";
+    if (user.role) {
+      const rLower = String(user.role).toLowerCase();
+      if (rLower.includes("super admin") || rLower === "super_admin") mappedRole = "SUPER_ADMIN";
+      else if (rLower.includes("org admin") || rLower.includes("director") || rLower === "org_admin") mappedRole = "ORG_ADMIN";
+      else if (rLower.includes("pm") || rLower.includes("manager") || rLower.includes("lead")) mappedRole = "PROJECT_MANAGER";
+      else if (rLower.includes("team leader")) mappedRole = "TEAM_LEADER";
+      else if (rLower.includes("coordinator") && rLower.includes("bim")) mappedRole = "BIM_COORDINATOR";
+      else if (rLower.includes("discipline coordinator")) mappedRole = "DISCIPLINE_COORDINATOR";
+      else if (rLower.includes("sr") || rLower.includes("senior")) mappedRole = "SR_DESIGN_ENGINEER";
+      else if (rLower.includes("jr") || rLower.includes("junior")) mappedRole = "JR_DESIGN_ENGINEER";
+      else if (rLower.includes("modeler")) mappedRole = "BIM_MODELER";
+      else if (rLower.includes("draftsman") || rLower.includes("2d")) mappedRole = "DRAFTSMAN_2D";
+      else if (rLower.includes("viewer")) mappedRole = "VIEWER";
+      else if (rLower.includes("client")) mappedRole = "CLIENT";
+      else mappedRole = "ENGINEER";
+    }
+
+    setFormRole(mappedRole);
+    const cleanTitle = user.designation || ROLE_TITLE_MAP[mappedRole] || "Design Engineer";
+    setFormDesignation(cleanTitle);
+
+    if (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(mappedRole)) {
+      setFormApprovalAuthority("APPROVE_REJECT");
+    } else if (["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(mappedRole)) {
+      setFormApprovalAuthority("REVIEW");
+    } else {
+      setFormApprovalAuthority("NONE");
+    }
+
+    if (user.department && ["Management", "HVAC", "Electrical", "Plumbing", "Fire Fighting", "BIM & IT"].includes(user.department)) {
+      setFormDepartment(user.department);
+    } else if (user.role) {
+      const r = String(user.role).toLowerCase();
+      if (r.includes("hvac") || r.includes("mechanical")) setFormDepartment("HVAC");
+      else if (r.includes("elec")) setFormDepartment("Electrical");
+      else if (r.includes("plumb") || r.includes("drain")) setFormDepartment("Plumbing");
+      else if (r.includes("fire")) setFormDepartment("Fire Fighting");
+      else if (r.includes("bim") || r.includes("model")) setFormDepartment("BIM & IT");
+    }
+
+    setShowEmailSuggestions(false);
+    setShowNameSuggestions(false);
+  };
 
   // Save to LocalStorage whenever members change
   const saveHierarchy = (newMembers: HierarchyUser[]) => {
@@ -447,13 +676,14 @@ function CompanyHierarchyPage() {
       saveHierarchy(DEFAULT_HIERARCHY);
       toast.success("Hierarchy reset to default company structure!");
     }
+    setIsResetModalOpen(false);
   };
 
   const handleClearAllHierarchy = () => {
-    if (confirm("Are you sure you want to delete the entire hierarchy? You can create a new hierarchy anytime.")) {
-      saveHierarchy([]);
-      toast.success("All hierarchy data has been deleted.");
-    }
+    saveHierarchy([]);
+    setIsClearModalOpen(false);
+    setDeleteConfirmText("");
+    toast.success("All hierarchy data has been deleted.");
   };
 
   // Toggle Collapse
@@ -470,15 +700,17 @@ function CompanyHierarchyPage() {
   const handleOpenAddModal = (presetParentId?: string | null) => {
     setFormName("");
     setFormEmail("");
-    setFormDesignation("");
+    setShowEmailSuggestions(false);
+    setShowNameSuggestions(false);
     const defaultDept = currentRole === "ORG_ADMIN" && members.length === 0 ? "Management" : "HVAC";
-    const defaultRole = currentRole === "ORG_ADMIN" && members.length === 0 ? "ORG_ADMIN" : "ENGINEER";
+    const defaultRole: HierarchyRole = currentRole === "ORG_ADMIN" && members.length === 0 ? "ORG_ADMIN" : "DESIGN_ENGINEER";
     setFormDepartment(defaultDept);
     setFormRole(defaultRole);
+    setFormDesignation(ROLE_TITLE_MAP[defaultRole] || "Design Engineer");
     setFormApprovalAuthority(
-      ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(defaultRole) 
+      ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(defaultRole) 
         ? "APPROVE_REJECT" 
-        : defaultRole === "ENGINEER" 
+        : ["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(defaultRole) 
         ? "REVIEW" 
         : "NONE"
     );
@@ -492,14 +724,17 @@ function CompanyHierarchyPage() {
     setEditingMember(member);
     setFormName(member.name);
     setFormEmail(member.email);
-    setFormDesignation(member.designation);
-    setFormDepartment(member.department);
     setFormRole(member.role);
+    setFormDepartment(member.department);
+    const defaultTitle = ROLE_TITLE_MAP[member.role] || member.role;
+    setFormDesignation(member.designation || defaultTitle);
+    setShowEmailSuggestions(false);
+    setShowNameSuggestions(false);
     setFormApprovalAuthority(
       member.approvalAuthority ||
-      (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER"].includes(member.role)
+      (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(member.role)
         ? "APPROVE_REJECT"
-        : member.role === "ENGINEER"
+        : ["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(member.role)
         ? "REVIEW"
         : "NONE")
     );
@@ -521,41 +756,153 @@ function CompanyHierarchyPage() {
       "bg-rose-600", "bg-cyan-600", "bg-sky-600"
     ];
 
+    const targetEmail = formEmail.trim();
+    const targetName = formName.trim();
+    const targetRole = normalizeHierarchyRole(formRole);
+    const targetDesignation = formDesignation.trim() || ROLE_TITLE_MAP[targetRole] || "MEP Engineer";
+    const targetDepartment = formDepartment;
+    const targetAuthority = formApprovalAuthority;
+
     if (editingMember) {
       // Update existing
       const updated = members.map((m) => {
-        if (m.id === editingMember.id) {
+        if (m.id === editingMember.id || (m.email && m.email.toLowerCase().trim() === targetEmail.toLowerCase().trim())) {
           return {
             ...m,
-            name: formName.trim(),
-            email: formEmail.trim(),
-            designation: formDesignation.trim() || "MEP Specialist",
-            department: formDepartment,
-            role: formRole,
-            approvalAuthority: formApprovalAuthority,
+            name: targetName,
+            email: targetEmail,
+            designation: targetDesignation,
+            department: targetDepartment,
+            role: targetRole,
+            approvalAuthority: targetAuthority,
             parentId: formParentId,
           };
         }
         return m;
       });
       saveHierarchy(updated);
-      toast.success(`Updated ${formName} in hierarchy!`);
+      toast.success(`Updated ${targetName} (${targetDesignation}) in hierarchy!`);
     } else {
       // Add new
       const newMember: HierarchyUser = {
         id: `usr-${Date.now()}`,
-        name: formName.trim(),
-        email: formEmail.trim(),
-        designation: formDesignation.trim() || (formRole === "ORG_ADMIN" ? "Director of MEP Engineering" : "MEP Engineer"),
-        department: formDepartment,
-        role: formRole,
-        approvalAuthority: formApprovalAuthority,
+        name: targetName,
+        email: targetEmail,
+        designation: targetDesignation,
+        department: targetDepartment,
+        role: targetRole,
+        approvalAuthority: targetAuthority,
         parentId: formParentId,
         avatarColor: colorPalette[Math.floor(Math.random() * colorPalette.length)],
         status: "active"
       };
       saveHierarchy([...members, newMember]);
-      toast.success(`Added ${newMember.name} to hierarchy!`);
+      toast.success(`Added ${newMember.name} (${targetDesignation}) to hierarchy!`);
+    }
+
+    // Synchronize to backend profile & local stores
+    const profileUpdates = {
+      name: targetName,
+      email: targetEmail,
+      designation: targetDesignation,
+      role: targetRole,
+      department: targetDepartment
+    };
+
+    api.adminUpdateProfile(targetEmail, profileUpdates).catch(err => {
+      console.warn("adminUpdateProfile background sync warning:", err);
+    });
+
+    api.adminToggleRole(targetEmail, targetRole).catch(err => {
+      console.warn("adminToggleRole background sync warning:", err);
+    });
+
+    // Update local user registry & org user suggestions list directly
+    try {
+      const storedUsers = localStorage.getItem('mep_local_users');
+      if (storedUsers) {
+        const parsedUsers = JSON.parse(storedUsers);
+        const updatedUsers = parsedUsers.map((u: any) => {
+          const uEmail = String(u.email || '').toLowerCase().trim();
+          const uId = String(u.id || '').toLowerCase().trim();
+          if (uEmail === targetEmail.toLowerCase().trim() || uId === targetEmail.toLowerCase().trim()) {
+            return {
+              ...u,
+              name: targetName,
+              role: targetRole,
+              designation: targetDesignation,
+              features: {
+                ...(u.features || {}),
+                role: targetRole,
+                designation: targetDesignation
+              }
+            };
+          }
+          return u;
+        });
+        localStorage.setItem('mep_local_users', JSON.stringify(updatedUsers));
+        localStorage.setItem('cachedAllUsers', JSON.stringify(updatedUsers));
+      }
+      setOrgUsersList(prev => prev.map(u => {
+        const uEmail = String(u.email || '').toLowerCase().trim();
+        const uId = String(u.id || '').toLowerCase().trim();
+        if (uEmail === targetEmail.toLowerCase().trim() || uId === targetEmail.toLowerCase().trim()) {
+          return {
+            ...u,
+            name: targetName,
+            role: targetRole,
+            designation: targetDesignation
+          };
+        }
+        return u;
+      }));
+    } catch (e) {}
+
+    // If current user, update localStorage session cache immediately
+    const isTargetCurrentUser = 
+      (currentUserEmail && targetEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
+      (currentUserName && targetName.toLowerCase() === currentUserName.toLowerCase()) ||
+      (userData?.email && targetEmail.toLowerCase() === userData.email.toLowerCase()) ||
+      (userData?.name && targetName.toLowerCase() === userData.name.toLowerCase()) ||
+      (profile?.email && targetEmail.toLowerCase() === profile.email.toLowerCase()) ||
+      (profile?.name && targetName.toLowerCase() === profile.name.toLowerCase());
+
+    if (isTargetCurrentUser) {
+      if (typeof window !== "undefined") {
+        try {
+          const rawUserData = localStorage.getItem("mep_user_data") || localStorage.getItem("mep_calculator_user_data") || localStorage.getItem("mep_profile");
+          if (rawUserData) {
+            const parsed = JSON.parse(rawUserData);
+            const updatedUser = {
+              ...parsed,
+              name: targetName,
+              designation: targetDesignation,
+              role: targetRole,
+              features: {
+                ...(parsed.features || {}),
+                designation: targetDesignation,
+                role: targetRole
+              }
+            };
+            const jsonStr = JSON.stringify(updatedUser);
+            localStorage.setItem("mep_calculator_user_data", jsonStr);
+            localStorage.setItem("mep_user_data", jsonStr);
+            localStorage.setItem("mep_profile", jsonStr);
+            if (parsed.id) {
+              localStorage.setItem(`mep_user_designation_${parsed.id}`, targetDesignation);
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mep_user_profile_updated", {
+        detail: {
+          profileId: targetEmail,
+          updates: profileUpdates
+        }
+      }));
     }
 
     setIsAddModalOpen(false);
@@ -581,37 +928,8 @@ function CompanyHierarchyPage() {
   };
 
   const visibleMembers = useMemo(() => {
-    if (members.length === 0) return [];
-    if (currentRole === "SUPER_ADMIN") return members;
-
-    // For ORG_ADMIN: Find their node based on email
-    const emailToMatch = (userData?.email || profile?.email || "").toLowerCase().trim();
-    let currentUserNode = members.find(m => m.email?.toLowerCase().trim() === emailToMatch);
-    if (!currentUserNode) {
-      // Fallback: look for ORG_ADMIN node
-      currentUserNode = members.find(m => m.role === "ORG_ADMIN");
-    }
-    if (!currentUserNode) {
-      // Fallback: look for top root node
-      currentUserNode = members.find(m => m.parentId === null);
-    }
-
-    if (!currentUserNode) return [];
-
-    const visibleIds = new Set<string>();
-    const toProcess = [currentUserNode.id];
-
-    while (toProcess.length > 0) {
-      const currentId = toProcess.pop()!;
-      if (!visibleIds.has(currentId)) {
-        visibleIds.add(currentId);
-        const children = members.filter(m => m.parentId === currentId).map(m => m.id);
-        toProcess.push(...children);
-      }
-    }
-
-    return members.filter(m => visibleIds.has(m.id));
-  }, [members, currentRole, userData?.email, profile?.email]);
+    return members;
+  }, [members]);
 
   // Filtered members for search & department
   const filteredMembers = useMemo(() => {
@@ -666,7 +984,7 @@ function CompanyHierarchyPage() {
   return (
     <AppShell 
       title="Company Hierarchy" 
-      subtitle={currentRole === "ORG_ADMIN" ? "Organization Admin & Team Hierarchy Builder" : "Super Admin & Organization Hierarchy Builder"}
+      subtitle="Organization Role & Reporting Hierarchy Chart"
       actions={
         <div className="flex items-center gap-2.5 flex-wrap justify-end">
           {/* Search Input */}
@@ -723,12 +1041,23 @@ function CompanyHierarchyPage() {
           {/* Add Member Button */}
           <button
             onClick={() => handleOpenAddModal(null)}
-            className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 transition-all shadow-xs cursor-pointer shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs cursor-pointer shrink-0"
             title="Add Team Member"
             aria-label="Add Team Member"
           >
-            <UserPlus className="size-4" />
+            <UserPlus className="size-3.5" /> <span>Add Member</span>
           </button>
+
+          {/* Reset Default Template Button */}
+          {visibleMembers.length > 0 && (
+            <button
+              onClick={() => setIsResetModalOpen(true)}
+              className="px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-foreground bg-surface-2 hover:bg-surface-3 border border-border/80 rounded-full transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+              title="Reset hierarchy to default MEP template"
+            >
+              <RefreshCw className="size-3.5 text-blue-500" /> Reset Default
+            </button>
+          )}
 
           {/* Clear All Button */}
           {visibleMembers.length > 0 && (
@@ -737,7 +1066,7 @@ function CompanyHierarchyPage() {
                 setDeleteConfirmText("");
                 setIsClearModalOpen(true);
               }}
-              className="px-3 py-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:bg-rose-500/10 rounded-full transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+              className="px-3 py-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-full transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
               title="Clear all hierarchy data"
             >
               <Trash2 className="size-3.5" /> Clear All
@@ -746,17 +1075,17 @@ function CompanyHierarchyPage() {
         </div>
       }
     >
-      <div className="flex flex-col flex-1 h-full min-h-0 bg-slate-50/40 dark:bg-zinc-950/20 overflow-y-auto custom-scrollbar p-6 space-y-6">
+      <div className="flex flex-col flex-1 h-full min-h-0 w-full overflow-hidden p-2 sm:p-4">
 
         {/* EMPTY STATE COMPONENT WHEN NO HIERARCHY MEMBERS EXIST */}
         {visibleMembers.length === 0 ? (
-          <div className="bg-card border border-border rounded-3xl p-8 sm:p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-5 min-h-[460px]">
-            <div className="size-20 rounded-3xl bg-gradient-to-tr from-blue-600/20 to-indigo-600/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-inner border border-blue-500/20">
-              <Network className="size-10" />
+          <div className="bg-card border border-border rounded-3xl p-8 sm:p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-6 flex-1 h-full w-full min-h-0">
+            <div className="size-24 rounded-3xl bg-gradient-to-tr from-blue-600/20 to-indigo-600/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-inner border border-blue-500/20">
+              <Network className="size-12" />
             </div>
             
-            <div className="max-w-md space-y-2">
-              <h3 className="text-xl font-extrabold text-foreground">No Hierarchy Configured</h3>
+            <div className="max-w-lg space-y-2.5">
+              <h3 className="text-2xl font-extrabold text-foreground">No Hierarchy Configured</h3>
               <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                 {currentRole === "ORG_ADMIN" 
                   ? "As an Organization Admin, you can initialize a complete pre-built MEP engineering team structure or build your custom organization chart from scratch."
@@ -768,21 +1097,21 @@ function CompanyHierarchyPage() {
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
               <button
                 onClick={handleCreateOrgHierarchy}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-md hover:shadow-lg transition-all cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-7 py-3 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs sm:text-sm shadow-md hover:shadow-lg transition-all cursor-pointer"
               >
                 <Sparkles className="size-4" /> Create Organization Hierarchy
               </button>
               
               <button
                 onClick={() => handleOpenAddModal(null)}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-surface-2 border border-border hover:bg-surface-3 text-foreground font-bold text-xs transition-all cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-surface-2 border border-border hover:bg-surface-3 text-foreground font-bold text-xs sm:text-sm transition-all cursor-pointer"
               >
                 <UserPlus className="size-4 text-primary" /> Add Root Member (Custom)
               </button>
             </div>
 
-            <div className="pt-4 border-t border-border/60 text-[11px] text-muted-foreground flex items-center gap-2">
-              <Shield className="size-3.5 text-blue-500" />
+            <div className="pt-4 border-t border-border/60 text-xs text-muted-foreground flex items-center gap-2">
+              <Shield className="size-4 text-blue-500" />
               <span>Standard template includes Lead PMs (HVAC, Electrical, Plumbing) & Senior Engineering Staff</span>
             </div>
           </div>
@@ -797,7 +1126,7 @@ function CompanyHierarchyPage() {
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                className={`relative bg-card border border-border rounded-3xl shadow-sm overflow-hidden min-h-[580px] h-[calc(100vh-140px)] flex flex-col select-none ${
+                className={`relative bg-card border border-border rounded-3xl shadow-sm overflow-hidden flex-1 h-full min-h-0 w-full flex flex-col select-none ${
                   isPanning ? "cursor-grabbing" : "cursor-grab"
                 }`}
                 style={{
@@ -906,8 +1235,8 @@ function CompanyHierarchyPage() {
 
             {/* VIEW MODE 2: TABULAR GRID */}
             {viewMode === "table" && (
-              <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
+              <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm flex-1 h-full min-h-0 flex flex-col">
+                <div className="overflow-auto flex-1 h-full custom-scrollbar">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-surface-2 text-muted-foreground font-bold uppercase text-[10px] tracking-wider border-b border-border">
                       <tr>
@@ -956,7 +1285,7 @@ function CompanyHierarchyPage() {
                                   </div>
                                 </div>
                               </td>
-                              <td className="py-3 px-4 font-medium text-foreground">{m.designation}</td>
+                              <td className="py-3 px-4 font-medium text-foreground">{getMemberDisplayDesignation(m)}</td>
                               <td className="py-3 px-4">
                                 <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-primary/10 text-primary border border-primary/20">
                                   {m.department}
@@ -1048,28 +1377,164 @@ function CompanyHierarchyPage() {
             </div>
 
             <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
-              <div>
+              {/* Full Name input with auto-suggestions */}
+              <div className="relative">
                 <label className="font-bold text-foreground block mb-1">Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Vikram Kadam"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Vikram Kadam"
+                    value={formName}
+                    onChange={(e) => {
+                      setFormName(e.target.value);
+                      setShowNameSuggestions(true);
+                      setShowEmailSuggestions(false);
+                    }}
+                    onFocus={() => {
+                      setShowNameSuggestions(true);
+                      setShowEmailSuggestions(false);
+                    }}
+                    className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium text-foreground"
+                  />
+                  {formName && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormName("");
+                        setShowNameSuggestions(true);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs p-1"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Name Auto-Suggest Dropdown */}
+                {showNameSuggestions && nameSuggestions.length > 0 && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-30" 
+                      onClick={() => setShowNameSuggestions(false)} 
+                    />
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-card border border-border rounded-2xl shadow-2xl max-h-64 overflow-y-auto custom-scrollbar p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                      <div className="px-2.5 py-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b border-border/50">
+                        <span className="flex items-center gap-1">
+                          <Users className="size-3 text-primary" /> Organization Members
+                        </span>
+                        <span>{nameSuggestions.length} found</span>
+                      </div>
+                      {nameSuggestions.map((u: any) => (
+                        <button
+                          key={u.id || u.email}
+                          type="button"
+                          onClick={() => handleSelectOrgUser(u)}
+                          className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-primary/10 transition-colors text-left group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="size-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                              {(u.name || u.email || "U").charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold text-foreground text-xs truncate group-hover:text-primary transition-colors">
+                                {u.name || u.email.split("@")[0]}
+                              </span>
+                              <span className="text-[10.5px] text-muted-foreground truncate">
+                                {u.email}
+                              </span>
+                            </div>
+                          </div>
+                          {u.role && (
+                            <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full bg-surface-2 text-muted-foreground shrink-0 border border-border/50 ml-2">
+                              {u.role}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
 
-              <div>
+              {/* Email Address input with auto-suggestions */}
+              <div className="relative">
                 <label className="font-bold text-foreground block mb-1">Email Address *</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="vikram@company.com"
-                  value={formEmail}
-                  onChange={(e) => setFormEmail(e.target.value)}
-                  className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium"
-                />
+                <div className="relative">
+                  <input
+                    type="email"
+                    required
+                    placeholder="vikram@company.com"
+                    value={formEmail}
+                    onChange={(e) => {
+                      setFormEmail(e.target.value);
+                      setShowEmailSuggestions(true);
+                      setShowNameSuggestions(false);
+                    }}
+                    onFocus={() => {
+                      setShowEmailSuggestions(true);
+                      setShowNameSuggestions(false);
+                    }}
+                    className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium text-foreground"
+                  />
+                  {formEmail && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormEmail("");
+                        setShowEmailSuggestions(true);
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs p-1"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Email Auto-Suggest Dropdown */}
+                {showEmailSuggestions && emailSuggestions.length > 0 && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-30" 
+                      onClick={() => setShowEmailSuggestions(false)} 
+                    />
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-card border border-border rounded-2xl shadow-2xl max-h-64 overflow-y-auto custom-scrollbar p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                      <div className="px-2.5 py-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b border-border/50">
+                        <span className="flex items-center gap-1">
+                          <Users className="size-3 text-primary" /> Organization Members
+                        </span>
+                        <span>{emailSuggestions.length} found</span>
+                      </div>
+                      {emailSuggestions.map((u: any) => (
+                        <button
+                          key={u.id || u.email}
+                          type="button"
+                          onClick={() => handleSelectOrgUser(u)}
+                          className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-primary/10 transition-colors text-left group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="size-7 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                              {(u.name || u.email || "U").charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold text-foreground text-xs truncate group-hover:text-primary transition-colors">
+                                {u.name || u.email.split("@")[0]}
+                              </span>
+                              <span className="text-[10.5px] text-muted-foreground truncate">
+                                {u.email}
+                              </span>
+                            </div>
+                          </div>
+                          {u.role && (
+                            <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full bg-surface-2 text-muted-foreground shrink-0 border border-border/50 ml-2">
+                              {u.role}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -1109,6 +1574,9 @@ function CompanyHierarchyPage() {
                     onChange={(e) => {
                       const newRole = e.target.value as HierarchyUser["role"];
                       setFormRole(newRole);
+                      const newTitle = ROLE_TITLE_MAP[newRole] || newRole;
+                      setFormDesignation(newTitle);
+
                       if (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(newRole)) {
                         setFormApprovalAuthority("APPROVE_REJECT");
                       } else if (["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(newRole)) {
@@ -1147,7 +1615,7 @@ function CompanyHierarchyPage() {
                       .filter((m) => !editingMember || m.id !== editingMember.id)
                       .map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.name} ({m.designation})
+                          {m.name} ({getMemberDisplayDesignation(m)})
                         </option>
                       ))}
                   </select>
@@ -1185,6 +1653,88 @@ function CompanyHierarchyPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CLEAR ALL HIERARCHY CONFIRMATION MODAL */}
+      {isClearModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
+                <Trash2 className="size-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-foreground text-base">Clear Company Hierarchy?</h3>
+                <p className="text-xs text-muted-foreground">This will remove all {visibleMembers.length} team members.</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 text-xs text-rose-600 dark:text-rose-400 space-y-1.5">
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertTriangle className="size-4 shrink-0" />
+                <span>Warning: Irreversible Action</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-rose-600/90 dark:text-rose-400/90">
+                All reporting lines, approvals, and member nodes will be cleared. You can start fresh or generate a default hierarchy template at any time.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsClearModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-surface-2 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllHierarchy}
+                className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="size-3.5" /> Clear All Members
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESET DEFAULT TEMPLATE CONFIRMATION MODAL */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-2xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                <RefreshCw className="size-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-foreground text-base">Reset to Default Hierarchy?</h3>
+                <p className="text-xs text-muted-foreground">Restore standard MEP engineering organization structure.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This will replace the current structure with the standard MEP template (Lead Project Managers for HVAC, Electrical, and Plumbing & Fire Protection).
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsResetModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:bg-surface-2 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetDefault}
+                className="px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+              >
+                <Sparkles className="size-3.5" /> Reset to Template
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1257,7 +1807,7 @@ function TreeNode({
           </div>
           <div className="flex flex-col min-w-0">
             <span className="font-extrabold text-foreground text-sm truncate">{member.name}</span>
-            <span className="text-[11px] font-medium text-muted-foreground truncate">{member.designation}</span>
+            <span className="text-[11px] font-medium text-muted-foreground truncate">{getMemberDisplayDesignation(member)}</span>
           </div>
         </div>
 
@@ -1318,8 +1868,9 @@ function TreeNode({
 }
 
 // Sub-component: Role Badge
-function RoleBadge({ role }: { role: HierarchyUser["role"] }) {
-  switch (role) {
+function RoleBadge({ role }: { role?: HierarchyUser["role"] | string | null }) {
+  const norm = normalizeHierarchyRole(role);
+  switch (norm) {
     case "SUPER_ADMIN":
       return (
         <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wider flex items-center gap-1">
@@ -1351,13 +1902,13 @@ function RoleBadge({ role }: { role: HierarchyUser["role"] }) {
         </span>
       );
     case "SR_DESIGN_ENGINEER":
-    case "ENGINEER":
       return (
         <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider flex items-center gap-1">
           <UserCheck className="size-3" /> Sr. Design Engineer
         </span>
       );
     case "DESIGN_ENGINEER":
+    case "ENGINEER":
       return (
         <span className="px-2 py-0.5 rounded-full text-[9.5px] font-extrabold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 uppercase tracking-wider flex items-center gap-1">
           <User className="size-3" /> Design Engineer

@@ -298,6 +298,30 @@ function GeneratorSizingPage() {
     return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
   }, [project?.id]);
 
+  // Handle notification scroll & highlight
+  useEffect(() => {
+    const handleScrollToItem = (e: any) => {
+      if (e.detail) {
+        executeHighlightAndScroll(e.detail);
+      }
+    };
+    window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("commentTargetId") || params.get("targetId");
+      const targetName = params.get("commentTargetName") || params.get("targetName");
+      const targetType = params.get("commentTargetType") || params.get("targetType");
+      if (targetId || targetName) {
+        setTimeout(() => {
+          executeHighlightAndScroll({ id: targetId || undefined, name: targetName || undefined, type: targetType || "Generator Load" });
+        }, 500);
+      }
+    }
+
+    return () => window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+  }, [rows]);
+
   const setOverride = (key: string, val: string) => {
     setManualOverrides((prev) => ({ ...prev, [key]: val }));
   };
@@ -1185,8 +1209,6 @@ function GeneratorSizingPage() {
     >
       
       <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
-        {/* Subtle Grid Background */}
-        <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Sections Navigation (Tabs) */}
           <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between gap-3">

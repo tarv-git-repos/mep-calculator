@@ -18,6 +18,8 @@ export function Viewport3D() {
     const viewportRef = useRef<HTMLDivElement>(null);
     const isInitialized = useRef(false);
     const [isReady, setIsReady] = useState(false);
+    const [webglError, setWebglError] = useState(false);
+    const rendererManagerRef = useRef<RendererManager | null>(null);
 
     useEffect(() => {
         if (!viewportRef.current || isInitialized.current) return;
@@ -85,7 +87,16 @@ export function Viewport3D() {
         const getElementByIdBackup = document.getElementById;
         document.getElementById = (id) => id === 'viewport' ? viewportElement : getElementByIdBackup.call(document, id);
 
-        const rendererManager = new RendererManager(viewportElement);
+        let rendererManager: RendererManager;
+        try {
+            rendererManager = new RendererManager(viewportElement);
+            rendererManagerRef.current = rendererManager;
+        } catch (initErr) {
+            console.error("Critical: Failed to construct RendererManager:", initErr);
+            setWebglError(true);
+            return;
+        }
+
         const floorPlanManager = new FloorPlanManager(rendererManager);
         const selectionManager = new SelectionManager(rendererManager);
 
@@ -1642,6 +1653,7 @@ export function Viewport3D() {
         });
 
         return () => {
+            isInitialized.current = false;
             document.getElementById = getElementByIdBackup;
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
@@ -1649,10 +1661,38 @@ export function Viewport3D() {
             window.removeEventListener('keyup', handleShiftUp);
             window.removeEventListener('keydown', handleWalkKeyDown);
             window.removeEventListener('keyup', handleWalkKeyUp);
-            // Intentionally avoid cleanupCurrentSceneAndModel() on tab/route unmount
-            // to allow background IFC worker conversions and active 3D models to persist.
+            if (rendererManagerRef.current) {
+                rendererManagerRef.current.dispose();
+                rendererManagerRef.current = null;
+            }
         };
     }, []);
+
+    if (webglError) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center bg-[#1e1e20] text-white p-8 gap-5 h-full w-full select-none">
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-3xl shadow-inner">
+                    ⚡
+                </div>
+                <div className="text-center max-w-md">
+                    <h3 className="text-lg font-bold text-slate-100">3D WebGL Engine Ready for Restart</h3>
+                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                        The browser graphics pipeline experienced a temporary WebGL context refresh. Click below to reconnect the 3D BIM workspace.
+                    </p>
+                </div>
+                <button
+                    onClick={() => {
+                        setWebglError(false);
+                        isInitialized.current = false;
+                        window.location.reload();
+                    }}
+                    className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs shadow-lg transition-all cursor-pointer border border-blue-400/30 active:scale-95"
+                >
+                    Restart 3D Engine
+                </button>
+            </div>
+        );
+    }
 
     const getCb = () => (window as any)._toolbarCallbacks || {};
 

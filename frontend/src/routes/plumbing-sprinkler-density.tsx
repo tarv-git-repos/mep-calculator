@@ -1,16 +1,15 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
+import { exportSprinklerDensityPDF, type SprinklerDensityExportData } from "@/lib/exportSprinklerDensityPDF";
+import { exportSprinklerDensityExcel } from "@/lib/exportSprinklerDensityExcel";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
-import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { useState, useMemo, useEffect } from "react";
 import {
   Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, FileSpreadsheet, X, HelpCircle,
-  Search, Activity, Droplet, Settings, Grid, Flame
+  Search, Activity, Droplet, Settings, Grid, Flame, ShieldAlert, Check
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -34,6 +33,8 @@ function SprinklerDensityPage() {
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const { project } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/plumbing-sprinkler-density", project?.id);
+  const [calcReviewState, setCalcReviewState] = useState<any>({ status: "DRAFT" });
 
   // Tabs
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -46,6 +47,54 @@ function SprinklerDensityPage() {
   const [coverage, setCoverage] = useState<number | "">(130);
   const [kFactor, setKFactor] = useState(5.6);
   const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
+
+  // Sync state with active project
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!project?.id) return;
+    if (loadedProjectId === project.id) return;
+
+    const projData = project.workspace_data?.sprinkler_density_data;
+    if (projData) {
+      if (projData.hazard) setHazard(projData.hazard);
+      if (projData.customDens !== undefined) setCustomDens(projData.customDens);
+      if (projData.customArea !== undefined) setCustomArea(projData.customArea);
+      if (projData.coverage !== undefined) setCoverage(projData.coverage);
+      if (projData.kFactor !== undefined) setKFactor(projData.kFactor);
+      if (projData.unitSystem) setUnitSystem(projData.unitSystem);
+    } else {
+      const saved = localStorage.getItem(`mep_sprinkler_density_${project.id}`);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.hazard) setHazard(parsed.hazard);
+          if (parsed.customDens !== undefined) setCustomDens(parsed.customDens);
+          if (parsed.customArea !== undefined) setCustomArea(parsed.customArea);
+          if (parsed.coverage !== undefined) setCoverage(parsed.coverage);
+          if (parsed.kFactor !== undefined) setKFactor(parsed.kFactor);
+          if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
+        } catch (e) {}
+      }
+    }
+    setLoadedProjectId(project.id);
+  }, [project?.id, loadedProjectId]);
+
+  // Save changes when modified
+  useEffect(() => {
+    if (!project?.id || !loadedProjectId || loadedProjectId !== project.id) return;
+    const dataToSave = {
+      hazard,
+      customDens,
+      customArea,
+      coverage,
+      kFactor,
+      unitSystem,
+    };
+    try {
+      localStorage.setItem(`mep_sprinkler_density_${project.id}`, JSON.stringify(dataToSave));
+    } catch (e) {}
+  }, [hazard, customDens, customArea, coverage, kFactor, unitSystem, project?.id, loadedProjectId]);
 
   // Calculations
   const calcResults = useMemo(() => {
@@ -75,7 +124,7 @@ function SprinklerDensityPage() {
 
     const flowPerSprink = densIP * coverFt2; // GPM
     const pressReq = Math.pow(flowPerSprink / kFactor, 2); // psi
-    const nSprink = Math.ceil(designAreaFt2 / coverFt2);
+    const nSprink = coverFt2 > 0 ? Math.ceil(designAreaFt2 / coverFt2) : 0;
     const totalSprinkFlow = densIP * designAreaFt2; // GPM
 
     // Hose stream allowance: LH=100, OH=250, EH=500 GPM
@@ -87,8 +136,12 @@ function SprinklerDensityPage() {
       return ip ? `${gpm.toFixed(1)} GPM` : `${(gpm * 0.06309).toFixed(2)} L/s`;
     };
 
+    const formatPressure = (psi: number) => {
+      return ip ? `${psi.toFixed(1)} psi` : `${(psi * 0.0689476).toFixed(2)} bar`;
+    };
+
     const formatArea = (ft2: number) => {
-      return ip ? `${ft2.toFixed(0)} ft²` : `${(ft2 / 10.7639).toFixed(0)} m²`;
+      return ip ? `${ft2.toFixed(0)} ft²` : `${(ft2 / 10.7639).toFixed(1)} m²`;
     };
 
     const formatDens = (gpmft2: number) => {
@@ -106,105 +159,102 @@ function SprinklerDensityPage() {
       hoseAllow,
       systemTotal,
       formatFlow,
+      formatPressure,
       formatArea,
       formatDens
     };
   }, [hazard, customDens, customArea, coverage, kFactor, unitSystem]);
 
-  // SVG Chart data
-  const chartData = useMemo(() => {
-    const W = 400;
-    const H = 220;
-    const PL = 60;
-    const PR = 20;
-    const PT = 30;
-    const PB = 40;
-    const CW = W - PL - PR;
-    const CH = H - PT - PB;
-
-    // Scale bars:
-    // Density (GPM/ft² * 100): e.g. 0.15 -> 15. Max around 50.
-    // Coverage area (ft²): e.g. 130. Max 250.
-    // Design Area (ft²/10): e.g. 1500 -> 150. Max 300.
-    // Pressure (psi): e.g. 15. Max 50.
-    const items = [
-      { label: "Density x100", val: calcResults.densIP * 100, color: "#d17914", unit: "" },
-      { label: "Cover/head", val: calcResults.coverFt2, color: "#06456F", unit: " ft²" },
-      { label: "Design Area / 10", val: calcResults.designAreaFt2 / 10, color: "#7C3AED", unit: " ft²" },
-      { label: "Min Pressure", val: calcResults.pressReq, color: "#D97706", unit: " psi" }
-    ];
-
-    const maxVal = Math.max(...items.map(i => i.val)) * 1.15 || 100;
-    const sx = (v: number) => PL + (v / maxVal) * CW;
-
-    return {
-      W, H, PL, PR, PT, PB, CW, CH, items, maxVal, sx
-    };
-  }, [calcResults]);
-
-  // Export handlers
-  const exportExcel = () => {
-    const data = [
-      { Parameter: "Hazard Classification", Value: hazard === "custom" ? "Custom" : hazard },
-      { Parameter: "Design Density", Value: calcResults.formatDens(calcResults.densIP) },
-      { Parameter: "Design Area", Value: calcResults.formatArea(calcResults.designAreaFt2) },
-      { Parameter: "Coverage Area per Sprinkler", Value: `${coverage} ${unitSystem === "ip" ? "ft²" : "m²"}` },
-      { Parameter: "Sprinkler K-Factor", Value: kFactor.toString() },
-      { Parameter: "Flow per Sprinkler", Value: calcResults.formatFlow(calcResults.flowPerSprink) },
-      { Parameter: "Required Pressure", Value: `${calcResults.pressReq.toFixed(1)} psi` },
-      { Parameter: "Sprinkler Count in Design Area", Value: `${calcResults.nSprink} heads` },
-      { Parameter: "Total Sprinkler Demand", Value: calcResults.formatFlow(calcResults.totalSprinkFlow) },
-      { Parameter: "Hose Allowance (NFPA 13)", Value: calcResults.formatFlow(calcResults.hoseAllow) },
-      { Parameter: "Total System Demand", Value: calcResults.formatFlow(calcResults.systemTotal) }
-    ];
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Density & Flow");
-    const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-    downloadFile(new Uint8Array(xlsxBuffer), `Sprinkler_Density_Flow_Report_${project.code}.xlsx`, "Excel Document", ["xlsx"]);
+  // Get hazard display label
+  const getHazardLabel = () => {
+    switch (hazard) {
+      case "0.10,1500": return "Light Hazard (0.10 gpm/ft² / 1,500 ft²)";
+      case "0.15,1500": return "Ordinary Hazard Group 1 (0.15 gpm/ft² / 1,500 ft²)";
+      case "0.20,1500": return "Ordinary Hazard Group 2 (0.20 gpm/ft² / 1,500 ft²)";
+      case "0.30,2500": return "Extra Hazard Group 1 (0.30 gpm/ft² / 2,500 ft²)";
+      case "0.40,2500": return "Extra Hazard Group 2 (0.40 gpm/ft² / 2,500 ft²)";
+      default: return `Custom Hazard (${calcResults.densIP.toFixed(2)} gpm/ft² / ${calcResults.designAreaFt2} ft²)`;
+    }
   };
 
-  const exportPdf = () => {
-    const doc = new jsPDF();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.setTextColor(220, 76, 52); // Red accent
-    doc.text("NFPA 13 Sprinkler Density & Flow Report", 14, 20);
+  const getExportData = (): SprinklerDensityExportData => {
+    const isSI = unitSystem === "si";
+    const waterDurationMin = hazard.startsWith("0.10") ? 30 : (hazard.startsWith("0.30") || hazard.startsWith("0.40") ? 90 : 60);
+    const flowGpm = calcResults.systemTotal;
+    const totalStorageGal = flowGpm * waterDurationMin;
+    const totalStorageM3 = totalStorageGal * 0.00378541;
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(80, 80, 80);
-    doc.text(`Project Name: ${project.name}`, 14, 28);
-    doc.text(`Project Code: ${project.code}`, 14, 34);
+    return {
+      hazard,
+      hazardLabel: getHazardLabel(),
+      density: isSI ? calcResults.densIP * 40.7458 : calcResults.densIP,
+      densityUnit: isSI ? "mm/min" : "gpm/ft²",
+      designArea: isSI ? calcResults.designAreaFt2 * 0.092903 : calcResults.designAreaFt2,
+      designAreaUnit: isSI ? "m²" : "ft²",
+      coverage: Number(coverage) || (isSI ? 12 : 130),
+      coverageUnit: isSI ? "m²" : "ft²",
+      kFactor,
+      kFactorUnit: isSI ? "L/min/bar^0.5" : "gpm/psi^0.5",
+      unitSystem,
+      flowPerSprinkler: isSI ? calcResults.flowPerSprink * 3.78541 : calcResults.flowPerSprink,
+      pressureRequired: isSI ? calcResults.pressReq * 0.0689476 : calcResults.pressReq,
+      pressureUnit: isSI ? "bar" : "psi",
+      sprinklersCount: calcResults.nSprink,
+      totalSprinklerFlow: isSI ? calcResults.totalSprinkFlow * 3.78541 : calcResults.totalSprinkFlow,
+      flowUnit: isSI ? "L/min" : "GPM",
+      hoseAllowance: isSI ? calcResults.hoseAllow * 3.78541 : calcResults.hoseAllow,
+      totalSystemDemand: isSI ? calcResults.systemTotal * 3.78541 : calcResults.systemTotal,
+      waterDurationMin,
+      totalStorageGallons: totalStorageGal,
+      totalStorageM3,
+      isPressureCompliant: calcResults.pressReq >= 7.0,
+      isCoverageCompliant: calcResults.coverFt2 <= 225,
+    };
+  };
 
-    const tableData = [
-      ["Design Density", calcResults.formatDens(calcResults.densIP)],
-      ["Design Area", calcResults.formatArea(calcResults.designAreaFt2)],
-      ["Coverage per Sprinkler", `${coverage} ${unitSystem === "ip" ? "ft²" : "m²"}`],
-      ["Sprinkler K-Factor", `K-${kFactor.toFixed(1)}`],
-      ["Flow per Sprinkler", calcResults.formatFlow(calcResults.flowPerSprink)],
-      ["Operating Pressure", `${calcResults.pressReq.toFixed(1)} psi`],
-      ["Sprinkler Count (Heads)", `${calcResults.nSprink} heads`],
-      ["Total Sprinkler Flow", calcResults.formatFlow(calcResults.totalSprinkFlow)],
-      ["NFPA 13 Hose Allowance", calcResults.formatFlow(calcResults.hoseAllow)],
-      ["Total Design Water Demand", calcResults.formatFlow(calcResults.systemTotal)]
-    ];
+  // Export handlers
+  const exportExcel = async () => {
+    const exportData = getExportData();
+    const meta = {
+      calcNo: `TRV-CAL-SDF-${project?.code || "001"}`,
+      projectNo: project?.code || "CALC-001",
+      projectName: project?.name || "Sprinkler Hydraulic Calculation",
+      client: project?.client || "Consistent Engineering Consultants",
+      endUser: project?.location || project?.name || "Main Complex",
+      date: new Date().toLocaleDateString("en-GB"),
+      userName: currentUserName,
+      unitSystem,
+    };
+    await exportSprinklerDensityExcel(exportData, meta);
+  };
 
-    autoTable(doc, {
-      startY: 42,
-      head: [["Sizing Parameters", "Value / Output"]],
-      body: tableData,
-      theme: "striped",
-      styles: { fontSize: 10 },
-      headStyles: { fillColor: [220, 76, 52] }
-    });
+  const exportPdf = async () => {
+    const exportData = getExportData();
+    const meta = {
+      calcNo: `TRV-CAL-SDF-${project?.code || "001"}`,
+      projectNo: project?.code || "CALC-001",
+      projectName: project?.name || "Sprinkler Hydraulic Calculation",
+      client: project?.client || "Consistent Engineering Consultants",
+      endUser: project?.location || project?.name || "Main Complex",
+      date: new Date().toLocaleDateString("en-GB"),
+      userName: currentUserName,
+      unitSystem,
+    };
+    await exportSprinklerDensityPDF(exportData, meta);
+  };
 
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "plumbing-sprinkler-density");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_Density_Flow_Report_${project.code}.pdf`, "PDF Document", ["pdf"]);
+  const handleUnitToggle = (newUnit: "si" | "ip") => {
+    if (newUnit === unitSystem) return;
+    setUnitSystem(newUnit);
+    if (newUnit === "si") {
+      if (coverage !== "") {
+        setCoverage(parseFloat((Number(coverage) / 10.7639).toFixed(1)));
+      }
+    } else {
+      if (coverage !== "") {
+        setCoverage(parseFloat((Number(coverage) * 10.7639).toFixed(0)));
+      }
+    }
   };
 
   return (
@@ -217,17 +267,14 @@ function SprinklerDensityPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-6">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; SPRINKLER DENSITY &amp; FLOW</span>
               <div className="flex items-center gap-3 mt-0.5">
-                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler Density &amp; Flow</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 density/area calculations</span>
+                  <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 density/area</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/plumbing-sprinkler-density" calculatorTitle="Sprinkler Density & Flow" />
-              </div>
                 <button 
                   onClick={() => setIntelOpen(v => !v)}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
@@ -239,23 +286,34 @@ function SprinklerDensityPage() {
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
+                <CalculationReviewBar
+                  projectId={project?.id || "default"}
+                  calculatorPath="/plumbing-sprinkler-density"
+                  calculatorTitle="Sprinkler Density & Flow"
+                  onReviewStateChange={setCalcReviewState}
+                />
               </div>
+              <p className="text-[13px] text-muted-foreground mt-0.5">
+                Preliminary NFPA 13 sprinkler water density, design area, and water supply sizing schedule.
+              </p>
             </div>
             
-            {/* Actions / Export buttons on the right */}
+            {/* Unit Switcher */}
             <div className="flex items-center gap-2 shrink-0">
               <div className="flex rounded-full border border-border p-0.5 bg-surface-2 shrink-0">
                 <button
-                  onClick={() => setUnitSystem("si")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                  disabled={isApprovedLocked}
+                  onClick={() => handleUnitToggle("si")}
+                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                     unitSystem === "si" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   SI
                 </button>
                 <button
-                  onClick={() => setUnitSystem("ip")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                  disabled={isApprovedLocked}
+                  onClick={() => handleUnitToggle("ip")}
+                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                     unitSystem === "ip" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -266,7 +324,11 @@ function SprinklerDensityPage() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className="bg-card border border-border rounded-3xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden mx-6 mb-6">
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            isApprovedLocked
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
@@ -288,7 +350,7 @@ function SprinklerDensityPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Report Summary
+                  Report
                 </button>
               </div>
             </div>
@@ -296,28 +358,28 @@ function SprinklerDensityPage() {
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {tab === "solver" && (
-                <div className="flex-1 min-h-0 overflow-y-auto">
-                <div className="flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-border">
-                {/* Inputs area */}
-                <div className="flex-1 min-w-0 p-6 flex flex-col gap-6 max-w-3xl">
-                  <div className="flex gap-3.5 p-4 bg-background border border-border rounded-3xl shadow-sm">
-                    <Info className="size-4.5 text-primary mt-0.5 shrink-0" />
-                    <div>
-                      <h4 className="text-[13.5px] font-bold text-foreground">NFPA 13 Density/Area Method</h4>
-                      <p className="text-[12.5px] text-muted-foreground mt-1 leading-relaxed">
-                        Determine the minimum sprinkler water flow rate and operating pressure based on standard NFPA 13 hazard category densities. Sizing is preliminary and excludes complex hydraulic balancing.
-                      </p>
+                <div className="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col gap-4 w-full">
+                  {/* Info Header Banner */}
+                  <div className="flex items-center gap-3 p-3 bg-surface-2/50 border border-border rounded-xl shadow-2xs">
+                    <Info className="size-4 text-primary shrink-0" />
+                    <div className="flex-1 min-w-0 flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[13px] font-bold text-foreground">NFPA 13 Density/Area Method</span>
+                      <span className="text-[11.5px] text-muted-foreground font-medium">
+                        Determine water flow and pressure demand from hazard category densities.
+                      </span>
                     </div>
                   </div>
 
-                  {/* Sizing inputs */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="border border-border rounded-3xl p-4 bg-background shadow-sm flex flex-col gap-2.5 col-span-2">
+                  {/* Sizing inputs grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                    {/* Hazard Category */}
+                    <div className="border border-border rounded-2xl p-3.5 bg-background shadow-xs flex flex-col gap-2">
                       <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Hazard Category</label>
                       <select
+                        disabled={isApprovedLocked}
                         value={hazard}
                         onChange={(e) => setHazard(e.target.value as HazardOpt)}
-                        className="w-full h-10 px-3 border border-border focus:border-primary focus:ring-0 rounded-xl bg-background text-[13px] outline-none font-medium cursor-pointer"
+                        className="w-full h-9.5 px-3 border border-border focus:border-primary rounded-xl bg-background text-[12.5px] outline-none font-medium cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shadow-2xs"
                       >
                         <option value="0.10,1500">Light Hazard - 0.10 GPM/ft² / 1500 ft²</option>
                         <option value="0.15,1500">Ordinary Hazard Gp 1 - 0.15 / 1500 ft²</option>
@@ -327,177 +389,157 @@ function SprinklerDensityPage() {
                         <option value="custom">Custom Parameters...</option>
                       </select>
                     </div>
-                  </div>
 
-                  {/* Custom Hazard Parameters */}
-                  {hazard === "custom" && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="border border-border rounded-3xl p-4 bg-background shadow-sm flex flex-col gap-3">
-                        <div className="flex justify-between items-baseline">
-                          <label className="text-[13px] font-bold text-foreground">Custom Density</label>
-                          <span className="text-[11.5px] text-muted-foreground font-mono">
-                            {unitSystem === "ip" ? "GPM/ft²" : "mm/min"}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0.05"
-                          max="1.0"
-                          value={customDens}
-                          onChange={(e) => setCustomDens(e.target.value === "" ? "" : parseFloat(e.target.value) || 0.1)}
-                          className="h-10 w-full px-3 border border-border focus:border-primary rounded-xl bg-background text-[13px] font-mono outline-none"
-                        />
-                      </div>
-
-                      <div className="border border-border rounded-3xl p-4 bg-background shadow-sm flex flex-col gap-3">
-                        <div className="flex justify-between items-baseline">
-                          <label className="text-[13px] font-bold text-foreground">Custom Design Area</label>
-                          <span className="text-[11.5px] text-muted-foreground font-mono">
-                            {unitSystem === "ip" ? "ft²" : "m²"}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          step="50"
-                          min="500"
-                          value={customArea}
-                          onChange={(e) => setCustomArea(e.target.value === "" ? "" : parseFloat(e.target.value) || 1000)}
-                          className="h-10 w-full px-3 border border-border focus:border-primary rounded-xl bg-background text-[13px] font-mono outline-none"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Spacing & Sprinkler Options */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="border border-border rounded-3xl p-4 bg-background shadow-sm flex flex-col gap-3">
+                    {/* Coverage Area per Sprinkler */}
+                    <div className="border border-border rounded-2xl p-3.5 bg-background shadow-xs flex flex-col gap-2">
                       <div className="flex justify-between items-baseline">
-                        <label className="text-[13px] font-bold text-foreground">Coverage Area per Sprinkler</label>
-                        <span className="text-[11.5px] text-muted-foreground font-mono">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Coverage Area / Head</label>
+                        <span className="text-[11px] font-bold text-muted-foreground font-mono">
                           {unitSystem === "ip" ? "ft²" : "m²"}
                         </span>
                       </div>
                       <input
+                        disabled={isApprovedLocked}
                         type="number"
-                        min="20"
-                        max="400"
+                        min={unitSystem === "ip" ? 20 : 2}
+                        max={unitSystem === "ip" ? 400 : 40}
                         value={coverage}
-                        onChange={(e) => setCoverage(e.target.value === "" ? "" : parseFloat(e.target.value) || 130)}
-                        className="h-10 w-full px-3 border border-border focus:border-primary rounded-xl bg-background text-[13px] font-mono outline-none"
+                        onChange={(e) => setCoverage(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
+                        className="h-9.5 w-full px-3 border border-border focus:border-primary rounded-xl bg-background text-[12.5px] font-mono outline-none disabled:opacity-60 disabled:cursor-not-allowed shadow-2xs"
                       />
                     </div>
 
-                    <div className="border border-border rounded-3xl p-4 bg-background shadow-sm flex flex-col gap-3">
+                    {/* Sprinkler K-Factor */}
+                    <div className="border border-border rounded-2xl p-3.5 bg-background shadow-xs flex flex-col gap-2">
                       <div className="flex justify-between items-baseline">
-                        <label className="text-[13px] font-bold text-foreground">Sprinkler K-Factor</label>
-                        <span className="text-[11.5px] text-muted-foreground font-mono">GPM/√psi</span>
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Sprinkler K-Factor</label>
+                        <span className="text-[11px] font-bold text-muted-foreground font-mono">
+                          {unitSystem === "ip" ? "GPM/√psi" : "L/min/√bar"}
+                        </span>
                       </div>
                       <select
+                        disabled={isApprovedLocked}
                         value={kFactor}
                         onChange={(e) => setKFactor(parseFloat(e.target.value))}
-                        className="h-10 w-full px-3 border border-border focus:border-primary focus:ring-0 rounded-xl bg-background text-[13px] font-medium outline-none cursor-pointer"
+                        className="h-9.5 w-full px-3 border border-border focus:border-primary rounded-xl bg-background text-[12.5px] font-medium outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shadow-2xs"
                       >
                         {STANDARD_K_FACTORS.map(k => (
-                          <option key={k} value={k}>K-{k.toFixed(1)}</option>
+                          <option key={k} value={k}>
+                            K-{k.toFixed(1)} {unitSystem === "si" ? `(${Math.round(k * 14.28)} SI)` : ""}
+                          </option>
                         ))}
                       </select>
                     </div>
                   </div>
 
-                  {/* Sizing Outputs list */}
-                  <div className="border border-border rounded-3xl bg-background shadow-sm overflow-hidden">
-                    <div className="px-4 py-2 border-b border-border bg-header-bg">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Calculated Outputs Summary</span>
+                  {/* Custom Hazard Parameters */}
+                  {hazard === "custom" && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      <div className="border border-border rounded-2xl p-3.5 bg-background shadow-xs flex flex-col gap-2">
+                        <div className="flex justify-between items-baseline">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Custom Density</label>
+                          <span className="text-[11px] font-bold text-muted-foreground font-mono">
+                            {unitSystem === "ip" ? "GPM/ft²" : "mm/min"}
+                          </span>
+                        </div>
+                        <input
+                          disabled={isApprovedLocked}
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max="1.0"
+                          value={customDens}
+                          onChange={(e) => setCustomDens(e.target.value === "" ? "" : parseFloat(e.target.value) || 0.1)}
+                          className="h-9.5 w-full px-3 border border-border focus:border-primary rounded-xl bg-background text-[12.5px] font-mono outline-none disabled:opacity-60 disabled:cursor-not-allowed shadow-2xs"
+                        />
+                      </div>
+
+                      <div className="border border-border rounded-2xl p-3.5 bg-background shadow-xs flex flex-col gap-2">
+                        <div className="flex justify-between items-baseline">
+                          <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Custom Design Area</label>
+                          <span className="text-[11px] font-bold text-muted-foreground font-mono">
+                            {unitSystem === "ip" ? "ft²" : "m²"}
+                          </span>
+                        </div>
+                        <input
+                          disabled={isApprovedLocked}
+                          type="number"
+                          step="50"
+                          min="100"
+                          value={customArea}
+                          onChange={(e) => setCustomArea(e.target.value === "" ? "" : parseFloat(e.target.value) || 1000)}
+                          className="h-9.5 w-full px-3 border border-border focus:border-primary rounded-xl bg-background text-[12.5px] font-mono outline-none disabled:opacity-60 disabled:cursor-not-allowed shadow-2xs"
+                        />
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 divide-x divide-y divide-border">
-                      <div className="p-3.5 flex justify-between items-center text-[13px] bg-background">
-                        <span className="text-muted-foreground">Flow rate per head</span>
-                        <span className="font-bold font-mono text-foreground">{calcResults.formatFlow(calcResults.flowPerSprink)}</span>
+                  )}
+
+                  {/* Calculated Outputs Summary - Fully visible, responsive grid */}
+                  <div className="border border-border rounded-2xl bg-card shadow-sm overflow-hidden flex flex-col">
+                    <div className="px-4 py-2.5 border-b border-border/80 bg-surface-2/60 flex items-center justify-between">
+                      <span className="text-[11.5px] font-bold uppercase tracking-wider text-foreground flex items-center gap-2">
+                        <Activity className="size-3.5 text-primary" />
+                        Calculated Outputs Summary
+                      </span>
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        NFPA 13 Hydraulic Demand
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-border/80">
+                      <div className="p-3.5 flex justify-between items-center bg-card">
+                        <span className="text-[13px] text-muted-foreground font-medium">Flow rate per head</span>
+                        <span className="font-bold font-mono text-foreground text-[14px]">{calcResults.formatFlow(calcResults.flowPerSprink)}</span>
                       </div>
-                      <div className="p-3.5 flex justify-between items-center text-[13px] bg-background">
-                        <span className="text-muted-foreground">Min operating pressure</span>
-                        <span className="font-bold font-mono text-foreground">{calcResults.pressReq.toFixed(1)} psi</span>
+                      <div className="p-3.5 flex justify-between items-center bg-card">
+                        <span className="text-[13px] text-muted-foreground font-medium">Min operating pressure</span>
+                        <span className="font-bold font-mono text-foreground text-[14px]">{calcResults.formatPressure(calcResults.pressReq)}</span>
                       </div>
-                      <div className="p-3.5 flex justify-between items-center text-[13px] bg-background">
-                        <span className="text-muted-foreground">Sprinkler count in area</span>
-                        <span className="font-bold font-mono text-foreground">{calcResults.nSprink} heads</span>
+                      <div className="p-3.5 flex justify-between items-center bg-card">
+                        <span className="text-[13px] text-muted-foreground font-medium">Sprinkler count in area</span>
+                        <span className="font-bold font-mono text-foreground text-[14px]">{calcResults.nSprink} heads</span>
                       </div>
-                      <div className="p-3.5 flex justify-between items-center text-[13px] bg-background">
-                        <span className="text-muted-foreground">Sprinklers flow demand</span>
-                        <span className="font-bold font-mono text-foreground">{calcResults.formatFlow(calcResults.totalSprinkFlow)}</span>
+                      <div className="p-3.5 flex justify-between items-center bg-card">
+                        <span className="text-[13px] text-muted-foreground font-medium">Sprinklers flow demand</span>
+                        <span className="font-bold font-mono text-foreground text-[14px]">{calcResults.formatFlow(calcResults.totalSprinkFlow)}</span>
                       </div>
-                      <div className="p-3.5 flex justify-between items-center text-[13px] bg-background">
-                        <span className="text-muted-foreground">Hose stream allowance</span>
-                        <span className="font-bold font-mono text-foreground">{calcResults.formatFlow(calcResults.hoseAllow)}</span>
+                      <div className="p-3.5 flex justify-between items-center bg-card">
+                        <span className="text-[13px] text-muted-foreground font-medium">Hose stream allowance</span>
+                        <span className="font-bold font-mono text-foreground text-[14px]">{calcResults.formatFlow(calcResults.hoseAllow)}</span>
                       </div>
-                      <div className="p-3.5 flex justify-between items-center text-[13px] bg-background col-span-2">
-                        <span className="text-muted-foreground font-bold">Total water demand</span>
-                        <span className="font-bold font-mono text-red-500 text-[15px]">{calcResults.formatFlow(calcResults.systemTotal)}</span>
+                      <div className="p-3.5 flex justify-between items-center bg-primary/5">
+                        <span className="text-[13px] text-foreground font-bold flex items-center gap-1.5">
+                          <Flame className="size-3.5 text-red-500" />
+                          Total water demand
+                        </span>
+                        <span className="font-extrabold font-mono text-red-500 dark:text-red-400 text-[15px]">{calcResults.formatFlow(calcResults.systemTotal)}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Warning Messages */}
-                  <div className="flex flex-col gap-2">
-                    {calcResults.pressReq < 7 && (
-                      <div className="border border-destructive/20 bg-destructive/5 text-destructive rounded-3xl p-3.5 flex gap-2.5 items-start">
-                        <AlertTriangle className="size-4 shrink-0 mt-0.5 animate-pulse" />
-                        <div>
-                          <h4 className="text-[12.5px] font-bold">Low Operating Pressure Violation</h4>
-                          <p className="text-[11.5px] text-muted-foreground mt-0.5 leading-normal">
-                            Required pressure ({calcResults.pressReq.toFixed(1)} psi) is below the NFPA 13 minimum of 7.0 psi. Sizing is invalid. Increase hazard design density or use a sprinkler with a smaller K-Factor.
-                          </p>
+                  {(calcResults.pressReq < 7 || calcResults.coverFt2 > 225) && (
+                    <div className="flex flex-col gap-2">
+                      {calcResults.pressReq < 7 && (
+                        <div className="border border-destructive/25 bg-destructive/5 text-destructive rounded-2xl p-3 flex gap-2.5 items-center">
+                          <AlertTriangle className="size-4 shrink-0 animate-pulse text-destructive" />
+                          <div className="text-[12px] leading-snug">
+                            <strong className="font-bold">Low Operating Pressure Violation:</strong> Required pressure ({calcResults.formatPressure(calcResults.pressReq)}) is below the NFPA 13 minimum of {unitSystem === "ip" ? "7.0 psi" : "0.48 bar"}. Sizing is invalid. Increase hazard density or use a smaller K-Factor.
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {calcResults.coverFt2 > 225 && (
-                      <div className="border border-warning/20 bg-warning/5 text-warning rounded-3xl p-3.5 flex gap-2.5 items-start">
-                        <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-                        <div>
-                          <h4 className="text-[12.5px] font-bold">Coverage Spacing Warning</h4>
-                          <p className="text-[11.5px] text-muted-foreground mt-0.5 leading-normal">
-                            Sprinkler coverage area ({calcResults.coverFt2.toFixed(0)} ft²) exceeds standard maximum spacing limit of 225 ft² per sprinkler. Verify listings for extended coverage heads.
-                          </p>
+                      )}
+                      {calcResults.coverFt2 > 225 && (
+                        <div className="border border-warning/25 bg-warning/5 text-warning-foreground rounded-2xl p-3 flex gap-2.5 items-center">
+                          <AlertTriangle className="size-4 shrink-0 text-amber-500" />
+                          <div className="text-[12px] text-amber-800 dark:text-amber-200 leading-snug">
+                            <strong className="font-bold">Coverage Spacing Warning:</strong> Sprinkler coverage area ({calcResults.formatArea(calcResults.coverFt2)}) exceeds standard maximum spacing limit of {unitSystem === "ip" ? "225 ft²" : "20.9 m²"} per head. Verify listings for extended coverage heads.
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* SVG Visual Chart */}
-                <div className="w-[360px] shrink-0 p-6 bg-surface/10 flex flex-col gap-4">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Parameters Distribution</span>
-                  <div className="border border-border-strong rounded-3xl bg-background p-4 shadow-sm flex flex-col gap-2">
-                    <p className="text-[12.5px] font-bold text-foreground">Sprinkler Design Parameters</p>
-                    <div className="w-full relative select-none">
-                      <svg viewBox={`0 0 ${chartData.W} ${chartData.H}`} className="w-full h-auto block font-sans">
-                        <text x={chartData.PL + chartData.CW / 2} y="15" textAnchor="middle" fontSize="9.5" fontWeight="700" fill="var(--muted)">NFPA 13 PARAMETERS CHART</text>
-                        {chartData.items.map((item, idx) => {
-                          const barH = 22;
-                          const spacing = 14;
-                          const y = chartData.PT + idx * (barH + spacing);
-                          const w = Math.max(5, (item.val / chartData.maxVal) * chartData.CW);
-                          return (
-                            <g key={idx}>
-                              <text x={chartData.PL - 8} y={y + barH / 2 + 3} textAnchor="end" fontSize="9" fontWeight="bold" fill="var(--muted)">{item.label}</text>
-                              <rect x={chartData.PL} y={y} width={chartData.CW} height={barH} fill="var(--border)" rx="3" opacity="0.2" />
-                              <rect x={chartData.PL} y={y} width={w} height={barH} fill={item.color} rx="3" opacity="0.85" />
-                              <text x={chartData.PL + w + 5} y={y + barH / 2 + 3.5} textAnchor="start" fontSize="9.5" fontWeight="700" fill={item.color} fontFamily="var(--mono)">
-                                {item.val.toFixed(1)}{item.unit}
-                              </text>
-                            </g>
-                          );
-                        })}
-                        {/* Vertical line axis */}
-                        <line x1={chartData.PL} y1={chartData.PT - 5} x2={chartData.PL} y2={chartData.H - chartData.PB + 10} stroke="var(--border-strong)" strokeWidth="1" />
-                      </svg>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
-              </div>
-            </div>
-            )}
+              )}
 
             {/* Sizing Report summary */}
             {tab === "report" && (
@@ -511,15 +553,10 @@ function SprinklerDensityPage() {
                   <div className="flex items-center gap-2 no-print print:hidden">
                     <button
                       onClick={exportPdf}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 h-8 px-4 rounded-full text-[12.5px] font-bold bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer shadow-xs transition-all active:scale-95"
                     >
-                      <FileText className="size-3.5 text-destructive" /> Export PDF
-                    </button>
-                    <button
-                      onClick={() => window.print()}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
-                    >
-                      <Printer className="size-3.5 text-muted-foreground" /> Print Report
+                      <FileText className="size-3.5 text-white" />
+                      <span>Export PDF</span>
                     </button>
                   </div>
                 </div>
@@ -590,9 +627,9 @@ function SprinklerDensityPage() {
                     </div>
                     <div className="p-4 flex flex-col gap-4 text-[13px] text-foreground">
                       <div className="grid grid-cols-2 gap-y-2 border-b border-border pb-3">
-                        <div>Project Code: <span className="font-semibold font-mono">{project.code}</span></div>
-                        <div>Project Name: <span className="font-semibold">{project.name}</span></div>
-                        <div>Client Name: <span className="font-semibold">{project.client}</span></div>
+                        <div>Project Code: <span className="font-semibold font-mono">{project?.code || "CALC-001"}</span></div>
+                        <div>Project Name: <span className="font-semibold">{project?.name || "MEP Project"}</span></div>
+                        <div>Client Name: <span className="font-semibold">{project?.client || "Client"}</span></div>
                         <div>Hazard Sized: <span className="font-semibold capitalize">{hazard === "custom" ? "Custom" : hazard}</span></div>
                       </div>
 
@@ -750,47 +787,180 @@ function SprinklerDensityPage() {
                   <Sparkles className="size-4.5 text-primary" />
                   <h3 className="text-[13.5px] font-bold uppercase tracking-wider text-foreground">Live Intelligence</h3>
                 </div>
-                <button onClick={() => setIntelOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <button 
+                  onClick={() => setIntelOpen(false)} 
+                  className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-surface-2 cursor-pointer transition-colors"
+                  title="Close Live Intelligence"
+                >
                   <X className="size-4" />
                 </button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-                {/* Guidelines */}
-                <div className="border border-border rounded p-3.5 bg-background shadow-xs">
-                  <h4 className="text-[12.5px] font-bold text-foreground">NFPA 13 Rules Guidance</h4>
-                  <p className="text-[11.5px] text-muted-foreground mt-1 leading-relaxed">
-                    Preliminary sizing based on density/area curves. Minimum pressure check is required.
-                  </p>
-                  <ul className="text-[11px] text-muted-foreground mt-2 list-disc pl-4 flex flex-col gap-1">
-                    <li>Minimum nozzle operating pressure is 7.0 psi.</li>
-                    <li>Standard maximum spacing is 225 ft² for Light, 130 ft² for Ordinary hazards.</li>
-                  </ul>
-                </div>
-
-                {/* Optimizations */}
-                <div className="border border-border rounded p-3.5 bg-background shadow-xs">
-                  <h4 className="text-[12.5px] font-bold text-foreground">Design Recommendations</h4>
-                  <div className="flex flex-col gap-2.5 mt-2">
-                    {calcResults.pressReq > 35 && (
-                      <div className="text-[11.5px] text-warning flex gap-1.5 items-start">
-                        <AlertTriangle className="size-4 shrink-0 mt-0.5 text-warning" />
-                        <span>Operating pressure is very high ({calcResults.pressReq.toFixed(1)} psi). Changing K-{kFactor} to a larger size (e.g. K-8.0 or K-11.2) is recommended to decrease required pressure and pump size.</span>
-                      </div>
-                    )}
-                    {calcResults.pressReq < 7 && (
-                      <div className="text-[11.5px] text-destructive flex gap-1.5 items-start">
-                        <AlertTriangle className="size-4 shrink-0 mt-0.5 text-destructive" />
-                        <span>Required pressure ({calcResults.pressReq.toFixed(1)} psi) is below 7.0 psi. System violates code. Decrease sprinkler K-Factor (e.g., K-4.2) or increase design density to raise pressure.</span>
-                      </div>
-                    )}
-                    {calcResults.pressReq >= 7 && calcResults.pressReq <= 35 && (
-                      <div className="text-[11.5px] text-success flex gap-1.5 items-start">
-                        <CheckCircle2 className="size-4 shrink-0 mt-0.5 text-success" />
-                        <span>Sizing meets code requirements. Operating pressure is optimal ({calcResults.pressReq.toFixed(1)} psi).</span>
-                      </div>
+                {/* 1. Live Sizing Compliance Card */}
+                <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] font-bold text-foreground flex items-center gap-1.5">
+                      <Activity className="size-4 text-primary" /> System Compliance Audit
+                    </span>
+                    {calcResults.pressReq >= 7 && calcResults.coverFt2 <= 225 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-success/15 text-success border border-success/30">
+                        <Check className="size-3" /> Compliant
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-destructive/15 text-destructive border border-destructive/30">
+                        <AlertTriangle className="size-3" /> Attention
+                      </span>
                     )}
                   </div>
+
+                  <div className="flex flex-col gap-2">
+                    {/* Pressure audit item */}
+                    <div className={`p-3 rounded-2xl border text-[12px] flex flex-col gap-1.5 ${
+                      calcResults.pressReq < 7 
+                        ? "border-destructive/20 bg-destructive/5" 
+                        : calcResults.pressReq > 35 
+                        ? "border-warning/20 bg-warning/5" 
+                        : "border-success/20 bg-success/5"
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        {calcResults.pressReq < 7 ? (
+                          <AlertTriangle className="size-4 text-destructive shrink-0 mt-0.5" />
+                        ) : calcResults.pressReq > 35 ? (
+                          <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
+                        ) : (
+                          <CheckCircle2 className="size-4 text-success shrink-0 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-foreground">
+                            Operating Pressure: {calcResults.pressReq.toFixed(1)} psi
+                          </div>
+                          <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-normal">
+                            {calcResults.pressReq < 7 ? (
+                              "Below NFPA 13 minimum 7.0 psi rule. The system violates code standards."
+                            ) : calcResults.pressReq > 35 ? (
+                              "Operating pressure is elevated (>35 psi). May require heavier pump duty."
+                            ) : (
+                              "Optimal operating pressure within standard 7.0 to 35.0 psi range."
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Quick Auto-Fix Actions */}
+                      {!isApprovedLocked && calcResults.pressReq < 7 && (
+                        <div className="pt-2 border-t border-border/40 flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setKFactor(4.2)}
+                            className="px-2.5 py-1 text-[11px] font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg cursor-pointer shadow-xs transition-colors"
+                          >
+                            Set K-4.2 (Fix Pressure)
+                          </button>
+                        </div>
+                      )}
+                      {!isApprovedLocked && calcResults.pressReq > 35 && (
+                        <div className="pt-2 border-t border-border/40 flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setKFactor(8.0)}
+                            className="px-2.5 py-1 text-[11px] font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg cursor-pointer shadow-xs transition-colors"
+                          >
+                            Upgrade to K-8.0
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Coverage area audit item */}
+                    <div className={`p-3 rounded-2xl border text-[12px] flex flex-col gap-1.5 ${
+                      calcResults.coverFt2 > 225 
+                        ? "border-warning/20 bg-warning/5" 
+                        : "border-success/20 bg-success/5"
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        {calcResults.coverFt2 > 225 ? (
+                          <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
+                        ) : (
+                          <CheckCircle2 className="size-4 text-success shrink-0 mt-0.5" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-foreground">
+                            Coverage Area: {calcResults.coverFt2.toFixed(0)} ft²
+                          </div>
+                          <div className="text-[11.5px] text-muted-foreground mt-0.5 leading-normal">
+                            {calcResults.coverFt2 > 225 ? (
+                              "Exceeds standard 225 ft² limit. Extended coverage listings required."
+                            ) : (
+                              "Within NFPA 13 standard maximum spacing limit per head."
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {!isApprovedLocked && calcResults.coverFt2 > 225 && (
+                        <div className="pt-2 border-t border-border/40 flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setCoverage(unitSystem === "ip" ? 130 : 12.1)}
+                            className="px-2.5 py-1 text-[11px] font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg cursor-pointer shadow-xs transition-colors"
+                          >
+                            Set Standard 130 ft²
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. NFPA 13 Standard Hazard Reference Matrix */}
+                <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex flex-col gap-2.5">
+                  <h4 className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5">
+                    <Droplet className="size-4 text-primary" /> NFPA 13 Hazard Criteria Table
+                  </h4>
+                  <div className="text-[11px] text-muted-foreground flex flex-col gap-1.5">
+                    <div className="grid grid-cols-3 gap-1 p-1.5 rounded-lg bg-surface-2/60 font-mono text-[10.5px]">
+                      <span className="font-bold text-foreground">Hazard</span>
+                      <span className="font-bold text-foreground text-center">Density / Area</span>
+                      <span className="font-bold text-foreground text-right">Hose Allowance</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 px-1.5 py-1 border-b border-border/40 text-[10.5px]">
+                      <span className="font-medium text-foreground">Light</span>
+                      <span className="text-center font-mono">0.10 / 1500</span>
+                      <span className="text-right font-mono">100 GPM</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 px-1.5 py-1 border-b border-border/40 text-[10.5px]">
+                      <span className="font-medium text-foreground">Ord. Gp 1</span>
+                      <span className="text-center font-mono">0.15 / 1500</span>
+                      <span className="text-right font-mono">250 GPM</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 px-1.5 py-1 border-b border-border/40 text-[10.5px]">
+                      <span className="font-medium text-foreground">Ord. Gp 2</span>
+                      <span className="text-center font-mono">0.20 / 1500</span>
+                      <span className="text-right font-mono">250 GPM</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 px-1.5 py-1 border-b border-border/40 text-[10.5px]">
+                      <span className="font-medium text-foreground">Extra Gp 1</span>
+                      <span className="text-center font-mono">0.30 / 2500</span>
+                      <span className="text-right font-mono">500 GPM</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 px-1.5 py-1 text-[10.5px]">
+                      <span className="font-medium text-foreground">Extra Gp 2</span>
+                      <span className="text-center font-mono">0.40 / 2500</span>
+                      <span className="text-right font-mono">500 GPM</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Mathematical Formula Breakdown Card */}
+                <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex flex-col gap-2">
+                  <h4 className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5">
+                    <Flame className="size-4 text-red-500" /> Governing Formulas
+                  </h4>
+                  <ul className="text-[11px] text-muted-foreground list-disc pl-4 flex flex-col gap-1 font-mono bg-surface-2/40 p-2.5 rounded-xl border border-border/50 leading-normal">
+                    <li>Discharge per head: <strong>q = d × A_cov</strong></li>
+                    <li>Pressure required: <strong>P = (q / K)²</strong></li>
+                    <li>Heads in design area: <strong>N = ⌈A_des / A_cov⌉</strong></li>
+                    <li>Sprinkler demand: <strong>Q_sp = d × A_design</strong></li>
+                    <li>System total: <strong>Q_tot = Q_sp + Q_hose</strong></li>
+                  </ul>
                 </div>
               </div>
             </div>

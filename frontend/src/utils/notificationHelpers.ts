@@ -185,9 +185,11 @@ export function executeHighlightAndScroll(detail: {
   // 1. Try to find the exact element by ID or data attributes
   const candidateSelectors = [
     cleanId ? `[data-row-id="${cleanId}"]` : null,
+    cleanId ? `[data-coil-id="${cleanId}"]` : null,
     cleanId ? `[data-space-id="${cleanId}"]` : null,
     cleanId ? `[data-zone-id="${cleanId}"]` : null,
     cleanId ? `[data-item-id="${cleanId}"]` : null,
+    cleanId ? `#coil-row-${cleanId}` : null,
     cleanId ? `#row-${cleanId}` : null,
     cleanId ? `#space-row-${cleanId}` : null,
     cleanId ? `#gen-row-${cleanId}` : null,
@@ -212,9 +214,9 @@ export function executeHighlightAndScroll(detail: {
     } catch (e) {}
   }
 
-  // 2. If not found by direct selector, search table rows, cards, or grid items by text / name
+  // 2. If not found by direct selector, search table rows, cards, or grid items by text / name (avoid matching container grids)
   if (!targetEl && cleanName) {
-    const rowsAndCards = document.querySelectorAll('tr, [role="row"], .grid, [data-card], [data-zone], [data-space]');
+    const rowsAndCards = document.querySelectorAll('tbody tr, [role="row"], [data-row-id], [data-card], [data-zone-id], [data-space-id], [data-coil-id]');
     for (let i = 0; i < rowsAndCards.length; i++) {
       const el = rowsAndCards[i] as HTMLElement;
       const text = (el.textContent || "").toLowerCase();
