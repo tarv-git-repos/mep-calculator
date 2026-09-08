@@ -23,6 +23,7 @@ import { fetchLicenseStatus, type LicenseStatusInfo } from "@/lib/license";
 import { getHardwareFingerprint, getOrCreateDeviceId } from "@/lib/hardwareFingerprint";
 import { authService } from "@/services/authService";
 import { api } from "@/services/api";
+import { loadOrgHierarchyFromStorage } from "@/utils/hierarchy";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { AutoUpdateModal } from "./AutoUpdateModal";
 import { NotificationCenterView } from "./NotificationCenterView";
@@ -478,24 +479,21 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     // 1. Check Company Hierarchy FIRST (Single Source of Truth)
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("mep_company_hierarchy");
-        if (saved) {
-          const members = JSON.parse(saved);
-          if (Array.isArray(members)) {
-            const found = members.find((m: any) => {
-              const mEmail = String(m.email || "").toLowerCase().trim();
-              const mName = String(m.name || "").toLowerCase().trim();
-              const mId = String(m.id || "").toLowerCase().trim();
-              return (currentEmail && mEmail === currentEmail) ||
-                     (currentId && mId === currentId) ||
-                     (currentName && mName === currentName) ||
-                     (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
-                     (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
-            });
+        const members = loadOrgHierarchyFromStorage(userData, profile);
+        if (members && Array.isArray(members)) {
+          const found = members.find((m: any) => {
+            const mEmail = String(m.email || "").toLowerCase().trim();
+            const mName = String(m.name || "").toLowerCase().trim();
+            const mId = String(m.id || "").toLowerCase().trim();
+            return (currentEmail && mEmail === currentEmail) ||
+                   (currentId && mId === currentId) ||
+                   (currentName && mName === currentName) ||
+                   (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
+                   (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
+          });
 
-            if (found && found.approvalAuthority) {
-              return found.approvalAuthority;
-            }
+          if (found && found.approvalAuthority) {
+            return found.approvalAuthority;
           }
         }
       } catch (e) {}
@@ -708,10 +706,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.stopPropagation();
     }
     const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
-    const id = notifObj ? (notifObj.id || notifObj.text) : idOrNotif;
+    const id = notifObj ? (notifObj.id || notifObj.metadata?.id) : idOrNotif;
     if (!id) return;
 
-    // Collect ALL matching notifications from myNotifications and persistentNotifs
+    // Collect matching notifications strictly by unique ID
     const matchingNotifs = [
       ...(myNotifications || []),
       ...(persistentNotifs || []),
@@ -720,44 +718,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (!n) return false;
       return (
         n.id === id ||
-        n.text === id ||
-        n.message === id ||
-        n.metadata?.id === id ||
-        n.metadata?.targetId === id ||
-        (n.targetId && n.text && `${n.targetId}_${n.text}` === id)
+        n.metadata?.id === id
       );
     });
 
     const keysToDeleteSet = new Set<string>();
-    keysToDeleteSet.add(id);
+    if (id) keysToDeleteSet.add(String(id));
 
-    // Add all aliases from matching notifications
     const processNotifItem = (notif: any) => {
       if (!notif) return;
-      if (notif.id) keysToDeleteSet.add(notif.id);
-      if (notif.text) keysToDeleteSet.add(notif.text);
-      if (notif.message) keysToDeleteSet.add(notif.message);
-      if (notif.targetId) keysToDeleteSet.add(notif.targetId);
-      if (notif.timestamp) keysToDeleteSet.add(notif.timestamp);
-      if (notif.createdAt) keysToDeleteSet.add(notif.createdAt);
-
-      if (notif.metadata) {
-        if (notif.metadata.id) keysToDeleteSet.add(notif.metadata.id);
-        if (notif.metadata.targetId) keysToDeleteSet.add(notif.metadata.targetId);
-        if (notif.metadata.text) keysToDeleteSet.add(notif.metadata.text);
-      }
-
-      const notifText = notif.text || notif.message || notif.metadata?.text || "";
-      const targetId = notif.targetId || notif.metadata?.targetId || "";
-      const timestamp = notif.timestamp || notif.createdAt || "";
-
-      if (targetId && notifText) {
-        keysToDeleteSet.add(`${targetId}_${notifText}`);
-      }
-      if (targetId && timestamp) {
-        keysToDeleteSet.add(`notif_${targetId}_${timestamp}`);
-        keysToDeleteSet.add(`${targetId}_${timestamp}`);
-      }
+      if (notif.id) keysToDeleteSet.add(String(notif.id));
+      if (notif.metadata?.id) keysToDeleteSet.add(String(notif.metadata.id));
     };
 
     matchingNotifs.forEach(processNotifItem);
@@ -806,19 +777,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.stopPropagation();
     }
     const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
-    const id = notifObj ? (notifObj.id || notifObj.text) : idOrNotif;
+    const id = notifObj ? (notifObj.id || notifObj.metadata?.id) : idOrNotif;
     if (!id) return;
 
-    const notifText = notifObj?.text || "";
-    const targetId = notifObj?.targetId || "";
-    const timestamp = notifObj?.timestamp || "";
-
     const keysToRemove = new Set([
-      id,
-      notifText,
-      targetId ? `${targetId}_${notifText}` : null,
-      targetId && timestamp ? `notif_${targetId}_${timestamp}` : null,
-      targetId && timestamp ? `${targetId}_${timestamp}` : null,
+      String(id),
+      notifObj?.id ? String(notifObj.id) : null,
+      notifObj?.metadata?.id ? String(notifObj.metadata.id) : null
     ].filter(Boolean) as string[]);
 
     // 1. Remove from deletedNotifIds
@@ -835,8 +800,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
     // 2. Remove from deletedNotifications store
     setDeletedNotifications(prev => {
-      const restoredItem = prev.find(n => keysToRemove.has(n.id) || keysToRemove.has(n.text));
-      const updated = prev.filter(n => !keysToRemove.has(n.id) && !keysToRemove.has(n.text));
+      const restoredItem = prev.find(n => keysToRemove.has(String(n.id)) || (n.metadata?.id && keysToRemove.has(String(n.metadata.id))));
+      const updated = prev.filter(n => !keysToRemove.has(String(n.id)) && (!n.metadata?.id || !keysToRemove.has(String(n.metadata.id))));
       if (typeof window !== "undefined") {
         const uId = userId || userData?.id;
         const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
@@ -1112,12 +1077,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             const isDel = Boolean(
               c.deleted === true ||
               deletedNotifIds.includes(notifId) ||
-              (c.id && deletedNotifIds.includes(c.id)) ||
-              (cText && deletedNotifIds.includes(cText)) ||
-              (targetIdText && deletedNotifIds.includes(targetIdText)) ||
-              (c.timestamp && deletedNotifIds.includes(`notif_${item.id}_${c.timestamp}`)) ||
-              (c.timestamp && deletedNotifIds.includes(`${item.id}_${c.timestamp}`)) ||
-              (c.metadata?.id && deletedNotifIds.includes(c.metadata.id))
+              (c.id && deletedNotifIds.includes(String(c.id))) ||
+              (c.metadata?.id && deletedNotifIds.includes(String(c.metadata.id)))
             );
 
             const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
@@ -1462,27 +1423,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const nTimestamp = n.timestamp || n.createdAt || "";
 
       const isDel = Boolean(
+        n.deleted === true ||
         deletedNotifIds.includes(nId) ||
-        (nText && deletedNotifIds.includes(nText)) ||
-        (nMetaId && deletedNotifIds.includes(nMetaId)) ||
-        (nTargetId && nText && deletedNotifIds.includes(`${nTargetId}_${nText}`)) ||
-        (nTargetId && nTimestamp && deletedNotifIds.includes(`notif_${nTargetId}_${nTimestamp}`)) ||
-        (nTargetId && nTimestamp && deletedNotifIds.includes(`${nTargetId}_${nTimestamp}`)) ||
-        n.deleted === true
+        (nMetaId && deletedNotifIds.includes(nMetaId))
       );
 
       const isCompleted = Boolean(
-        completedNotifIds.includes(n.id) ||
-        (n.text && completedNotifIds.includes(n.text)) ||
-        (n.targetId && n.text && completedNotifIds.includes(`${n.targetId}_${n.text}`)) ||
-        (n.targetId && n.timestamp && completedNotifIds.includes(`notif_${n.targetId}_${n.timestamp}`)) ||
+        completedNotifIds.includes(nId) ||
+        (nMetaId && completedNotifIds.includes(nMetaId)) ||
         n.completed === true
       );
       const isRead = Boolean(
-        readNotifIds.includes(n.id) ||
-        (n.text && readNotifIds.includes(n.text)) ||
-        (n.targetId && n.text && readNotifIds.includes(`${n.targetId}_${n.text}`)) ||
-        (n.targetId && n.timestamp && readNotifIds.includes(`notif_${n.targetId}_${n.timestamp}`)) ||
+        readNotifIds.includes(nId) ||
+        (nMetaId && readNotifIds.includes(nMetaId)) ||
         n.read === true
       );
 
@@ -1574,8 +1527,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const allowedRemote = remoteNotifs.filter(n => {
             if (!n || !n.id) return false;
             if (currentDeletedIds.includes(n.id)) return false;
-            const nText = String(n.text || n.message || "");
-            if (nText && currentDeletedIds.includes(nText)) return false;
             if (n.metadata?.id && currentDeletedIds.includes(n.metadata.id)) return false;
             return true;
           });
@@ -1589,8 +1540,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             const merged = Array.from(map.values()).filter(n => {
               // Final safeguard: strip deleted items even from prev
               if (currentDeletedIds.includes(n.id)) return false;
-              const nText = String(n.text || n.message || "");
-              if (nText && currentDeletedIds.includes(nText)) return false;
+              if (n.metadata?.id && currentDeletedIds.includes(n.metadata.id)) return false;
               return true;
             });
             if (typeof window !== "undefined") {
@@ -1604,10 +1554,34 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       } catch (e) {}
     };
 
-    fetchBackendNotifs();
+    const smartFetchBackendNotifs = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchBackendNotifs();
+    };
 
-    const intervalId = setInterval(fetchBackendNotifs, 15000);
-    const handleFocus = () => fetchBackendNotifs();
+    smartFetchBackendNotifs();
+
+    const intervalId = setInterval(smartFetchBackendNotifs, 3000);
+    const handleFocusOrVisible = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        fetchBackendNotifs();
+      }
+    };
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      try {
+        bc = new BroadcastChannel("mep_notifications_channel");
+        bc.onmessage = (msg) => {
+          if (msg.data?.type === "NEW_NOTIFICATION") {
+            if (msg.data.comment) {
+              handleNotifAdded({ detail: msg.data.comment });
+            }
+            fetchBackendNotifs();
+          }
+        };
+      } catch (e) {}
+    }
 
     const handleNotifAdded = (e?: any) => {
       setNotifTick(t => t + 1);
@@ -1729,7 +1703,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
     if (typeof window !== 'undefined') {
-      window.addEventListener("focus", handleFocus);
+      window.addEventListener("focus", handleFocusOrVisible);
+      document.addEventListener("visibilitychange", handleFocusOrVisible);
       window.addEventListener("mep-notification-added", handleNotifAdded);
       window.addEventListener("mep_notification_received", handleNotifAdded);
       window.addEventListener("mep-review-state-updated", handleReviewStateUpdate);
@@ -1737,8 +1712,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
     return () => {
       clearInterval(intervalId);
+      if (bc) {
+        try { bc.close(); } catch (e) {}
+      }
       if (typeof window !== 'undefined') {
-        window.removeEventListener("focus", handleFocus);
+        window.removeEventListener("focus", handleFocusOrVisible);
+        document.removeEventListener("visibilitychange", handleFocusOrVisible);
         window.removeEventListener("mep-notification-added", handleNotifAdded);
         window.removeEventListener("mep_notification_received", handleNotifAdded);
         window.removeEventListener("mep-review-state-updated", handleReviewStateUpdate);
@@ -2103,52 +2082,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [hoveredGroup]);
 
-  // Unit System Transition modal states & capture listener
-  const [unitModalOpen, setUnitModalOpen] = useState(false);
-  const [pendingUnitToggle, setPendingUnitToggle] = useState<{
-    button: HTMLButtonElement;
-    targetSystem: "si" | "ip";
-  } | null>(null);
 
-  useEffect(() => {
-    const handleCaptureClick = (e: MouseEvent) => {
-      if ((window as any).__mep_bypass_unit_prompt) return;
-      const btn = (e.target as HTMLElement)?.closest("button");
-      if (!btn) return;
-
-      const text = (btn.textContent || "").trim();
-      const isSiToggle = /\bmetric\b|\bsi\b/i.test(text);
-      const isIpToggle = /\bimperial\b|\bip\b/i.test(text);
-      if (!isSiToggle && !isIpToggle) return;
-
-      const targetSystem = isSiToggle ? "si" : "ip";
-
-      // Ignore if button is already active/selected
-      if (
-        btn.classList.contains("bg-white") ||
-        btn.classList.contains("bg-[#0A7BC7]") ||
-        btn.classList.contains("bg-red-600") ||
-        btn.classList.contains("bg-primary") ||
-        btn.getAttribute("aria-pressed") === "true" ||
-        btn.getAttribute("data-state") === "on"
-      ) {
-        return;
-      }
-
-      e.stopPropagation();
-      e.preventDefault();
-      setPendingUnitToggle({
-        button: btn as HTMLButtonElement,
-        targetSystem,
-      });
-      setUnitModalOpen(true);
-    };
-
-    document.addEventListener("click", handleCaptureClick, true);
-    return () => {
-      document.removeEventListener("click", handleCaptureClick, true);
-    };
-  }, []);
 
   // Global Ctrl + S / Cmd + S keyboard shortcut to save calculations to cloud
   useEffect(() => {
@@ -2358,26 +2292,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }, []);
 
-  const handleKeepValuesAsIs = () => {
-    if (!pendingUnitToggle) return;
-    (window as any).__mep_keep_values = true;
-    (window as any).__mep_bypass_unit_prompt = true;
-    pendingUnitToggle.button.click();
-    (window as any).__mep_bypass_unit_prompt = false;
-    (window as any).__mep_keep_values = false;
-    setUnitModalOpen(false);
-    setPendingUnitToggle(null);
-  };
 
-  const handleConvertUnits = () => {
-    if (!pendingUnitToggle) return;
-    (window as any).__mep_bypass_unit_prompt = true;
-    (window as any).__mep_keep_values = false;
-    pendingUnitToggle.button.click();
-    (window as any).__mep_bypass_unit_prompt = false;
-    setUnitModalOpen(false);
-    setPendingUnitToggle(null);
-  };
 
   const filteredNav = useMemo(() => {
     let effRole = profile?.role;
@@ -2928,29 +2843,26 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                         let hierarchyBadge = "";
                         if (typeof window !== "undefined") {
                           try {
-                            const saved = localStorage.getItem("mep_company_hierarchy");
-                            if (saved) {
-                              const members = JSON.parse(saved);
-                              if (Array.isArray(members)) {
-                                const userEmail = String(userData?.email || myEmail || "").toLowerCase().trim();
-                                const userName = String(userData?.name || profile?.name || "").toLowerCase().trim();
-                                const userId = String(userData?.id || "").toLowerCase().trim();
-                                const found = members.find((m: any) => {
-                                  const mEmail = String(m.email || "").toLowerCase().trim();
-                                  const mName = String(m.name || "").toLowerCase().trim();
-                                  const mId = String(m.id || "").toLowerCase().trim();
-                                  return (userEmail && mEmail === userEmail) || 
-                                         (userId && mId === userId) ||
-                                         (userName && mName === userName) ||
-                                         (userEmail && mEmail && (userEmail.includes(mEmail) || mEmail.includes(userEmail))) ||
-                                         (userName && mName && (userName.includes(mName) || mName.includes(userName)));
-                                });
-                                if (found) {
-                                  if (found.designation && found.designation !== "USER" && found.designation !== "ENGINEER") {
-                                    hierarchyBadge = found.designation;
-                                  } else if (found.role) {
-                                    hierarchyBadge = found.role;
-                                  }
+                            const members = loadOrgHierarchyFromStorage(userData, profile);
+                            if (members && Array.isArray(members)) {
+                              const userEmail = String(userData?.email || myEmail || "").toLowerCase().trim();
+                              const userName = String(userData?.name || profile?.name || "").toLowerCase().trim();
+                              const userId = String(userData?.id || "").toLowerCase().trim();
+                              const found = members.find((m: any) => {
+                                const mEmail = String(m.email || "").toLowerCase().trim();
+                                const mName = String(m.name || "").toLowerCase().trim();
+                                const mId = String(m.id || "").toLowerCase().trim();
+                                return (userEmail && mEmail === userEmail) || 
+                                       (userId && mId === userId) ||
+                                       (userName && mName === userName) ||
+                                       (userEmail && mEmail && (userEmail.includes(mEmail) || mEmail.includes(userEmail))) ||
+                                       (userName && mName && (userName.includes(mName) || mName.includes(userName)));
+                              });
+                              if (found) {
+                                if (found.designation && found.designation !== "USER" && found.designation !== "ENGINEER") {
+                                  hierarchyBadge = found.designation;
+                                } else if (found.role) {
+                                  hierarchyBadge = found.role;
                                 }
                               }
                             }
@@ -3266,11 +3178,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             )}
           </div>
         </div>
-        {effectiveIntelOpen && !onIntelClick && (
+        {effectiveIntelOpen && (
           <UniversalIntelligenceDrawer
             title={title}
             pathname={pathname}
-            onClose={() => setDefaultIntelOpen(false)}
+            onClose={() => {
+              if (onIntelClick) {
+                onIntelClick();
+              } else {
+                setDefaultIntelOpen(false);
+              }
+            }}
           />
         )}
       </main>
@@ -3338,45 +3256,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         </div>
       )}
 
-      {/* UNIT SYSTEM TRANSITION MODAL */}
-      {unitModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200 font-sans">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-full bg-red-100 dark:bg-red-950/40 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
-                <TriangleAlert className="size-5 text-red-500" />
-              </div>
-              <h3 className="text-[17px] font-bold text-foreground">Unit System Transition</h3>
-            </div>
-            <p className="text-[13.5px] text-muted-foreground leading-normal font-medium">
-              You are switching between Imperial (IP) and Metric (SI) units. How would you like to handle the entered input values?
-            </p>
-            <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
-              <button
-                onClick={() => {
-                  setUnitModalOpen(false);
-                  setPendingUnitToggle(null);
-                }}
-                className="w-full sm:w-auto px-4 py-2 border border-slate-250 dark:border-zinc-800 text-[12.5px] font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-zinc-800 text-foreground cursor-pointer outline-none transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleKeepValuesAsIs}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-200 text-[12.5px] font-bold rounded-xl cursor-pointer outline-none transition-colors"
-              >
-                Keep Values As-Is
-              </button>
-              <button
-                onClick={handleConvertUnits}
-                className="w-full sm:w-auto px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-[12.5px] font-bold rounded-xl cursor-pointer outline-none transition-colors shadow-sm"
-              >
-                Convert Values
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <PricingModal
         isOpen={pricingModalOpen}

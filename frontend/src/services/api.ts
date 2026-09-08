@@ -2,9 +2,6 @@ import axios from 'axios';
 import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
@@ -13,6 +10,9 @@ const getBackendUrl = () => {
     if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
       return 'http://localhost:4000';
     }
+  }
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
   }
   return 'http://localhost:4000';
 };
@@ -737,10 +737,45 @@ export const api = {
       if (cachedStr) cachedUsers = JSON.parse(cachedStr);
     } catch (e) {}
 
+    let curOrg = '';
+    try {
+      const curUserStr = localStorage.getItem('currentUser') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
+      if (curUserStr) {
+        const p = JSON.parse(curUserStr);
+        curOrg = p.organization_id || p.organization || p.company || p.features?.organization_id || p.features?.organization || p.features?.company || '';
+      }
+    } catch (e) {}
+    const cleanCurOrg = String(curOrg).toLowerCase().trim();
+
     return cachedUsers.filter(u => {
-      const uOrg = u.organization_id || u.company || u.organization;
-      return uOrg && uOrg !== '' && uOrg !== 'No Organization' && uOrg !== 'null';
+      if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+      const uOrg = String(u.organization_id || u.company || u.organization || u.features?.organization_id || u.features?.company || '').toLowerCase().trim();
+      if (!cleanCurOrg) return uOrg && uOrg !== '' && uOrg !== 'no organization' && uOrg !== 'null';
+      return uOrg === cleanCurOrg || cleanCurOrg.includes(uOrg) || uOrg.includes(cleanCurOrg);
     });
+  },
+
+  async getOrgHierarchy(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/hierarchy?orgId=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/hierarchy`;
+      const { data } = await axios.get(url);
+      if (data && data.success && Array.isArray(data.hierarchy)) {
+        return data.hierarchy;
+      }
+    } catch (e) {
+      console.error('Error fetching org hierarchy:', e);
+    }
+    return null;
+  },
+
+  async saveOrgHierarchy(hierarchy: any[], orgId?: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/hierarchy`, { hierarchy, orgId });
+      return data;
+    } catch (e) {
+      console.error('Error saving org hierarchy:', e);
+      return { success: false };
+    }
   },
   async inviteOrgUser(inviteData: { name: string; email: string; role: string }) {
     try {

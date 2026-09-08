@@ -304,16 +304,17 @@ export interface PdfHeaderOptions {
 export function addPdfHeader(
   doc: jsPDF,
   title: string,
-  options: PdfHeaderOptions = {}
+  options: PdfHeaderOptions | string = {}
 ): number {
+  const opts: PdfHeaderOptions = typeof options === "object" && options !== null ? options : {};
   const activeProj: any = workspaceStore.getState()?.project || {};
 
-  const calcNo = options.calcNo || activeProj?.calcNo || "TRV-CAL-101-R01";
-  const today = options.date || formatDateStr(new Date().toISOString());
-  const projectNo = options.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
-  const projectName = options.projectName || activeProj?.name || activeProj?.projectName || "";
-  const clientName = options.client || activeProj?.client || "";
-  const endUser = options.endUser || activeProj?.endUser || activeProj?.location || "";
+  const calcNo = opts.calcNo || activeProj?.calcNo || "TRV-CAL-101-R01";
+  const today = opts.date || formatDateStr(new Date().toISOString());
+  const projectNo = opts.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
+  const projectName = opts.projectName || activeProj?.name || activeProj?.projectName || "";
+  const clientName = opts.client || activeProj?.client || "";
+  const endUser = opts.endUser || activeProj?.endUser || activeProj?.location || "";
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const leftMargin = 14;
@@ -343,33 +344,33 @@ export function addPdfHeader(
   doc.setFont("helvetica", "bold");
   doc.text("Calculation No.:", leftMargin + 2, 22);
   doc.setFont("helvetica", "normal");
-  doc.text(String(calcNo), leftMargin + 32, 22);
+  doc.text(String(calcNo), leftMargin + 31, 22);
 
   doc.setFont("helvetica", "bold");
   doc.text("Project No.:", leftMargin + 2, 28);
   doc.setFont("helvetica", "normal");
-  doc.text(String(projectNo), leftMargin + 32, 28);
+  doc.text(String(projectNo), leftMargin + 26, 28);
 
   doc.setFont("helvetica", "bold");
   doc.text("Project Name:", leftMargin + 2, 34);
   doc.setFont("helvetica", "normal");
-  doc.text(String(projectName), leftMargin + 32, 34);
+  doc.text(String(projectName), leftMargin + 28, 34);
 
   // Column 2
   doc.setFont("helvetica", "bold");
   doc.text("Date:", midX + 2, 22);
   doc.setFont("helvetica", "normal");
-  doc.text(String(today), midX + 22, 22);
+  doc.text(String(today), midX + 15, 22);
 
   doc.setFont("helvetica", "bold");
   doc.text("Client:", midX + 2, 28);
   doc.setFont("helvetica", "normal");
-  doc.text(String(clientName), midX + 22, 28);
+  doc.text(String(clientName), midX + 15, 28);
 
   doc.setFont("helvetica", "bold");
   doc.text("End User:", midX + 2, 34);
   doc.setFont("helvetica", "normal");
-  doc.text(String(endUser), midX + 22, 34);
+  doc.text(String(endUser), midX + 20, 34);
 
   return 42;
 }

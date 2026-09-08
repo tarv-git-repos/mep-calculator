@@ -5,6 +5,7 @@ import { TBtn } from "@/components/workspace/Button";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/services/api";
 import { toast } from "sonner";
+import { loadOrgHierarchyFromStorage } from "@/utils/hierarchy";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { 
   Settings, 
@@ -211,30 +212,27 @@ export function SettingsPage() {
 
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('mep_company_hierarchy');
-        if (saved) {
-          const members = JSON.parse(saved);
-          if (Array.isArray(members)) {
-            const currentEmail = String(userData?.email || profile?.email || '').toLowerCase().trim();
-            const currentName = String(fullName || userData?.name || profile?.name || '').toLowerCase().trim();
-            const currentId = String(profile?.id || userData?.id || uId || '').toLowerCase().trim();
-            const found = members.find((m: any) => {
-              const mEmail = String(m.email || '').toLowerCase().trim();
-              const mName = String(m.name || '').toLowerCase().trim();
-              const mId = String(m.id || '').toLowerCase().trim();
-              return (currentEmail && mEmail === currentEmail) || 
-                     (currentId && mId === currentId) ||
-                     (currentName && mName === currentName) ||
-                     (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
-                     (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
-            });
-            if (found) {
-              if (found.designation && found.designation !== "USER" && found.designation !== "ENGINEER") {
-                return ROLE_MAP[found.designation] || found.designation;
-              }
-              if (found.role) {
-                return ROLE_MAP[found.role] || found.role;
-              }
+        const members = loadOrgHierarchyFromStorage(userData, profile);
+        if (members && Array.isArray(members)) {
+          const currentEmail = String(userData?.email || profile?.email || '').toLowerCase().trim();
+          const currentName = String(fullName || userData?.name || profile?.name || '').toLowerCase().trim();
+          const currentId = String(profile?.id || userData?.id || uId || '').toLowerCase().trim();
+          const found = members.find((m: any) => {
+            const mEmail = String(m.email || '').toLowerCase().trim();
+            const mName = String(m.name || '').toLowerCase().trim();
+            const mId = String(m.id || '').toLowerCase().trim();
+            return (currentEmail && mEmail === currentEmail) || 
+                   (currentId && mId === currentId) ||
+                   (currentName && mName === currentName) ||
+                   (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
+                   (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
+          });
+          if (found) {
+            if (found.designation && found.designation !== "USER" && found.designation !== "ENGINEER") {
+              return ROLE_MAP[found.designation] || found.designation;
+            }
+            if (found.role) {
+              return ROLE_MAP[found.role] || found.role;
             }
           }
         }
@@ -270,14 +268,12 @@ export function SettingsPage() {
       // 1. Check hierarchy first
       if (typeof window !== 'undefined') {
         try {
-          const saved = localStorage.getItem('mep_company_hierarchy');
-          if (saved) {
-            const members = JSON.parse(saved);
-            if (Array.isArray(members)) {
-              const uEmail = String(currentEmail || '').toLowerCase().trim();
-              const uName = String(currentName || '').toLowerCase().trim();
-              const currentId = String(profile?.id || userData?.id || uId || '').toLowerCase().trim();
-              const found = members.find((m: any) => {
+          const members = loadOrgHierarchyFromStorage(userData, profile);
+          if (members && Array.isArray(members)) {
+            const uEmail = String(currentEmail || '').toLowerCase().trim();
+            const uName = String(currentName || '').toLowerCase().trim();
+            const currentId = String(profile?.id || userData?.id || uId || '').toLowerCase().trim();
+            const found = members.find((m: any) => {
                 const mEmail = String(m.email || '').toLowerCase().trim();
                 const mName = String(m.name || '').toLowerCase().trim();
                 const mId = String(m.id || '').toLowerCase().trim();
@@ -297,8 +293,7 @@ export function SettingsPage() {
                 }
               }
             }
-          }
-        } catch (e) {}
+          } catch (e) {}
       }
 
       if (currentEmail === 'admin@tarv.ai') {

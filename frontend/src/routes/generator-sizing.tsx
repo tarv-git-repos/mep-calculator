@@ -242,6 +242,61 @@ function GeneratorSizingPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
+
+  const DEFAULT_GEN_COL_WIDTHS: Record<string, number> = {
+    select: 52,
+    desc: 220,
+    unit: 70,
+    kwPerUnit: 100,
+    starter: 120,
+    multiplier: 80,
+    startCur: 100,
+    totalKw: 95,
+    standby: 95,
+    acl: 95,
+    emergency: 105,
+    powerFail: 160,
+    remark: 180,
+    actions: 60,
+  };
+
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_gen_col_widths");
+        if (saved) return { ...DEFAULT_GEN_COL_WIDTHS, ...JSON.parse(saved) };
+      } catch (e) {}
+    }
+    return DEFAULT_GEN_COL_WIDTHS;
+  });
+
+  const handleResizeStart = (colKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = colWidths[colKey] || DEFAULT_GEN_COL_WIDTHS[colKey] || 100;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = Math.max(45, startWidth + deltaX);
+      setColWidths((prev) => {
+        const updated = { ...prev, [colKey]: newWidth };
+        try {
+          localStorage.setItem("mep_gen_col_widths", JSON.stringify(updated));
+        } catch (err) {}
+        return updated;
+      });
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
   const activeProject = workspaceStore.getState().project;
   const [calcReviewState, setCalcReviewState] = useState<any>(() => {
     if (typeof window !== "undefined") {
@@ -1459,7 +1514,7 @@ function GeneratorSizingPage() {
                       <table id="generator-grid" className="w-full text-[12.5px] border-collapse">
                         <thead className="bg-header-bg sticky top-0 border-b border-border z-10 font-semibold text-muted-foreground">
                           <tr className="text-left font-semibold">
-                            <th className="px-2 py-2 border-r border-border w-14 text-center">
+                            <th style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="px-2 py-2 text-center relative group/col select-none">
                               <input
                                 type="checkbox"
                                 className="cursor-pointer"
@@ -1469,68 +1524,84 @@ function GeneratorSizingPage() {
                                   else clearSelection();
                                 }}
                               />
+                              <div onMouseDown={(e) => handleResizeStart("select", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border">Description</th>
-                            <th className="px-3 py-2 border-r border-border w-16 text-center">
+                            <th style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="px-3 py-2 relative group/col select-none">
+                              Description
+                              <div onMouseDown={(e) => handleResizeStart("desc", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
+                            </th>
+                            <th style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               Unit
+                              <div onMouseDown={(e) => handleResizeStart("unit", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-20 text-center">
+                            <th style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "HP / UNIT" : "kW / UNIT"}
+                              <div onMouseDown={(e) => handleResizeStart("kwPerUnit", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-32 text-center">
+                            <th style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               Starter Type
+                              <div onMouseDown={(e) => handleResizeStart("starter", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-16 text-center">
+                            <th style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Multiplication factor for starting current. Typically 7 for DOL, 3.5 for Star Delta/Soft Starter, 1 for VFD."
                               >
                                 Mult. <Info className="size-3" />
                               </span>
+                              <div onMouseDown={(e) => handleResizeStart("multiplier", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-24 text-center">
+                            <th style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="kW * 1.739 * Multiplier"
                               >
                                 Start Cur. <Info className="size-3" />
                               </span>
+                              <div onMouseDown={(e) => handleResizeStart("startCur", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-20 text-center">
+                            <th style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "Total (HP)" : "Total (kW)"}
+                              <div onMouseDown={(e) => handleResizeStart("totalKw", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-20 text-center">
+                            <th style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "Standby (HP)" : "Standby (kW)"}
+                              <div onMouseDown={(e) => handleResizeStart("standby", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-20 text-center">
+                            <th style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Actual Connected Load (Total kW - Standby)"
                               >
                                 ACL <Info className="size-3" />
                               </span>
+                              <div onMouseDown={(e) => handleResizeStart("acl", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-24 text-center">
+                            <th style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Defaults to ACL. Used to calculate emergency DG size."
                               >
                                 Emergency <Info className="size-3" />
                               </span>
+                              <div onMouseDown={(e) => handleResizeStart("emergency", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-36 text-center">
+                            <th style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Power Failure Load"
                               >
                                 {unitSystem === "ip" ? "Power Failure Load (HP)" : "Power Failure Load (kW)"}
                               </span>
+                              <div onMouseDown={(e) => handleResizeStart("powerFail", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-3 py-2 border-r border-border w-48 text-center">
+                            <th style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="px-3 py-2 text-center relative group/col select-none">
                               Remarks
+                              <div onMouseDown={(e) => handleResizeStart("remark", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th className="px-2 py-2 text-center w-12 text-[11px]">
+                            <th style={{ width: `${colWidths.actions}px`, minWidth: `${colWidths.actions}px` }} className="px-2 py-2 text-center text-[11px] relative group/col select-none">
                               Actions
+                              <div onMouseDown={(e) => handleResizeStart("actions", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
                           </tr>
                         </thead>
@@ -1594,7 +1665,7 @@ function GeneratorSizingPage() {
                                         }
                                       }}
                                     >
-                                      <td className="p-0 border-r border-border">
+                                      <td style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="p-0">
                                         <div className="flex items-center justify-center gap-1.5 h-9 px-1">
                                           <GripVertical className="size-3.5 text-muted-foreground/50 cursor-grab active:cursor-grabbing hover:text-foreground" />
                                           <input
@@ -1609,7 +1680,7 @@ function GeneratorSizingPage() {
                                           />
                                         </div>
                                       </td>
-                                      <td className="p-0 border-r border-border">
+                                      <td style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="p-0">
                                         <div className="flex items-center gap-1.5 w-full px-2">
                                           {r.comments && r.comments.length > 0 && (
                                             <span
@@ -1639,7 +1710,7 @@ function GeneratorSizingPage() {
                                           />
                                         </div>
                                       </td>
-                                      <td className="p-0 border-r border-border">
+                                      <td style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className="p-0">
                                         <input
                                           data-row={rowIndex}
                                           data-col={1}
@@ -1649,7 +1720,7 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "unit", e.target.value)}
                                         />
                                       </td>
-                                      <td className="p-0 border-r border-border">
+                                      <td style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className="p-0">
                                         <input
                                           data-row={rowIndex}
                                           data-col={2}
@@ -1659,7 +1730,7 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "kwPerUnit", e.target.value)}
                                         />
                                       </td>
-                                      <td className="p-0 border-r border-border">
+                                      <td style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className="p-0">
                                         <select
                                           data-row={rowIndex}
                                           data-col={3}
@@ -1674,7 +1745,7 @@ function GeneratorSizingPage() {
                                           <option value="None" className="bg-popover text-popover-foreground">None</option>
                                         </select>
                                       </td>
-                                      <td className="p-0 border-r border-border bg-primary/10">
+                                      <td style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="p-0 bg-primary/10">
                                         <input
                                           data-row={rowIndex}
                                           data-col={4}
@@ -1686,13 +1757,13 @@ function GeneratorSizingPage() {
                                           }
                                         />
                                       </td>
-                                      <td className="px-3 py-2 text-center font-semibold text-foreground border-r border-border">
+                                      <td style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="px-3 py-2 text-center font-semibold text-foreground">
                                         {startCur.toFixed(2)}
                                       </td>
-                                      <td className="px-3 py-2 text-center text-muted-foreground border-r border-border">
+                                      <td style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="px-3 py-2 text-center text-muted-foreground">
                                         {totalKw.toFixed(2)}
                                       </td>
-                                      <td className="p-0 border-r border-border">
+                                      <td style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="p-0">
                                         <input
                                           data-row={rowIndex}
                                           data-col={5}
@@ -1702,10 +1773,10 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "standby", e.target.value)}
                                         />
                                       </td>
-                                      <td className="px-3 py-2 text-center font-semibold text-primary border-r border-border">
+                                      <td style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="px-3 py-2 text-center font-semibold text-primary">
                                         {actualKw.toFixed(2)}
                                       </td>
-                                      <td className="p-0 border-r border-border relative group/em">
+                                      <td style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="p-0 relative group/em">
                                         <div className="flex items-center w-full h-full">
                                           <input
                                             data-row={rowIndex}
@@ -1737,7 +1808,7 @@ function GeneratorSizingPage() {
                                           </button>
                                         </div>
                                       </td>
-                                      <td className="p-0 flex items-center border-r border-border">
+                                      <td style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="p-0 flex items-center">
                                         <input
                                           data-row={rowIndex}
                                           data-col={7}
@@ -1769,7 +1840,7 @@ function GeneratorSizingPage() {
                                           <option value="100" className="bg-popover text-popover-foreground">100%</option>
                                         </select>
                                       </td>
-                                      <td className="p-0 border-r border-border">
+                                      <td style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="p-0">
                                         <input
                                           data-row={rowIndex}
                                           data-col={8}
@@ -1779,7 +1850,7 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "remark", e.target.value)}
                                         />
                                       </td>
-                                      <td className="p-0 text-center">
+                                      <td style={{ width: `${colWidths.actions}px`, minWidth: `${colWidths.actions}px` }} className="p-0 text-center">
                                         <div className="flex items-center justify-center gap-1 h-full w-full px-1">
                                           {(() => {
                                             const { isAutoFlagged, isFlagged, warnings } = getGenRowValidation(r);

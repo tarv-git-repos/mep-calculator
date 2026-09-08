@@ -115,6 +115,53 @@ function CableTraySizingPage() {
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem("mep_cable_tray_col_widths");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    } catch {}
+    return {
+      select: 36,
+      no: 48,
+      type: 180,
+      cores: 130,
+      size: 140,
+      qty: 80,
+      od: 100,
+      sumOd: 110,
+      actions: 60
+    };
+  });
+
+  const resizeStartRef = React.useRef<{ x: number; width: number }>({ x: 0, width: 0 });
+
+  const handleResizeMouseDown = (colKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeStartRef.current = { x: e.clientX, width: colWidths[colKey] || 80 };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - resizeStartRef.current.x;
+      const newWidth = Math.max(36, resizeStartRef.current.width + deltaX);
+      setColWidths(prev => {
+        const updated = { ...prev, [colKey]: newWidth };
+        try { localStorage.setItem("mep_cable_tray_col_widths", JSON.stringify(updated)); } catch(err) {}
+        return updated;
+      });
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
   const [sortBy, setSortBy] = useState<"none" | "name" | "width">("none");
@@ -1271,7 +1318,13 @@ function CableTraySizingPage() {
           const isExpanded = expandedTrayId === null ? trayIndex === 0 : expandedTrayId === tray.id;
 
           return (
-            <div key={tray.id} className="bg-card border border-border rounded-2xl shadow-xs flex flex-col overflow-hidden shrink-0 transition-all">
+            <div 
+              key={tray.id} 
+              id={`tray-card-${tray.id}`}
+              data-tray-id={tray.id}
+              data-row-id={tray.id}
+              className="bg-card border border-border rounded-2xl shadow-xs flex flex-col overflow-hidden shrink-0 transition-all"
+            >
               
               {/* Tray Header */}
               <div 
@@ -1371,23 +1424,61 @@ function CableTraySizingPage() {
               {/* Cables Table */}
               <div className="w-full overflow-x-auto">
                 <table className="w-full text-[13px] border-collapse whitespace-nowrap">
-                  <thead className="bg-header-bg border-b border-border text-muted-foreground font-semibold">
+                  <thead className="bg-header-bg border-b border-border text-muted-foreground font-semibold select-none">
                     <tr className="text-left">
-                      <th className="px-3 py-1.5 border-r border-border text-center w-8"></th>
-                      <th className="px-3 py-1.5 border-r border-border text-center w-10">No.</th>
-                      <th className="px-3 py-1.5 border-r border-border w-1/4">Cable Type</th>
-                      <th className="px-3 py-1.5 border-r border-border w-32">No. of Cores</th>
-                      <th className="px-3 py-1.5 border-r border-border w-32">Cable Size (mm²)</th>
-                      <th className="px-3 py-1.5 border-r border-border w-20 text-center">Qty</th>
-                      <th className="px-3 py-1.5 border-r border-border w-24 text-center bg-surface-2 text-foreground">O.D. ({unitSystem === "si" ? "mm" : "in"})</th>
-                      <th className="px-3 py-1.5 border-r border-border w-24 text-center bg-surface-2 text-foreground">Sum O.D. ({unitSystem === "si" ? "mm" : "in"})</th>
-                      <th className="px-3 py-1.5 text-center w-10">✕</th>
+                      <th style={{ width: colWidths.select, minWidth: colWidths.select }} className="px-3 py-1.5 text-center relative group">
+                        <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
+                      <th style={{ width: colWidths.no, minWidth: colWidths.no }} className="px-3 py-1.5 text-center relative group">
+                        No.
+                        <div onMouseDown={(e) => handleResizeMouseDown("no", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
+                      <th style={{ width: colWidths.type, minWidth: colWidths.type }} className="px-3 py-1.5 relative group">
+                        Cable Type
+                        <div onMouseDown={(e) => handleResizeMouseDown("type", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
+                      <th style={{ width: colWidths.cores, minWidth: colWidths.cores }} className="px-3 py-1.5 relative group">
+                        No. of Cores
+                        <div onMouseDown={(e) => handleResizeMouseDown("cores", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
+                      <th style={{ width: colWidths.size, minWidth: colWidths.size }} className="px-3 py-1.5 relative group">
+                        Cable Size (mm²)
+                        <div onMouseDown={(e) => handleResizeMouseDown("size", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
+                      <th style={{ width: colWidths.qty, minWidth: colWidths.qty }} className="px-3 py-1.5 text-center relative group">
+                        Qty
+                        <div onMouseDown={(e) => handleResizeMouseDown("qty", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
+                      <th style={{ width: colWidths.od, minWidth: colWidths.od }} className="px-3 py-1.5 text-center bg-surface-2 text-foreground relative group">
+                        O.D. ({unitSystem === "si" ? "mm" : "in"})
+                        <div onMouseDown={(e) => handleResizeMouseDown("od", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
+                      <th style={{ width: colWidths.sumOd, minWidth: colWidths.sumOd }} className="px-3 py-1.5 text-center bg-surface-2 text-foreground relative group">
+                        Sum O.D. ({unitSystem === "si" ? "mm" : "in"})
+                        <div onMouseDown={(e) => handleResizeMouseDown("sumOd", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {calcCables.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="text-center py-8 text-muted-foreground italic">
+                        <td colSpan={8} className="text-center py-8 text-muted-foreground italic">
                           No cables in this tray. Click "+ Add Cable" to start.
                         </td>
                       </tr>
@@ -1404,6 +1495,8 @@ function CableTraySizingPage() {
                               <tr
                                 id={`cable-row-${c.id}`}
                                 data-cable-row="true"
+                                data-cable-id={c.id}
+                                data-row-id={c.id}
                                 onDoubleClick={() => {
                                   toggleRowSelect(c.id, false, false);
                                   setEditingCable({ cable: c, trayId: tray.id, index: idx });
@@ -1430,7 +1523,7 @@ function CableTraySizingPage() {
                                   }
                                 }}
                               >
-                                <td className="w-8 border-r border-border text-center p-0">
+                                <td style={{ width: colWidths.select, minWidth: colWidths.select }} className="text-center p-0">
                                   <div className="flex justify-center items-center h-full w-full">
                                     <input
                                       type="checkbox"
@@ -1444,7 +1537,7 @@ function CableTraySizingPage() {
                                     />
                                   </div>
                                 </td>
-                                <td className="text-center text-muted-foreground border-r border-border px-1">
+                                <td style={{ width: colWidths.no, minWidth: colWidths.no }} className="text-center text-muted-foreground px-1">
                                   <div className="flex items-center justify-center gap-1">
                                     <span>{idx + 1}</span>
                                     {c.comments && c.comments.length > 0 && (
@@ -1466,7 +1559,7 @@ function CableTraySizingPage() {
                                     )}
                                   </div>
                                 </td>
-                                <td className="p-0 border-r border-border">
+                                <td style={{ width: colWidths.type, minWidth: colWidths.type }} className="p-0">
                                   <select 
                                     className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
                                     value={c.type}
@@ -1479,7 +1572,7 @@ function CableTraySizingPage() {
                                     <option value="Fire Resistant">Fire Resistant</option>
                                   </select>
                                 </td>
-                                <td className="p-0 border-r border-border">
+                                <td style={{ width: colWidths.cores, minWidth: colWidths.cores }} className="p-0">
                                   <select 
                                     className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
                                     value={c.cores}
@@ -1496,7 +1589,7 @@ function CableTraySizingPage() {
                                     ))}
                                   </select>
                                 </td>
-                                <td className="p-0 border-r border-border">
+                                <td style={{ width: colWidths.size, minWidth: colWidths.size }} className="p-0">
                                   <select className="w-full h-8 px-3 bg-transparent outline-none focus:bg-background text-foreground cursor-pointer" value={c.size} onChange={e => {
                                     updateCable(tray.id, c.id, "size", e.target.value);
                                     updateCable(tray.id, c.id, "customOd", ""); // reset OD on size change
@@ -1507,7 +1600,7 @@ function CableTraySizingPage() {
                                     ))}
                                   </select>
                                 </td>
-                                <td className="p-0 border-r border-border">
+                                <td style={{ width: colWidths.qty, minWidth: colWidths.qty }} className="p-0">
                                   <select 
                                     className="w-full h-8 px-3 text-center bg-transparent outline-none focus:bg-background text-foreground cursor-pointer"
                                     value={c.qty}
@@ -1519,7 +1612,7 @@ function CableTraySizingPage() {
                                     ))}
                                   </select>
                                 </td>
-                                <td className="p-0 border-r border-border bg-surface-2 text-foreground">
+                                <td style={{ width: colWidths.od, minWidth: colWidths.od }} className="p-0 bg-surface-2 text-foreground">
                                   <input 
                                     type="number" 
                                     step="any"
@@ -1536,31 +1629,8 @@ function CableTraySizingPage() {
                                     onKeyDown={(e) => handleKeyDown(e, currentGlobalRowIndex, 6)} 
                                   />
                                 </td>
-                                <td className="px-3 py-1 text-center font-mono font-medium border-r border-border bg-surface-2 text-foreground">
+                                <td style={{ width: colWidths.sumOd, minWidth: colWidths.sumOd }} className="px-3 py-1 text-center font-mono font-medium bg-surface-2 text-foreground">
                                   {isNaN(c.sumOd) ? "-" : (unitSystem === "si" ? c.sumOd.toFixed(1) : (c.sumOd / 25.4).toFixed(2))}
-                                </td>
-                                <td className="text-center p-0" onDoubleClick={(e) => e.stopPropagation()}>
-                                  <div className="flex items-center justify-center gap-1 w-full h-8 px-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        toggleRowSelect(c.id, false, false);
-                                        setEditingCable({ cable: c, trayId: tray.id, index: idx });
-                                      }}
-                                      className="text-primary/70 hover:text-primary hover:bg-primary/10 p-1 rounded transition-colors cursor-pointer"
-                                      title="Edit Parameters & Calculations Breakdown"
-                                    >
-                                      <Info className="size-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeCable(tray.id, c.id)}
-                                      className="text-destructive/70 hover:text-destructive hover:bg-destructive/10 p-1 rounded transition-colors cursor-pointer"
-                                      title="Remove Cable"
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </button>
-                                  </div>
                                 </td>
                               </tr>
                             </ContextMenuTrigger>
@@ -1633,7 +1703,7 @@ function CableTraySizingPage() {
                     )}
                     {/* Add Cable Row button inline */}
                     <tr>
-                      <td colSpan={10} className="p-0">
+                      <td colSpan={8} className="p-0">
                         <div className="flex border-t border-border border-dashed w-full">
                           <button onClick={() => addCable(tray.id)} className="flex-1 py-1.5 flex items-center justify-center gap-2 text-sm text-primary font-medium hover:bg-primary/5 transition-colors">
                             <Plus className="size-3.5" /> Add Cable
@@ -1916,7 +1986,9 @@ function CableTraySizingPage() {
           }}
           targetId={commentTarget.id}
           targetName={commentTarget.name}
-          targetType={commentTarget.type}
+          targetType={commentTarget.type === 'tray' ? 'Cable Tray' : 'Cable'}
+          calculatorTitle="Cable Tray Sizing"
+          calculatorPath="/cable-tray-sizing"
           existingComments={(() => {
             for (const t of trays) {
               if (t.id === commentTarget.id) return t.comments || [];
@@ -1928,7 +2000,7 @@ function CableTraySizingPage() {
           onSave={async (newComment) => {
             if (!commentTarget) return;
             const targetId = commentTarget.id;
-            const currentUserName = userData?.name || profile?.name || "Design Engineer";
+            const targetTypeLabel = commentTarget.type === 'tray' ? 'Cable Tray' : 'Cable';
             const projId = activeProjectId || project?.id || "default";
             const projName = project?.name || "Active Project";
 
@@ -1936,7 +2008,7 @@ function CableTraySizingPage() {
               ...newComment,
               targetId: commentTarget.id,
               targetName: commentTarget.name,
-              targetType: "Cable Tray",
+              targetType: targetTypeLabel,
               projectName: projName,
               projectId: projId,
               calculatorPath: "/cable-tray-sizing",
@@ -1977,21 +2049,10 @@ function CableTraySizingPage() {
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
               window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
+              window.dispatchEvent(new CustomEvent("mep_notif_tick"));
               window.dispatchEvent(new Event("storage"));
             }
 
-            toast.success(`Task comment saved for space ${commentTarget.name}`);
-            notifyCommentAssigned({
-              comment: commentWithMeta,
-              targetId: commentTarget.id,
-              targetName: commentTarget.name,
-              targetType: "Cable Tray",
-              calculatorTitle: "Cable Tray Sizing",
-              calculatorPath: "/cable-tray-sizing",
-              project,
-              currentUserName,
-              currentUserId: userData?.id || profile?.id
-            }).catch(console.error);
             setAssignCommentOpen(false);
             setCommentTarget(null);
           }}

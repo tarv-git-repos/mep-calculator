@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { authService, clearAllAuthStorage, AuthUserData } from '@/services/authService';
 import { api } from '@/services/api';
 import { toast } from 'sonner';
+import { loadOrgHierarchyFromStorage } from '@/utils/hierarchy';
 
 export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
 
@@ -365,27 +366,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let hierarchyRole = '';
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('mep_company_hierarchy');
-        if (saved) {
-          const members = JSON.parse(saved);
-          if (Array.isArray(members)) {
-            const uEmail = String(userData.email || '').toLowerCase().trim();
-            const uName = String(userData.name || '').toLowerCase().trim();
-            const uId = String(userData.id || '').toLowerCase().trim();
-            const found = members.find((m: any) => {
-              const mEmail = String(m.email || '').toLowerCase().trim();
-              const mName = String(m.name || '').toLowerCase().trim();
-              const mId = String(m.id || '').toLowerCase().trim();
-              return (uEmail && mEmail === uEmail) || 
-                     (uId && mId === uId) ||
-                     (uName && mName === uName) ||
-                     (uEmail && mEmail && (uEmail.includes(mEmail) || mEmail.includes(uEmail))) ||
-                     (uName && mName && (uName.includes(mName) || mName.includes(uName)));
-            });
-            if (found) {
-              hierarchyDesignation = found.designation || '';
-              hierarchyRole = found.role || '';
-            }
+        const members = loadOrgHierarchyFromStorage(userData);
+        if (members && Array.isArray(members)) {
+          const uEmail = String(userData.email || '').toLowerCase().trim();
+          const uName = String(userData.name || '').toLowerCase().trim();
+          const uId = String(userData.id || '').toLowerCase().trim();
+          const found = members.find((m: any) => {
+            const mEmail = String(m.email || '').toLowerCase().trim();
+            const mName = String(m.name || '').toLowerCase().trim();
+            const mId = String(m.id || '').toLowerCase().trim();
+            return (uEmail && mEmail === uEmail) || 
+                   (uId && mId === uId) ||
+                   (uName && mName === uName) ||
+                   (uEmail && mEmail && (uEmail.includes(mEmail) || mEmail.includes(uEmail))) ||
+                   (uName && mName && (uName.includes(mName) || mName.includes(uName)));
+          });
+          if (found) {
+            hierarchyDesignation = found.designation || '';
+            hierarchyRole = found.role || '';
           }
         }
       } catch (e) {}

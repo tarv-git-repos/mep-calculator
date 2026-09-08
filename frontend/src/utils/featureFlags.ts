@@ -4,6 +4,8 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'ventilation',
   'preliminary-cooling-load',
   'plumbing-loading-unit',
+  'plumbing-water-demand',
+  'water-demand',
   'busbar-calculation',
   'plumbing-sprinkler-kfactor',
   'k-factor',
@@ -14,7 +16,19 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'condensate-drain',
   'condensate-drain-calc',
   'condensate',
-  'condensate-calc'
+  'condensate-calc',
+  'generator-sizing',
+  'generator',
+  'cable-tray-sizing',
+  'cable-tray',
+  'cable-sizing',
+  'cablesizing',
+  'smoke-extract-fan',
+  'smoke-extract',
+  'basement-smoke-calc',
+  'basement-smoke',
+  'lobby-pressurisation',
+  'staircase-pressurization'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -48,8 +62,21 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   const rawKey = path.startsWith('/') ? path.substring(1) : path;
   const routeKey = rawKey.split('?')[0].toLowerCase().replace(/\/$/, '');
 
-  // Keep Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density & Condensate Drain Calculators unlocked for everyone right now
+  const features = profile?.features || {};
+
+  // Check if explicitly set in user features (from SuperAdmin App Permissions toggle)
+  if (features[routeKey] !== undefined) {
+    return features[routeKey] === false;
+  }
+
+  // Keep Cable Tray Sizing, Water Demand, Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density, Condensate Drain & Smoke Extract Calculators unlocked for everyone by default
   if (
+    routeKey === 'cable-tray-sizing' ||
+    routeKey === 'cable-tray' ||
+    routeKey === 'cable-sizing' ||
+    routeKey === 'cablesizing' ||
+    routeKey === 'plumbing-water-demand' ||
+    routeKey === 'water-demand' ||
     routeKey === 'plumbing-loading-unit' ||
     routeKey === 'loading-unit' ||
     routeKey === 'plumbing-fixture-unit' ||
@@ -61,15 +88,15 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'condensate-drain' ||
     routeKey === 'condensate-drain-calc' ||
     routeKey === 'condensate' ||
-    routeKey === 'condensate-calc'
+    routeKey === 'condensate-calc' ||
+    routeKey === 'smoke-extract-fan' ||
+    routeKey === 'smoke-extract' ||
+    routeKey === 'basement-smoke-calc' ||
+    routeKey === 'basement-smoke' ||
+    routeKey === 'lobby-pressurisation' ||
+    routeKey === 'staircase-pressurization'
   ) {
     return false;
-  }
-  const features = profile?.features || {};
-
-  // Check if explicitly set in user features (from SuperAdmin App Permissions toggle)
-  if (features[routeKey] !== undefined) {
-    return features[routeKey] === false;
   }
 
   // Legacy groupings backwards compatibility fallback if routeKey was not explicitly toggled

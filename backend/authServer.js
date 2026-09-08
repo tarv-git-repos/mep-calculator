@@ -53,6 +53,16 @@ function saveLocalUsers(users) {
 const ORGS_FILE = path.join(DATA_DIR, 'organizations.json');
 try { if (!fs.existsSync(ORGS_FILE)) fs.writeFileSync(ORGS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
 
+const ORG_HIERARCHIES_FILE = path.join(DATA_DIR, 'org_hierarchies.json');
+try { if (!fs.existsSync(ORG_HIERARCHIES_FILE)) fs.writeFileSync(ORG_HIERARCHIES_FILE, JSON.stringify({}), 'utf8'); } catch (e) {}
+
+function readOrgHierarchies() {
+  try { return JSON.parse(fs.readFileSync(ORG_HIERARCHIES_FILE, 'utf8') || '{}'); } catch (e) { return {}; }
+}
+function saveOrgHierarchies(data) {
+  try { fs.writeFileSync(ORG_HIERARCHIES_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch (e) {}
+}
+
 const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
 try { if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
 
@@ -2425,6 +2435,45 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, logs: filteredLogs });
   }
 
+  // GET /api/org/hierarchy
+  if (req.method === 'GET' && (url === '/api/org/hierarchy' || req.url.startsWith('/api/org/hierarchy'))) {
+    const user = await getUserFromReq(req);
+    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
+    
+    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const qOrgId = parsedUrl.searchParams.get('org_id') || parsedUrl.searchParams.get('orgId') || '';
+    const targetOrgId = qOrgId || user?.organization_id || user?.features?.organization_id || user?.company || defaultOrgId;
+    const cleanOrgKey = String(targetOrgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
+
+    const hierarchies = readOrgHierarchies();
+    const hierarchy = hierarchies[cleanOrgKey] || hierarchies[targetOrgId] || hierarchies['default_org'] || [];
+    return sendJSON(res, 200, { success: true, organization_id: targetOrgId, hierarchy });
+  }
+
+  // POST /api/org/hierarchy
+  if (req.method === 'POST' && url === '/api/org/hierarchy') {
+    const user = await getUserFromReq(req);
+    const body = await getRequestBody(req);
+    const hierarchy = body.hierarchy || body;
+    if (!Array.isArray(hierarchy)) {
+      return sendJSON(res, 400, { success: false, message: 'hierarchy array required' });
+    }
+
+    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
+    const targetOrgId = body.org_id || body.orgId || user?.organization_id || user?.features?.organization_id || user?.company || defaultOrgId;
+    const cleanOrgKey = String(targetOrgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
+
+    const hierarchies = readOrgHierarchies();
+    hierarchies[cleanOrgKey] = hierarchy;
+    if (targetOrgId !== cleanOrgKey) {
+      hierarchies[targetOrgId] = hierarchy;
+    }
+    saveOrgHierarchies(hierarchies);
+
+    logActivity(user, 'SAVE_ORG_HIERARCHY', { organization_id: targetOrgId, member_count: hierarchy.length });
+    return sendJSON(res, 200, { success: true, message: 'Organization hierarchy saved successfully', organization_id: targetOrgId, member_count: hierarchy.length });
+  }
+
   function readLicenses() {
     try { return JSON.parse(fs.readFileSync(LICENSES_FILE, 'utf8') || '[]'); } catch (e) { return []; }
   }
@@ -3333,6 +3382,63 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true });
   }
 
+  if (req.method === 'GET' && url.startsWith('/api/org/hierarchy')) {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    let orgId = user.organization_id || user.company || user.organization;
+    if (user.role === 'SUPER_ADMIN') {
+      const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
+      if (qOrgId) orgId = qOrgId;
+    }
+    const cleanOrgKey = String(orgId || 'default_org').toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
+
+    const hierarchies = readOrgHierarchies();
+    const orgHierarchy = hierarchies[cleanOrgKey] || [];
+    return sendJSON(res, 200, { success: true, hierarchy: orgHierarchy, organization_id: orgId });
+  }
+
+  if (req.method === 'POST' && url === '/api/org/hierarchy') {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    const { hierarchy, org_id: reqOrgId } = await getRequestBody(req);
+    let orgId = reqOrgId || user.organization_id || user.company || user.organization;
+    if (!orgId) orgId = 'default_org';
+
+    const cleanOrgKey = String(orgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
+    const hierarchies = readOrgHierarchies();
+    hierarchies[cleanOrgKey] = Array.isArray(hierarchy) ? hierarchy : [];
+    saveOrgHierarchies(hierarchies);
+
+    // Sync member updates to users
+    if (Array.isArray(hierarchy)) {
+      try {
+        const users = await readUsers();
+        let changed = false;
+        hierarchy.forEach(m => {
+          if (!m || !m.email) return;
+          const mEmail = String(m.email).toLowerCase().trim();
+          const uIdx = users.findIndex(u => String(u.email || '').toLowerCase().trim() === mEmail);
+          if (uIdx !== -1) {
+            if (m.role) users[uIdx].role = m.role;
+            if (m.designation) users[uIdx].designation = m.designation;
+            if (m.approvalAuthority) users[uIdx].approvalAuthority = m.approvalAuthority;
+            if (!users[uIdx].features) users[uIdx].features = {};
+            if (m.role) users[uIdx].features.role = m.role;
+            if (m.designation) users[uIdx].features.designation = m.designation;
+            if (m.approvalAuthority) users[uIdx].features.approvalAuthority = m.approvalAuthority;
+            changed = true;
+          }
+        });
+        if (changed) await writeUsers(users);
+      } catch (e) {}
+    }
+
+    logActivity(user, 'UPDATE_ORG_HIERARCHY', { orgId: cleanOrgKey, memberCount: (hierarchy || []).length });
+    return sendJSON(res, 200, { success: true, message: 'Organization hierarchy saved successfully' });
+  }
+
   if (req.method === 'GET' && url === '/api/org/users') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
@@ -3720,9 +3826,9 @@ const server = http.createServer(async (req, res) => {
 
       try {
         const localNotifs = readNotificationsData();
-        const filtered = localNotifs.filter(n => n.id !== notifItem.id);
+        const filtered = localNotifs.filter(n => n && n.id !== notifItem.id);
         filtered.unshift(notifItem);
-        writeNotificationsData(filtered.slice(0, 500));
+        writeNotificationsData(filtered);
       } catch (err) {}
 
       try {
@@ -3743,27 +3849,22 @@ const server = http.createServer(async (req, res) => {
       if (targetIds.size > 0) {
         const targetArray = Array.from(targetIds);
 
-        // 1. Filter local notifications file
+        // 1. Filter local notifications file strictly by notification ID or metadata.id
         const localNotifs = readNotificationsData();
         const filtered = localNotifs.filter(n => {
           if (!n) return false;
           if (targetIds.has(n.id)) return false;
-          if (n.text && targetIds.has(n.text)) return false;
-          if (n.message && targetIds.has(n.message)) return false;
           if (n.metadata?.id && targetIds.has(n.metadata.id)) return false;
-          if (n.metadata?.targetId && targetIds.has(n.metadata.targetId)) return false;
           return true;
         });
         writeNotificationsData(filtered);
 
-        // 2. Delete from Supabase notifications table comprehensively
+        // 2. Delete from Supabase notifications table comprehensively by ID
         try {
           await supabase.from('notifications').delete().in('id', targetArray);
-          // Also try deleting by metadata->>id
           for (const tId of targetArray) {
             if (tId && typeof tId === 'string') {
               await supabase.from('notifications').delete().eq('metadata->>id', tId);
-              await supabase.from('notifications').delete().eq('metadata->>targetId', tId);
             }
           }
         } catch (e) {}
@@ -3784,10 +3885,7 @@ const server = http.createServer(async (req, res) => {
           if (!n) return n;
           const isMatch = Boolean(
             targetIds.has(n.id) ||
-            (n.text && targetIds.has(n.text)) ||
-            (n.message && targetIds.has(n.message)) ||
-            (n.metadata?.id && targetIds.has(n.metadata.id)) ||
-            (n.metadata?.targetId && targetIds.has(n.metadata.targetId))
+            (n.metadata?.id && targetIds.has(n.metadata.id))
           );
           return isMatch ? { ...n, read: true } : n;
         });
@@ -3812,10 +3910,7 @@ const server = http.createServer(async (req, res) => {
           if (!n) return n;
           const isMatch = Boolean(
             targetIds.has(n.id) ||
-            (n.text && targetIds.has(n.text)) ||
-            (n.message && targetIds.has(n.message)) ||
-            (n.metadata?.id && targetIds.has(n.metadata.id)) ||
-            (n.metadata?.targetId && targetIds.has(n.metadata.targetId))
+            (n.metadata?.id && targetIds.has(n.metadata.id))
           );
           return isMatch ? { ...n, completed: true, read: true } : n;
         });

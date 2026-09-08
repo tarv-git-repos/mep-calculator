@@ -1,15 +1,26 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
-  Save, FolderOpen, ChevronDown, ChevronUp, Trash2
+  Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
+  RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
+import { toast } from "sonner";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+} from "@/components/ui/context-menu";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 
 export const Route = createFileRoute("/smoke-extract-fan")({
   head: () => ({
@@ -49,6 +60,152 @@ function SmokeExtractFanPage() {
 
   const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  // Comment System State & Persistence matching Preliminary Cooling Load
+  const [commentsList, setCommentsList] = useState<any[]>([]);
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const pId = project?.id || "default";
+    const savedComments = localStorage.getItem(`mep_calc_comments_${pId}_/smoke-extract-fan`);
+    if (savedComments) {
+      try {
+        setCommentsList(JSON.parse(savedComments));
+      } catch (e) {
+        console.error("Failed to load comments", e);
+      }
+    }
+  }, [project?.id]);
+
+  const saveComments = (newList: any[]) => {
+    setCommentsList(newList);
+    const pId = project?.id || "default";
+    localStorage.setItem(`mep_calc_comments_${pId}_/smoke-extract-fan`, JSON.stringify(newList));
+    try {
+      if (typeof forceSaveToCloud === "function") {
+        forceSaveToCloud(true);
+      }
+    } catch (e) {}
+  };
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (comment: any) => {
+    const commentWithMeta = {
+      ...comment,
+      spaceId: commentTargetItem?.id,
+      targetId: commentTargetItem?.id,
+      targetName: commentTargetItem?.name,
+      calculatorTitle: "Corridor Smoke Extract Fan",
+      calculatorPath: "/smoke-extract-fan",
+      projectId: project?.id || "default",
+      projectName: project?.name || "Corridor Smoke Extract",
+    };
+    const updated = [commentWithMeta, ...commentsList];
+    saveComments(updated);
+    toast.success(`Comment / task assigned on "${commentTargetItem?.name || "parameter"}"`);
+    setCommentModalOpen(false);
+  };
+
+  // Scroll and highlight notification target item (matching Preliminary Cooling Load)
+  useEffect(() => {
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanId = (targetId || "").toLowerCase().trim();
+      const cleanName = (targetName || "").toLowerCase().trim();
+
+      const el = document.getElementById(targetId || "") ||
+                 document.getElementById(`field-${targetId}`) ||
+                 document.getElementById(`res-${targetId}`) ||
+                 document.querySelector(`[data-item-id="${targetId}"]`) ||
+                 document.querySelector(`[data-field-id="${targetId}"]`);
+
+      if (el || cleanId) {
+        setHighlightedTargetId(targetId || cleanId);
+
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => {
+          setHighlightedTargetId(null);
+          highlightTimeoutRef.current = null;
+        }, 4000);
+
+        if (el) {
+          setTimeout(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 150);
+        }
+      }
+    };
+
+    // 1. Check URL parameters on mount
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("commentTargetId");
+      const targetName = params.get("commentTargetName");
+      if (targetId || targetName) {
+        setTimeout(() => {
+          handleScrollTarget(targetId || undefined, targetName || undefined);
+        }, 300);
+      }
+    }
+
+    // 2. Listen to custom event from Notification Center navigation
+    const handleScrollEvent = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail) {
+        handleScrollTarget(detail.id, detail.name);
+      }
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
+
+  const handleCopyValue = (label: string, value: string | number) => {
+    if (value === "" || value === undefined) {
+      toast.info(`No value in ${label} to copy`);
+      return;
+    }
+    navigator.clipboard.writeText(String(value));
+    toast.success(`Copied ${label}: ${value} to clipboard`);
+  };
+
+  const handlePasteValue = async (label: string, setter: (val: number | "") => void) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const num = parseFloat(text.trim());
+      if (!isNaN(num)) {
+        setter(num);
+        toast.success(`Pasted ${num} into ${label}`);
+      } else {
+        toast.error(`Clipboard content "${text}" is not a valid number`);
+      }
+    } catch (err) {
+      toast.error("Unable to read clipboard");
+    }
+  };
+
+  const handleResetValue = (label: string, setter: (val: number | "") => void, defaultVal: number | "") => {
+    setter(defaultVal);
+    toast.success(`Reset ${label} to default ${defaultVal !== "" ? defaultVal : "(blank)"}`);
+  };
+
+  const handleClearValue = (label: string, setter: (val: number | "") => void) => {
+    setter("");
+    toast.info(`Cleared ${label}`);
+  };
 
   useEffect(() => {
     if (project?.id) {
@@ -242,6 +399,209 @@ function SmokeExtractFanPage() {
     downloadFile(new Uint8Array(xlsxBuffer), "Smoke_Extract_Fan.xlsx", "Excel Document", ["xlsx"]);
   };
 
+  // Helper component to render an input field wrapped with Context Menu and Comment Indicator
+  const renderInputBox = (
+    id: string,
+    label: string,
+    value: number | "",
+    setter: (val: number | "") => void,
+    defaultVal: number | "",
+    placeholder: string,
+    min?: number,
+    step: string = "any"
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `field-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`field-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <label className="font-semibold text-foreground flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <span>{label}</span>
+                {hasComments && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenComment(id, label);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                    title={`${itemComments.length} comment(s)/task(s) assigned`}
+                  >
+                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                    <span>{itemComments.length}</span>
+                  </button>
+                )}
+              </span>
+              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
+            </label>
+            <input
+              id={id}
+              type="number"
+              min={min}
+              step={step}
+              value={value}
+              onChange={(e) => setter(e.target.value === "" ? "" : Number(e.target.value))}
+              placeholder={placeholder}
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50"
+            />
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, value)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => handlePasteValue(label, setter)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Clipboard className="size-3.5 text-muted-foreground" />
+            <span>Paste Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleResetValue(label, setter, defaultVal)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <RotateCcw className="size-3.5 text-muted-foreground" />
+            <span>Reset to Default ({defaultVal !== "" ? defaultVal : "Blank"})</span>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => handleClearValue(label, setter)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-amber-600 dark:text-amber-400"
+          >
+            <Trash2 className="size-3.5" />
+            <span>Clear Field</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  // Helper component to render a result output row wrapped with Context Menu and Comment Indicator
+  const renderResultRow = (
+    id: string,
+    label: string,
+    valueFormatted: string,
+    isHighlight: boolean = false,
+    highlightClass: string = "text-foreground",
+    colSpanTwo: boolean = false
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `res-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`res-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/40 dark:hover:bg-slate-800/30 px-2 rounded-lg transition cursor-context-menu group ${
+              colSpanTwo ? "col-span-2" : ""
+            } ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+              <span>{label}</span>
+              {hasComments && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenComment(id, label);
+                  }}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                  title={`${itemComments.length} comment(s)/task(s) assigned`}
+                >
+                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                  <span>{itemComments.length}</span>
+                </button>
+              )}
+            </span>
+            <strong className={`font-bold font-mono ${highlightClass}`}>{valueFormatted}</strong>
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, valueFormatted)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value ({valueFormatted})</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => {
+              navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
+              toast.success(`Copied full line: "${label}: ${valueFormatted}"`);
+            }}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            <span>Copy Full Line</span>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
   return (
     <AppShell title="Smoke Extract Fan" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
@@ -251,7 +611,13 @@ function SmokeExtractFanPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>
-                <CalculationReviewBar calculatorPath="/smoke-extract-fan" calculatorTitle="Smoke Extract Fan" />
+                <CalculationReviewBar projectId={project?.id} calculatorPath="/smoke-extract-fan" calculatorTitle="Corridor Smoke Extract Fan" />
+                {commentsList.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  </div>
+                )}
               </div>
             </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -262,6 +628,7 @@ function SmokeExtractFanPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Inputs Column */}
             <div className="lg:col-span-5 flex flex-col gap-6">
+              {/* Card 1: Corridor Parameters */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
                   <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -269,26 +636,14 @@ function SmokeExtractFanPage() {
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Area of Corridor (m²)</label>
-                    <input type="number" step="any" value={area} onChange={(e) => setArea(e.target.value === "" ? "" : Number(e.target.value))} placeholder="100" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Height of Corridor (m)</label>
-                    <input type="number" step="any" value={height} onChange={(e) => setHeight(e.target.value === "" ? "" : Number(e.target.value))} placeholder="3.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Air Changes per Hour (ACPH)</label>
-                    <input type="number" step="any" value={acph} onChange={(e) => setAcph(e.target.value === "" ? "" : Number(e.target.value))} placeholder="10" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Quantity of Fans</label>
-                    <input type="number" min="1" step="1" value={fanQty} onChange={(e) => { const v = e.target.value === "" ? "" : Number(e.target.value); setFanQty(v); setNumFansMotor(v); }} placeholder="1" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
+                  {renderInputBox("se-corridor-area", "Area of Corridor (m²)", area, setArea, 100, "100")}
+                  {renderInputBox("se-corridor-height", "Height of Corridor (m)", height, setHeight, 3.0, "3.0")}
+                  {renderInputBox("se-acph", "Air Changes per Hour (ACPH)", acph, setAcph, 10, "10")}
+                  {renderInputBox("se-fan-qty", "Quantity of Fans", fanQty, (val) => { setFanQty(val); setNumFansMotor(val); }, 1, "1", 1, "1")}
                 </div>
               </div>
 
-              {/* Fan Head Sizing */}
+              {/* Card 2: Fan Head Sizing */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
                   <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -296,26 +651,14 @@ function SmokeExtractFanPage() {
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Ducting Length (m)</label>
-                    <input type="number" step="any" value={ductLength} onChange={(e) => setDuctLength(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Frictional Factor (Pa/m)</label>
-                    <input type="number" step="any" value={frictionFactor} onChange={(e) => setFrictionFactor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1.0" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Louver &amp; Grille Pressure Drop (Pa)</label>
-                    <input type="number" step="any" value={louverLoss} onChange={(e) => setLouverLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="50" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Fan Internal Losses (Pa)</label>
-                    <input type="number" step="any" value={fanLoss} onChange={(e) => setFanLoss(e.target.value === "" ? "" : Number(e.target.value))} placeholder="20" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
+                  {renderInputBox("se-smoke-duct-length", "Ducting Length (m)", ductLength, setDuctLength, 20, "20")}
+                  {renderInputBox("se-smoke-duct-friction-factor", "Frictional Factor (Pa/m)", frictionFactor, setFrictionFactor, 1.0, "1.0")}
+                  {renderInputBox("se-smoke-losses-louvers", "Louver & Grille Pressure Drop (Pa)", louverLoss, setLouverLoss, 50, "50")}
+                  {renderInputBox("se-smoke-losses-fan", "Fan Internal Losses (Pa)", fanLoss, setFanLoss, 20, "20")}
                 </div>
               </div>
 
-              {/* Efficiencies */}
+              {/* Card 3: Fan Motor Sizing */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
                   <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -323,18 +666,9 @@ function SmokeExtractFanPage() {
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Motor Efficiency (%)</label>
-                    <input type="number" step="any" value={effMotor} onChange={(e) => setEffMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="90" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Fan Efficiency (%)</label>
-                    <input type="number" step="any" value={effFan} onChange={(e) => setEffFan(e.target.value === "" ? "" : Number(e.target.value))} placeholder="75" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Number of Fans (Motor calculation)</label>
-                    <input type="number" min="1" step="1" value={numFansMotor} onChange={(e) => setNumFansMotor(e.target.value === "" ? "" : Number(e.target.value))} placeholder="1" className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal" />
-                  </div>
+                  {renderInputBox("se-motor-eff-motor", "Motor Efficiency (%)", effMotor, setEffMotor, 90, "90")}
+                  {renderInputBox("se-motor-eff-fan", "Fan Efficiency (%)", effFan, setEffFan, 75, "75")}
+                  {renderInputBox("se-motor-fan-qty", "Number of Fans (Motor calculation)", numFansMotor, setNumFansMotor, 1, "1", 1, "1")}
                 </div>
               </div>
             </div>
@@ -349,34 +683,13 @@ function SmokeExtractFanPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Corridor Volume</span>
-                    <strong className="font-bold text-foreground font-mono">{calculatedData.volume.toFixed(1)} m³</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Total Smoke Extract</span>
-                    <strong className="font-bold text-foreground font-mono">{calculatedData.smokeExtractRate.toFixed(3)} m³/s</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Airflow per Fan</span>
-                    <strong className="font-bold text-[#0A7BC7] text-[13px] font-mono">{calculatedData.flowEachLsRound} L/s</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Equivalent Length of Fittings + Accessories</span>
-                    <strong className="font-bold text-foreground font-mono">{calculatedData.fittingsEqLen.toFixed(2)} m</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Total Equivalent Length</span>
-                    <strong className="font-bold text-foreground font-mono">{calculatedData.totalEqLen.toFixed(1)} m</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Head Loss in Ducting</span>
-                    <strong className="font-bold text-foreground font-mono">{calculatedData.frictionLoss.toFixed(2)} Pa</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40 col-span-2">
-                    <span className="font-semibold text-muted-foreground">Total Fan Static Head Loss</span>
-                    <strong className="font-bold text-[#0A7BC7] text-[14px] font-mono">{calculatedData.headRound} Pa</strong>
-                  </div>
+                  {renderResultRow("res-volume", "Corridor Volume", `${calculatedData.volume.toFixed(1)} m³`)}
+                  {renderResultRow("res-extract-rate", "Total Smoke Extract", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`)}
+                  {renderResultRow("res-flow-fan", "Airflow per Fan", `${calculatedData.flowEachLsRound} L/s`, true, "text-[#0A7BC7] text-[13px]")}
+                  {renderResultRow("res-fittings-eq", "Equivalent Length of Fittings", `${calculatedData.fittingsEqLen.toFixed(2)} m`)}
+                  {renderResultRow("res-total-eq", "Total Equivalent Length", `${calculatedData.totalEqLen.toFixed(1)} m`)}
+                  {renderResultRow("res-[#0A7BC7]", "Head Loss in Ducting", `${calculatedData.frictionLoss.toFixed(2)} Pa`)}
+                  {renderResultRow("res-total-static", "Total Fan Static Head Loss", `${calculatedData.headRound} Pa`, true, "text-[#0A7BC7] text-[14px]", true)}
                 </div>
               </div>
 
@@ -388,22 +701,10 @@ function SmokeExtractFanPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Flow of each fan</span>
-                    <strong className="font-bold text-[#0A7BC7] font-mono">{calculatedData.flowEachM3s.toFixed(3)} m³/s</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Total Static of the Fan</span>
-                    <strong className="font-bold text-[#0A7BC7] font-mono">{calculatedData.headRound} Pa</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40 col-span-2">
-                    <span className="font-semibold text-muted-foreground">Power Required per Fan</span>
-                    <strong className="font-bold text-foreground font-mono">{calculatedData.powerEachRound.toFixed(2)} kW</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 col-span-2">
-                    <span className="font-semibold text-muted-foreground">Total Motor Power (+10% Safety margin)</span>
-                    <strong className="font-bold text-[#0A7BC7] text-[14px] font-mono">{calculatedData.totalMotorPower.toFixed(2)} kW</strong>
-                  </div>
+                  {renderResultRow("res-flow-each-m3s", "Flow of each fan", `${calculatedData.flowEachM3s.toFixed(3)} m³/s`, true, "text-[#0A7BC7]")}
+                  {renderResultRow("res-static-fan", "Total Static of the Fan", `${calculatedData.headRound} Pa`, true, "text-[#0A7BC7]")}
+                  {renderResultRow("res-power-fan", "Power Required per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`)}
+                  {renderResultRow("res-total-motor-power", "Total Motor Power (+10% Safety margin)", `${calculatedData.totalMotorPower.toFixed(2)} kW`, true, "text-[#0A7BC7] text-[14px]", true)}
                 </div>
               </div>
 
@@ -420,82 +721,397 @@ function SmokeExtractFanPage() {
                 </button>
                 {showDetailedCalcs && (
                   <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[350px] overflow-y-auto">
-                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
-                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">1</div>
-                      <div>
-                        <div className="font-bold text-foreground">Step 1: Corridor Volume</div>
-                        <div className="font-mono text-primary my-1">V = Area × Height</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">V = {area} m² × {height} m</div>
-                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.volume.toFixed(2)} m³</div>
-                      </div>
-                    </div>
+                    {/* Step 1 */}
+                    {(() => {
+                      const stepId = "step-1-volume";
+                      const stepLabel = "Step 1: Corridor Volume";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">1</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">V = Area × Height</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">V = {area || 100} m² × {height || 3.0} m</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.volume.toFixed(2)} m³</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 1 Volume", `${calculatedData.volume.toFixed(2)} m³`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 1 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
-                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">2</div>
-                      <div>
-                        <div className="font-bold text-foreground">Step 2: Smoke Extract Rate</div>
-                        <div className="font-mono text-primary my-1">Q_smoke = (Volume × ACPH) / 3600</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Q_smoke = ({calculatedData.volume.toFixed(2)} m³ × {acph} ACPH) / 3600</div>
-                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.smokeExtractRate.toFixed(3)} m³/s</div>
-                      </div>
-                    </div>
+                    {/* Step 2 */}
+                    {(() => {
+                      const stepId = "step-2-extract-rate";
+                      const stepLabel = "Step 2: Smoke Extract Rate";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">2</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Q_smoke = (Volume × ACPH) / 3600</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Q_smoke = ({calculatedData.volume.toFixed(2)} m³ × {acph || 10} ACPH) / 3600</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.smokeExtractRate.toFixed(3)} m³/s</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 2 Extract Rate", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 2 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
-                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">3</div>
-                      <div>
-                        <div className="font-bold text-foreground">Step 3: Sized Flow Rate per Fan</div>
-                        <div className="font-mono text-primary my-1">Q_each = Ceiling( (Q_smoke / fanQty × 1000) / 5 ) * 5</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Q_each = Ceiling( ({calculatedData.smokeExtractRate.toFixed(3)} / {fanQty} × 1000) / 5 ) * 5</div>
-                        <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.flowEachLsRound} L/s</div>
-                      </div>
-                    </div>
+                    {/* Step 3 */}
+                    {(() => {
+                      const stepId = "step-3-flow-fan";
+                      const stepLabel = "Step 3: Sized Flow Rate per Fan";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">3</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Q_each = Ceiling( (Q_smoke / fanQty × 1000) / 5 ) * 5</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Q_each = Ceiling( ({calculatedData.smokeExtractRate.toFixed(3)} / {fanQty || 1} × 1000) / 5 ) * 5</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.flowEachLsRound} L/s</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 3 Flow per Fan", `${calculatedData.flowEachLsRound} L/s`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 3 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
-                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">4</div>
-                      <div>
-                        <div className="font-bold text-foreground">Step 4: Ducting Equivalent Length & Friction Loss</div>
-                        <div className="font-mono text-primary my-1">Eq. Length = DuctLength × 1.6 | frictionLoss = Eq. Length × frictionFactor</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Eq. Length = {calculatedData.totalEqLen.toFixed(1)} m | frictionLoss = {calculatedData.totalEqLen.toFixed(1)} m × {frictionFactor} Pa/m</div>
-                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.frictionLoss.toFixed(2)} Pa</div>
-                      </div>
-                    </div>
+                    {/* Step 4 */}
+                    {(() => {
+                      const stepId = "step-4-friction-loss";
+                      const stepLabel = "Step 4: Ducting Equivalent Length & Friction Loss";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">4</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Eq. Length = DuctLength × 1.6 | frictionLoss = Eq. Length × frictionFactor</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Eq. Length = {calculatedData.totalEqLen.toFixed(1)} m | frictionLoss = {calculatedData.totalEqLen.toFixed(1)} m × {frictionFactor || 1.0} Pa/m</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.frictionLoss.toFixed(2)} Pa</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 4 Friction Loss", `${calculatedData.frictionLoss.toFixed(2)} Pa`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 4 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
-                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">5</div>
-                      <div>
-                        <div className="font-bold text-foreground">Step 5: Fan Total Static Head</div>
-                        <div className="font-mono text-primary my-1">Total Head = Round( (frictionLoss + LouverDrop + FanDrop) × 1.1 ) to nearest 10</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Total Head = Round( ({calculatedData.frictionLoss.toFixed(2)} + {louverLoss} + {fanLoss}) × 1.1 ) to nearest 10</div>
-                        <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.headRound} Pa</div>
-                      </div>
-                    </div>
+                    {/* Step 5 */}
+                    {(() => {
+                      const stepId = "step-5-static-head";
+                      const stepLabel = "Step 5: Fan Total Static Head";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">5</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Total Head = Round( (frictionLoss + LouverDrop + FanDrop) × 1.1 ) to nearest 10</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Total Head = Round( ({calculatedData.frictionLoss.toFixed(2)} + {louverLoss || 50} + {fanLoss || 20}) × 1.1 ) to nearest 10</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.headRound} Pa</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 5 Static Head", `${calculatedData.headRound} Pa`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 5 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                    <div className="flex gap-3 items-start border-b border-border/40 pb-2">
-                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">6</div>
-                      <div>
-                        <div className="font-bold text-foreground">Step 6: Sized Power per Fan</div>
-                        <div className="font-mono text-primary my-1">Power = (FlowEachM3s × HeadRound) / (Eff_Motor × Eff_Fan × 1000)</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Power = ({calculatedData.flowEachM3s.toFixed(4)} m³/s × {calculatedData.headRound} Pa) / ({(Number(effMotor) || 90) / 100} × {(Number(effFan) || 75) / 100} × 1000)</div>
-                        <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.powerEachRound.toFixed(2)} kW</div>
-                      </div>
-                    </div>
+                    {/* Step 6 */}
+                    {(() => {
+                      const stepId = "step-6-power-fan";
+                      const stepLabel = "Step 6: Sized Power per Fan";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">6</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Power = (FlowEachM3s × HeadRound) / (Eff_Motor × Eff_Fan × 1000)</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Power = ({calculatedData.flowEachM3s.toFixed(4)} m³/s × {calculatedData.headRound} Pa) / ({(Number(effMotor) || 90) / 100} × {(Number(effFan) || 75) / 100} × 1000)</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.powerEachRound.toFixed(2)} kW</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 6 Power per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 6 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                    <div className="flex gap-3 items-start">
-                      <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px]">7</div>
-                      <div>
-                        <div className="font-bold text-foreground">Step 7: Sized Total Motor Power</div>
-                        <div className="font-mono text-primary my-1">Total Power = PowerEach × 1.1 × qtyFans (Motor calculation)</div>
-                        <div className="font-mono text-[10.5px] text-muted-foreground">Total Power = {calculatedData.powerEachRound.toFixed(2)} kW × 1.1 × {numFansMotor}</div>
-                        <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.totalMotorPower.toFixed(2)} kW</div>
-                      </div>
-                    </div>
+                    {/* Step 7 */}
+                    {(() => {
+                      const stepId = "step-7-total-motor-power";
+                      const stepLabel = "Step 7: Sized Total Motor Power";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">7</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Total Power = PowerEach × 1.1 × qtyFans (Motor calculation)</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Total Power = {calculatedData.powerEachRound.toFixed(2)} kW × 1.1 × {numFansMotor || 1}</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.totalMotorPower.toFixed(2)} kW</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 7 Total Motor Power", `${calculatedData.totalMotorPower.toFixed(2)} kW`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 7 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
 
               {/* Assumptions reference block */}
               <div className="bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
-                <p className="font-semibold text-foreground mb-1">Standard Reference & Assumptions:</p>
+                <p className="font-semibold text-foreground mb-1">Standard Reference &amp; Assumptions:</p>
                 <ul className="list-disc pl-4 space-y-1.5">
                   <li>Calculates fresh air requirements in accordance with NFPA 92 and BS EN 12101-6.</li>
                   <li>Friction loss calculation uses equivalent length sizers for typical fitting indices ($1.6 \times$ duct length).</li>
@@ -589,6 +1205,21 @@ function SmokeExtractFanPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Assign Comment / Task Modal */}
+      {commentModalOpen && commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => setCommentModalOpen(false)}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="parameter"
+          calculatorTitle="Corridor Smoke Extract Fan"
+          calculatorPath="/smoke-extract-fan"
+          onSave={handleSaveComment}
+          existingComments={commentsList.filter(c => c.spaceId === commentTargetItem.id || c.targetId === commentTargetItem.id || c.itemId === commentTargetItem.id)}
+        />
       )}
     </AppShell>
   );

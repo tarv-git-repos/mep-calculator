@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { api } from "@/services/api";
 import { workspaceStore } from "@/lib/workspace-store";
+import { loadOrgHierarchyFromStorage } from "@/utils/hierarchy";
 
 export type WorkflowRole = "Jr. / Design Engineer" | "Sr. Design Engineer" | "Discipline Coordinator";
 
@@ -142,24 +143,21 @@ export function CalculationReviewBar({
     // 1. Check Company Hierarchy FIRST (Single Source of Truth)
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("mep_company_hierarchy");
-        if (saved) {
-          const members = JSON.parse(saved);
-          if (Array.isArray(members)) {
-            const found = members.find((m: any) => {
-              const mEmail = String(m.email || "").toLowerCase().trim();
-              const mName = String(m.name || "").toLowerCase().trim();
-              const mId = String(m.id || "").toLowerCase().trim();
-              return (currentEmail && mEmail === currentEmail) ||
-                     (currentId && mId === currentId) ||
-                     (currentName && mName === currentName) ||
-                     (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
-                     (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
-            });
+        const members = loadOrgHierarchyFromStorage(userData, profile);
+        if (members && Array.isArray(members)) {
+          const found = members.find((m: any) => {
+            const mEmail = String(m.email || "").toLowerCase().trim();
+            const mName = String(m.name || "").toLowerCase().trim();
+            const mId = String(m.id || "").toLowerCase().trim();
+            return (currentEmail && mEmail === currentEmail) ||
+                   (currentId && mId === currentId) ||
+                   (currentName && mName === currentName) ||
+                   (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
+                   (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
+          });
 
-            if (found && found.approvalAuthority) {
-              return found.approvalAuthority;
-            }
+          if (found && found.approvalAuthority) {
+            return found.approvalAuthority;
           }
         }
       } catch (e) {}
@@ -352,7 +350,7 @@ export function CalculationReviewBar({
         const existingNotifs = Array.isArray(wdata.notifications) ? wdata.notifications : [];
         const updatedWdata = {
           ...wdata,
-          notifications: [coordNotifRecord, ...existingNotifs].slice(0, 50)
+          notifications: [coordNotifRecord, ...existingNotifs]
         };
         api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
         workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
@@ -567,7 +565,7 @@ export function CalculationReviewBar({
         const existingNotifs = Array.isArray(wdata.notifications) ? wdata.notifications : [];
         const updatedWdata = {
           ...wdata,
-          notifications: [notifRecord, ...existingNotifs].slice(0, 50)
+          notifications: [notifRecord, ...existingNotifs]
         };
         api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
         workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });

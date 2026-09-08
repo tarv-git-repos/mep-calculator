@@ -133,12 +133,20 @@ export async function notifyCommentAssigned(options: {
     recipients = recipients.filter(r => String(r).toLowerCase().trim() !== authorNameStr);
   }
 
-  // 1. Instant local window event dispatch
+  // 1. Instant local window event broadcast (< 1ms)
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: commentWithMeta }));
     window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: commentWithMeta }));
     window.dispatchEvent(new CustomEvent("mep_notif_tick"));
     window.dispatchEvent(new Event("storage"));
+
+    if ('BroadcastChannel' in window) {
+      try {
+        const bc = new BroadcastChannel("mep_notifications_channel");
+        bc.postMessage({ type: "NEW_NOTIFICATION", comment: commentWithMeta });
+        bc.close();
+      } catch (e) {}
+    }
   }
 
   // 2. Non-blocking asynchronous background notification delivery

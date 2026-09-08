@@ -1,11 +1,15 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfHeader, addPdfSignatureBlock, resolveLatestReviewState } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, formatDateStr, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { Trash2, Plus, Download, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet } from "lucide-react";
+import { Trash2, Plus, Download, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag } from "lucide-react";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { TBtn } from "@/components/workspace/Button";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import ExcelJS from "exceljs";
@@ -14,6 +18,8 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 
 export const Route = createFileRoute("/plumbing-water-demand")({
   head: () => ({
@@ -31,6 +37,8 @@ interface WDRow {
   ppl: number;
   cat: string;
   lpd: number;
+  flagged?: boolean;
+  comments?: any[];
 }
 
 interface IrrRow {
@@ -38,6 +46,8 @@ interface IrrRow {
   area: number;
   vegType: string;
   lpd: number;
+  flagged?: boolean;
+  comments?: any[];
 }
 
 const WD_TYPE_MAP: Record<string, number> = {
@@ -113,13 +123,18 @@ const PRESET_STANDARDS = {
   },
 };
 
+type Tab = "demand" | "tanks" | "report";
+
 function WaterDemandPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
+  const currentUserId = userData?.id || profile?.id || "user_id";
   const { project, forceSaveToCloud } = useWorkspace();
 
+  const [tab, setTab] = useState<Tab>("demand");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [presetStandard, setPresetStandard] = useState<string>("dewa");
+  const [intelOpen, setIntelOpen] = useState(false);
 
   // Storage Tank & Transfer Pump Settings
   const [storageDays, setStorageDays] = useState<number>(1);
@@ -142,9 +157,178 @@ function WaterDemandPage() {
   const [poolArea, setPoolArea] = useState<number | "">("");
   const [poolDepth, setPoolDepth] = useState<number | "">("");
   const [poolEvap, setPoolEvap] = useState<number>(10);
+  const [poolComments, setPoolComments] = useState<any[]>([]);
+  const [poolFlagged, setPoolFlagged] = useState<boolean>(false);
 
   // Fire state
   const [fireFlow, setFireFlow] = useState<number | "">("");
+  const [fireComments, setFireComments] = useState<any[]>([]);
+  const [fireFlagged, setFireFlagged] = useState<boolean>(false);
+
+  // Comment Modal Target State
+  const [commentTarget, setCommentTarget] = useState<{
+    targetId: string;
+    targetName: string;
+    targetType: string;
+    rowId?: number;
+    isIrrigation?: boolean;
+    isPool?: boolean;
+    isFire?: boolean;
+    existingComments?: any[];
+  } | null>(null);
+
+  // Double-Click Calculation Breakdown Preview Modal State
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState<{
+    type: "domestic" | "irrigation" | "summary" | "tank" | "pump" | "pool" | "fire";
+    rowId?: number;
+  } | null>(null);
+
+  // Search, Filter, Sort state for toolbar
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCatFilter, setSelectedCatFilter] = useState<string>("");
+  const [sortBy, setSortBy] = useState<"name" | "ppl" | "lpd" | "load" | "none">("none");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const activeFiltersCount = (selectedCatFilter ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setSelectedCatFilter("");
+    setSearchQuery("");
+  };
+
+  const handleResetSort = () => {
+    setSortBy("none");
+    setSortOrder("asc");
+  };
+
+  const handleQuickAddWd = () => {
+    const newId = Date.now();
+    const newEntry: WDRow = {
+      id: newId,
+      name: `New Water Entry ${wdRows.length + 1}`,
+      ppl: 50,
+      cat: "Offices",
+      lpd: 60,
+      comments: [],
+    };
+    setWdRows((prev) => [...prev, newEntry]);
+    dirtyStore.set(true);
+    toast.success(`Created "New Water Entry ${wdRows.length + 1}"`);
+  };
+
+  const handleImportExcelFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+
+        if (jsonData.length === 0) {
+          toast.error("The uploaded Excel file is empty.");
+          return;
+        }
+
+        let headerIdx = -1;
+        let descCol = 0, pplCol = 1, catCol = 2, lpdCol = 3;
+
+        for (let r = 0; r < jsonData.length; r++) {
+          const row = jsonData[r];
+          if (Array.isArray(row) && row.length > 0) {
+            const rowStr = row.map((c) => String(c || "").toLowerCase());
+            if (rowStr.some((c) => c.includes("desc") || c.includes("name") || c.includes("room") || c.includes("people") || c.includes("unit"))) {
+              headerIdx = r;
+              rowStr.forEach((cell, idx) => {
+                if (cell.includes("desc") || cell.includes("name") || cell.includes("room") || cell.includes("title")) descCol = idx;
+                else if (cell.includes("people") || cell.includes("unit") || cell.includes("count") || cell.includes("ppl") || cell.includes("occ")) pplCol = idx;
+                else if (cell.includes("cat") || cell.includes("type") || cell.includes("use")) catCol = idx;
+                else if (cell.includes("lpd") || cell.includes("gpd") || cell.includes("rate") || cell.includes("per capita")) lpdCol = idx;
+              });
+              break;
+            }
+          }
+        }
+
+        const startRow = headerIdx >= 0 ? headerIdx + 1 : 0;
+        const imported: WDRow[] = [];
+
+        for (let r = startRow; r < jsonData.length; r++) {
+          const row = jsonData[r];
+          if (!Array.isArray(row) || row.length === 0) continue;
+          const nameVal = String(row[descCol] || row[0] || "").trim();
+          if (!nameVal) continue;
+          const pplVal = Number(row[pplCol] || row[1]) || 1;
+          const catVal = String(row[catCol] || row[2] || "").trim();
+          const matchedCat = Object.keys(WD_TYPE_MAP).find((k) => k.toLowerCase() === catVal.toLowerCase()) || "Offices";
+          const defaultLpd = WD_TYPE_MAP[matchedCat] || 60;
+          const lpdVal = Number(row[lpdCol] || row[3]) || defaultLpd;
+
+          imported.push({
+            id: Date.now() + r + Math.floor(Math.random() * 1000),
+            name: nameVal,
+            ppl: pplVal,
+            cat: matchedCat,
+            lpd: lpdVal,
+            comments: [],
+          });
+        }
+
+        if (imported.length > 0) {
+          setWdRows((prev) => [...prev, ...imported]);
+          dirtyStore.set(true);
+          toast.success(`Successfully imported ${imported.length} entries from "${file.name}"!`);
+        } else {
+          toast.error("No valid water demand entries found in the file.");
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to parse Excel file. Please ensure it is a valid .xlsx or .csv sheet.");
+      } finally {
+        if (e.target) e.target.value = "";
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const filteredAndSortedWdRows = useMemo(() => {
+    let list = [...wdRows];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter((r) => r.name.toLowerCase().includes(q) || r.cat.toLowerCase().includes(q));
+    }
+    if (selectedCatFilter) {
+      list = list.filter((r) => r.cat === selectedCatFilter);
+    }
+    if (sortBy !== "none") {
+      list.sort((a, b) => {
+        let valA: any = a.name;
+        let valB: any = b.name;
+        if (sortBy === "ppl") {
+          valA = a.ppl;
+          valB = b.ppl;
+        } else if (sortBy === "lpd") {
+          valA = a.lpd;
+          valB = b.lpd;
+        } else if (sortBy === "load") {
+          valA = a.ppl * a.lpd;
+          valB = b.ppl * b.lpd;
+        }
+        if (typeof valA === "number" && typeof valB === "number") {
+          return sortOrder === "asc" ? valA - valB : valB - valA;
+        }
+        return sortOrder === "asc"
+          ? String(valA).localeCompare(String(valB))
+          : String(valB).localeCompare(String(valA));
+      });
+    }
+    return list;
+  }, [wdRows, searchQuery, selectedCatFilter, sortBy, sortOrder]);
 
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
@@ -166,7 +350,11 @@ function WaterDemandPage() {
         if (data.poolArea !== undefined) setPoolArea(data.poolArea);
         if (data.poolDepth !== undefined) setPoolDepth(data.poolDepth);
         if (data.poolEvap !== undefined) setPoolEvap(data.poolEvap);
+        if (data.poolComments) setPoolComments(data.poolComments);
+        if (data.poolFlagged !== undefined) setPoolFlagged(data.poolFlagged);
         if (data.fireFlow !== undefined) setFireFlow(data.fireFlow);
+        if (data.fireComments) setFireComments(data.fireComments);
+        if (data.fireFlagged !== undefined) setFireFlagged(data.fireFlagged);
       } else {
         // Reset to defaults
         setUnitSystem("si");
@@ -176,17 +364,21 @@ function WaterDemandPage() {
         setPeakFactor(2.5);
         setFillWindowHours(2);
         setWdRows([
-          { id: 1, name: "Apartment Block A", ppl: 150, cat: "Residential buildings (flat)", lpd: 300 },
-          { id: 2, name: "Ground Floor Offices", ppl: 45, cat: "Offices", lpd: 60 },
+          { id: 1, name: "Apartment Block A", ppl: 150, cat: "Residential buildings (flat)", lpd: 300, comments: [] },
+          { id: 2, name: "Ground Floor Offices", ppl: 45, cat: "Offices", lpd: 60, comments: [] },
         ]);
         setIrrRows([
-          { id: 1, area: 120, vegType: "Lawn with pop-up sprays", lpd: 10 },
-          { id: 2, area: 15, vegType: "Palm Trees", lpd: 150 },
+          { id: 1, area: 120, vegType: "Lawn with pop-up sprays", lpd: 10, comments: [] },
+          { id: 2, area: 15, vegType: "Palm Trees", lpd: 150, comments: [] },
         ]);
         setPoolArea("");
         setPoolDepth("");
         setPoolEvap(10);
+        setPoolComments([]);
+        setPoolFlagged(false);
         setFireFlow("");
+        setFireComments([]);
+        setFireFlagged(false);
       }
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
@@ -214,7 +406,11 @@ function WaterDemandPage() {
         poolArea,
         poolDepth,
         poolEvap,
+        poolComments,
+        poolFlagged,
         fireFlow,
+        fireComments,
+        fireFlagged,
       };
       localStorage.setItem(`mep_water_demand_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(true);
@@ -238,7 +434,11 @@ function WaterDemandPage() {
     poolArea,
     poolDepth,
     poolEvap,
+    poolComments,
+    poolFlagged,
     fireFlow,
+    fireComments,
+    fireFlagged,
   ]);
 
   const handleSaveCurrent = () => {
@@ -319,7 +519,7 @@ function WaterDemandPage() {
     const groundTankL = reqStorageL * groundRatio;
     const roofTankL = reqStorageL * roofRatio;
 
-    // Dimensions helper (assuming rectangular cube with H ~ 2m for ground, H ~ 1.5m for roof)
+    // Dimensions helper (assuming rectangular cube with H ~ 2.2m for ground, H ~ 1.5m for roof)
     const estimateDimensions = (volM3: number, hDefault: number) => {
       if (volM3 <= 0) return { l: 0, w: 0, h: 0 };
       const h = hDefault;
@@ -432,6 +632,7 @@ function WaterDemandPage() {
         ppl: Number(newWdPeople),
         cat: newWdCat,
         lpd,
+        comments: [],
       },
     ]);
     setNewWdName("");
@@ -465,6 +666,7 @@ function WaterDemandPage() {
         area: Number(newIrrArea),
         vegType: newIrrVegType,
         lpd,
+        comments: [],
       },
     ]);
     setNewIrrArea("");
@@ -484,48 +686,149 @@ function WaterDemandPage() {
     );
   };
 
+  // Save comment to row & dispatch notifications
+  const handleSaveRowComment = async (comment: any) => {
+    if (!commentTarget) return;
+    const { rowId, isIrrigation, isPool, isFire, targetName, targetType } = commentTarget;
+
+    const enrichedComment = {
+      ...comment,
+      calculatorTitle: "Water Demand Calculator",
+      calculatorPath: "/plumbing-water-demand",
+      targetId: String(rowId || (isPool ? "swimming_pool" : isFire ? "fire_fighting" : "water_demand")),
+      targetName,
+      targetType,
+      projectId: project?.id || "default",
+      projectName: project?.name || "MEP Calculator Project",
+    };
+
+    if (isPool) {
+      setPoolComments((prev) => [enrichedComment, ...prev]);
+    } else if (isFire) {
+      setFireComments((prev) => [enrichedComment, ...prev]);
+    } else if (isIrrigation) {
+      setIrrRows((prev) =>
+        prev.map((r) => {
+          if (r.id === rowId) {
+            const nextComments = [enrichedComment, ...(r.comments || [])];
+            return { ...r, comments: nextComments };
+          }
+          return r;
+        })
+      );
+    } else {
+      setWdRows((prev) =>
+        prev.map((r) => {
+          if (r.id === rowId) {
+            const nextComments = [enrichedComment, ...(r.comments || [])];
+            return { ...r, comments: nextComments };
+          }
+          return r;
+        })
+      );
+    }
+
+    dispatchGlobalCommentNotification(enrichedComment, {
+      project,
+      currentUserName,
+      currentUserId,
+    });
+
+    toast.success("Task comment added & notification dispatched to selected users!");
+    setCommentTarget(null);
+  };
+
+  const handleToggleWdFlag = (id: number) => {
+    setWdRows((prev) =>
+      prev.map((r) => {
+        if (r.id === id) {
+          const nextState = !r.flagged;
+          toast.info(nextState ? `Flagged "${r.name}" for review` : `Unflagged "${r.name}"`);
+          return { ...r, flagged: nextState };
+        }
+        return r;
+      })
+    );
+  };
+
+  const handleToggleIrrFlag = (id: number) => {
+    setIrrRows((prev) =>
+      prev.map((r) => {
+        if (r.id === id) {
+          const nextState = !r.flagged;
+          toast.info(nextState ? `Flagged "${r.vegType}" for review` : `Unflagged "${r.vegType}"`);
+          return { ...r, flagged: nextState };
+        }
+        return r;
+      })
+    );
+  };
+
+  // Helper for safe autoTable calling across bundler variations
+  const callAutoTable = (pdfDoc: any, options: any) => {
+    if (typeof autoTable === "function") {
+      autoTable(pdfDoc, options);
+    } else if (typeof (autoTable as any)?.default === "function") {
+      (autoTable as any).default(pdfDoc, options);
+    } else if (typeof pdfDoc.autoTable === "function") {
+      pdfDoc.autoTable(options);
+    } else {
+      console.error("autoTable function not available");
+    }
+  };
+
   // PDF Exporter
   const handleExportPDF = () => {
     try {
-      const doc = new jsPDF("p", "pt", "a4");
+      const JsPDFClass = typeof jsPDF === "function" ? jsPDF : (jsPDF as any).default;
+      const doc = new JsPDFClass("portrait", "mm", "a4");
       const projId = project?.id || "default";
 
       let currentY = addPdfHeader(
         doc,
-        "WATER DEMAND & TANK SIZING REPORT",
-        `Project: ${project?.name || "MEP Calculator Project"} | Units: ${unitSystem.toUpperCase()}`
+        "Water Demand & Tank Sizing Calculation Report",
+        {
+          calcNo: project?.calcNo || "TRV-CAL-101-R01",
+          projectNo: project?.code || project?.projectNo || "P000",
+          projectName: project?.name || "MEP Calculator Project",
+          client: project?.client || "",
+          endUser: project?.endUser || project?.location || "",
+          date: formatDateStr(new Date().toISOString()),
+        }
       );
 
       // Section 1: Executive Summary Card Table
-      autoTable(doc, {
-        startY: currentY + 10,
+      callAutoTable(doc, {
+        startY: currentY + 4,
+        margin: { left: 14, right: 14 },
         head: [["Calculated Parameter", "Value", "Unit / Metric", "Engineering Standard"]],
         body: [
-          ["Domestic Daily Water Demand", calculations.displayDomestic, ip ? "gal/day" : "L/day", "Occupancy LPD Table"],
-          ["Domestic Peak Flow Rate", calculations.displayDomesticPeak, ip ? "GPM" : "L/s", `Peak Factor = ${peakFactor}`],
-          ["Irrigation Daily Water Load", calculations.displayIrrigation, ip ? "gal/day" : "L/day", "Plant Area Demand"],
-          ["Pool Daily Makeup Water", calculations.displayPoolDemand, ip ? "gal/day" : "L/day", `Evaporation = ${poolEvap}%`],
-          ["GRAND TOTAL DAILY DEMAND", calculations.displayGrandTotal, ip ? "gal/day" : "L/day", "Total Daily Service Load"],
+          ["Domestic Daily Water Demand", calculations.displayDomestic, ip ? "gal/day" : "L/day", PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name || "DEWA Guidelines"],
+          ["Domestic Peak Flow Rate", calculations.displayDomesticPeak, ip ? "GPM" : "L/s", `Peak Multiplier K = ${peakFactor}`],
+          ["Irrigation Daily Water Load", calculations.displayIrrigation, ip ? "gal/day" : "L/day", "Landscaping Area Schedule"],
+          ["Pool Daily Makeup Water", calculations.displayPoolDemand, ip ? "gal/day" : "L/day", `Evaporation Rate = ${poolEvap}%/day`],
+          ["GRAND TOTAL DAILY DEMAND", calculations.displayGrandTotal, ip ? "gal/day" : "L/day", "Combined Site Daily Load"],
           ["Required Storage Tank Volume", calculations.displayTotalStorage, ip ? "gal" : "m³", `${storageDays} Day(s) Retention`],
-          ["Ground Water Tank (Break Tank)", calculations.displayGroundTank, ip ? "gal" : "L", `Split: ${tankSplit.split("-")[0]}%`],
-          ["Overhead Roof Tank", calculations.displayRoofTank, ip ? "gal" : "L", `Split: ${tankSplit.split("-")[1]}%`],
-          ["Transfer Pump Flow Rate", calculations.displayTransferPump, ip ? "GPM" : "L/s", `${fillWindowHours}-Hr Roof Tank Fill`],
+          ["Ground Water Tank (Break Tank)", calculations.displayGroundTank, ip ? "gal" : "L", `Ground Split: ${(tankSplit || "60-40").split("-")[0]}%`],
+          ["Overhead Roof Tank", calculations.displayRoofTank, ip ? "gal" : "L", `Roof Split: ${(tankSplit || "60-40").split("-")[1]}%`],
+          ["Transfer Pump Flow Rate", calculations.displayTransferPump, ip ? "GPM" : "L/s", `${fillWindowHours}-Hr Filling Window`],
         ],
         theme: "grid",
-        headStyles: { fillColor: [10, 123, 199], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
-        bodyStyles: { fontSize: 8.5 },
-        columnStyles: { 0: { fontStyle: "bold", cellWidth: 160 }, 1: { fontStyle: "bold", textColor: [10, 123, 199] } },
+        headStyles: { fillColor: [10, 123, 199], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
+        bodyStyles: { fontSize: 8 },
+        columnStyles: { 0: { fontStyle: "bold", cellWidth: 55 }, 1: { fontStyle: "bold", textColor: [10, 123, 199] } },
       });
 
-      currentY = (doc as any).lastAutoTable.finalY + 15;
+      currentY = (doc as any).lastAutoTable?.finalY || 100;
 
       // Section 2: Domestic Schedule
-      doc.setFontSize(10);
+      doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
-      doc.text("Domestic Water Demand Breakdown", 40, currentY);
+      doc.text("Section 1: Domestic Water Demand Schedule", 14, currentY + 8);
 
-      autoTable(doc, {
-        startY: currentY + 5,
+      callAutoTable(doc, {
+        startY: currentY + 11,
+        margin: { left: 14, right: 14 },
         head: [["S.No", "Description", "People", "Category", ip ? "Rate (gpd)" : "Rate (LPD)", ip ? "Total (gal)" : "Total (L)"]],
         body: [
           ...wdRows.map((r, idx) => [
@@ -543,14 +846,17 @@ function WaterDemandPage() {
         bodyStyles: { fontSize: 8 },
       });
 
-      currentY = (doc as any).lastAutoTable.finalY + 15;
+      currentY = (doc as any).lastAutoTable?.finalY || 180;
 
       // Section 3: Irrigation & Storage Dimensions
-      doc.text("Irrigation & Storage Tank Sizing", 40, currentY);
+      doc.setFontSize(9.5);
+      doc.setFont("helvetica", "bold");
+      doc.text("Section 2: Irrigation & Storage Tank Physical Sizing", 14, currentY + 8);
 
-      autoTable(doc, {
-        startY: currentY + 5,
-        head: [["Category", "Vegetation / Tank", "Area / Volume", "Rate / Ratio", "Total Output"]],
+      callAutoTable(doc, {
+        startY: currentY + 11,
+        margin: { left: 14, right: 14 },
+        head: [["Category", "Vegetation / Tank", "Area / Volume", "Rate / Ratio", "Total Output & Dimensions"]],
         body: [
           ...irrRows.map((r) => [
             "Irrigation",
@@ -559,15 +865,15 @@ function WaterDemandPage() {
             ip ? `${(r.lpd / 40.7458).toFixed(2)} gal/ft²` : `${r.lpd} L/m²`,
             ip ? `${Math.round((r.area * r.lpd) / 3.78541).toLocaleString()} gal` : `${(r.area * r.lpd).toLocaleString()} L`,
           ]),
-          ["Ground Tank", "Reinforced Concrete / GRP", `${(calculations.groundTankL / 1000).toFixed(2)} m³`, `${tankSplit.split("-")[0]}% Share`, `${calculations.groundDim.l}m L × ${calculations.groundDim.w}m W × ${calculations.groundDim.h}m H`],
-          ["Roof Tank", "Modular Sectional Tank", `${(calculations.roofTankL / 1000).toFixed(2)} m³`, `${tankSplit.split("-")[1]}% Share`, `${calculations.roofDim.l}m L × ${calculations.roofDim.w}m W × ${calculations.roofDim.h}m H`],
+          ["Ground Tank", "Reinforced Concrete / GRP", `${(calculations.groundTankL / 1000).toFixed(2)} m³`, `${(tankSplit || "60-40").split("-")[0]}% Share`, `${calculations.groundDim.l}m L × ${calculations.groundDim.w}m W × ${calculations.groundDim.h}m H`],
+          ["Roof Tank", "Modular Sectional Tank", `${(calculations.roofTankL / 1000).toFixed(2)} m³`, `${(tankSplit || "60-40").split("-")[1]}% Share`, `${calculations.roofDim.l}m L × ${calculations.roofDim.w}m W × ${calculations.roofDim.h}m H`],
         ],
         theme: "grid",
         headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8.5 },
         bodyStyles: { fontSize: 8 },
       });
 
-      currentY = (doc as any).lastAutoTable.finalY + 20;
+      currentY = (doc as any).lastAutoTable?.finalY || 240;
 
       // Add signature block
       const reviewDetails = resolveLatestReviewState(projId, "/plumbing-water-demand");
@@ -708,7 +1014,7 @@ function WaterDemandPage() {
   };
 
   return (
-    <AppShell title="Water Demand & Tank Sizer" hideSubHeader={true}>
+    <AppShell title="Water Demand & Tank Sizer" hideSubHeader={true} onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
           {/* Header Bar */}
@@ -721,643 +1027,2059 @@ function WaterDemandPage() {
                 <h1 className="text-[26px] font-extrabold tracking-tight text-foreground mt-0.5">
                   Water Demand &amp; Tank Sizer
                 </h1>
+                <button 
+                  type="button"
+                  onClick={() => setIntelOpen((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  Intelligence
+                </button>
                 <CalculationReviewBar calculatorPath="/plumbing-water-demand" calculatorTitle="Water Demand Calculator" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Calculate daily domestic water load, peak flow rate, irrigation demand, pool makeup, storage tank volumes, and transfer pump capacities.
               </p>
-            </div>
 
-            {/* Actions Bar */}
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {/* Unit System Toggle */}
-              <div className="bg-slate-200/80 dark:bg-slate-800 p-1 rounded-xl flex items-center gap-1 border border-border">
-                <button
-                  onClick={() => setUnitSystem("si")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    unitSystem === "si"
-                      ? "bg-[#0A7BC7] text-white shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  SI Metric (L, m³)
-                </button>
-                <button
-                  onClick={() => setUnitSystem("ip")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    unitSystem === "ip"
-                      ? "bg-[#0A7BC7] text-white shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  IP Imperial (gal, ft³)
-                </button>
-              </div>
-
-              <button
-                onClick={handleSaveCurrent}
-                className="flex items-center gap-1.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white rounded-xl px-3.5 py-2 text-xs font-bold transition-all border-0 cursor-pointer shadow-xs"
-              >
-                <Save className="size-4" /> Save
-              </button>
-              <button
-                onClick={handleExportPDF}
-                className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-3.5 py-2 text-xs font-bold transition-all border-0 cursor-pointer shadow-xs"
-              >
-                <Download className="size-4 text-sky-400" /> Export PDF
-              </button>
-              <button
-                onClick={handleExportExcel}
-                className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl px-3.5 py-2 text-xs font-bold transition-all border-0 cursor-pointer shadow-xs"
-              >
-                <FileSpreadsheet className="size-4" /> Export Excel
-              </button>
             </div>
           </div>
 
-          {/* Preset Standard Selector Banner */}
-          <div className="bg-gradient-to-r from-blue-900/10 via-slate-900/5 to-sky-900/10 border border-blue-200/40 dark:border-blue-900/40 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-[#0A7BC7]/15 rounded-xl text-[#0A7BC7]">
-                <Globe className="size-5" />
-              </div>
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-                  Design Standard &amp; Regional Preset Guidelines
-                </h4>
-                <p className="text-[12px] text-muted-foreground mt-0.5">
-                  {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.desc}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <label className="text-xs font-semibold text-foreground whitespace-nowrap">Preset Standard:</label>
-              <select
-                value={presetStandard}
-                onChange={(e) => setPresetStandard(e.target.value)}
-                className="bg-white dark:bg-slate-950 border border-border rounded-xl px-3 py-1.5 text-xs font-bold text-foreground outline-none focus:border-[#0A7BC7] shadow-xs cursor-pointer"
-              >
-                {Object.keys(PRESET_STANDARDS).map((key) => (
-                  <option key={key} value={key}>
-                    {PRESET_STANDARDS[key as keyof typeof PRESET_STANDARDS].name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          {/* Unified Sub-Header Pill Tabs & Attached Toolbar Header Container */}
+          <div className="bg-card border border-border/80 rounded-2xl p-3 shadow-xs flex flex-col gap-2.5 w-full no-print">
+            {/* Top Row: Pill Tabs */}
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900/70 rounded-2xl border border-border/50 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setTab("demand")}
+                  className={`px-4 py-1.5 rounded-xl text-xs transition-all cursor-pointer ${
+                    tab === "demand"
+                      ? "bg-white dark:bg-slate-800 text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground font-semibold"
+                  }`}
+                >
+                  Demand Sizing
+                </button>
 
-          {/* Grid Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <div className="lg:col-span-8 flex flex-col gap-6">
-              {/* 1. Domestic Water Demand Schedule */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                    🏠 1. Domestic Water Demand Schedule
-                  </h3>
+                <button
+                  type="button"
+                  onClick={() => setTab("tanks")}
+                  className={`px-4 py-1.5 rounded-xl text-xs transition-all cursor-pointer ${
+                    tab === "tanks"
+                      ? "bg-white dark:bg-slate-800 text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground font-semibold"
+                  }`}
+                >
+                  Storage &amp; Pumps
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 rounded-xl text-xs transition-all cursor-pointer ${
+                    tab === "report"
+                      ? "bg-white dark:bg-slate-800 text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground font-semibold"
+                  }`}
+                >
+                  Report
+                </button>
+              </div>
+            </div>
+
+            {/* Attached Filter & Action Buttons Toolbar */}
+            {tab !== "report" && (
+              <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-border/50">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Search Filter Input */}
+                  <div className="relative flex items-center">
+                    <Search className="size-3.5 absolute left-3 text-muted-foreground pointer-events-none" />
+                    <input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Filter entries..."
+                      className="h-8 w-52 pl-8 pr-3 bg-slate-100 dark:bg-slate-900 border border-transparent focus:border-[#0A7BC7] focus:bg-background rounded-full text-xs outline-none transition-all"
+                    />
+                  </div>
+
+                  {/* Filter Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
+                          activeFiltersCount > 0
+                            ? "bg-[#0A7BC7]/10 border-[#0A7BC7]/45 text-[#0A7BC7] font-medium"
+                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
+                        }`}
+                        title="Filter entries"
+                      >
+                        <Filter className="size-3.5 shrink-0" />
+                        {activeFiltersCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-[#0A7BC7] text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm">
+                            {activeFiltersCount}
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-xs font-semibold text-foreground">Filters</span>
+                        {activeFiltersCount > 0 && (
+                          <button onClick={handleResetFilters} className="text-[10px] text-[#0A7BC7] hover:underline font-semibold cursor-pointer">
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Occupancy Category</span>
+                        <select
+                          value={selectedCatFilter}
+                          onChange={(e) => setSelectedCatFilter(e.target.value)}
+                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="">All Categories</option>
+                          {Object.keys(WD_TYPE_MAP).map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Sort Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
+                          sortBy !== "none"
+                            ? "bg-[#0A7BC7]/10 border-[#0A7BC7]/45 text-[#0A7BC7] font-medium"
+                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
+                        }`}
+                        title="Sort entries"
+                      >
+                        <ArrowUpDown className="size-3.5 shrink-0" />
+                        {sortBy !== "none" && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-[#0A7BC7] text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-xs font-semibold text-foreground">Sort Options</span>
+                        {sortBy !== "none" && (
+                          <button onClick={handleResetSort} className="text-[10px] text-[#0A7BC7] hover:underline font-semibold cursor-pointer">
+                            Reset Sort
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</label>
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value as any)}
+                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="none">Default Order</option>
+                          <option value="name">Description Name</option>
+                          <option value="ppl">People / Units Count</option>
+                          <option value="lpd">Per Capita Rate (LPD)</option>
+                          <option value="load">Daily Water Load</option>
+                        </select>
+                      </div>
+                      {sortBy !== "none" && (
+                        <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                          <span className="text-[11px] font-semibold text-muted-foreground">Order</span>
+                          <button
+                            onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+                            className="px-2 py-1 text-[11px] font-bold text-[#0A7BC7] bg-[#0A7BC7]/10 rounded-md hover:bg-[#0A7BC7]/20 cursor-pointer"
+                          >
+                            {sortOrder === "asc" ? "Ascending ↑" : "Descending ↓"}
+                          </button>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
-                {/* Form to add row */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end bg-slate-50/50 dark:bg-slate-900/30 p-3.5 border border-border rounded-xl text-xs">
-                  <div className="flex flex-col gap-1">
-                    <label className="font-semibold text-foreground">Description</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Office Block A"
-                      value={newWdName}
-                      onChange={(e) => setNewWdName(e.target.value)}
-                      className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
-                    />
+                {/* Right Side Actions */}
+                <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                  <input
+                    type="file"
+                    ref={importFileRef}
+                    onChange={handleImportExcelFile}
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                  />
+                  <TBtn onClick={() => importFileRef.current?.click()}>
+                    <Download className="size-3.5" /> Import
+                  </TBtn>
+                  <TBtn onClick={handleExportPDF}>
+                    <FileText className="size-3.5" /> Export PDF
+                  </TBtn>
+                  <TBtn onClick={() => { setPreviewTarget({ type: "summary" }); setPreviewModalOpen(true); }}>
+                    <Sparkles className="size-3.5 text-[#0A7BC7]" /> Auto-Calculate
+                  </TBtn>
+                  <TBtn primary onClick={handleQuickAddWd}>
+                    <Plus className="size-3.5" /> New Entry
+                  </TBtn>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* -------------------- TAB 1: DEMAND SIZING -------------------- */}
+          {tab === "demand" && (
+            <>
+              {/* Preset Standard Selector Banner */}
+              <div
+                onDoubleClick={() => {
+                  setPreviewTarget({ type: "summary" });
+                  setPreviewModalOpen(true);
+                }}
+                title="Double-click to open complete calculation executive preview modal"
+                className="bg-gradient-to-r from-blue-900/10 via-slate-900/5 to-sky-900/10 border border-blue-200/40 dark:border-blue-900/40 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer select-none"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-[#0A7BC7]/15 rounded-xl text-[#0A7BC7]">
+                    <Globe className="size-5" />
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="font-semibold text-foreground">No. of People / Units</label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 150"
-                      value={newWdPeople}
-                      onChange={(e) => setNewWdPeople(e.target.value !== "" ? Number(e.target.value) : "")}
-                      className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
-                    />
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                      Design Standard &amp; Regional Preset Guidelines
+                    </h4>
+                    <p className="text-[12px] text-muted-foreground mt-0.5">
+                      {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.desc}
+                    </p>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="font-semibold text-foreground">Occupancy Category</label>
-                    <select
-                      value={newWdCat}
-                      onChange={(e) => setNewWdCat(e.target.value)}
-                      className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
-                    >
-                      <option value="">— Select Category —</option>
-                      <optgroup label="Residential">
-                        <option value="Residential buildings (flat)">Residential buildings (flat) — 300 LPD</option>
-                        <option value="Villas">Villas — 350 LPD</option>
-                        <option value="Mixed used residential">Mixed used residential — 350 LPD</option>
-                        <option value="Labour accommodation">Labour accommodation — 150 LPD</option>
-                      </optgroup>
-                      <optgroup label="Office &amp; Commercial">
-                        <option value="Offices">Offices — 60 LPD</option>
-                        <option value="Headquarters">Headquarters — 80 LPD</option>
-                        <option value="Commercial buildings">Commercial buildings — 100 LPD</option>
-                        <option value="Mixed used commercial">Mixed used commercial — 80 LPD</option>
-                        <option value="Logistic, academic &amp; business center">Logistic &amp; business center — 75 LPD</option>
-                      </optgroup>
-                      <optgroup label="Retail &amp; Leisure">
-                        <option value="Local plaza / retail / town center">Local plaza / retail — 82 LPD</option>
-                        <option value="Shops">Shops — 60 LPD</option>
-                        <option value="Club house / recreation">Club house / recreation — 100 LPD</option>
-                        <option value="Entertainment &amp; leisure / theater">Leisure / theater — 60 LPD</option>
-                        <option value="Theatre">Theatre — 50 LPD</option>
-                        <option value="Events">Events — 50 LPD</option>
-                      </optgroup>
-                      <optgroup label="Hospitality">
-                        <option value="Hotels (per guest)">Hotels (per guest) — 300 LPD</option>
-                        <option value="Hotels (per employee)">Hotels (per employee) — 80 LPD</option>
-                        <option value="Restaurant (per meal)">Restaurant (per meal) — 15 LPD</option>
-                        <option value="Visitors">Visitors — 40 LPD</option>
-                      </optgroup>
-                      <optgroup label="Education">
-                        <option value="Schools / university">Schools / university — 60 LPD</option>
-                        <option value="Nursery / child care centre">Nursery / child care — 70 LPD</option>
-                      </optgroup>
-                      <optgroup label="Medical &amp; Healthcare">
-                        <option value="Medical (per bed)">Medical (per bed) — 450 LPD</option>
-                        <option value="Day clinic (per medical practitioner) incl. visitors">Day clinic — 450 LPD</option>
-                        <option value="Laboratory">Laboratory — 80 LPD</option>
-                      </optgroup>
-                      <optgroup label="Industrial">
-                        <option value="Manufacturing / mineral">Manufacturing / mineral — 80 LPD</option>
-                        <option value="Industrial (workshops / machinery / warehouse)">Industrial — 80 LPD</option>
-                        <option value="Guardhouse">Guardhouse — 75 LPD</option>
-                      </optgroup>
-                      <optgroup label="Public &amp; Assembly">
-                        <option value="Mosques">Mosques — 60 LPD</option>
-                        <option value="Public amenities">Public amenities — 50 LPD</option>
-                      </optgroup>
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddWd}
-                    className="h-8.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer"
+                </div>
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                  <label className="text-xs font-semibold text-foreground whitespace-nowrap">Preset Standard:</label>
+                  <select
+                    value={presetStandard}
+                    onChange={(e) => setPresetStandard(e.target.value)}
+                    className="bg-white dark:bg-slate-950 border border-border rounded-xl px-3 py-1.5 text-xs font-bold text-foreground outline-none focus:border-[#0A7BC7] shadow-xs cursor-pointer"
                   >
-                    <Plus className="size-4" /> Add Entry
-                  </button>
+                    {Object.keys(PRESET_STANDARDS).map((key) => (
+                      <option key={key} value={key}>
+                        {PRESET_STANDARDS[key as keyof typeof PRESET_STANDARDS].name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+              </div>
 
-                {/* Domestic Table */}
-                <div className="overflow-x-auto border border-border rounded-xl">
-                  <table className="w-full border-collapse text-[12.5px] font-sans">
-                    <thead>
-                      <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
-                        <th className="p-2.5 text-center w-12">S.No</th>
-                        <th className="p-2.5 text-left">Description</th>
-                        <th className="p-2.5 text-center w-24">People</th>
-                        <th className="p-2.5 text-left w-48">Category</th>
-                        <th className="p-2.5 text-right w-28">Per Capita Rate</th>
-                        <th className="p-2.5 text-right w-32">Daily Load</th>
-                        <th className="p-2.5 text-center w-12">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {wdRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="p-8 text-center text-muted-foreground italic">
-                            No domestic entries added. Fill in the form above to populate.
-                          </td>
-                        </tr>
-                      ) : (
-                        wdRows.map((r, idx) => (
-                          <tr key={r.id} className="border-b border-border/50 hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
-                            <td className="p-2 text-center text-muted-foreground font-mono">{idx + 1}</td>
-                            <td className="p-2">
-                              <input
-                                type="text"
-                                value={r.name}
-                                onChange={(e) => handleWdRowChange(r.id, "name", e.target.value)}
-                                className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-medium"
-                              />
-                            </td>
-                            <td className="p-2 text-center font-bold">
+              {/* Main Content Layout */}
+              <div className="flex flex-col gap-6 w-full">
+                {/* 1. Domestic Water Demand Schedule */}
+                  <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                    <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
+                        🏠 1. Domestic Water Demand Schedule
+                      </h3>
+                    </div>
+
+                    {/* Form to add row */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end bg-slate-50/50 dark:bg-slate-900/30 p-3.5 border border-border rounded-xl text-xs">
+                      <div className="flex flex-col gap-1">
+                        <label className="font-semibold text-foreground">Description</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Office Block A"
+                          value={newWdName}
+                          onChange={(e) => setNewWdName(e.target.value)}
+                          className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="font-semibold text-foreground">No. of People / Units</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 150"
+                          value={newWdPeople}
+                          onChange={(e) => setNewWdPeople(e.target.value !== "" ? Number(e.target.value) : "")}
+                          className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="font-semibold text-foreground">Occupancy Category</label>
+                        <select
+                          value={newWdCat}
+                          onChange={(e) => setNewWdCat(e.target.value)}
+                          className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                        >
+                          <option value="">— Select Category —</option>
+                          <optgroup label="Residential">
+                            <option value="Residential buildings (flat)">Residential buildings (flat) — 300 LPD</option>
+                            <option value="Villas">Villas — 350 LPD</option>
+                            <option value="Mixed used residential">Mixed used residential — 350 LPD</option>
+                            <option value="Labour accommodation">Labour accommodation — 150 LPD</option>
+                          </optgroup>
+                          <optgroup label="Office &amp; Commercial">
+                            <option value="Offices">Offices — 60 LPD</option>
+                            <option value="Headquarters">Headquarters — 80 LPD</option>
+                            <option value="Commercial buildings">Commercial buildings — 100 LPD</option>
+                            <option value="Mixed used commercial">Mixed used commercial — 80 LPD</option>
+                            <option value="Logistic, academic &amp; business center">Logistic &amp; business center — 75 LPD</option>
+                          </optgroup>
+                          <optgroup label="Retail &amp; Leisure">
+                            <option value="Local plaza / retail / town center">Local plaza / retail — 82 LPD</option>
+                            <option value="Shops">Shops — 60 LPD</option>
+                            <option value="Club house / recreation">Club house / recreation — 100 LPD</option>
+                            <option value="Entertainment &amp; leisure / theater">Leisure / theater — 60 LPD</option>
+                            <option value="Theatre">Theatre — 50 LPD</option>
+                            <option value="Events">Events — 50 LPD</option>
+                          </optgroup>
+                          <optgroup label="Hospitality">
+                            <option value="Hotels (per guest)">Hotels (per guest) — 300 LPD</option>
+                            <option value="Hotels (per employee)">Hotels (per employee) — 80 LPD</option>
+                            <option value="Restaurant (per meal)">Restaurant (per meal) — 15 LPD</option>
+                            <option value="Visitors">Visitors — 40 LPD</option>
+                          </optgroup>
+                          <optgroup label="Education">
+                            <option value="Schools / university">Schools / university — 60 LPD</option>
+                            <option value="Nursery / child care centre">Nursery / child care — 70 LPD</option>
+                          </optgroup>
+                          <optgroup label="Medical &amp; Healthcare">
+                            <option value="Medical (per bed)">Medical (per bed) — 450 LPD</option>
+                            <option value="Day clinic (per medical practitioner) incl. visitors">Day clinic — 450 LPD</option>
+                            <option value="Laboratory">Laboratory — 80 LPD</option>
+                          </optgroup>
+                          <optgroup label="Industrial">
+                            <option value="Manufacturing / mineral">Manufacturing / mineral — 80 LPD</option>
+                            <option value="Industrial (workshops / machinery / warehouse)">Industrial — 80 LPD</option>
+                            <option value="Guardhouse">Guardhouse — 75 LPD</option>
+                          </optgroup>
+                          <optgroup label="Public &amp; Assembly">
+                            <option value="Mosques">Mosques — 60 LPD</option>
+                            <option value="Public amenities">Public amenities — 50 LPD</option>
+                          </optgroup>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddWd}
+                        className="h-8.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer"
+                      >
+                        <Plus className="size-4" /> Add Entry
+                      </button>
+                    </div>
+
+                    {/* Domestic Table */}
+                        <div className="overflow-x-auto border border-border rounded-xl">
+                      <table className="w-full border-collapse text-[12.5px] font-sans">
+                        <thead>
+                          <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
+                            <th className="p-2.5 text-center w-12">S.No</th>
+                            <th className="p-2.5 text-left">Description</th>
+                            <th className="p-2.5 text-center w-24">People</th>
+                            <th className="p-2.5 text-left w-48">Category</th>
+                            <th className="p-2.5 text-right w-28">Per Capita Rate</th>
+                            <th className="p-2.5 text-right w-32">Daily Load</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredAndSortedWdRows.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="p-8 text-center text-muted-foreground italic">
+                                {wdRows.length === 0
+                                  ? "No domestic entries added. Fill in the form above or click Import to populate."
+                                  : "No domestic entries match the active search/filter criteria."}
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredAndSortedWdRows.map((r, idx) => (
+                              <ContextMenu key={r.id}>
+                                <ContextMenuTrigger asChild>
+                                  <tr
+                                    id={`row-${r.id}`}
+                                    data-row-id={r.id}
+                                    onDoubleClick={() => {
+                                      setPreviewTarget({ type: "domestic", rowId: r.id });
+                                      setPreviewModalOpen(true);
+                                    }}
+                                    title="Double-click to open full calculation breakdown & edit preview"
+                                    className={`border-b border-border/50 transition-colors cursor-pointer ${
+                                      r.flagged
+                                        ? "bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
+                                        : "hover:bg-slate-50/50 dark:hover:bg-slate-900/30"
+                                    }`}
+                                  >
+                                    <td className="p-2 text-center text-muted-foreground font-mono">
+                                      <div className="flex items-center justify-center gap-1.5">
+                                        <span>{idx + 1}</span>
+                                        {r.flagged && (
+                                          <span title="Flagged for review" className="inline-flex">
+                                            <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                          </span>
+                                        )}
+                                        {r.comments && r.comments.length > 0 ? (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCommentTarget({
+                                                targetId: String(r.id),
+                                                targetName: r.name,
+                                                targetType: "Domestic Water Load",
+                                                rowId: r.id,
+                                                isIrrigation: false,
+                                                existingComments: r.comments || [],
+                                              });
+                                            }}
+                                            title={`${r.comments.length} comment(s) - click to view`}
+                                            className="inline-flex items-center gap-0.5 bg-blue-50 dark:bg-blue-950/50 text-blue-600 px-1.5 py-0.5 rounded-md text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors cursor-pointer"
+                                          >
+                                            <MessageSquare className="size-3 fill-blue-500/20" />
+                                            <span>{r.comments.length}</span>
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCommentTarget({
+                                                targetId: String(r.id),
+                                                targetName: r.name,
+                                                targetType: "Domestic Water Load",
+                                                rowId: r.id,
+                                                isIrrigation: false,
+                                                existingComments: [],
+                                              });
+                                            }}
+                                            title="Add comment & assign task to user"
+                                            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition-colors cursor-pointer"
+                                          >
+                                            <MessageSquare className="size-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="p-2">
+                                      <input
+                                        type="text"
+                                        value={r.name}
+                                        onChange={(e) => handleWdRowChange(r.id, "name", e.target.value)}
+                                        className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-medium"
+                                      />
+                                    </td>
+                                    <td className="p-2 text-center font-bold">
+                                      <input
+                                        type="number"
+                                        value={r.ppl}
+                                        onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
+                                        className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono"
+                                      />
+                                    </td>
+                                    <td className="p-2">
+                                      <select
+                                        value={r.cat}
+                                        onChange={(e) => handleWdRowChange(r.id, "cat", e.target.value)}
+                                        className="w-full bg-transparent border-0 outline-none cursor-pointer focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded text-xs"
+                                      >
+                                        {Object.keys(WD_TYPE_MAP).map((k) => (
+                                          <option key={k} value={k}>
+                                            {k}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td className="p-2 text-right font-mono font-medium text-muted-foreground">
+                                      {(ip ? Math.round(r.lpd / 3.78541) : r.lpd).toLocaleString()} {ip ? "gpd" : "LPD"}
+                                    </td>
+                                    <td className="p-2 text-right font-mono font-bold text-[#0A7BC7]">
+                                      {(ip ? Math.round((r.ppl * r.lpd) / 3.78541) : r.ppl * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
+                                    </td>
+                                  </tr>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 font-sans text-xs">
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      setPreviewTarget({ type: "domestic", rowId: r.id });
+                                      setPreviewModalOpen(true);
+                                    }}
+                                    className="gap-2 cursor-pointer font-semibold text-[#0A7BC7]"
+                                  >
+                                    <Calculator className="size-3.5" />
+                                    <span>Calculation Breakdown &amp; Preview</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem
+                                    onClick={() =>
+                                      setCommentTarget({
+                                        targetId: String(r.id),
+                                        targetName: r.name,
+                                        targetType: "Domestic Water Load",
+                                        rowId: r.id,
+                                        isIrrigation: false,
+                                        existingComments: r.comments || [],
+                                      })
+                                    }
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <MessageSquare className="size-3.5 text-blue-500" />
+                                    <span>Add Comment / Assign Task</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => handleToggleWdFlag(r.id)}
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <Flag className={`size-3.5 ${r.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                                    <span>{r.flagged ? "Unflag Row" : "Flag for Review"}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      const dup = { ...r, id: Date.now(), name: `${r.name} (Copy)` };
+                                      setWdRows((prev) => [...prev, dup]);
+                                      toast.success(`Duplicated "${r.name}"`);
+                                    }}
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <Copy className="size-3.5 text-slate-500" />
+                                    <span>Duplicate Row</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      setWdRows((prev) => prev.filter((x) => x.id !== r.id));
+                                      toast.success(`Deleted "${r.name}"`);
+                                    }}
+                                    className="gap-2 text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/30 cursor-pointer"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                    <span>Delete Row</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 2. Irrigation Water Demand Schedule */}
+                  <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                    <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
+                        🌿 2. Irrigation Water Demand Schedule
+                      </h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end bg-slate-50/50 dark:bg-slate-900/30 p-3.5 border border-border rounded-xl text-xs">
+                      <div className="flex flex-col gap-1">
+                        <label className="font-semibold text-foreground">Area ({ip ? "ft²" : "m²"})</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 100"
+                          value={newIrrArea}
+                          onChange={(e) => setNewIrrArea(e.target.value !== "" ? Number(e.target.value) : "")}
+                          className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="font-semibold text-foreground">Vegetation Type</label>
+                        <select
+                          value={newIrrVegType}
+                          onChange={(e) => setNewIrrVegType(e.target.value)}
+                          className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                        >
+                          <option value="">— Select Plant Type —</option>
+                          {Object.keys(IRR_TYPE_MAP).map((k) => (
+                            <option key={k} value={k}>
+                              {k} — {IRR_TYPE_MAP[k]} L/m²
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddIrr}
+                        className="h-8.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer"
+                      >
+                        <Plus className="size-4" /> Add Plant Area
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto border border-border rounded-xl">
+                      <table className="w-full border-collapse text-[12.5px] font-sans">
+                        <thead>
+                          <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
+                            <th className="p-2.5 text-center w-12">S.No</th>
+                            <th className="p-2.5 text-left">Vegetation Type</th>
+                            <th className="p-2.5 text-center w-32">Area</th>
+                            <th className="p-2.5 text-right w-36">Rate</th>
+                            <th className="p-2.5 text-right w-36">Total Load</th>
+                            <th className="p-2.5 text-center w-20">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {irrRows.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="p-8 text-center text-muted-foreground italic">
+                                No irrigation entries.
+                              </td>
+                            </tr>
+                          ) : (
+                            irrRows.map((r, idx) => (
+                              <ContextMenu key={r.id}>
+                                <ContextMenuTrigger asChild>
+                                  <tr
+                                    id={`row-${r.id}`}
+                                    data-row-id={r.id}
+                                    onDoubleClick={() => {
+                                      setPreviewTarget({ type: "irrigation", rowId: r.id });
+                                      setPreviewModalOpen(true);
+                                    }}
+                                        className={`border-b border-border/50 transition-colors cursor-pointer ${
+                                      r.flagged
+                                        ? "bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
+                                        : "hover:bg-slate-50/50 dark:hover:bg-slate-900/30"
+                                    }`}
+                                  >
+                                    <td className="p-2 text-center text-muted-foreground font-mono">
+                                      <div className="flex items-center justify-center gap-1.5">
+                                        <span>{idx + 1}</span>
+                                        {r.flagged && (
+                                          <span title="Flagged for review" className="inline-flex">
+                                            <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                          </span>
+                                        )}
+                                        {r.comments && r.comments.length > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCommentTarget({
+                                                targetId: String(r.id),
+                                                targetName: r.vegType,
+                                                targetType: "Irrigation Plant Area",
+                                                rowId: r.id,
+                                                isIrrigation: true,
+                                                existingComments: r.comments || [],
+                                              });
+                                            }}
+                                            title={`${r.comments.length} comment(s) - click to view`}
+                                            className="inline-flex items-center gap-0.5 bg-blue-50 dark:bg-blue-950/50 text-blue-600 px-1.5 py-0.5 rounded-md text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors cursor-pointer"
+                                          >
+                                            <MessageSquare className="size-3 fill-blue-500/20" />
+                                            <span>{r.comments.length}</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="p-2">
+                                      <select
+                                        value={r.vegType}
+                                        onChange={(e) => handleIrrRowChange(r.id, "vegType", e.target.value)}
+                                        className="w-full bg-transparent border-0 outline-none cursor-pointer focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded text-xs"
+                                      >
+                                        {Object.keys(IRR_TYPE_MAP).map((k) => (
+                                          <option key={k} value={k}>
+                                            {k}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td className="p-2 text-center font-bold font-mono">
+                                      <input
+                                        type="number"
+                                        value={r.area}
+                                        onChange={(e) => handleIrrRowChange(r.id, "area", Number(e.target.value))}
+                                        className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded"
+                                      />
+                                    </td>
+                                    <td className="p-2 text-right font-mono font-medium text-muted-foreground">
+                                      {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)} {ip ? "gal/ft²" : "L/m²"}
+                                    </td>
+                                    <td className="p-2 text-right font-mono font-bold text-[#0A7BC7]">
+                                      {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
+                                    </td>
+                                    <td className="p-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center justify-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setCommentTarget({
+                                              targetId: String(r.id),
+                                              targetName: r.vegType,
+                                              targetType: "Irrigation Plant Area",
+                                              rowId: r.id,
+                                              isIrrigation: true,
+                                              existingComments: r.comments || [],
+                                            })
+                                          }
+                                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors relative cursor-pointer"
+                                          title="Add comment & assign task to user"
+                                        >
+                                          <MessageSquare className="size-3.5" />
+                                          {r.comments && r.comments.length > 0 && (
+                                            <span className="absolute -top-1 -right-1 size-3.5 bg-blue-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center">
+                                              {r.comments.length}
+                                            </span>
+                                          )}
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleIrrFlag(r.id)}
+                                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                            r.flagged
+                                              ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
+                                              : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                          }`}
+                                          title={r.flagged ? "Flagged for review" : "Flag for review"}
+                                        >
+                                          <Flag className={`size-3.5 ${r.flagged ? "fill-amber-500" : ""}`} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 font-sans text-xs">
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      setPreviewTarget({ type: "irrigation", rowId: r.id });
+                                      setPreviewModalOpen(true);
+                                    }}
+                                    className="gap-2 cursor-pointer font-semibold text-[#0A7BC7]"
+                                  >
+                                    <Calculator className="size-3.5" />
+                                    <span>Calculation Breakdown &amp; Preview</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem
+                                    onClick={() =>
+                                      setCommentTarget({
+                                        targetId: String(r.id),
+                                        targetName: r.vegType,
+                                        targetType: "Irrigation Plant Area",
+                                        rowId: r.id,
+                                        isIrrigation: true,
+                                        existingComments: r.comments || [],
+                                      })
+                                    }
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <MessageSquare className="size-3.5 text-blue-500" />
+                                    <span>Add Comment / Assign Task</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => handleToggleIrrFlag(r.id)}
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <Flag className={`size-3.5 ${r.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                                    <span>{r.flagged ? "Unflag Row" : "Flag for Review"}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      const dup = { ...r, id: Date.now() };
+                                      setIrrRows((prev) => [...prev, dup]);
+                                      toast.success(`Duplicated "${r.vegType}"`);
+                                    }}
+                                    className="gap-2 cursor-pointer"
+                                  >
+                                    <Copy className="size-3.5 text-slate-500" />
+                                    <span>Duplicate Row</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator />
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      setIrrRows((prev) => prev.filter((x) => x.id !== r.id));
+                                      toast.success(`Deleted "${r.vegType}"`);
+                                    }}
+                                    className="gap-2 text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/30 cursor-pointer"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                    <span>Delete Row</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 3. Swimming Pool & Fire Fighting Demand */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Pool Card */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          onDoubleClick={() => {
+                            setPreviewTarget({ type: "pool" });
+                            setPreviewModalOpen(true);
+                          }}
+                          title="Double-click to open swimming pool makeup calculation breakdown"
+                          className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none ${
+                            poolFlagged
+                              ? "border-amber-400/80 bg-amber-50/40 dark:bg-amber-950/20"
+                              : "border-border hover:border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
+                                🏊 Swimming Pool Makeup
+                                {poolFlagged && (
+                                  <span title="Flagged for review" className="inline-flex">
+                                    <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                  </span>
+                                )}
+                              </h3>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1" onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCommentTarget({
+                                      targetId: "swimming_pool",
+                                      targetName: "Swimming Pool Makeup",
+                                      targetType: "Swimming Pool",
+                                      isPool: true,
+                                      existingComments: poolComments,
+                                    })
+                                  }
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors relative cursor-pointer"
+                                  title="Add comment & assign task for Swimming Pool"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  {poolComments.length > 0 && (
+                                    <span className="absolute -top-1 -right-1 size-3.5 bg-blue-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center">
+                                      {poolComments.length}
+                                    </span>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextState = !poolFlagged;
+                                    setPoolFlagged(nextState);
+                                    toast.info(nextState ? "Flagged Swimming Pool for review" : "Unflagged Swimming Pool");
+                                  }}
+                                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                    poolFlagged
+                                      ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
+                                      : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                  }`}
+                                  title={poolFlagged ? "Flagged for review" : "Flag for review"}
+                                >
+                                  <Flag className={`size-3.5 ${poolFlagged ? "fill-amber-500" : ""}`} />
+                                </button>
+                              </div>
+                              <span className="text-[10px] font-bold text-[#0A7BC7] bg-[#0A7BC7]/10 px-2 py-0.5 rounded-full">
+                                Double-click for Preview
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-3 text-xs font-sans">
+                            <div className="flex flex-col gap-1">
+                              <label className="font-semibold text-foreground">Pool Surface Area ({ip ? "ft²" : "m²"})</label>
                               <input
                                 type="number"
-                                value={r.ppl}
-                                onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
-                                className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono"
+                                placeholder="e.g. 80"
+                                value={poolArea}
+                                onChange={(e) => setPoolArea(e.target.value !== "" ? Number(e.target.value) : "")}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
                               />
-                            </td>
-                            <td className="p-2">
-                              <select
-                                value={r.cat}
-                                onChange={(e) => handleWdRowChange(r.id, "cat", e.target.value)}
-                                className="w-full bg-transparent border-0 outline-none cursor-pointer focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded text-xs"
-                              >
-                                {Object.keys(WD_TYPE_MAP).map((k) => (
-                                  <option key={k} value={k}>
-                                    {k}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-2 text-right font-mono font-medium text-muted-foreground">
-                              {(ip ? Math.round(r.lpd / 3.78541) : r.lpd).toLocaleString()} {ip ? "gpd" : "LPD"}
-                            </td>
-                            <td className="p-2 text-right font-mono font-bold text-[#0A7BC7]">
-                              {(ip ? Math.round((r.ppl * r.lpd) / 3.78541) : r.ppl * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
-                            </td>
-                            <td className="p-2 text-center">
-                              <button
-                                onClick={() => setWdRows(wdRows.filter((x) => x.id !== r.id))}
-                                className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="font-semibold text-foreground">Average Depth ({ip ? "ft" : "m"})</label>
+                              <input
+                                type="number"
+                                placeholder="e.g. 1.5"
+                                value={poolDepth}
+                                onChange={(e) => setPoolDepth(e.target.value !== "" ? Number(e.target.value) : "")}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="font-semibold text-foreground">Evaporation Rate (%/day)</label>
+                              <input
+                                type="number"
+                                value={poolEvap}
+                                onChange={(e) => setPoolEvap(Number(e.target.value))}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
+                              />
+                            </div>
+
+                            {poolArea && poolDepth && (
+                              <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-xl mt-1 flex justify-between items-center">
+                                <span className="text-xs font-bold text-blue-800 dark:text-blue-300">Daily Pool Makeup:</span>
+                                <strong className="text-sm font-extrabold font-mono text-[#0A7BC7]">{calculations.displayPoolDemand}</strong>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 font-sans text-xs">
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "pool" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="gap-2 cursor-pointer font-semibold text-[#0A7BC7]"
+                        >
+                          <Calculator className="size-3.5" />
+                          <span>Calculation Breakdown &amp; Preview</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          onClick={() =>
+                            setCommentTarget({
+                              targetId: "swimming_pool",
+                              targetName: "Swimming Pool Makeup",
+                              targetType: "Swimming Pool",
+                              isPool: true,
+                              existingComments: poolComments,
+                            })
+                          }
+                          className="gap-2 cursor-pointer"
+                        >
+                          <MessageSquare className="size-3.5 text-blue-500" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => {
+                            const nextState = !poolFlagged;
+                            setPoolFlagged(nextState);
+                            toast.info(nextState ? "Flagged Swimming Pool for review" : "Unflagged Swimming Pool");
+                          }}
+                          className="gap-2 cursor-pointer"
+                        >
+                          <Flag className={`size-3.5 ${poolFlagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                          <span>{poolFlagged ? "Unflag Card" : "Flag for Review"}</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+
+                    {/* Fire Card */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          onDoubleClick={() => {
+                            setPreviewTarget({ type: "fire" });
+                            setPreviewModalOpen(true);
+                          }}
+                          title="Double-click to open fire reserve calculation breakdown"
+                          className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none ${
+                            fireFlagged
+                              ? "border-amber-400/80 bg-amber-50/40 dark:bg-amber-950/20"
+                              : "border-border hover:border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1 h-3.5 bg-red-600 rounded-full"></div>
+                              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
+                                🔥 Fire Fighting Reserve Sizing
+                                {fireFlagged && (
+                                  <span title="Flagged for review" className="inline-flex">
+                                    <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                  </span>
+                                )}
+                              </h3>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1" onDoubleClick={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCommentTarget({
+                                      targetId: "fire_fighting",
+                                      targetName: "Fire Fighting Reserve Sizing",
+                                      targetType: "Fire Fighting Reserve",
+                                      isFire: true,
+                                      existingComments: fireComments,
+                                    })
+                                  }
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors relative cursor-pointer"
+                                  title="Add comment & assign task for Fire Fighting"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  {fireComments.length > 0 && (
+                                    <span className="absolute -top-1 -right-1 size-3.5 bg-blue-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center">
+                                      {fireComments.length}
+                                    </span>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextState = !fireFlagged;
+                                    setFireFlagged(nextState);
+                                    toast.info(nextState ? "Flagged Fire Fighting Reserve for review" : "Unflagged Fire Fighting Reserve");
+                                  }}
+                                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                    fireFlagged
+                                      ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
+                                      : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                  }`}
+                                  title={fireFlagged ? "Flagged for review" : "Flag for review"}
+                                >
+                                  <Flag className={`size-3.5 ${fireFlagged ? "fill-amber-500" : ""}`} />
+                                </button>
+                              </div>
+                              <span className="text-[10px] font-bold text-red-600 bg-red-500/10 px-2 py-0.5 rounded-full">
+                                Double-click for Preview
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-3 text-xs font-sans">
+                            <div className="flex flex-col gap-1">
+                              <label className="font-semibold text-foreground">Fire Pump Flow Rate (USGPM)</label>
+                              <input
+                                type="number"
+                                placeholder="e.g. 500"
+                                value={fireFlow}
+                                onChange={(e) => setFireFlow(e.target.value !== "" ? Number(e.target.value) : "")}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="font-semibold text-foreground">Standard Fire Reserve Duration</label>
+                              <div className="w-full bg-slate-100 dark:bg-slate-800 text-muted-foreground border border-border rounded-lg px-3 py-2 font-bold select-none cursor-not-allowed">
+                                60 Minutes (Standard fixed NFPA duration)
+                              </div>
+                            </div>
+
+                            {fireFlow && (
+                              <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 rounded-xl mt-1 flex justify-between items-center">
+                                <span className="text-xs font-bold text-red-800 dark:text-red-300">Reserve Fire Tank:</span>
+                                <strong className="text-sm font-extrabold font-mono text-red-600 dark:text-red-400">{calculations.displayFireCap}</strong>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 font-sans text-xs">
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "fire" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="gap-2 cursor-pointer font-semibold text-[#0A7BC7]"
+                        >
+                          <Calculator className="size-3.5" />
+                          <span>Calculation Breakdown &amp; Preview</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          onClick={() =>
+                            setCommentTarget({
+                              targetId: "fire_fighting",
+                              targetName: "Fire Fighting Reserve Sizing",
+                              targetType: "Fire Fighting Reserve",
+                              isFire: true,
+                              existingComments: fireComments,
+                            })
+                          }
+                          className="gap-2 cursor-pointer"
+                        >
+                          <MessageSquare className="size-3.5 text-blue-500" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => {
+                            const nextState = !fireFlagged;
+                            setFireFlagged(nextState);
+                            toast.info(nextState ? "Flagged Fire Fighting Reserve for review" : "Unflagged Fire Fighting Reserve");
+                          }}
+                          className="gap-2 cursor-pointer"
+                        >
+                          <Flag className={`size-3.5 ${fireFlagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                          <span>{fireFlagged ? "Unflag Card" : "Flag for Review"}</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  </div>
+              </div>
+            </>
+          )}
+
+          {/* -------------------- TAB 2: STORAGE & PUMPS -------------------- */}
+          {tab === "tanks" && (
+            <>
+              {/* Preset Standard Selector Banner */}
+              <div
+                onDoubleClick={() => {
+                  setPreviewTarget({ type: "summary" });
+                  setPreviewModalOpen(true);
+                }}
+                title="Double-click to open complete calculation executive preview modal"
+                className="bg-gradient-to-r from-blue-900/10 via-slate-900/5 to-sky-900/10 border border-blue-200/40 dark:border-blue-900/40 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer select-none"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-[#0A7BC7]/15 rounded-xl text-[#0A7BC7]">
+                    <Globe className="size-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                      Design Standard &amp; Regional Preset Guidelines
+                    </h4>
+                    <p className="text-[12px] text-muted-foreground mt-0.5">
+                      {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.desc}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 w-full md:w-auto">
+                  <label className="text-xs font-semibold text-foreground whitespace-nowrap">Preset Standard:</label>
+                  <select
+                    value={presetStandard}
+                    onChange={(e) => setPresetStandard(e.target.value)}
+                    className="bg-white dark:bg-slate-950 border border-border rounded-xl px-3 py-1.5 text-xs font-bold text-foreground outline-none focus:border-[#0A7BC7] shadow-xs cursor-pointer"
+                  >
+                    {Object.keys(PRESET_STANDARDS).map((key) => (
+                      <option key={key} value={key}>
+                        {PRESET_STANDARDS[key as keyof typeof PRESET_STANDARDS].name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              {/* 2. Domestic Water Storage Tank Sizing Card */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
-                    <Building2 className="size-4 text-[#0A7BC7]" /> 2. Storage Tank Capacity &amp; Split Sizing
-                  </h3>
+              {/* Main Content Layout */}
+              <div className="flex flex-col gap-6 w-full">
+                {/* 1. Domestic Water Storage Tank Sizing Card */}
+                  <div
+                    onDoubleClick={() => {
+                      setPreviewTarget({ type: "tank" });
+                      setPreviewModalOpen(true);
+                    }}
+                    title="Double-click to open storage tank sizing calculation breakdown"
+                    className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs cursor-pointer select-none"
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
+                          <Building2 className="size-4 text-[#0A7BC7]" /> 1. Storage Tank Capacity &amp; Split Sizing
+                        </h3>
+                      </div>
+                      <span className="text-[10px] font-bold text-[#0A7BC7] bg-[#0A7BC7]/10 px-2 py-0.5 rounded-full">
+                        Double-click for Preview
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-foreground">Storage Retention Days</label>
+                        <select
+                          value={storageDays}
+                          onChange={(e) => setStorageDays(Number(e.target.value))}
+                          className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
+                        >
+                          <option value={1}>1 Day Storage (24 Hours — Standard)</option>
+                          <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
+                          <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-foreground">Ground vs Overhead Tank Split</label>
+                        <select
+                          value={tankSplit}
+                          onChange={(e) => setTankSplit(e.target.value as any)}
+                          className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
+                        >
+                          <option value="60-40">60% Ground Tank / 40% Roof Tank (DEWA Standard)</option>
+                          <option value="80-20">80% Ground Tank / 20% Roof Tank</option>
+                          <option value="100-0">100% Ground Tank (Direct Booster Sizing)</option>
+                          <option value="50-50">50% Ground Tank / 50% Roof Tank</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-foreground">Target Storage Volume</label>
+                        <div className="bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-[#0A7BC7] flex items-center justify-between">
+                          <span>{calculations.displayTotalStorage}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                      <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-foreground">Ground Water Break Tank ({tankSplit.split("-")[0]}%)</span>
+                          <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">{calculations.displayGroundTank}</span>
+                        </div>
+                        <div className="text-[11.5px] text-muted-foreground">
+                          Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H</strong> (+ 0.3m freeboard)
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-foreground">Overhead Roof Tank ({tankSplit.split("-")[1]}%)</span>
+                          <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">{calculations.displayRoofTank}</span>
+                        </div>
+                        <div className="text-[11.5px] text-muted-foreground">
+                          Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.roofDim.l}m L × {calculations.roofDim.w}m W × {calculations.roofDim.h}m H</strong> (+ 0.3m freeboard)
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Domestic Peak Flow & Transfer Pump Capacity Card */}
+                  <div
+                    onDoubleClick={() => {
+                      setPreviewTarget({ type: "pump" });
+                      setPreviewModalOpen(true);
+                    }}
+                    title="Double-click to open transfer pump duty calculation breakdown"
+                    className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs cursor-pointer select-none"
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
+                          <Sparkles className="size-4 text-[#0A7BC7]" /> 2. Domestic Peak Flow &amp; Transfer Pump Sizing
+                        </h3>
+                      </div>
+                      <span className="text-[10px] font-bold text-[#0A7BC7] bg-[#0A7BC7]/10 px-2 py-0.5 rounded-full">
+                        Double-click for Preview
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-sans">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-foreground">Diversity / Peak Multiplier (K)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={peakFactor}
+                          onChange={(e) => setPeakFactor(Number(e.target.value))}
+                          className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-foreground">Transfer Filling Duration</label>
+                        <select
+                          value={fillWindowHours}
+                          onChange={(e) => setFillWindowHours(Number(e.target.value))}
+                          className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
+                        >
+                          <option value={1}>1 Hour Filling Window</option>
+                          <option value={2}>2 Hours Filling Window (Standard)</option>
+                          <option value={3}>3 Hours Filling Window</option>
+                          <option value={4}>4 Hours Filling Window</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-foreground">Calculated Peak Flow</label>
+                        <div className="bg-slate-100 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-foreground">
+                          {calculations.displayDomesticPeak}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="font-semibold text-foreground">Required Transfer Pump Flow</label>
+                        <div className="bg-[#0A7BC7] text-white border border-[#06456F] rounded-lg px-3 py-2 text-xs font-mono font-extrabold">
+                          {calculations.displayTransferPump}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+              </div>
+            </>
+          )}
+
+          {/* -------------------- TAB 3: REPORT -------------------- */}
+          {tab === "report" && (
+            <div className="flex flex-col gap-6 animate-in fade-in duration-200">
+              {/* Report Header Bar */}
+              <div className="bg-card border border-border rounded-2xl p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <FileText className="size-5 text-[#0A7BC7]" />
+                    <h2 className="text-base font-extrabold text-foreground tracking-tight">
+                      Executive Site Sizing Summary &amp; Calculation Report
+                    </h2>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Comprehensive engineering calculation report for domestic, irrigation, swimming pool makeup, storage tank volumes, and transfer pump duties.
+                  </p>
                 </div>
 
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleExportPDF}
+                    className="h-9 px-4 bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                  >
+                    <FileText className="size-3.5" /> Export PDF Report
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportExcel}
+                    className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                  >
+                    <FileSpreadsheet className="size-3.5" /> Export Excel Report
+                  </button>
+                </div>
+              </div>
+
+              {/* KPI Executive Summary Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-1 shadow-xs">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Grand Total Daily Demand</span>
+                  <div className="text-xl font-black text-[#0A7BC7] font-mono mt-1">{calculations.displayGrandTotal}</div>
+                  <span className="text-[11px] text-muted-foreground mt-0.5">Domestic + Irrigation + Pool Makeup</span>
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-1 shadow-xs">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Total Required Storage Volume</span>
+                  <div className="text-xl font-black text-foreground font-mono mt-1">{calculations.displayTotalStorage}</div>
+                  <span className="text-[11px] text-muted-foreground mt-0.5">{storageDays} Day(s) Retention ({tankSplit})</span>
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-1 shadow-xs">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Domestic Peak Flow Rate</span>
+                  <div className="text-xl font-black text-foreground font-mono mt-1">{calculations.displayDomesticPeak}</div>
+                  <span className="text-[11px] text-muted-foreground mt-0.5">Peak Diversity Factor: {peakFactor}</span>
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-1 shadow-xs">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Transfer Pump Duty Capacity</span>
+                  <div className="text-xl font-black text-[#0A7BC7] font-mono mt-1">{calculations.displayTransferPump}</div>
+                  <span className="text-[11px] text-muted-foreground mt-0.5">{fillWindowHours}-Hour Roof Tank Filling Window</span>
+                </div>
+              </div>
+
+              {/* Engineering Compliance & Audit Checklist */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <Sparkles className="size-4 text-[#0A7BC7]" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Engineering Standard &amp; Regulatory Compliance Audit
+                  </h3>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Storage Retention Days</label>
-                    <select
-                      value={storageDays}
-                      onChange={(e) => setStorageDays(Number(e.target.value))}
-                      className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                    >
-                      <option value={1}>1 Day Storage (24 Hours — Standard)</option>
-                      <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
-                      <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Ground vs Overhead Tank Split</label>
-                    <select
-                      value={tankSplit}
-                      onChange={(e) => setTankSplit(e.target.value as any)}
-                      className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                    >
-                      <option value="60-40">60% Ground Tank / 40% Roof Tank (DEWA Standard)</option>
-                      <option value="80-20">80% Ground Tank / 20% Roof Tank</option>
-                      <option value="100-0">100% Ground Tank (Direct Booster Sizing)</option>
-                      <option value="50-50">50% Ground Tank / 50% Roof Tank</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Target Storage Volume</label>
-                    <div className="bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-[#0A7BC7] flex items-center justify-between">
-                      <span>{calculations.displayTotalStorage}</span>
+                  <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+                    <div className="p-1 bg-emerald-500 text-white rounded-full mt-0.5">
+                      <Check className="size-3.5" />
                     </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                  <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-foreground">Ground Water Break Tank ({tankSplit.split("-")[0]}%)</span>
-                      <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">{calculations.displayGroundTank}</span>
-                    </div>
-                    <div className="text-[11.5px] text-muted-foreground">
-                      Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H</strong> (+ 0.3m freeboard)
+                    <div>
+                      <div className="font-bold text-emerald-700 dark:text-emerald-400">Design Guideline Preset</div>
+                      <div className="text-[11.5px] text-muted-foreground mt-0.5">
+                        {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name} — Mapped to occupancy LPD tables.
+                      </div>
                     </div>
                   </div>
 
-                  <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-foreground">Overhead Roof Tank ({tankSplit.split("-")[1]}%)</span>
-                      <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">{calculations.displayRoofTank}</span>
+                  <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+                    <div className="p-1 bg-emerald-500 text-white rounded-full mt-0.5">
+                      <Check className="size-3.5" />
                     </div>
-                    <div className="text-[11.5px] text-muted-foreground">
-                      Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.roofDim.l}m L × {calculations.roofDim.w}m W × {calculations.roofDim.h}m H</strong> (+ 0.3m freeboard)
+                    <div>
+                      <div className="font-bold text-emerald-700 dark:text-emerald-400">Storage Retention Period</div>
+                      <div className="text-[11.5px] text-muted-foreground mt-0.5">
+                        {storageDays} Day retention verified ({calculations.reqStorageM3.toFixed(1)} m³ total break + roof tank capacity).
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+                    <div className="p-1 bg-emerald-500 text-white rounded-full mt-0.5">
+                      <Check className="size-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-emerald-700 dark:text-emerald-400">Transfer Pump Filling Window</div>
+                      <div className="text-[11.5px] text-muted-foreground mt-0.5">
+                        {fillWindowHours}-Hour filling window compliant with standard DEWA/ADDC roof tank replenishment guidelines.
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* 3. Domestic Peak Flow & Transfer Pump Capacity Card */}
+              {/* Section 1: Executive Summary Table */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
-                    <Sparkles className="size-4 text-[#0A7BC7]" /> 3. Domestic Peak Flow &amp; Transfer Pump Sizing
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-sans">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Diversity / Peak Multiplier (K)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={peakFactor}
-                      onChange={(e) => setPeakFactor(Number(e.target.value))}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Transfer Filling Duration</label>
-                    <select
-                      value={fillWindowHours}
-                      onChange={(e) => setFillWindowHours(Number(e.target.value))}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                    >
-                      <option value={1}>1 Hour Filling Window</option>
-                      <option value={2}>2 Hours Filling Window (Standard)</option>
-                      <option value={3}>3 Hours Filling Window</option>
-                      <option value={4}>4 Hours Filling Window</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Calculated Peak Flow</label>
-                    <div className="bg-slate-100 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-foreground">
-                      {calculations.displayDomesticPeak}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-semibold text-foreground">Required Transfer Pump Flow</label>
-                    <div className="bg-[#0A7BC7] text-white border border-[#06456F] rounded-lg px-3 py-2 text-xs font-mono font-extrabold">
-                      {calculations.displayTransferPump}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. Irrigation Water Demand */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                    🌿 4. Irrigation Water Demand
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end bg-slate-50/50 dark:bg-slate-900/30 p-3.5 border border-border rounded-xl text-xs">
-                  <div className="flex flex-col gap-1">
-                    <label className="font-semibold text-foreground">Area ({ip ? "ft²" : "m²"})</label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 100"
-                      value={newIrrArea}
-                      onChange={(e) => setNewIrrArea(e.target.value !== "" ? Number(e.target.value) : "")}
-                      className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="font-semibold text-foreground">Vegetation Type</label>
-                    <select
-                      value={newIrrVegType}
-                      onChange={(e) => setNewIrrVegType(e.target.value)}
-                      className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
-                    >
-                      <option value="">— Select Plant Type —</option>
-                      {Object.keys(IRR_TYPE_MAP).map((k) => (
-                        <option key={k} value={k}>
-                          {k} — {IRR_TYPE_MAP[k]} L/m²
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddIrr}
-                    className="h-8.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer"
-                  >
-                    <Plus className="size-4" /> Add Plant Area
-                  </button>
-                </div>
-
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-border/60">
+                  1. Executive Site Sizing Parameter Summary
+                </h3>
                 <div className="overflow-x-auto border border-border rounded-xl">
-                  <table className="w-full border-collapse text-[12.5px] font-sans">
+                  <table className="w-full border-collapse text-xs font-sans">
                     <thead>
                       <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
-                        <th className="p-2.5 text-center w-12">S.No</th>
-                        <th className="p-2.5 text-left">Vegetation Type</th>
-                        <th className="p-2.5 text-center w-32">Area</th>
-                        <th className="p-2.5 text-right w-36">Rate</th>
-                        <th className="p-2.5 text-right w-36">Total Load</th>
-                        <th className="p-2.5 text-center w-12">Action</th>
+                        <th className="p-3 text-left">Calculated Parameter</th>
+                        <th className="p-3 text-right">Calculated Value</th>
+                        <th className="p-3 text-center">Unit</th>
+                        <th className="p-3 text-left">Engineering Design Basis</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {irrRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground italic">
-                            No irrigation entries.
-                          </td>
-                        </tr>
-                      ) : (
-                        irrRows.map((r, idx) => (
-                          <tr key={r.id} className="border-b border-border/50 hover:bg-slate-50/50 dark:hover:bg-slate-900/30">
-                            <td className="p-2 text-center text-muted-foreground font-mono">{idx + 1}</td>
-                            <td className="p-2">
-                              <select
-                                value={r.vegType}
-                                onChange={(e) => handleIrrRowChange(r.id, "vegType", e.target.value)}
-                                className="w-full bg-transparent border-0 outline-none cursor-pointer focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded text-xs"
-                              >
-                                {Object.keys(IRR_TYPE_MAP).map((k) => (
-                                  <option key={k} value={k}>
-                                    {k}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-2 text-center font-bold font-mono">
-                              <input
-                                type="number"
-                                value={r.area}
-                                onChange={(e) => handleIrrRowChange(r.id, "area", Number(e.target.value))}
-                                className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded"
-                              />
-                            </td>
-                            <td className="p-2 text-right font-mono font-medium text-muted-foreground">
-                              {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)} {ip ? "gal/ft²" : "L/m²"}
-                            </td>
-                            <td className="p-2 text-right font-mono font-bold text-[#0A7BC7]">
-                              {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
-                            </td>
-                            <td className="p-2 text-center">
-                              <button
-                                onClick={() => setIrrRows(irrRows.filter((x) => x.id !== r.id))}
-                                className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
+                    <tbody className="divide-y divide-border/50">
+                      <tr>
+                        <td className="p-3 font-semibold">Domestic Daily Water Load</td>
+                        <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">{calculations.displayDomestic}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal/day" : "L/day"}</td>
+                        <td className="p-3 text-muted-foreground">{wdRows.length} Occupancy Line Item(s)</td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold">Domestic Peak Flow Rate</td>
+                        <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">{calculations.displayDomesticPeak}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "GPM" : "L/s"}</td>
+                        <td className="p-3 text-muted-foreground">Peak Factor K = {peakFactor}</td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold">Irrigation Daily Water Load</td>
+                        <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">{calculations.displayIrrigation}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal/day" : "L/day"}</td>
+                        <td className="p-3 text-muted-foreground">{irrRows.length} Landscaping Vegetation Zone(s)</td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold">Swimming Pool Daily Makeup Water</td>
+                        <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">{calculations.displayPoolDemand}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal/day" : "L/day"}</td>
+                        <td className="p-3 text-muted-foreground">Evaporation Rate = {poolEvap}%</td>
+                      </tr>
+                      <tr className="bg-blue-50/60 dark:bg-blue-950/30 font-bold">
+                        <td className="p-3 text-[#0A7BC7]">GRAND TOTAL DAILY WATER DEMAND</td>
+                        <td className="p-3 text-right font-mono font-black text-[#0A7BC7] text-sm">{calculations.displayGrandTotal}</td>
+                        <td className="p-3 text-center font-mono text-[#0A7BC7]">{ip ? "gal/day" : "L/day"}</td>
+                        <td className="p-3 text-[#0A7BC7]">Combined Site Service Load</td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold">Total Required Storage Volume</td>
+                        <td className="p-3 text-right font-mono font-bold text-foreground">{calculations.displayTotalStorage}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "m³"}</td>
+                        <td className="p-3 text-muted-foreground">{storageDays} Day(s) Total Retention</td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold">Ground Water Break Tank</td>
+                        <td className="p-3 text-right font-mono font-bold text-foreground">{calculations.displayGroundTank}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "L"}</td>
+                        <td className="p-3 text-muted-foreground">{tankSplit.split("-")[0]}% Share Allocation ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)</td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold">Overhead Roof Tank</td>
+                        <td className="p-3 text-right font-mono font-bold text-foreground">{calculations.displayRoofTank}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "L"}</td>
+                        <td className="p-3 text-muted-foreground">{tankSplit.split("-")[1]}% Share Allocation ({calculations.roofDim.l}m × {calculations.roofDim.w}m × {calculations.roofDim.h}m)</td>
+                      </tr>
+                      <tr>
+                        <td className="p-3 font-semibold">Transfer Pump Duty Flow Rate</td>
+                        <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">{calculations.displayTransferPump}</td>
+                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "GPM" : "L/s"}</td>
+                        <td className="p-3 text-muted-foreground">{fillWindowHours}-Hour Roof Tank Filling Window</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              {/* 5. Swimming Pool & Fire Fighting Demand */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Pool Card */}
-                <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                  <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                      🏊 Swimming Pool Makeup
-                    </h3>
-                  </div>
-                  <div className="flex flex-col gap-3 text-xs font-sans">
-                    <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Pool Surface Area ({ip ? "ft²" : "m²"})</label>
-                      <input
-                        type="number"
-                        placeholder="e.g. 80"
-                        value={poolArea}
-                        onChange={(e) => setPoolArea(e.target.value !== "" ? Number(e.target.value) : "")}
-                        className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Average Depth ({ip ? "ft" : "m"})</label>
-                      <input
-                        type="number"
-                        placeholder="e.g. 1.5"
-                        value={poolDepth}
-                        onChange={(e) => setPoolDepth(e.target.value !== "" ? Number(e.target.value) : "")}
-                        className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Evaporation Rate (%/day)</label>
-                      <input
-                        type="number"
-                        value={poolEvap}
-                        onChange={(e) => setPoolEvap(Number(e.target.value))}
-                        className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                      />
-                    </div>
-
-                    {poolArea && poolDepth && (
-                      <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-xl mt-1 flex justify-between items-center">
-                        <span className="text-xs font-bold text-blue-800 dark:text-blue-300">Daily Pool Makeup:</span>
-                        <strong className="text-sm font-extrabold font-mono text-[#0A7BC7]">{calculations.displayPoolDemand}</strong>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Fire Card */}
-                <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                  <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                    <div className="w-1 h-3.5 bg-red-600 rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                      🔥 Fire Fighting Reserve Sizing
-                    </h3>
-                  </div>
-                  <div className="flex flex-col gap-3 text-xs font-sans">
-                    <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Fire Pump Flow Rate (USGPM)</label>
-                      <input
-                        type="number"
-                        placeholder="e.g. 500"
-                        value={fireFlow}
-                        onChange={(e) => setFireFlow(e.target.value !== "" ? Number(e.target.value) : "")}
-                        className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="font-semibold text-foreground">Standard Fire Reserve Duration</label>
-                      <div className="w-full bg-slate-100 dark:bg-slate-800 text-muted-foreground border border-border rounded-lg px-3 py-2 font-bold select-none cursor-not-allowed">
-                        60 Minutes (Standard fixed NFPA duration)
-                      </div>
-                    </div>
-
-                    {fireFlow && (
-                      <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 rounded-xl mt-1 flex justify-between items-center">
-                        <span className="text-xs font-bold text-red-800 dark:text-red-300">Reserve Fire Tank:</span>
-                        <strong className="text-sm font-extrabold font-mono text-red-600 dark:text-red-400">{calculations.displayFireCap}</strong>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Summary Panel */}
-            <div className="lg:col-span-4 flex flex-col gap-5 sticky top-4">
+              {/* Section 2: Domestic Water Demand Schedule Table */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                    📊 Site Sizing Summary
-                  </h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-border/60">
+                  2. Domestic Water Demand Detailed Schedule
+                </h3>
+                <div className="overflow-x-auto border border-border rounded-xl">
+                  <table className="w-full border-collapse text-xs font-sans">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
+                        <th className="p-3 text-center w-12">S.No</th>
+                        <th className="p-3 text-left">Description</th>
+                        <th className="p-3 text-center w-28">No. of People</th>
+                        <th className="p-3 text-left">Occupancy Category</th>
+                        <th className="p-3 text-right w-32">Per Capita Rate</th>
+                        <th className="p-3 text-right w-36">Total Daily Load</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {wdRows.map((r, idx) => (
+                        <tr key={r.id}>
+                          <td className="p-3 text-center font-mono text-muted-foreground">{idx + 1}</td>
+                          <td className="p-3 font-semibold">{r.name}</td>
+                          <td className="p-3 text-center font-mono font-bold">{r.ppl}</td>
+                          <td className="p-3 text-muted-foreground">{r.cat}</td>
+                          <td className="p-3 text-right font-mono text-muted-foreground">
+                            {(ip ? Math.round(r.lpd / 3.78541) : r.lpd).toLocaleString()} {ip ? "gpd" : "LPD"}
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">
+                            {(ip ? Math.round((r.ppl * r.lpd) / 3.78541) : r.ppl * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-100/70 dark:bg-slate-900/50 font-bold">
+                        <td colSpan={2} className="p-3">TOTAL DOMESTIC DEMAND</td>
+                        <td className="p-3 text-center font-mono">{calculations.totalPeople} People</td>
+                        <td colSpan={2}></td>
+                        <td className="p-3 text-right font-mono text-[#0A7BC7]">{calculations.displayDomestic}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
+              </div>
 
-                <div className="flex flex-col gap-3 font-sans text-xs">
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Domestic Daily Demand</span>
-                    <strong className="font-bold text-foreground font-mono">{calculations.displayDomestic}</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Domestic Peak Flow Rate</span>
-                    <strong className="font-bold text-foreground font-mono">{calculations.displayDomesticPeak}</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Irrigation Daily Demand</span>
-                    <strong className="font-bold text-foreground font-mono">{calculations.displayIrrigation}</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                    <span className="font-semibold text-muted-foreground">Pool Makeup Demand</span>
-                    <strong className="font-bold text-foreground font-mono">{calculations.displayPoolDemand}</strong>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-border/60 bg-blue-50/50 dark:bg-blue-950/20 px-2 rounded-lg">
-                    <span className="font-extrabold text-[#0A7BC7] uppercase text-[11px]">GRAND TOTAL DAILY DEMAND</span>
-                    <strong className="font-black text-[#0A7BC7] text-[15px] font-mono">{calculations.displayGrandTotal}</strong>
-                  </div>
-
-                  <div className="pt-2 flex flex-col gap-2">
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Required Tank Capacity ({storageDays} Day)</span>
-                      <strong className="font-bold text-foreground font-mono">{calculations.displayTotalStorage}</strong>
-                    </div>
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Ground Break Tank ({tankSplit.split("-")[0]}%)</span>
-                      <strong className="font-bold text-foreground font-mono">{calculations.displayGroundTank}</strong>
-                    </div>
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Roof Overhead Tank ({tankSplit.split("-")[1]}%)</span>
-                      <strong className="font-bold text-foreground font-mono">{calculations.displayRoofTank}</strong>
-                    </div>
-                    <div className="flex justify-between items-center py-1.5">
-                      <span className="font-semibold text-muted-foreground">Transfer Pump Flow ({fillWindowHours}h Fill)</span>
-                      <strong className="font-bold text-[#0A7BC7] font-mono">{calculations.displayTransferPump}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-blue-500/10 border border-blue-500/20 text-blue-800 dark:text-blue-300 rounded-xl p-3.5 flex gap-2.5 text-[11px]">
-                  <Info className="size-4 shrink-0 mt-0.5 text-blue-600" />
-                  <span>
-                    Calculation complies with ASHRAE standards, local municipality consumption regulations, DEWA/ADDC guidelines, and standard diversity assumptions.
-                  </span>
+              {/* Section 3: Irrigation Schedule Table */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-border/60">
+                  3. Irrigation Landscaping Schedule
+                </h3>
+                <div className="overflow-x-auto border border-border rounded-xl">
+                  <table className="w-full border-collapse text-xs font-sans">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
+                        <th className="p-3 text-center w-12">S.No</th>
+                        <th className="p-3 text-left">Vegetation / Plant Type</th>
+                        <th className="p-3 text-center w-32">Landscaping Area</th>
+                        <th className="p-3 text-right w-36">Irrigation Rate</th>
+                        <th className="p-3 text-right w-36">Total Daily Load</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {irrRows.map((r, idx) => (
+                        <tr key={r.id}>
+                          <td className="p-3 text-center font-mono text-muted-foreground">{idx + 1}</td>
+                          <td className="p-3 font-semibold">{r.vegType}</td>
+                          <td className="p-3 text-center font-mono font-bold">{r.area} {ip ? "ft²" : "m²"}</td>
+                          <td className="p-3 text-right font-mono text-muted-foreground">
+                            {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)} {ip ? "gal/ft²" : "L/m²"}
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">
+                            {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-100/70 dark:bg-slate-900/50 font-bold">
+                        <td colSpan={2} className="p-3">TOTAL IRRIGATION DEMAND</td>
+                        <td colSpan={2}></td>
+                        <td className="p-3 text-right font-mono text-[#0A7BC7]">{calculations.displayIrrigation}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
+
+      {/* Double-Click Calculation Breakdown & Edit Preview Modal */}
+      {previewModalOpen && previewTarget && (
+        <div
+          onClick={() => setPreviewModalOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 dark:bg-black/60 backdrop-blur-2xl animate-fade-in font-sans"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white/90 dark:bg-neutral-950/90 backdrop-blur-2xl border border-white/60 dark:border-white/10 rounded-[24px] shadow-[0_30px_70px_rgba(0,0,0,0.18)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.5)] flex flex-col w-full max-w-3xl max-h-[90vh] overflow-hidden transition-all duration-300 ease-in-out"
+          >
+            {/* Modal Header */}
+            <header className="px-6 h-[72px] flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
+              <div className="flex flex-col justify-center min-w-0 pr-4">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <h2 className="text-[16px] font-bold text-neutral-800 dark:text-neutral-100 truncate flex items-center gap-2">
+                    <Calculator className="size-4.5 text-[#0A7BC7]" /> Water Demand Parameters &amp; Calculations
+                  </h2>
+                  <span className="px-2.5 py-0.75 rounded-md bg-[#0A7BC7]/10 border border-[#0A7BC7]/20 text-[#0A7BC7] text-[11px] font-bold font-mono tracking-tight shrink-0 uppercase">
+                    {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name} ({unitSystem === "ip" ? "IP Imperial" : "SI Metric"})
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-neutral-500 dark:text-neutral-400 font-normal mt-0.5 truncate">
+                  Configure occupancy demand rates, retention reserve days, tank split allocations, and view live step-by-step calculations.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalOpen(false)}
+                  className="size-9 grid place-items-center rounded-xl hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </header>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6 text-xs font-sans">
+              {/* Navigation Tabs inside Modal */}
+              <div className="flex items-center gap-1.5 p-1 bg-neutral-100 dark:bg-neutral-900/80 rounded-2xl border border-black/5 dark:border-white/5 overflow-x-auto">
+                <button
+                  onClick={() => setPreviewTarget({ type: "summary" })}
+                  className={`px-3.5 py-1.75 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap text-xs ${
+                    previewTarget.type === "summary" ? "bg-[#0A7BC7] text-white shadow-xs" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Executive Summary
+                </button>
+                <button
+                  onClick={() => setPreviewTarget({ type: "domestic", rowId: wdRows[0]?.id })}
+                  className={`px-3.5 py-1.75 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap text-xs ${
+                    previewTarget.type === "domestic" ? "bg-[#0A7BC7] text-white shadow-xs" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Domestic Schedule ({wdRows.length})
+                </button>
+                <button
+                  onClick={() => setPreviewTarget({ type: "tank" })}
+                  className={`px-3.5 py-1.75 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap text-xs ${
+                    previewTarget.type === "tank" ? "bg-[#0A7BC7] text-white shadow-xs" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Storage Tanks
+                </button>
+                <button
+                  onClick={() => setPreviewTarget({ type: "pump" })}
+                  className={`px-3.5 py-1.75 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap text-xs ${
+                    previewTarget.type === "pump" ? "bg-[#0A7BC7] text-white shadow-xs" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Transfer Pumps
+                </button>
+                <button
+                  onClick={() => setPreviewTarget({ type: "irrigation", rowId: irrRows[0]?.id })}
+                  className={`px-3.5 py-1.75 rounded-xl font-bold transition-all cursor-pointer whitespace-nowrap text-xs ${
+                    previewTarget.type === "irrigation" ? "bg-[#0A7BC7] text-white shadow-xs" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                  }`}
+                >
+                  Irrigation ({irrRows.length})
+                </button>
+              </div>
+
+              {/* Dynamic Section Content */}
+              {previewTarget.type === "domestic" && (() => {
+                const selectedRow = wdRows.find((x) => x.id === previewTarget.rowId) || wdRows[0];
+                if (!selectedRow) return <div className="text-center py-6 text-muted-foreground">No domestic entries added.</div>;
+                const rowLPD = selectedRow.lpd;
+                const rowTotalL = selectedRow.ppl * rowLPD;
+                const pctShare = calculations.totalWaterL > 0 ? ((rowTotalL / calculations.totalWaterL) * 100).toFixed(1) : "0";
+
+                return (
+                  <div className="flex flex-col gap-5">
+                    {/* Row Select Dropdown */}
+                    <div className="flex items-center justify-between bg-neutral-50 dark:bg-neutral-900/60 p-3.5 rounded-2xl border border-black/5 dark:border-white/5">
+                      <label className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 uppercase tracking-wider">Select Domestic Entry:</label>
+                      <select
+                        value={selectedRow.id}
+                        onChange={(e) => setPreviewTarget({ type: "domestic", rowId: Number(e.target.value) })}
+                        className="bg-white/80 dark:bg-neutral-950/80 border border-black/10 dark:border-white/10 rounded-xl px-3 py-1.5 font-bold text-xs outline-none cursor-pointer focus:border-[#0A7BC7]"
+                      >
+                        {wdRows.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name} — ({r.ppl} ppl, {r.cat})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Editable Fields */}
+                    <div className="space-y-3">
+                      <h4 className="text-[11px] font-bold text-[#0A7BC7] uppercase tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                        <SlidersHorizontal className="size-3.5" /> General Parameters Controls
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                            Description
+                          </label>
+                          <input
+                            type="text"
+                            value={selectedRow.name}
+                            onChange={(e) => handleWdRowChange(selectedRow.id, "name", e.target.value)}
+                            className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-medium text-neutral-800 dark:text-neutral-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                            No. of People / Units
+                          </label>
+                          <input
+                            type="number"
+                            value={selectedRow.ppl}
+                            onChange={(e) => handleWdRowChange(selectedRow.id, "ppl", Number(e.target.value))}
+                            className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold font-mono text-neutral-800 dark:text-neutral-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                            Occupancy Category
+                          </label>
+                          <select
+                            value={selectedRow.cat}
+                            onChange={(e) => handleWdRowChange(selectedRow.id, "cat", e.target.value)}
+                            className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12px] outline-none font-medium text-neutral-800 dark:text-neutral-100 cursor-pointer"
+                          >
+                            {Object.keys(WD_TYPE_MAP).map((k) => (
+                              <option key={k} value={k}>
+                                {k}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Formula & Step-by-Step Breakdown */}
+                    <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-900/40 rounded-2xl p-4.5 flex flex-col gap-3">
+                      <h4 className="text-[11px] font-bold text-[#0A7BC7] uppercase tracking-widest flex items-center gap-1.5 font-sans">
+                        <FileText className="size-3.5" /> Step-by-Step Demand Calculation Formula
+                      </h4>
+                      <div className="flex flex-col gap-2 font-mono text-[12px]">
+                        <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5">
+                          <span className="text-neutral-500 dark:text-neutral-400 block text-[10px] font-sans font-semibold">Per Capita Allowance Formula:</span>
+                          <strong className="text-neutral-800 dark:text-neutral-100">
+                            Base Rate ({WD_TYPE_MAP[selectedRow.cat] || 0} LPD) × Multiplier ({PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.multiplier || 1.0}×) = {rowLPD} LPD ({Math.round(rowLPD / 3.78541)} gpd)
+                          </strong>
+                        </div>
+                        <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5">
+                          <span className="text-neutral-500 dark:text-neutral-400 block text-[10px] font-sans font-semibold">Daily Domestic Load Formula:</span>
+                          <strong className="text-[#0A7BC7]">
+                            {selectedRow.ppl} People × {rowLPD} LPD = {rowTotalL.toLocaleString()} L/day ({Math.round(rowTotalL / 3.78541).toLocaleString()} gal/day)
+                          </strong>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 pt-1 font-sans text-xs">
+                          <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5">
+                            <span className="text-neutral-500 dark:text-neutral-400 block text-[10px]">Domestic Share:</span>
+                            <strong className="text-neutral-800 dark:text-neutral-100 font-bold font-mono">{pctShare}% of total domestic water load</strong>
+                          </div>
+                          <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5">
+                            <span className="text-neutral-500 dark:text-neutral-400 block text-[10px]">Applied Standard:</span>
+                            <strong className="text-neutral-800 dark:text-neutral-100 font-bold">{PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {previewTarget.type === "irrigation" && (() => {
+                const selectedRow = irrRows.find((x) => x.id === previewTarget.rowId) || irrRows[0];
+                if (!selectedRow) return <div className="text-center py-6 text-muted-foreground">No irrigation entries added.</div>;
+                const rowLPD = selectedRow.lpd;
+                const rowTotalL = selectedRow.area * rowLPD;
+                const pctShare = calculations.totalIrrL > 0 ? ((rowTotalL / calculations.totalIrrL) * 100).toFixed(1) : "0";
+
+                return (
+                  <div className="flex flex-col gap-5">
+                    <div className="flex items-center justify-between bg-neutral-50 dark:bg-neutral-900/60 p-3.5 rounded-2xl border border-black/5 dark:border-white/5">
+                      <label className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 uppercase tracking-wider">Select Plant Zone:</label>
+                      <select
+                        value={selectedRow.id}
+                        onChange={(e) => setPreviewTarget({ type: "irrigation", rowId: Number(e.target.value) })}
+                        className="bg-white/80 dark:bg-neutral-950/80 border border-black/10 dark:border-white/10 rounded-xl px-3 py-1.5 font-bold text-xs outline-none cursor-pointer focus:border-[#0A7BC7]"
+                      >
+                        {irrRows.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.vegType} — ({r.area} {ip ? "ft²" : "m²"})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="text-[11px] font-bold text-[#0A7BC7] uppercase tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                        <SlidersHorizontal className="size-3.5" /> Irrigation Parameters Controls
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                            Vegetation / Plant Type
+                          </label>
+                          <select
+                            value={selectedRow.vegType}
+                            onChange={(e) => handleIrrRowChange(selectedRow.id, "vegType", e.target.value)}
+                            className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12px] outline-none font-medium text-neutral-800 dark:text-neutral-100 cursor-pointer"
+                          >
+                            {Object.keys(IRR_TYPE_MAP).map((k) => (
+                              <option key={k} value={k}>
+                                {k} — {IRR_TYPE_MAP[k]} L/m²
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                            Area ({ip ? "ft²" : "m²"})
+                          </label>
+                          <input
+                            type="number"
+                            value={selectedRow.area}
+                            onChange={(e) => handleIrrRowChange(selectedRow.id, "area", Number(e.target.value))}
+                            className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold font-mono text-neutral-800 dark:text-neutral-100"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/40 rounded-2xl p-4.5 flex flex-col gap-3">
+                      <h4 className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 font-sans">
+                        <FileText className="size-3.5" /> Irrigation Volume Formula
+                      </h4>
+                      <div className="flex flex-col gap-2 font-mono text-[12px]">
+                        <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5">
+                          <span className="text-neutral-500 dark:text-neutral-400 block text-[10px] font-sans font-semibold">Plant Water Requirement Rate:</span>
+                          <strong className="text-neutral-800 dark:text-neutral-100">
+                            {rowLPD} L/m²/day ({(rowLPD / 40.7458).toFixed(2)} gal/ft²/day)
+                          </strong>
+                        </div>
+                        <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5">
+                          <span className="text-neutral-500 dark:text-neutral-400 block text-[10px] font-sans font-semibold">Total Irrigation Volume Formula:</span>
+                          <strong className="text-emerald-700 dark:text-emerald-400">
+                            {selectedRow.area} m² × {rowLPD} L/m² = {rowTotalL.toLocaleString()} L/day ({Math.round(rowTotalL / 3.78541).toLocaleString()} gal/day)
+                          </strong>
+                        </div>
+                        <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 font-sans text-xs">
+                          <span className="text-neutral-500 dark:text-neutral-400 block text-[10px]">Irrigation Load Share:</span>
+                          <strong className="text-neutral-800 dark:text-neutral-100 font-bold font-mono">{pctShare}% of total site irrigation demand</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {previewTarget.type === "tank" && (
+                <div className="flex flex-col gap-5">
+                  <div className="space-y-3">
+                    <h4 className="text-[11px] font-bold text-[#0A7BC7] uppercase tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                      <Building2 className="size-3.5 text-[#0A7BC7]" /> Storage Capacity &amp; Tank Split Controls
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                          Storage Retention Days
+                        </label>
+                        <select
+                          value={storageDays}
+                          onChange={(e) => setStorageDays(Number(e.target.value))}
+                          className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold text-neutral-800 dark:text-neutral-100 cursor-pointer"
+                        >
+                          <option value={1}>1 Day Storage (24 Hours — Standard)</option>
+                          <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
+                          <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                          Ground vs Roof Tank Split
+                        </label>
+                        <select
+                          value={tankSplit}
+                          onChange={(e) => setTankSplit(e.target.value as any)}
+                          className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold text-neutral-800 dark:text-neutral-100 cursor-pointer"
+                        >
+                          <option value="60-40">60% Ground Tank / 40% Roof Tank (DEWA Standard)</option>
+                          <option value="80-20">80% Ground Tank / 20% Roof Tank</option>
+                          <option value="100-0">100% Ground Tank (Direct Booster Sizing)</option>
+                          <option value="50-50">50% Ground Tank / 50% Roof Tank</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-900/40 rounded-2xl p-4.5 flex flex-col gap-3 font-mono text-xs">
+                    <h4 className="text-[11px] font-bold text-[#0A7BC7] uppercase tracking-widest flex items-center gap-1.5 font-sans">
+                      <FileText className="size-3.5" /> Tank Sizing Formulas &amp; Physical Dimensions
+                    </h4>
+                    <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5">
+                      <span className="text-neutral-500 dark:text-neutral-400 block text-[10px] font-sans font-semibold">Total Required Storage Volume:</span>
+                      <strong className="text-[#0A7BC7]">
+                        Grand Daily Demand ({calculations.displayGrandTotal}) × {storageDays} Day(s) = {calculations.displayTotalStorage}
+                      </strong>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 flex flex-col gap-1">
+                        <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">Ground Break Tank ({tankSplit.split("-")[0]}% Share):</span>
+                        <strong className="text-neutral-800 dark:text-neutral-100">{calculations.displayGroundTank}</strong>
+                        <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-sans mt-1">
+                          Dimensions: <strong>{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H</strong> (+ 0.3m freeboard)
+                        </span>
+                      </div>
+                      <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 flex flex-col gap-1">
+                        <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">Overhead Roof Tank ({tankSplit.split("-")[1]}% Share):</span>
+                        <strong className="text-neutral-800 dark:text-neutral-100">{calculations.displayRoofTank}</strong>
+                        <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-sans mt-1">
+                          Dimensions: <strong>{calculations.roofDim.l}m L × {calculations.roofDim.w}m W × {calculations.roofDim.h}m H</strong> (+ 0.3m freeboard)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {previewTarget.type === "pump" && (
+                <div className="flex flex-col gap-5">
+                  <div className="space-y-3">
+                    <h4 className="text-[11px] font-bold text-[#0A7BC7] uppercase tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                      <Sparkles className="size-3.5 text-[#0A7BC7]" /> Peak Flow &amp; Transfer Pump Duty Parameters
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                          Diversity / Peak Multiplier (K)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={peakFactor}
+                          onChange={(e) => setPeakFactor(Number(e.target.value))}
+                          className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold font-mono text-neutral-800 dark:text-neutral-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
+                          Roof Tank Filling Window
+                        </label>
+                        <select
+                          value={fillWindowHours}
+                          onChange={(e) => setFillWindowHours(Number(e.target.value))}
+                          className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold text-neutral-800 dark:text-neutral-100 cursor-pointer"
+                        >
+                          <option value={1}>1 Hour Filling Window</option>
+                          <option value={2}>2 Hours Filling Window (Standard)</option>
+                          <option value={3}>3 Hours Filling Window</option>
+                          <option value={4}>4 Hours Filling Window</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200/80 dark:border-sky-900/40 rounded-2xl p-4.5 flex flex-col gap-3 font-mono text-xs">
+                    <h4 className="text-[11px] font-bold text-sky-700 dark:text-sky-400 uppercase tracking-widest flex items-center gap-1.5 font-sans">
+                      <FileText className="size-3.5" /> Hydraulic Flow Calculation Formulas
+                    </h4>
+                    <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 flex flex-col gap-1">
+                      <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">Peak Domestic Instantaneous Flow Formula:</span>
+                      <strong className="text-neutral-800 dark:text-neutral-100">
+                        (Daily Domestic Load [{calculations.displayDomestic}] × Peak Factor {peakFactor}) / (10 operating hrs × 3600 sec)
+                      </strong>
+                      <span className="text-[#0A7BC7] font-bold text-sm mt-1">Calculated Peak Flow = {calculations.displayDomesticPeak}</span>
+                    </div>
+
+                    <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 flex flex-col gap-1">
+                      <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">Roof Transfer Pump Duty Flow Formula:</span>
+                      <strong className="text-neutral-800 dark:text-neutral-100">
+                        Roof Tank Capacity [{calculations.displayRoofTank}] / Filling Duration [{fillWindowHours} Hours]
+                      </strong>
+                      <span className="text-emerald-700 dark:text-emerald-400 font-bold text-sm mt-1">Required Transfer Duty Flow = {calculations.displayTransferPump}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {(previewTarget.type === "summary" || previewTarget.type === "pool" || previewTarget.type === "fire") && (
+                <div className="flex flex-col gap-4">
+                  <h4 className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 uppercase tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5">
+                    Executive Calculation Summary &amp; Load Breakdown
+                  </h4>
+                  <div className="overflow-x-auto border border-black/10 dark:border-white/10 rounded-2xl overflow-hidden">
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-neutral-900 text-white font-semibold">
+                          <th className="p-2.5 text-left">Parameter</th>
+                          <th className="p-2.5 text-right">Calculated Value</th>
+                          <th className="p-2.5 text-center">Unit</th>
+                          <th className="p-2.5 text-left">Design Guideline / Code Reference</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-black/5 dark:divide-white/5 font-mono">
+                        <tr>
+                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Domestic Daily Demand</td>
+                          <td className="p-2.5 text-right font-bold text-[#0A7BC7]">{calculations.displayDomestic}</td>
+                          <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">{PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name}</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Domestic Peak Flow Rate</td>
+                          <td className="p-2.5 text-right font-bold text-[#0A7BC7]">{calculations.displayDomesticPeak}</td>
+                          <td className="p-2.5 text-center">{ip ? "GPM" : "L/s"}</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Peak Factor K = {peakFactor}</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Irrigation Daily Load</td>
+                          <td className="p-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{calculations.displayIrrigation}</td>
+                          <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Landscaping Area Schedule ({irrRows.length} zones)</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Pool Daily Evaporation Makeup</td>
+                          <td className="p-2.5 text-right font-bold text-sky-600 dark:text-sky-400">{calculations.displayPoolDemand}</td>
+                          <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Evaporation Rate = {poolEvap}%/day</td>
+                        </tr>
+                        <tr className="bg-neutral-100/70 dark:bg-neutral-900/70 font-bold">
+                          <td className="p-2.5 font-sans text-neutral-800 dark:text-neutral-100">GRAND TOTAL DAILY CONSUMPTION</td>
+                          <td className="p-2.5 text-right text-base text-[#0A7BC7]">{calculations.displayGrandTotal}</td>
+                          <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
+                          <td className="p-2.5 font-sans text-neutral-700 dark:text-neutral-300">Combined Site Water Demand</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Total Water Storage Requirement</td>
+                          <td className="p-2.5 text-right font-bold text-neutral-800 dark:text-neutral-100">{calculations.displayTotalStorage}</td>
+                          <td className="p-2.5 text-center">{ip ? "gal" : "m³"}</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">{storageDays} Day(s) Retention Reserve</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Ground Break Tank Capacity</td>
+                          <td className="p-2.5 text-right font-bold text-[#0A7BC7]">{calculations.displayGroundTank}</td>
+                          <td className="p-2.5 text-center">{ip ? "gal" : "L"}</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Ground Split Allocation: {tankSplit.split("-")[0]}%</td>
+                        </tr>
+                        <tr>
+                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Overhead Roof Tank Capacity</td>
+                          <td className="p-2.5 text-right font-bold text-[#0A7BC7]">{calculations.displayRoofTank}</td>
+                          <td className="p-2.5 text-center">{ip ? "gal" : "L"}</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Roof Split Allocation: {tankSplit.split("-")[1]}%</td>
+                        </tr>
+                        <tr className="bg-blue-50/60 dark:bg-blue-950/40 font-bold">
+                          <td className="p-2.5 font-sans text-[#0A7BC7]">Transfer Pump Duty Flow</td>
+                          <td className="p-2.5 text-right text-[#0A7BC7]">{calculations.displayTransferPump}</td>
+                          <td className="p-2.5 text-center text-[#0A7BC7]">{ip ? "GPM" : "L/s"}</td>
+                          <td className="p-2.5 font-sans text-[#0A7BC7]">{fillWindowHours}-Hour Roof Tank Filling Window</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <footer className="px-6 h-[64px] border-t border-black/5 dark:border-white/5 bg-white/20 dark:bg-black/20 flex items-center justify-between shrink-0">
+              <span className="text-[11.5px] text-neutral-500 dark:text-neutral-400 font-semibold flex items-center gap-1.5">
+                <Check className="size-4 text-emerald-600 dark:text-emerald-400" /> Changes apply live to project calculation schedule
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreviewModalOpen(false)}
+                className="px-5 py-2.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold rounded-xl text-xs transition-all cursor-pointer shadow-md"
+              >
+                Done / Apply Changes
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Row Comment Modal */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={Boolean(commentTarget)}
+          onClose={() => setCommentTarget(null)}
+          targetId={commentTarget.targetId}
+          targetName={commentTarget.targetName}
+          targetType={commentTarget.targetType}
+          calculatorTitle="Water Demand Calculator"
+          calculatorPath="/plumbing-water-demand"
+          existingComments={commentTarget.existingComments}
+          onSave={handleSaveRowComment}
+        />
+      )}
     </AppShell>
   );
 }

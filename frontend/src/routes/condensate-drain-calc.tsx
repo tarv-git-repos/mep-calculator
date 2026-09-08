@@ -1,4 +1,5 @@
 import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { useConfirm } from "@/hooks/use-confirm";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
@@ -135,6 +136,7 @@ export function checkIfCoilMissingData(coil: any): boolean {
 
 function CondensateDrainCalcPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const confirm = useConfirm();
   const isLocked = useCalculationLock("/condensate-drain-calc", project?.id);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<CoilRow[]>([]);
@@ -148,6 +150,9 @@ function CondensateDrainCalcPage() {
   const [clipboard, setClipboard] = useState<CoilRow[]>([]);
   const [editingCoil, setEditingCoil] = useState<CoilRow | null>(null);
   const [intelOpen, setIntelOpen] = useState(false);
+  const [tab, setTab] = useState<"coils" | "summary">("coils");
+  const [query, setQuery] = useState("");
+  const [filterFlaggedOnly, setFilterFlaggedOnly] = useState(false);
   
   // Comment & Task Modal State matching Preliminary Cooling Load
   const [commentModalOpen, setCommentModalOpen] = useState(false);
@@ -340,7 +345,6 @@ function CondensateDrainCalcPage() {
     if (unit === unitSystem) return;
     setUnitSystem(unit);
     dirtyStore.set(true);
-    if ((window as any).__mep_keep_values) return;
     const convT = (t: number) => unit === "ip" ? cToF(t) : fToC(t);
     const convF = (f: number) => unit === "ip" ? lpsToCfm(f) : cfmToLps(f);
 
@@ -418,6 +422,50 @@ function CondensateDrainCalcPage() {
       totalCond
     };
   }, [calculatedRows, rows]);
+
+  const filteredRows = useMemo(() => {
+    return calculatedRows.filter((r) => {
+      if (filterFlaggedOnly && !r.isEffectivelyFlagged) return false;
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        const matchesName = (r.name || "").toLowerCase().includes(q);
+        const matchesDbIn = String(r.dbIn).includes(q);
+        const matchesWbIn = String(r.wbIn).includes(q);
+        const matchesDbOut = String(r.dbOut).includes(q);
+        const matchesWbOut = String(r.wbOut).includes(q);
+        const matchesFlow = String(r.flow).includes(q);
+        return matchesName || matchesDbIn || matchesWbIn || matchesDbOut || matchesWbOut || matchesFlow;
+      }
+      return true;
+    });
+  }, [calculatedRows, query, filterFlaggedOnly]);
+
+  const handleNewCoil = () => {
+    if (isLocked) {
+      toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
+      return;
+    }
+    const id = "coil-" + Date.now();
+    const newName = `Coil ${rows.length + 1}`;
+    const dbIn = ip ? 75.2 : 24.0;
+    const wbIn = ip ? 62.6 : 17.0;
+    const dbOut = ip ? 57.2 : 14.0;
+    const wbOut = ip ? 55.4 : 13.0;
+    const flow = ip ? 1000 : 500;
+    const newCoilItem: CoilRow = {
+      id,
+      name: newName,
+      dbIn,
+      wbIn,
+      dbOut,
+      wbOut,
+      flow,
+      comments: []
+    };
+    updateRowsWithHistory([...rows, newCoilItem]);
+    setEditingCoil(newCoilItem);
+    toast.success(`New Coil "${newCoilItem.name}" created! Edit details below.`);
+  };
 
   const handleAddCoil = () => {
     if (isLocked) {
@@ -718,51 +766,172 @@ function CondensateDrainCalcPage() {
     setEditingCoil(coil);
   };
 
-  // Keyboard shortcuts listener (Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A, Delete, Ctrl+Z, Ctrl+Y, Escape)
+  // Keyboard shortcuts listener (Full Parity with Ventilation: Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A, Delete, Backspace, Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, Ctrl+S, Ctrl+D, Escape, Arrow Up/Down, Enter/F2)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Avoid intercepting input fields
-      if (["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName)) {
+      // Escape: Deselect all selected coils
+      if (e.key === "Escape") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          setSelected(new Set());
+          setLastClickedIndex(null);
+        }
         return;
       }
 
-      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+      // Avoid intercepting when user is typing into text inputs, textareas, selects, or contenteditable
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.tagName === "SELECT"
+      );
+      if (isInput) return;
 
-      if (isCtrlOrCmd && e.key.toLowerCase() === "a") {
+      const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Ctrl+A (Select All)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        setSelected(new Set(rows.map(r => r.id)));
-      } else if (e.key === "Escape") {
-        setSelected(new Set());
-      } else if (e.key === "Delete" && selected.size > 0) {
-        e.preventDefault();
-        handleDeleteCoil(Array.from(selected));
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === "c") {
+        if (rows.length > 0) {
+          setSelected(new Set(rows.map((r) => r.id)));
+          toast.info(`Selected all ${rows.length} coil(s)`);
+        }
+        return;
+      }
+
+      // 2. Delete / Backspace (Shows confirmation popup)
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (isLocked) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
+          return;
+        }
+        if (selected.size > 0) {
+          e.preventDefault();
+          confirm(`Are you sure you want to delete the ${selected.size} selected coil(s)?`, {
+            title: "Delete Coils",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive"
+          }).then((ok) => {
+            if (ok) {
+              const count = selected.size;
+              handleDeleteCoil(Array.from(selected));
+              setSelected(new Set());
+              setLastClickedIndex(null);
+            }
+          });
+        }
+        return;
+      }
+
+      // 3. Copy: Ctrl+C
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
         if (selected.size > 0) {
           e.preventDefault();
           handleCopyCoil();
         }
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === "x") {
+        return;
+      }
+
+      // 4. Cut: Ctrl+X
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (isLocked) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
+          return;
+        }
         if (selected.size > 0) {
           e.preventDefault();
           handleCutCoil();
         }
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === "v") {
-        if (clipboard.length > 0) {
-          e.preventDefault();
-          handlePasteCoil();
+        return;
+      }
+
+      // 5. Paste: Ctrl+V
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (isLocked) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
+          return;
         }
-      } else if (isCtrlOrCmd && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handlePasteCoil();
+        return;
+      }
+
+      // 6. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
         handleUndo();
-      } else if (isCtrlOrCmd && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
         e.preventDefault();
         handleRedo();
+        return;
+      }
+
+      // 7. Save: Ctrl+S
+      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleSaveCurrent();
+        return;
+      }
+
+      // 8. Duplicate: Ctrl+D
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d" && selected.size > 0) {
+        if (isLocked) {
+          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
+          return;
+        }
+        e.preventDefault();
+        handleDuplicateCoil(rows.filter(x => selected.has(x.id)));
+        return;
+      }
+
+      // 9. Edit: F2 / Enter (When single coil selected)
+      if ((e.key === "F2" || e.key === "Enter") && selected.size === 1) {
+        const singleId = Array.from(selected)[0];
+        const targetCoil = rows.find(r => r.id === singleId);
+        if (targetCoil) {
+          e.preventDefault();
+          handleRowDoubleClick(targetCoil);
+        }
+        return;
+      }
+
+      // 10. Arrow Up / Arrow Down Navigation
+      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && filteredRows.length > 0) {
+        e.preventDefault();
+        const currentIdx = lastClickedIndex !== null ? lastClickedIndex : 0;
+        let nextIdx = e.key === "ArrowDown" ? currentIdx + 1 : currentIdx - 1;
+        if (nextIdx < 0) nextIdx = 0;
+        if (nextIdx >= filteredRows.length) nextIdx = filteredRows.length - 1;
+        const nextCoil = filteredRows[nextIdx];
+        if (nextCoil) {
+          setSelected(new Set([nextCoil.id]));
+          setLastClickedIndex(nextIdx);
+          const el = document.getElementById(`coil-row-${nextCoil.id}`);
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        return;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [rows, selected, clipboard, historyIndex, history, isLocked]);
+  }, [
+    rows,
+    filteredRows,
+    selected,
+    clipboard,
+    historyIndex,
+    history,
+    isLocked,
+    lastClickedIndex,
+    confirm
+  ]);
 
   const handleExportExcel = async () => {
     try {
@@ -815,21 +984,20 @@ function CondensateDrainCalcPage() {
       onIntelClick={() => setIntelOpen((v) => !v)}
       intelOpen={intelOpen}
     >
-      <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6 animate-in fade-in-50 duration-200">
-          {/* Page Header */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 select-none">
-            <div className="flex flex-col gap-1 min-w-0">
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          {/* Breadcrumbs & Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+            <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CONDENSATE CALCULATION</span>
-              <div className="flex items-center gap-2.5 mt-0.5 flex-wrap">
-                <div className="flex items-baseline gap-2 shrink-0">
-                  <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight text-foreground whitespace-nowrap">Coil Condensate Calculator</h1>
-                  <span className="text-[14px] sm:text-[15px] font-semibold text-muted-foreground whitespace-nowrap">{rows.length} {rows.length === 1 ? "coil" : "coils"}</span>
+              <div className="flex items-center gap-3 mt-0.5">
+                <div className="flex items-baseline gap-2">
+                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Coil Condensate Calculator</h1>
+                  <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "coil" : "coils"}</span>
                 </div>
                 <button 
-                  type="button"
                   onClick={() => setIntelOpen(v => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12px] sm:text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                     intelOpen
                       ? "bg-primary text-primary-foreground border-primary"
                       : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
@@ -838,564 +1006,529 @@ function CondensateDrainCalcPage() {
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
-                <CalculationReviewBar projectId={project?.id} calculatorPath="/condensate-drain-calc" calculatorTitle="Coil Condensate Calculator" />
+                <CalculationReviewBar
+                  projectId={project?.id}
+                  calculatorPath="/condensate-drain-calc"
+                  calculatorTitle="Coil Condensate Calculator"
+                />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Input entering and leaving air conditions for multiple cooling coils to formulate aggregate condensate drainage loads.
               </p>
             </div>
-            
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap sm:flex-nowrap">
-              <button
-                type="button"
-                onClick={handleUndo}
-                disabled={isLocked || historyIndex <= 0}
-                title="Undo (Ctrl+Z)"
-                className="p-2 border border-border/80 rounded-xl bg-card hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
-              >
-                <Undo className="size-4" />
-              </button>
-              <button
-                type="button"
-                onClick={handleRedo}
-                disabled={isLocked || historyIndex >= history.length - 1}
-                title="Redo (Ctrl+Y)"
-                className="p-2 border border-border/80 rounded-xl bg-card hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
-              >
-                <Redo className="size-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (isLocked) {
-                    toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
-                    return;
-                  }
-                  setIsImportModalOpen(true);
-                }}
-                disabled={isLocked}
-                className="flex items-center gap-1.5 border border-border/80 bg-card hover:bg-accent text-foreground rounded-xl px-3 py-2 text-[12.5px] font-bold transition cursor-pointer shadow-xs disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <Download className="size-4 text-primary" />
-                <span>Import</span>
-              </button>
-              <button
-                onClick={handleExportExcel}
-                className="flex items-center gap-1.5 border border-border/80 bg-card hover:bg-accent text-foreground rounded-xl px-3 py-2 text-[12.5px] font-bold transition cursor-pointer shadow-xs"
-              >
-                <FileSpreadsheet className="size-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Export Excel</span>
-              </button>
-              <button
-                onClick={handleExportPDF}
-                className="flex items-center gap-1.5 border border-border/80 bg-card hover:bg-accent text-foreground rounded-xl px-3 py-2 text-[12.5px] font-bold transition cursor-pointer shadow-xs"
-              >
-                <FileText className="size-4 text-rose-600 dark:text-rose-400" />
-                <span>Export PDF</span>
-              </button>
-              <button
-                onClick={handleSaveCurrent}
-                className="flex items-center gap-1.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white rounded-xl px-3.5 py-2 text-[12.5px] font-bold transition-all border-0 cursor-pointer shadow-sm animate-in fade-in zoom-in-95 duration-150 whitespace-nowrap"
-              >
-                <Save className="size-4" />
-                <span>Save</span>
-                <span className="hidden xl:inline">Calculation</span>
-              </button>
-            </div>
           </div>
 
-          {/* Unit Toggle */}
-          <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 self-start select-none">
-            <button type="button" onClick={() => handleUnitSystemChange("ip")} disabled={isLocked} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-60 ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
-            <button type="button" onClick={() => handleUnitSystemChange("si")} disabled={isLocked} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-60 ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
-          </div>
+          {/* White card container for Tabs & Data Grid */}
+          <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+            {/* Tabs Selector row */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setTab("coils")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "coils"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Coils
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("summary")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "summary"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Summary & Totals
+                </button>
+              </div>
 
-          {/* Moisture Extraction Schedule Full-Width Card */}
-          <div className="bg-card border border-border rounded-2xl shadow-xs p-5 flex flex-col gap-5">
-            <div className="flex justify-between items-center pb-2 border-b border-border/60">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Moisture Extraction Schedule</h3>
-                <span className="text-[11px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full font-bold text-muted-foreground">
-                  {rows.length} {rows.length === 1 ? "coil" : "coils"}
+              {/* Units toggle option */}
+              <div className="flex items-center gap-2.5 select-none shrink-0 bg-slate-50/40 dark:bg-zinc-900/10 border border-slate-200/40 dark:border-zinc-800/40 px-3.5 py-1 rounded-full">
+                <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                  UNITS:
                 </span>
+                <div className="flex bg-[#f1f5f9] dark:bg-zinc-800/60 p-0.5 rounded-full border border-slate-200/40 dark:border-zinc-700/40 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleUnitSystemChange("ip")}
+                    disabled={isLocked}
+                    className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer disabled:opacity-60 ${
+                      ip
+                        ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
+                        : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
+                    }`}
+                  >
+                    Imperial (IP)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUnitSystemChange("si")}
+                    disabled={isLocked}
+                    className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer disabled:opacity-60 ${
+                      !ip
+                        ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
+                        : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
+                    }`}
+                  >
+                    Metric (SI)
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Add Coil Form - Responsive Grid Layout */}
-            <div className="bg-slate-50/80 dark:bg-slate-950/20 p-3.5 border border-border/80 rounded-xl grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5 items-end text-xs">
-              <div className="col-span-2 sm:col-span-1 lg:col-span-1 flex flex-col gap-1 min-w-0">
-                <label className="font-semibold text-muted-foreground font-sans text-[11px] truncate">Unit Ref</label>
-                <input
-                  type="text"
-                  placeholder="e.g. AHU-2"
-                  disabled={isLocked}
-                  value={newCoil.name}
-                  onChange={e => setNewCoil({ ...newCoil, name: e.target.value })}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddCoil(); }}
-                  className="h-8.5 w-full bg-background border border-border/80 rounded-lg px-2.5 text-xs font-bold outline-none focus:border-[#0A7BC7] disabled:opacity-60 transition-all"
-                />
-              </div>
-              <div className="flex flex-col gap-1 min-w-0">
-                <label className="font-semibold text-muted-foreground font-sans text-[11px] truncate">On DB ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  disabled={isLocked}
-                  value={newCoil.dbIn}
-                  placeholder={ip ? "75.2" : "24.0"}
-                  onChange={e => setNewCoil({ ...newCoil, dbIn: e.target.value === "" ? "" : Number(e.target.value) })}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddCoil(); }}
-                  className="h-8.5 w-full bg-background border border-border/80 rounded-lg px-2 text-xs font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 transition-all"
-                />
-              </div>
-              <div className="flex flex-col gap-1 min-w-0">
-                <label className="font-semibold text-muted-foreground font-sans text-[11px] truncate">On WB ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  disabled={isLocked}
-                  value={newCoil.wbIn}
-                  placeholder={ip ? "62.6" : "17.0"}
-                  onChange={e => setNewCoil({ ...newCoil, wbIn: e.target.value === "" ? "" : Number(e.target.value) })}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddCoil(); }}
-                  className="h-8.5 w-full bg-background border border-border/80 rounded-lg px-2 text-xs font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 transition-all"
-                />
-              </div>
-              <div className="flex flex-col gap-1 min-w-0">
-                <label className="font-semibold text-muted-foreground font-sans text-[11px] truncate">Off DB ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  disabled={isLocked}
-                  value={newCoil.dbOut}
-                  placeholder={ip ? "57.2" : "14.0"}
-                  onChange={e => setNewCoil({ ...newCoil, dbOut: e.target.value === "" ? "" : Number(e.target.value) })}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddCoil(); }}
-                  className="h-8.5 w-full bg-background border border-border/80 rounded-lg px-2 text-xs font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 transition-all"
-                />
-              </div>
-              <div className="flex flex-col gap-1 min-w-0">
-                <label className="font-semibold text-muted-foreground font-sans text-[11px] truncate">Off WB ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  disabled={isLocked}
-                  value={newCoil.wbOut}
-                  placeholder={ip ? "55.4" : "13.0"}
-                  onChange={e => setNewCoil({ ...newCoil, wbOut: e.target.value === "" ? "" : Number(e.target.value) })}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddCoil(); }}
-                  className="h-8.5 w-full bg-background border border-border/80 rounded-lg px-2 text-xs font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 transition-all"
-                />
-              </div>
-              <div className="flex flex-col gap-1 min-w-0">
-                <label className="font-semibold text-muted-foreground font-sans text-[11px] truncate">Airflow ({uFlow})</label>
-                <input
-                  type="number"
-                  step="1"
-                  disabled={isLocked}
-                  value={newCoil.flow}
-                  placeholder={ip ? "1000" : "500"}
-                  onChange={e => setNewCoil({ ...newCoil, flow: e.target.value === "" ? "" : Number(e.target.value) })}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddCoil(); }}
-                  className="h-8.5 w-full bg-background border border-border/80 rounded-lg px-2 text-xs font-bold outline-none focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal disabled:opacity-60 transition-all"
-                />
-              </div>
-              <div className="col-span-2 sm:col-span-1 lg:col-span-1 flex flex-col justify-end">
-                <button
-                  type="button"
-                  onClick={handleAddCoil}
-                  disabled={isLocked}
-                  className="h-8.5 bg-[#0A7BC7] text-white px-3 font-bold rounded-lg hover:bg-[#06456F] cursor-pointer flex items-center justify-center gap-1.5 transition-colors w-full text-xs shadow-xs shrink-0 disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  <Plus className="size-3.5 shrink-0" />
-                  <span className="whitespace-nowrap font-sans font-bold">Add Coil</span>
-                </button>
-              </div>
-            </div>
+            {/* Active Tab View */}
+            <div key={tab} className="flex-1 min-h-0 animate-fade-in flex flex-col">
+              {tab === "coils" && (
+                <div className="flex flex-col h-full">
+                  {/* Toolbar */}
+                  <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background shrink-0 flex-wrap no-print modal-blur-bg border-b border-border/40">
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Filter coils..."
+                      className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
+                    />
 
-            {/* Bulk actions bar overlay exactly matching Ventilation */}
-            {selected.size > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-[#eef6fc] dark:bg-[#0c2233] border border-[#d0e5f5] dark:border-[#143750] rounded-xl text-[12px] text-[#06456F] dark:text-[#0A7BC7] animate-in fade-in duration-150 select-none">
-                <span className="font-semibold">{selected.size} selected</span>
-                <span className="text-[#06456F]/30 dark:text-[#0A7BC7]/30">·</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const firstSelected = rows.find(r => selected.has(r.id));
-                    if (firstSelected) setEditingCoil(firstSelected);
-                  }}
-                  className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
-                >
-                  <Edit3 className="size-3.5" /> Bulk edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const firstSelected = rows.find(r => selected.has(r.id));
-                    if (firstSelected) handleOpenComment(firstSelected);
-                  }}
-                  className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
-                >
-                  <MessageSquare className="size-3.5" /> Comment
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleToggleFlag(Array.from(selected))}
-                  className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
-                >
-                  <Flag className="size-3.5" /> Flag
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDuplicateCoil(rows.filter(x => selected.has(x.id)))}
-                  className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
-                >
-                  <Copy className="size-3.5" /> Duplicate
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteCoil(Array.from(selected))}
-                  className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-destructive text-[12px] px-2 py-1 rounded hover:bg-destructive/10 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="size-3.5" /> Delete
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelected(new Set())}
-                  className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
-                >
-                  <X className="size-3.5" /> Clear
-                </button>
-              </div>
-            )}
-
-            {/* Coils Table with Multi-Selection, Double-Click, Flagging & Context Menu */}
-            <div className="overflow-x-auto border border-border/60 rounded-xl">
-              <table className="w-full text-xs text-left border-collapse select-none">
-                <thead>
-                  <tr className="border-b border-border/70 bg-slate-50/70 dark:bg-slate-900/40 text-muted-foreground font-semibold">
-                    <th className="py-2.5 px-3 w-10 text-center">
+                    <div className="ml-auto flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={handleSelectAll}
-                        className="text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-center"
-                        title={selected.size === rows.length ? "Deselect All" : "Select All"}
+                        disabled={isLocked}
+                        onClick={() => {
+                          if (isLocked) {
+                            toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import.", { id: "readonly-notice" });
+                            return;
+                          }
+                          setIsImportModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 h-7 text-xs font-semibold rounded-full border border-border hover:bg-surface-2 transition-colors cursor-pointer text-foreground disabled:opacity-50"
                       >
-                        {selected.size > 0 && selected.size === rows.length ? (
-                          <CheckSquare className="size-4 text-[#0A7BC7]" />
-                        ) : (
-                          <Square className="size-4 text-muted-foreground/60" />
-                        )}
+                        <Download className="size-3.5 text-primary" />
+                        <span>Import</span>
                       </button>
-                    </th>
-                    <th className="py-2.5 px-3">Unit Ref</th>
-                    <th className="py-2.5 px-3">Entering DB/WB</th>
-                    <th className="py-2.5 px-3">Leaving DB/WB</th>
-                    <th className="py-2.5 px-3">Air Flow</th>
-                    <th className="py-2.5 px-3">W_in (kg/kg)</th>
-                    <th className="py-2.5 px-3">W_out (kg/kg)</th>
-                    <th className="py-2.5 px-3 text-primary font-bold">Condensate ({ip ? "GPM" : "L/s"})</th>
-                    <th className="py-2.5 px-3 text-center">Action</th>
-                    <th className="py-2.5 px-2 w-10 text-center" title="Flag coil for attention"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40 font-mono">
-                  {calculatedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={10} className="py-8 text-center text-muted-foreground font-sans text-xs">
-                        No cooling coils added. Use the form above to add a coil to the schedule.
-                      </td>
-                    </tr>
-                  ) : (
-                    calculatedRows.map((r, idx) => {
-                      const isSelected = selected.has(r.id);
-                      const hasComments = Array.isArray(r.comments) && r.comments.length > 0;
-                      const isFlagged = Boolean(r.isEffectivelyFlagged);
-                      const missingText = r.missingReasons && r.missingReasons.length > 0 ? r.missingReasons.join(" • ") : "";
+                      <button
+                        type="button"
+                        onClick={handleExportPDF}
+                        className="inline-flex items-center gap-1.5 px-3 h-7 text-xs font-semibold rounded-full border border-border hover:bg-surface-2 transition-colors cursor-pointer text-foreground"
+                      >
+                        <FileText className="size-3.5 text-rose-600 dark:text-rose-400" />
+                        <span>Export PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isLocked}
+                        onClick={handleNewCoil}
+                        className="inline-flex items-center gap-1.5 px-3 h-7 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/95 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                      >
+                        <Plus className="size-3.5" />
+                        <span>New Coil</span>
+                      </button>
+                    </div>
 
-                      return (
-                        <ContextMenu key={r.id}>
-                          <ContextMenuTrigger asChild>
-                            <tr
-                              id={`coil-row-${r.id}`}
-                              data-row-id={r.id}
-                              data-item-id={r.id}
-                              data-coil-id={r.id}
-                              onClick={(e) => handleRowClick(r.id, e, idx)}
-                              onDoubleClick={() => handleRowDoubleClick(r)}
-                              className={`transition-colors cursor-pointer group ${
-                                highlightedRowId === r.id
-                                  ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
-                                  : isSelected
-                                  ? "bg-[#0A7BC7]/10 dark:bg-[#0A7BC7]/20 border-l-2 border-l-[#0A7BC7]"
-                                  : isFlagged
-                                  ? "bg-red-500/[0.04] dark:bg-red-950/20 border-l-2 border-l-red-500/80 hover:bg-red-500/[0.08]"
-                                  : "hover:bg-slate-50/80 dark:hover:bg-slate-900/30"
-                              }`}
+                    {/* Bulk actions bar overlay */}
+                    {!isLocked && selected.size > 0 && (
+                      <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                        <span className="font-semibold">{selected.size} selected</span>
+                        <span className="text-primary/30">·</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const firstSelected = rows.find(r => selected.has(r.id));
+                            if (firstSelected) setEditingCoil(firstSelected);
+                          }}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
+                        >
+                          <Edit3 className="size-3.5" /> Bulk edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const firstSelected = rows.find(r => selected.has(r.id));
+                            if (firstSelected) handleOpenComment(firstSelected);
+                          }}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
+                        >
+                          <MessageSquare className="size-3.5" /> Comment
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleFlag(Array.from(selected))}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
+                        >
+                          <Flag className="size-3.5" /> Flag
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateCoil(rows.filter(x => selected.has(x.id)))}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-foreground text-[12px] px-2 py-1 rounded hover:bg-primary/10 transition-colors cursor-pointer"
+                        >
+                          <Copy className="size-3.5" /> Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCoil(Array.from(selected))}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:text-destructive text-[12px] px-2 py-1 rounded hover:bg-destructive/10 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="size-3.5" /> Delete
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelected(new Set())}
+                          className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                        >
+                          <X className="size-3.5" /> Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Table Grid / Empty State */}
+                  <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+                    {rows.length === 0 ? (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2 min-h-[380px]">
+                        <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
+                          <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
+                            <Download className="size-6" />
+                          </div>
+                          <h3 className="text-[15px] font-semibold tracking-tight">No Coils Loaded</h3>
+                          <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                            Start by importing cooling coil schedule data or manually add coils. The psychrometric engine will compute humidity ratios, aggregate moisture condensation loads, and drain sizing parameters.
+                          </p>
+                          <div className="flex items-center gap-3 w-full">
+                            <button
+                              type="button"
+                              onClick={() => setIsImportModalOpen(true)}
+                              disabled={isLocked}
+                              className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer disabled:opacity-50"
                             >
-                              {/* 1. Checkbox */}
-                              <td className="py-2.5 px-3 text-center" onClick={(e) => handleToggleSelectRow(r.id, e)}>
-                                {isSelected ? (
-                                  <CheckSquare className="size-4 text-[#0A7BC7] inline" />
-                                ) : (
-                                  <Square className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground inline" />
-                                )}
-                              </td>
-
-                              {/* 2. Unit Ref */}
-                              <td className="py-2.5 px-3 font-sans font-semibold text-[13px] text-foreground">
-                                <div className="flex items-center gap-1.5">
-                                  {hasComments && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(r);
-                                      }}
-                                      title={`${r.comments?.length} comment(s)/task(s) assigned to coil "${r.name}"`}
-                                      className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                    </button>
-                                  )}
-                                  <span>{r.name}</span>
-                                </div>
-                              </td>
-
-                              {/* 3. Entering DB/WB */}
-                              <td className="py-2.5 px-3 text-[13px] font-mono">
-                                {r.dbIn}/{r.wbIn} {uTemp}
-                              </td>
-
-                              {/* 4. Leaving DB/WB */}
-                              <td className="py-2.5 px-3 text-[13px] font-mono">
-                                {r.dbOut}/{r.wbOut} {uTemp}
-                              </td>
-
-                              {/* 5. Air Flow */}
-                              <td className="py-2.5 px-3 text-[13px] font-mono">
-                                {r.flow.toLocaleString()} {uFlow}
-                              </td>
-
-                              {/* 6. W_in */}
-                              <td className="py-2.5 px-3 text-[13px] font-mono">{r.wIn.toFixed(6)}</td>
-
-                              {/* 7. W_out */}
-                              <td className="py-2.5 px-3 text-[13px] font-mono">{r.wOut.toFixed(6)}</td>
-
-                              {/* 8. Condensate Flow */}
-                              <td className="py-2.5 px-3 text-[13px] font-mono font-bold text-primary">
-                                {ip ? lpsToGpm(r.condFlow).toFixed(5) : r.condFlow.toFixed(5)} {ip ? "GPM" : "L/s"}
-                              </td>
-
-                              {/* 9. Actions */}
-                              <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRowDoubleClick(r)}
-                                    title="Edit Coil Properties (Double-Click)"
-                                    className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-accent transition cursor-pointer"
-                                  >
-                                    <Edit3 className="size-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenComment(r)}
-                                    title="Add Comment / Task"
-                                    className="p-1 text-muted-foreground hover:text-blue-600 rounded hover:bg-accent transition cursor-pointer"
-                                  >
-                                    <MessageSquare className="size-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteCoil(r.id)}
-                                    title="Delete Coil"
-                                    className="p-1 text-muted-foreground hover:text-destructive rounded hover:bg-destructive/10 transition cursor-pointer"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-
-                              {/* 10. Flag Column (Far Right Column, exactly matching Ventilation) */}
-                              <td className="py-2.5 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                              <Download className="size-3.5" /> Import
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleNewCoil}
+                              disabled={isLocked}
+                              className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                              <Plus className="size-3.5" /> Add Coil
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-x-auto">
+                        <table className="w-full text-xs text-left border-collapse select-none">
+                          <thead className="sticky top-0 z-10">
+                            <tr className="border-b border-border/70 bg-surface-2 text-muted-foreground font-semibold">
+                              <th className="py-2.5 px-3 w-10 min-w-10 max-w-10 text-center">
                                 <button
                                   type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const editIds = selected.has(r.id) && selected.size > 1 ? Array.from(selected) : [r.id];
-                                    handleToggleFlag(editIds);
-                                  }}
-                                  title={
-                                    missingText
-                                      ? missingText
-                                      : isFlagged
-                                      ? "Unflag coil"
-                                      : "Flag coil"
-                                  }
-                                  className="p-1.5 rounded-lg hover:bg-muted/80 transition-all cursor-pointer group inline-flex items-center justify-center"
+                                  onClick={handleSelectAll}
+                                  className="text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-center mx-auto"
+                                  title={selected.size === rows.length ? "Deselect All" : "Select All"}
                                 >
-                                  <Flag
-                                    className={`size-3.5 transition-all duration-200 ${
-                                      isFlagged
-                                        ? "fill-red-500 text-red-500 scale-110 drop-shadow-xs"
-                                        : "text-muted-foreground/30 hover:text-red-500/70 group-hover:scale-110"
-                                    }`}
-                                  />
+                                  {selected.size > 0 && selected.size === rows.length ? (
+                                    <CheckSquare className="size-4 text-[#0A7BC7]" />
+                                  ) : (
+                                    <Square className="size-4 text-muted-foreground/60" />
+                                  )}
                                 </button>
-                              </td>
+                              </th>
+                              <th className="py-2.5 px-3 w-[22%]">Unit Ref</th>
+                              <th className="py-2.5 px-3 w-[13%]">Entering DB/WB</th>
+                              <th className="py-2.5 px-3 w-[13%]">Leaving DB/WB</th>
+                              <th className="py-2.5 px-3 w-[12%]">Air Flow</th>
+                              <th className="py-2.5 px-3 w-[11%]">W_in (kg/kg)</th>
+                              <th className="py-2.5 px-3 w-[11%]">W_out (kg/kg)</th>
+                              <th className="py-2.5 px-3 text-primary font-bold">Condensate ({ip ? "GPM" : "L/s"})</th>
+                              <th className="py-2.5 px-2 w-10 min-w-10 max-w-10 text-center" title="Flag coil for attention"></th>
                             </tr>
-                          </ContextMenuTrigger>
+                          </thead>
+                          <tbody className="divide-y divide-border/40 font-mono">
+                            {filteredRows.length === 0 ? (
+                              <tr>
+                                <td colSpan={9} className="py-12 text-center text-muted-foreground font-sans text-xs">
+                                  No coils match your search criteria.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredRows.map((r, idx) => {
+                                const isSelected = selected.has(r.id);
+                                const hasComments = Array.isArray(r.comments) && r.comments.length > 0;
+                                const isFlagged = Boolean(r.isEffectivelyFlagged);
+                                const missingText = r.missingReasons && r.missingReasons.length > 0 ? r.missingReasons.join(" • ") : "";
 
-                          {/* Right-Click Context Menu */}
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
-                            <ContextMenuItem
-                              onClick={() => handleRowDoubleClick(r)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                            >
-                              <Edit3 className="size-3.5 text-muted-foreground" />
-                              <span>{isSelected && selected.size > 1 ? `Bulk Edit (${selected.size}) Coils` : "Edit Coil Properties"}</span>
-                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                            </ContextMenuItem>
+                                return (
+                                  <ContextMenu key={r.id}>
+                                    <ContextMenuTrigger asChild>
+                                      <tr
+                                        id={`coil-row-${r.id}`}
+                                        data-row-id={r.id}
+                                        data-item-id={r.id}
+                                        data-coil-id={r.id}
+                                        onClick={(e) => handleRowClick(r.id, e, idx)}
+                                        onDoubleClick={() => handleRowDoubleClick(r)}
+                                        className={`transition-colors cursor-pointer group ${
+                                          highlightedRowId === r.id
+                                            ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
+                                            : isSelected
+                                            ? "bg-[#0A7BC7]/10 dark:bg-[#0A7BC7]/20 border-l-2 border-l-[#0A7BC7]"
+                                            : "hover:bg-slate-50/80 dark:hover:bg-slate-900/30"
+                                        }`}
+                                      >
+                                        {/* 1. Checkbox */}
+                                        <td className="py-2 px-3 w-10 min-w-10 max-w-10 text-center" onClick={(e) => handleToggleSelectRow(r.id, e)}>
+                                          {isSelected ? (
+                                            <CheckSquare className="size-4 text-[#0A7BC7] inline" />
+                                          ) : (
+                                            <Square className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground inline" />
+                                          )}
+                                        </td>
 
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                                        {/* 2. Unit Ref */}
+                                        <td className="py-2 px-3 font-sans font-semibold text-[13px] text-foreground">
+                                          <div className="flex items-center gap-1.5">
+                                            {hasComments && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleOpenComment(r);
+                                                }}
+                                                title={`${r.comments?.length} comment(s)/task(s) assigned to coil "${r.name}"`}
+                                                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer"
+                                              >
+                                                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                              </button>
+                                            )}
+                                            <span>{r.name}</span>
+                                          </div>
+                                        </td>
 
-                            <ContextMenuItem
-                              onClick={() => handleCopyCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : r)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                            >
-                              <Copy className="size-3.5 text-muted-foreground" />
-                              <span>{isSelected && selected.size > 1 ? `Copy (${selected.size}) Coils` : "Copy"}</span>
-                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                            </ContextMenuItem>
+                                        {/* 3. Entering DB/WB */}
+                                        <td className="py-2 px-3 text-[13px] font-mono">
+                                          {r.dbIn}/{r.wbIn} {uTemp}
+                                        </td>
 
-                            <ContextMenuItem
-                              onClick={() => handleCutCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : r)}
-                              disabled={isLocked}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                            >
-                              <Scissors className="size-3.5 text-muted-foreground" />
-                              <span>{isSelected && selected.size > 1 ? `Cut (${selected.size}) Coils` : "Cut"}</span>
-                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
-                            </ContextMenuItem>
+                                        {/* 4. Leaving DB/WB */}
+                                        <td className="py-2 px-3 text-[13px] font-mono">
+                                          {r.dbOut}/{r.wbOut} {uTemp}
+                                        </td>
 
-                            <ContextMenuItem
-                              onClick={handlePasteCoil}
-                              disabled={isLocked || clipboard.length === 0}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                            >
-                              <Clipboard className="size-3.5 text-muted-foreground" />
-                              <span>Paste {clipboard.length > 0 ? `(${clipboard.length})` : ""}</span>
-                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                            </ContextMenuItem>
+                                        {/* 5. Air Flow */}
+                                        <td className="py-2 px-3 text-[13px] font-mono">
+                                          {r.flow.toLocaleString()} {uFlow}
+                                        </td>
 
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                                        {/* 6. W_in */}
+                                        <td className="py-2 px-3 text-[13px] font-mono">{r.wIn.toFixed(6)}</td>
 
-                            <ContextMenuItem
-                              onClick={() => handleDuplicateCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : r)}
-                              disabled={isLocked}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                            >
-                              <Copy className="size-3.5 text-muted-foreground" />
-                              <span>{isSelected && selected.size > 1 ? `Duplicate (${selected.size}) Coils` : "Duplicate Coil"}</span>
-                            </ContextMenuItem>
+                                        {/* 7. W_out */}
+                                        <td className="py-2 px-3 text-[13px] font-mono">{r.wOut.toFixed(6)}</td>
 
-                            <ContextMenuItem
-                              onClick={() => handleToggleFlag(isSelected && selected.size > 1 ? Array.from(selected) : r.id)}
-                              disabled={isLocked}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                            >
-                              <Flag className={`size-3.5 ${isFlagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-                              <span>{isSelected && selected.size > 1 ? `Toggle Flag (${selected.size}) Selected` : isFlagged ? "Unflag Coil" : "Flag Coil"}</span>
-                            </ContextMenuItem>
+                                        {/* 8. Condensate Flow */}
+                                        <td className="py-2 px-3 text-[13px] font-mono font-bold text-primary">
+                                          {ip ? lpsToGpm(r.condFlow).toFixed(5) : r.condFlow.toFixed(5)} {ip ? "GPM" : "L/s"}
+                                        </td>
 
-                            <ContextMenuItem
-                              onClick={() => handleOpenComment(r)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                            >
-                              <MessageSquare className="size-3.5" />
-                              <span>Add Comment / Assign Task</span>
-                            </ContextMenuItem>
+                                        {/* 9. Flag Column */}
+                                        <td className="py-2 px-2 w-10 min-w-10 max-w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const editIds = selected.has(r.id) && selected.size > 1 ? Array.from(selected) : [r.id];
+                                              handleToggleFlag(editIds);
+                                            }}
+                                            title={
+                                              missingText
+                                                ? missingText
+                                                : isFlagged
+                                                ? "Unflag coil"
+                                                : "Flag coil"
+                                            }
+                                            className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                          >
+                                            <Flag
+                                              className={`size-3.5 transition-all duration-200 ${
+                                                isFlagged
+                                                  ? "fill-red-500 text-red-500 scale-110"
+                                                  : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                              }`}
+                                            />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    </ContextMenuTrigger>
 
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                                    {/* Right-Click Context Menu */}
+                                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+                                      <ContextMenuItem
+                                        onClick={() => handleRowDoubleClick(r)}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                      >
+                                        <Edit3 className="size-3.5 text-muted-foreground" />
+                                        <span>{isSelected && selected.size > 1 ? `Bulk Edit (${selected.size}) Coils` : "Edit Coil Properties"}</span>
+                                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+                                      </ContextMenuItem>
 
-                            <ContextMenuItem
-                              onClick={() => handleDeleteCoil(isSelected && selected.size > 1 ? Array.from(selected) : r.id)}
-                              disabled={isLocked}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded-lg text-destructive cursor-pointer font-medium disabled:opacity-50"
-                            >
-                              <Trash2 className="size-3.5" />
-                              <span>{isSelected && selected.size > 1 ? `Delete (${selected.size}) Selected` : "Delete Coil"}</span>
-                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                                      <ContextMenuSeparator className="h-px bg-border my-1" />
 
-          {/* Totals Summary - Optimized Section Positioned Below Moisture Extraction Schedule */}
-          <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-border/60">
-              <div className="flex items-center gap-2">
-                <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Totals Summary</h3>
-              </div>
-              <span className="text-[11px] text-muted-foreground">Aggregated across all scheduled coils</span>
-            </div>
+                                      <ContextMenuItem
+                                        onClick={() => handleCopyCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : r)}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                      >
+                                        <Copy className="size-3.5 text-muted-foreground" />
+                                        <span>{isSelected && selected.size > 1 ? `Copy (${selected.size}) Coils` : "Copy"}</span>
+                                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                                      </ContextMenuItem>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Active Coils */}
-              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-4 flex items-center justify-between">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Active Coils</span>
-                  <div className="flex items-baseline gap-1.5 mt-1">
-                    <span className="text-2xl font-bold font-mono text-foreground">{rows.length}</span>
-                    <span className="text-xs text-muted-foreground font-sans">{rows.length === 1 ? "unit" : "units"}</span>
+                                      <ContextMenuItem
+                                        onClick={() => handleCutCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : r)}
+                                        disabled={isLocked}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                                      >
+                                        <Scissors className="size-3.5 text-muted-foreground" />
+                                        <span>{isSelected && selected.size > 1 ? `Cut (${selected.size}) Coils` : "Cut"}</span>
+                                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
+                                      </ContextMenuItem>
+
+                                      <ContextMenuItem
+                                        onClick={handlePasteCoil}
+                                        disabled={isLocked || clipboard.length === 0}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                                      >
+                                        <Clipboard className="size-3.5 text-muted-foreground" />
+                                        <span>Paste {clipboard.length > 0 ? `(${clipboard.length})` : ""}</span>
+                                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                                      </ContextMenuItem>
+
+                                      <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                                      <ContextMenuItem
+                                        onClick={() => handleDuplicateCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : r)}
+                                        disabled={isLocked}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                                      >
+                                        <Copy className="size-3.5 text-muted-foreground" />
+                                        <span>{isSelected && selected.size > 1 ? `Duplicate (${selected.size}) Coils` : "Duplicate Coil"}</span>
+                                      </ContextMenuItem>
+
+                                      <ContextMenuItem
+                                        onClick={() => handleToggleFlag(isSelected && selected.size > 1 ? Array.from(selected) : r.id)}
+                                        disabled={isLocked}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                                      >
+                                        <Flag className={`size-3.5 ${isFlagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                                        <span>{isSelected && selected.size > 1 ? `Toggle Flag (${selected.size}) Selected` : isFlagged ? "Unflag Coil" : "Flag Coil"}</span>
+                                      </ContextMenuItem>
+
+                                      <ContextMenuItem
+                                        onClick={() => handleOpenComment(r)}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                      >
+                                        <MessageSquare className="size-3.5" />
+                                        <span>Add Comment / Assign Task</span>
+                                      </ContextMenuItem>
+
+                                      <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                                      <ContextMenuItem
+                                        onClick={() => handleDeleteCoil(isSelected && selected.size > 1 ? Array.from(selected) : r.id)}
+                                        disabled={isLocked}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded-lg text-destructive cursor-pointer font-medium disabled:opacity-50"
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                        <span>{isSelected && selected.size > 1 ? `Delete (${selected.size}) Selected` : "Delete Coil"}</span>
+                                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+                                      </ContextMenuItem>
+                                    </ContextMenuContent>
+                                  </ContextMenu>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg">
+                    <div>
+                      Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} coils
+                    </div>
+                    <div className="flex items-center gap-3 tabular">
+                      <span>Σ Airflow: <span className="font-mono text-foreground">{totals.totalFlow.toLocaleString()} {uFlow}</span></span>
+                      <span>Σ Condensate: <span className="font-mono text-foreground">{ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)} {ip ? "GPM" : "L/s"}</span></span>
+                    </div>
                   </div>
                 </div>
-                <div className="p-2.5 rounded-xl bg-slate-200/60 dark:bg-slate-800 text-muted-foreground">
-                  <Layers className="size-5" />
-                </div>
-              </div>
+              )}
 
-              {/* Total Sized Airflow */}
-              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-4 flex items-center justify-between">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Total Sized Airflow</span>
-                  <div className="flex items-baseline gap-1.5 mt-1">
-                    <span className="text-2xl font-bold font-mono text-foreground">{totals.totalFlow.toLocaleString()}</span>
-                    <span className="text-xs font-bold text-muted-foreground">{uFlow}</span>
+              {tab === "summary" && (
+                <div className="p-6 flex flex-col gap-6 overflow-y-auto">
+                  <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-foreground font-sans">Condensate Summary & Totals</h3>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Aggregated across all scheduled cooling coils</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Active Coils */}
+                    <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between shadow-xs">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Active Coils</span>
+                        <div className="flex items-baseline gap-1.5 mt-1">
+                          <span className="text-3xl font-bold font-mono text-foreground">{rows.length}</span>
+                          <span className="text-xs text-muted-foreground font-sans">{rows.length === 1 ? "unit" : "units"}</span>
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-muted-foreground">
+                        <Layers className="size-6" />
+                      </div>
+                    </div>
+
+                    {/* Total Sized Airflow */}
+                    <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between shadow-xs">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Total Sized Airflow</span>
+                        <div className="flex items-baseline gap-1.5 mt-1">
+                          <span className="text-3xl font-bold font-mono text-foreground">{totals.totalFlow.toLocaleString()}</span>
+                          <span className="text-xs font-bold text-muted-foreground">{uFlow}</span>
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-xl bg-blue-500/10 text-[#0A7BC7]">
+                        <Wind className="size-6" />
+                      </div>
+                    </div>
+
+                    {/* Total Condensate Flow */}
+                    <div className="bg-primary/5 border border-primary/20 rounded-xl p-5 flex items-center justify-between shadow-xs">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-primary">Total Condensate Flow</span>
+                        <div className="flex items-baseline gap-1.5 mt-1">
+                          <span className="text-3xl font-bold font-mono text-primary">
+                            {ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)}
+                          </span>
+                          <span className="text-xs font-bold text-primary">{ip ? "GPM" : "L/s"}</span>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                          ({!ip ? `${lpsToGpm(totals.totalCond).toFixed(4)} GPM` : `${totals.totalCond.toFixed(4)} L/s`})
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-primary/10 text-primary">
+                        <Droplets className="size-6" />
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="p-2.5 rounded-xl bg-blue-500/10 text-[#0A7BC7]">
-                  <Wind className="size-5" />
-                </div>
-              </div>
-
-              {/* Total Condensate Flow */}
-              <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 flex items-center justify-between">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">Total Condensate Flow</span>
-                  <div className="flex items-baseline gap-1.5 mt-1">
-                    <span className="text-2xl font-bold font-mono text-primary">
-                      {ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)}
-                    </span>
-                    <span className="text-xs font-bold text-primary">{ip ? "GPM" : "L/s"}</span>
-                  </div>
-                  <span className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                    ({!ip ? `${lpsToGpm(totals.totalCond).toFixed(4)} GPM` : `${totals.totalCond.toFixed(4)} L/s`})
-                  </span>
-                </div>
-                <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
-                  <Droplets className="size-5" />
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
@@ -1403,7 +1536,7 @@ function CondensateDrainCalcPage() {
         {/* Intelligence drawer */}
         <div
           className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 mr-4 ml-0 border border-border rounded-2xl bg-card shadow-lg" : "w-0"
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
           }`}
         >
           {intelOpen && (
