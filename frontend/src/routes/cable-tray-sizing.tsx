@@ -181,6 +181,7 @@ function CableTraySizingPage() {
   const [editingCable, setEditingCable] = useState<{ cable: Cable; trayId: string; index: number } | null>(null);
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkTargetIds, setBulkTargetIds] = useState<string[]>([]);
   const [bulkForm, setBulkForm] = useState({ type: "", cores: "", size: "", qty: "", spacingFactor: "" });
 
   const [undoStack, setUndoStack] = useState<any[][]>([]);
@@ -1830,7 +1831,10 @@ function CableTraySizingPage() {
               Duplicate
             </button>
             <button 
-              onClick={() => setBulkEditOpen(true)} 
+              onClick={() => {
+                setBulkTargetIds(Array.from(selectedRows));
+                setBulkEditOpen(true);
+              }} 
               className="text-xs bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1.5 rounded transition-colors"
             >
               Bulk Edit
@@ -1864,16 +1868,17 @@ function CableTraySizingPage() {
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-surface border border-border shadow-xl rounded-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
             <div className="flex items-center justify-between p-4 border-b border-border bg-surface-1">
-              <h3 className="font-semibold">Bulk Edit ({selectedRows.size} Items)</h3>
+              <h3 className="font-semibold">Bulk Edit ({bulkTargetIds.length || selectedRows.size} Items)</h3>
               <button onClick={() => setBulkEditOpen(false)} className="p-1 hover:bg-surface-2 rounded-md transition-colors"><X className="size-4" /></button>
             </div>
             <form onSubmit={(e) => {
               e.preventDefault();
               pushToUndo(trays);
+              const targetIds = bulkTargetIds.length > 0 ? bulkTargetIds : Array.from(selectedRows);
               setTrays(prev => prev.map(t => ({
                 ...t,
                 cables: t.cables.map(c => {
-                  if (selectedRows.has(c.id)) {
+                  if (targetIds.includes(c.id)) {
                     return {
                       ...c,
                       type: bulkForm.type || c.type,

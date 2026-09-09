@@ -1194,6 +1194,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         if (spaces) addNotifs(spaces, "Loading Unit Space", p.name, p.id, "/plumbing-loading-unit");
       }
 
+      if (wdata.capacitor_bank_calc) {
+        const panels = wdata.capacitor_bank_calc.panels || (Array.isArray(wdata.capacitor_bank_calc) ? wdata.capacitor_bank_calc : null);
+        if (panels) addNotifs(panels, "Capacitor Bank Panel", p.name, p.id, "/capacitor-bank-sizing");
+      }
+
       // Scan wdata.notifications[] — where CalculationReviewBar stores review/rejection notifs
       if (Array.isArray(wdata.notifications)) {
         wdata.notifications.forEach((wn: any) => {

@@ -528,6 +528,19 @@ function SpacesView() {
     localStorage.removeItem("mep-floor-order");
   };
 
+  const handleMoveFloor = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sortedFloorsForGrid.length) return;
+
+    const nextList = [...sortedFloorsForGrid];
+    const item = nextList[index];
+    nextList.splice(index, 1);
+    nextList.splice(targetIndex, 0, item);
+
+    setFloorOrder(nextList);
+    localStorage.setItem("mep-floor-order", JSON.stringify(nextList));
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -654,6 +667,7 @@ function SpacesView() {
   }, [importOpen, pendingRecords.length]);
 
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditTargetIds, setBulkEditTargetIds] = useState<string[]>([]);
   const [bulkEditValues, setBulkEditValues] = useState({
     building: "",
     floor: "",
@@ -1163,7 +1177,13 @@ function SpacesView() {
   };
 
   const handleBulkEditApply = async () => {
-    const spaceIds = Array.from(selected);
+    const spaceIds = bulkEditTargetIds.length > 0 ? bulkEditTargetIds : Array.from(selected);
+
+    if (spaceIds.length === 0) {
+      toast.error("No spaces selected for bulk edit.", { id: "no-selection-error" });
+      setBulkEditOpen(false);
+      return;
+    }
 
     // If a zone is being assigned, validate it first
     if (bulkEditFields.zone && bulkEditValues.zone) {
@@ -1391,6 +1411,7 @@ function SpacesView() {
 
     const changedSpaces = updatedSpacesList.filter((s) => spaceIds.includes(s.id));
     updateSpaces(changedSpaces);
+    toast.success(`Successfully updated ${changedSpaces.length} space(s)!`);
     setBulkEditOpen(false);
 
     if (bulkEditFields.category && bulkEditValues.category === "Rest Room / Changing Room") {
@@ -1577,6 +1598,8 @@ function SpacesView() {
                 toast.info("Workspace is in Read-Only mode. Editing is locked.", { id: "readonly-notice" });
                 return;
               }
+              const targetIds = selected.has(row.id) ? Array.from(selected) : [row.id];
+              setBulkEditTargetIds(targetIds);
               setBulkEditValues({
                 building: "",
                 floor: "",
@@ -2892,7 +2915,7 @@ function SpacesView() {
                 )}
               </div>
               <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
-                Drag and drop floors to change their sorting order in the grid views.
+                Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
               </p>
               <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5 font-mori">
                 {sortedFloorsForGrid.map((floor, index) => (
@@ -2902,14 +2925,42 @@ function SpacesView() {
                     onDragStart={(e) => handleDragStart(e, index)}
                     onDragOver={(e) => handleDragOver(e, index)}
                     onDragEnd={handleDragEnd}
-                    className={`flex items-center gap-2 p-1.5 bg-surface rounded border border-border text-[11px] cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${
+                    className={`flex items-center justify-between gap-2 p-1.5 bg-surface rounded border border-border text-[11px] cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${
                       draggingIndex === index
-                        ? "opacity-40 border-primary bg-primary/5"
+                        ? "opacity-40 border-primary bg-primary/5 shadow-md"
                         : "hover:bg-surface-2 hover:border-border-strong"
                     }`}
                   >
-                    <GripVertical className="size-3 text-muted-foreground shrink-0" />
-                    <span className="font-semibold text-foreground uppercase truncate">{floor}</span>
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <GripVertical className="size-3 text-muted-foreground shrink-0" />
+                      <span className="font-semibold text-foreground uppercase truncate">{floor}</span>
+                    </div>
+
+                    {/* Up / Down Move Action Buttons (Works 100% in Desktop EXE / Electron / WebViews) */}
+                    <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => handleMoveFloor(index, "up")}
+                        className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
+                          index === 0 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title="Move floor up"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === sortedFloorsForGrid.length - 1}
+                        onClick={() => handleMoveFloor(index, "down")}
+                        className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
+                          index === sortedFloorsForGrid.length - 1 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title="Move floor down"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2938,6 +2989,7 @@ function SpacesView() {
               <span className="font-semibold">{selected.size} selected</span>
               <span className="text-primary/30">Â·</span>
               <BulkBtn icon={Edit3} onClick={() => {
+                setBulkEditTargetIds(Array.from(selected));
                 setBulkEditValues({
                   building: "",
                   floor: "",
@@ -3830,7 +3882,7 @@ function SpacesView() {
               <header className="px-4 py-3 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Edit3 className="size-4 text-primary" />
-                  <h3 className="font-semibold text-[14px]">Bulk Edit {selected.size} Spaces</h3>
+                  <h3 className="font-semibold text-[14px]">Bulk Edit {bulkEditTargetIds.length || selected.size} Spaces</h3>
                 </div>
                 <button onClick={() => setBulkEditOpen(false)} className="text-muted-foreground hover:text-foreground">
                   <X className="size-4" />
@@ -4821,6 +4873,14 @@ function ZonesView() {
             <ChevronDown className={`size-3.5 transition-transform duration-200 ${openId === z.id ? "rotate-180" : ""}`} />
           </button>
           <span>{z.name}</span>
+          {z.flagged && z.flaggedReason && (
+            <span
+              className="ml-1 p-0.5 text-red-500 hover:text-red-600 cursor-help"
+              title={`Flagged Reason: ${z.flaggedReason}`}
+            >
+              <AlertTriangle className="size-3.5 text-red-500 inline shrink-0" />
+            </span>
+          )}
         </div>
       ),
     },
@@ -5009,17 +5069,18 @@ function ZonesView() {
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            const nextFlagged = !z.flagged;
             const updatedZones = zones.map((zoneItem) =>
-              zoneItem.id === z.id ? { ...zoneItem, flagged: !zoneItem.flagged } : zoneItem
+              zoneItem.id === z.id ? { ...zoneItem, flagged: nextFlagged, manualUnflagged: !nextFlagged } : zoneItem
             );
             updateZones(updatedZones);
           }}
           className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
           title={
-            z.freshAir === 0 && z.extractAir === 0
-              ? "The zone contains spaces which don't have min fresh and extract air"
-              : z.flagged
-              ? "Unflag zone"
+            z.flagged
+              ? z.flaggedReason
+                ? `Flagged: ${z.flaggedReason}`
+                : "Flagged Zone (Click to unflag)"
               : "Flag zone"
           }
         >

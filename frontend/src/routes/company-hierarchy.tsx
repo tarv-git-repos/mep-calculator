@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, Search, Sparkles, Save, RefreshCw, 
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
   User, Check, ArrowRight, Eye, ZoomIn, ZoomOut, RotateCcw, Scan, Move, Maximize2,
-  AlertTriangle
+  AlertTriangle, GripVertical
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
@@ -147,6 +147,121 @@ export function isDuplicateRoleBadge(member: HierarchyUser): boolean {
   }
 
   return false;
+}
+
+export interface NodePos {
+  x: number;
+  topY: number;
+  bottomY: number;
+  left: number;
+  right: number;
+  width: number;
+  height: number;
+}
+
+export function computeHierarchyPathD(
+  line: { fromId: string; toId: string; x1: number; y1: number; x2: number; y2: number },
+  coords: Map<string, NodePos>,
+  levelMap: Map<string, number>,
+  visibleMembers: HierarchyUser[]
+): string {
+  const fromLevel = levelMap.get(line.fromId);
+  const toLevel = levelMap.get(line.toId);
+  
+  const { x1, y1, x2, y2 } = line;
+
+  // Default curve for missing levels or adjacent level connection (fromLevel === toLevel + 1)
+  if (fromLevel === undefined || toLevel === undefined || fromLevel <= toLevel + 1) {
+    const midY = (y1 + y2) / 2;
+    return `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2 + 6}`;
+  }
+
+  // Multi-level jump (fromLevel > toLevel + 1, e.g. Level 3 directly to Level 1)
+  const interLevels: number[] = [];
+  for (let l = fromLevel - 1; l > toLevel; l--) {
+    interLevels.push(l);
+  }
+
+  // Group node positions by level
+  const nodesByLevel = new Map<number, NodePos[]>();
+  visibleMembers.forEach((m) => {
+    const lvl = levelMap.get(m.id);
+    if (lvl !== undefined && coords.has(m.id)) {
+      if (!nodesByLevel.has(lvl)) nodesByLevel.set(lvl, []);
+      nodesByLevel.get(lvl)!.push(coords.get(m.id)!);
+    }
+  });
+
+  let currentX = x1;
+  let currentY = y1;
+  let pathString = `M ${x1} ${y1}`;
+
+  for (let i = 0; i < interLevels.length; i++) {
+    const lvl = interLevels[i];
+    const lvlNodes = nodesByLevel.get(lvl) || [];
+
+    if (lvlNodes.length === 0) continue;
+
+    const minTopY = Math.min(...lvlNodes.map(n => n.topY));
+    const maxBottomY = Math.max(...lvlNodes.map(n => n.bottomY));
+
+    // Aisle below level lvl and aisle above level lvl
+    const aisleBottomY = maxBottomY + 24;
+    const aisleTopY = minTopY - 24;
+
+    const margin = 16; // clearance margin around cards
+
+    // Safe corridors through level lvl
+    const sortedNodes = [...lvlNodes].sort((a, b) => a.left - b.left);
+    const corridors: number[] = [];
+    
+    // Corridor left of leftmost card
+    corridors.push(sortedNodes[0].left - 24);
+
+    // Corridors between adjacent cards
+    for (let j = 0; j < sortedNodes.length - 1; j++) {
+      const gapLeft = sortedNodes[j].right;
+      const gapRight = sortedNodes[j + 1].left;
+      if (gapRight - gapLeft >= 8) {
+        corridors.push((gapLeft + gapRight) / 2);
+      }
+    }
+
+    // Corridor right of rightmost card
+    corridors.push(sortedNodes[sortedNodes.length - 1].right + 24);
+
+    // Check if currentX is already clear of all cards at level lvl
+    const isCurrentXSafe = !lvlNodes.some(n => currentX >= (n.left - margin) && currentX <= (n.right + margin));
+    
+    let chosenX = currentX;
+    if (!isCurrentXSafe) {
+      // Pick corridor that minimizes total horizontal distance detour
+      let bestDist = Infinity;
+      corridors.forEach(cx => {
+        const dist = Math.abs(cx - currentX) + Math.abs(cx - x2);
+        if (dist < bestDist) {
+          bestDist = dist;
+          chosenX = cx;
+        }
+      });
+    }
+
+    // Curve 1: S-curve from (currentX, currentY) into aisleBottomY at chosenX
+    const midY1 = (currentY + aisleBottomY) / 2;
+    pathString += ` C ${currentX} ${midY1}, ${chosenX} ${midY1}, ${chosenX} ${aisleBottomY}`;
+    
+    // Straight vertical line through level lvl at chosenX (passing between or around cards)
+    pathString += ` L ${chosenX} ${aisleTopY}`;
+
+    currentX = chosenX;
+    currentY = aisleTopY;
+  }
+
+  // Final curve into target manager bottom (x2, y2 + 6)
+  const finalMidY = (currentY + y2) / 2;
+  pathString += ` C ${currentX} ${finalMidY}, ${x2} ${finalMidY}, ${x2} ${y2 + 6}`;
+
+  return pathString;
 }
 
 const DEFAULT_HIERARCHY: HierarchyUser[] = [
@@ -491,7 +606,7 @@ function CompanyHierarchyPage() {
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("button, input, select, a, textarea")) return;
+    if ((e.target as HTMLElement).closest("button, input, select, a, textarea, [data-node-id]")) return;
     setIsPanning(true);
     dragStartRef.current = {
       x: e.clientX,
@@ -514,6 +629,43 @@ function CompanyHierarchyPage() {
   const handleMouseUp = () => {
     setIsPanning(false);
   };
+
+  // Custom Card Repositioning State
+  const [customPositions, setCustomPositions] = useState<Record<string, { x: number; y: number }>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const orgId = getEffectiveOrgId(userData, profile);
+        const key = getOrgHierarchyStorageKey(userData, profile) + "_pos";
+        const saved = localStorage.getItem(key);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {};
+  });
+
+  const draggingNodeRef = useRef<{
+    id: string;
+    startMouseX: number;
+    startMouseY: number;
+    startPosX: number;
+    startPosY: number;
+  } | null>(null);
+
+  const handleNodeDragStart = useCallback((e: React.MouseEvent, nodeId: string) => {
+    if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const currentPos = customPositions[nodeId] || { x: 0, y: 0 };
+    draggingNodeRef.current = {
+      id: nodeId,
+      startMouseX: e.clientX,
+      startMouseY: e.clientY,
+      startPosX: currentPos.x,
+      startPosY: currentPos.y,
+    };
+  }, [customPositions]);
+
+
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -951,31 +1103,42 @@ function CompanyHierarchyPage() {
     x2: number;
     y2: number;
   }>>([]);
+  const [coordsMap, setCoordsMap] = useState<Map<string, NodePos>>(new Map());
+
+  const levelMap = useMemo(() => computeMemberLevels(visibleMembers), [visibleMembers]);
 
   const updateLines = useCallback(() => {
     if (!contentRef.current) return;
-    const containerRect = contentRef.current.getBoundingClientRect();
-    const nodeEls = contentRef.current.querySelectorAll<HTMLElement>('[data-node-id]');
+    const container = contentRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const nodeEls = container.querySelectorAll<HTMLElement>('[data-node-id]');
 
-    const coords = new Map<string, { x: number; topY: number; bottomY: number }>();
+    const coords = new Map<string, NodePos>();
+    const currentScale = zoom || 1;
 
     nodeEls.forEach((el) => {
       const id = el.getAttribute('data-node-id');
       if (!id) return;
-      const rect = el.getBoundingClientRect();
 
-      const currentZoom = zoom || 1;
-      const relLeft = (rect.left - containerRect.left) / currentZoom;
-      const relTop = (rect.top - containerRect.top) / currentZoom;
-      const width = rect.width / currentZoom;
-      const height = rect.height / currentZoom;
+      const elRect = el.getBoundingClientRect();
+
+      const left = (elRect.left - containerRect.left) / currentScale;
+      const top = (elRect.top - containerRect.top) / currentScale;
+      const width = elRect.width / currentScale;
+      const height = elRect.height / currentScale;
 
       coords.set(id, {
-        x: relLeft + width / 2,
-        topY: relTop,
-        bottomY: relTop + height,
+        x: left + width / 2,
+        topY: top,
+        bottomY: top + height,
+        left,
+        right: left + width,
+        width,
+        height,
       });
     });
+
+    setCoordsMap(coords);
 
     const newLines: Array<{
       id: string;
@@ -1016,14 +1179,79 @@ function CompanyHierarchyPage() {
     const t1 = setTimeout(updateLines, 50);
     const t2 = setTimeout(updateLines, 200);
     const t3 = setTimeout(updateLines, 500);
-    window.addEventListener('resize', updateLines);
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && contentRef.current) {
+      ro = new ResizeObserver(() => updateLines());
+      ro.observe(contentRef.current);
+    }
+
+    window.addEventListener("resize", updateLines);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
-      window.removeEventListener('resize', updateLines);
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", updateLines);
     };
-  }, [updateLines, zoom, pan, members]);
+  }, [updateLines, members, customPositions]);
+
+  // Global drag listener for card movement (placed after updateLines declaration)
+  useEffect(() => {
+    let rafId: number | null = null;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (!draggingNodeRef.current) return;
+      const { id, startMouseX, startMouseY, startPosX, startPosY } = draggingNodeRef.current;
+      const currentZoom = zoom || 1;
+      const dx = (e.clientX - startMouseX) / currentZoom;
+      const dy = (e.clientY - startMouseY) / currentZoom;
+
+      setCustomPositions((prev) => ({
+        ...prev,
+        [id]: {
+          x: Math.round(startPosX + dx),
+          y: Math.round(startPosY + dy),
+        },
+      }));
+
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        updateLines();
+      });
+    };
+
+    const handleGlobalMouseUp = () => {
+      if (!draggingNodeRef.current) return;
+      draggingNodeRef.current = null;
+      if (rafId) cancelAnimationFrame(rafId);
+      updateLines();
+      try {
+        const key = getOrgHierarchyStorageKey(userData, profile) + "_pos";
+        setCustomPositions((latest) => {
+          localStorage.setItem(key, JSON.stringify(latest));
+          return latest;
+        });
+      } catch (e) {}
+    };
+
+    window.addEventListener("mousemove", handleGlobalMouseMove);
+    window.addEventListener("mouseup", handleGlobalMouseUp);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+    };
+  }, [zoom, userData, profile, updateLines]);
+
+  const handleResetPositions = useCallback(() => {
+    setCustomPositions({});
+    try {
+      const key = getOrgHierarchyStorageKey(userData, profile) + "_pos";
+      localStorage.removeItem(key);
+    } catch (e) {}
+    toast.success("Reset custom card positions to auto layout!");
+  }, [userData, profile]);
 
   return (
     <AppShell 
@@ -1192,9 +1420,17 @@ function CompanyHierarchyPage() {
                   </button>
 
                   <button
+                    onClick={handleResetPositions}
+                    className="px-3 py-1.5 rounded-xl bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                    title="Reset custom card positions to automatic layout"
+                  >
+                    <RotateCcw className="size-3.5 text-primary" /> Reset Layout
+                  </button>
+
+                  <button
                     onClick={handleResetZoom}
                     className="size-8 rounded-xl bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground flex items-center justify-center transition-all cursor-pointer"
-                    title="Reset Position"
+                    title="Reset Zoom & Pan Position"
                   >
                     <RotateCcw className="size-3.5" />
                   </button>
@@ -1228,8 +1464,7 @@ function CompanyHierarchyPage() {
                       const isHovered = hoveredNodeId === line.fromId || hoveredNodeId === line.toId;
                       const isOutbound = line.fromId === hoveredNodeId;
 
-                      const midY = (line.y1 + line.y2) / 2;
-                      const pathD = `M ${line.x1} ${line.y1} C ${line.x1} ${midY}, ${line.x2} ${midY}, ${line.x2} ${line.y2 + 6}`;
+                      const pathD = computeHierarchyPathD(line, coordsMap, levelMap, visibleMembers);
 
                       return (
                         <g key={line.id}>
@@ -1277,7 +1512,6 @@ function CompanyHierarchyPage() {
                             return (
                               <div
                                 key={member.id}
-                                data-node-id={member.id}
                                 onMouseEnter={() => setHoveredNodeId(member.id)}
                                 onMouseLeave={() => setHoveredNodeId(null)}
                                 className="relative"
@@ -1285,6 +1519,8 @@ function CompanyHierarchyPage() {
                                 <NodeCard
                                   member={member}
                                   managers={managers}
+                                  position={customPositions[member.id]}
+                                  onStartDrag={handleNodeDragStart}
                                   onAddReport={handleOpenAddModal}
                                   onEdit={handleOpenEditModal}
                                   onDelete={handleDeleteMember}
@@ -1730,23 +1966,43 @@ function CompanyHierarchyPage() {
 function NodeCard({
   member,
   managers,
+  position,
+  onStartDrag,
   onAddReport,
   onEdit,
   onDelete
 }: {
   member: HierarchyUser;
   managers: HierarchyUser[];
+  position?: { x: number; y: number };
+  onStartDrag: (e: React.MouseEvent, id: string) => void;
   onAddReport: (parentId: string) => void;
   onEdit: (m: HierarchyUser) => void;
   onDelete: (id: string, name: string) => void;
 }) {
   const displayTitle = getMemberDisplayDesignation(member);
   const parentIds = getMemberParentIds(member);
+  const isMoved = Boolean(position && (position.x !== 0 || position.y !== 0));
 
   return (
-    <div className="group relative bg-card border border-border hover:border-primary/60 p-4 rounded-2xl shadow-xs hover:shadow-lg transition-all w-72 flex flex-col gap-2.5 select-none">
+    <div
+      data-node-id={member.id}
+      onMouseDown={(e) => onStartDrag(e, member.id)}
+      style={{
+        transform: position ? `translate3d(${position.x}px, ${position.y}px, 0px)` : undefined,
+      }}
+      className={`group relative bg-card border p-4 rounded-2xl shadow-xs hover:shadow-lg transition-all w-72 flex flex-col gap-2.5 select-none cursor-grab active:cursor-grabbing ${
+        isMoved ? "border-primary/50 ring-2 ring-primary/20 shadow-md" : "border-border hover:border-primary/60"
+      }`}
+    >
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5 flex-wrap">
+          <div
+            className="p-1 bg-surface-2 hover:bg-primary/10 text-muted-foreground hover:text-primary rounded-lg transition-all flex items-center justify-center shrink-0 border border-border/60"
+            title="Click and hold anywhere on card to drag position"
+          >
+            <GripVertical className="size-3.5 text-primary" />
+          </div>
           {!isDuplicateRoleBadge(member) && <RoleBadge role={member.role} />}
           <AuthorityBadge authority={member.approvalAuthority} />
           {managers.length > 1 && (

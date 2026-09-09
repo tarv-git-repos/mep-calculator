@@ -3,21 +3,31 @@ import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
-  Download, Upload, Sparkles, AlertTriangle, CheckCircle2,
-  Info, Gauge, FileText, Printer, FileSpreadsheet, Bookmark, HelpCircle, Wrench, Plus, Minus, MessageSquare
+  AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
+  Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
+  RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles,
+  Download, Upload, Gauge, Layers
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import { toast } from "sonner";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+} from "@/components/ui/context-menu";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPumpModal } from "@/components/workspace/EditChwPumpModal";
-import { api } from "@/services/api";
 
 export const Route = createFileRoute("/chw-pump-head")({
   head: () => ({
@@ -29,22 +39,21 @@ export const Route = createFileRoute("/chw-pump-head")({
   component: ChwPumpHeadPage,
 });
 
+interface SavedCalculation {
+  id: string;
+  type: string;
+  name: string;
+  savedAt: string;
+  values: Record<string, any>;
+  unitSystem: "si" | "ip";
+}
+
 function ChwPumpHeadPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
-  const [projectInfo, setProjectInfo] = useState({
-    projectName: "Commercial Tower CHW Pumping Study",
-    projectNumber: "MEP-CHW-02",
-    client: "Summit Estates Ltd",
-    consultant: "Consistent Engineering Consultants",
-    date: new Date().toISOString().split("T")[0],
-    revision: "Rev 0",
-    calcNumber: "CALC-HVAC-PMP02",
-    notes: "Chilled water secondary circulation loop pump head and fittings loss calculation report.",
-  });
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
@@ -58,44 +67,155 @@ function ChwPumpHeadPage() {
     staticHead: "" as number | "",
     residualPressure: "" as number | "",
     suctionPressure: "" as number | "",
-    safetyFactorHead: 5, // %
+    safetyFactorHead: 5 as number | "", // %
     selectedHead: "" as number | "", // bar or psi (override)
-    effMotor: 85, // %
-    effPump: 70, // %
+    effMotor: 85 as number | "", // %
+    effPump: 70 as number | "", // %
   });
 
-  const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
-  const [showFormulaPanel, setShowFormulaPanel] = useState(false);
+  const [projectInfo, setProjectInfo] = useState({
+    projectName: "Commercial Tower CHW Pumping Study",
+    projectNumber: "MEP-CHW-02",
+    client: "Summit Estates Ltd",
+    consultant: "Consistent Engineering Consultants",
+    date: new Date().toISOString().split("T")[0],
+    revision: "Rev 0",
+    calcNumber: "CALC-HVAC-PMP02",
+    notes: "Chilled water secondary circulation loop pump head and fittings loss calculation report.",
+  });
+
+  // Expandable sections
+  const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
   const [editModalOpen, setEditModalOpen] = useState(false);
 
-  // Comment System State
+  // Comment System State & Persistence
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    try {
-      const pId = project?.id || "default";
-      const savedComments = localStorage.getItem(`mep_calc_comments_${pId}_/chw-pump-head`);
-      if (savedComments) {
+    const pId = project?.id || "default";
+    const savedComments = localStorage.getItem(`mep_calc_comments_${pId}_/chw-pump-head`);
+    if (savedComments) {
+      try {
         setCommentsList(JSON.parse(savedComments));
+      } catch (e) {
+        console.error("Failed to load comments", e);
       }
-    } catch (e) {
-      console.error(e);
     }
   }, [project?.id]);
 
   const saveComments = (newList: any[]) => {
     setCommentsList(newList);
+    const pId = project?.id || "default";
+    localStorage.setItem(`mep_calc_comments_${pId}_/chw-pump-head`, JSON.stringify(newList));
     try {
-      const pId = project?.id || "default";
-      localStorage.setItem(`mep_calc_comments_${pId}_/chw-pump-head`, JSON.stringify(newList));
-    } catch (e) {
-      console.error(e);
-    }
+      if (typeof forceSaveToCloud === "function") {
+        forceSaveToCloud(true);
+      }
+    } catch (e) {}
   };
 
-  // Load from local storage
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (commentData: any) => {
+    const newComment = {
+      id: `cmt_${Date.now()}`,
+      text: commentData.text,
+      authorName: currentUserName,
+      authorRole: profile?.role || "Engineer",
+      timestamp: new Date().toISOString(),
+      assignedUsers: commentData.assignedUsers || [],
+      itemId: commentTargetItem?.id,
+      spaceId: commentTargetItem?.id,
+      targetId: commentTargetItem?.id,
+      targetName: commentTargetItem?.name,
+      calculatorTitle: "CHW Pump Head",
+      calculatorPath: "/chw-pump-head",
+      projectId: project?.id || "default",
+      projectName: project?.name || "CHW Pump Head",
+    };
+    const updated = [newComment, ...commentsList];
+    saveComments(updated);
+    toast.success(`Comment / task assigned on "${commentTargetItem?.name || "parameter"}"`);
+    setCommentModalOpen(false);
+
+    notifyCommentAssigned({
+      comment: newComment,
+      targetId: commentTargetItem?.id || "chw-pump-head",
+      targetName: commentTargetItem?.name || "Chilled Water Pump",
+      targetType: "equipment",
+      calculatorTitle: "CHW Pump Head Loss Sizer",
+      calculatorPath: "/chw-pump-head",
+      project,
+      currentUserName,
+      currentUserId: userData?.id || profile?.id
+    }).catch(console.error);
+  };
+
+  // Scroll and highlight notification target item
+  useEffect(() => {
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanId = (targetId || "").toLowerCase().trim();
+
+      const el = document.getElementById(targetId || "") ||
+                 document.getElementById(`field-${targetId}`) ||
+                 document.getElementById(`res-${targetId}`) ||
+                 document.querySelector(`[data-item-id="${targetId}"]`) ||
+                 document.querySelector(`[data-field-id="${targetId}"]`);
+
+      if (el || cleanId) {
+        setHighlightedTargetId(targetId || cleanId);
+
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => {
+          setHighlightedTargetId(null);
+          highlightTimeoutRef.current = null;
+        }, 4000);
+
+        if (el) {
+          setTimeout(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 150);
+        }
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("commentTargetId");
+      const targetName = params.get("commentTargetName");
+      if (targetId || targetName) {
+        setTimeout(() => {
+          handleScrollTarget(targetId || undefined, targetName || undefined);
+        }, 300);
+      }
+    }
+
+    const handleScrollEvent = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail) {
+        handleScrollTarget(detail.id, detail.name);
+      }
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
+
+  // Load from local storage on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem("chw_pump_sizer_v2_params");
@@ -107,25 +227,21 @@ function ChwPumpHeadPage() {
       }
     } catch (e) {
       console.error(e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
-  }, []);
+    if (project?.id) setLoadedProjectId(project.id);
+  }, [project?.id]);
 
-  const saveParams = (params: typeof sizingParams, unit: "si" | "ip", proj: typeof projectInfo) => {
+  const saveParams = (params: typeof sizingParams, unit: "si" | "ip", proj: typeof projectInfo = projectInfo) => {
     setSizingParams(params);
     setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
     setProjectInfo(proj);
-  };
-
-  useEffect(() => {
     try {
-      localStorage.setItem("chw_pump_sizer_v2_params", JSON.stringify({ sizingParams, unitSystem, projectInfo }));
+      localStorage.setItem("chw_pump_sizer_v2_params", JSON.stringify({ sizingParams: params, unitSystem: unit, projectInfo: proj }));
       dirtyStore.set(true);
     } catch (e) {
       console.error(e);
     }
-  }, [sizingParams, unitSystem, projectInfo]);
+  };
 
   // Convert values when unit system changes
   const handleUnitSystemChange = (unit: "si" | "ip") => {
@@ -135,29 +251,88 @@ function ChwPumpHeadPage() {
 
     if (unit === "ip") {
       // SI -> IP
-      nextParams.vertLength = Number((sizingParams.vertLength * 3.28084).toFixed(1));
-      nextParams.horizLength = Number((sizingParams.horizLength * 3.28084).toFixed(1));
-      nextParams.frictionFactor = Number((sizingParams.frictionFactor * 4.4207).toFixed(3));
-      nextParams.staticHead = Number((sizingParams.staticHead * 14.50377).toFixed(2));
-      nextParams.residualPressure = Number((sizingParams.residualPressure * 14.50377).toFixed(2));
-      nextParams.suctionPressure = Number((sizingParams.suctionPressure * 14.50377).toFixed(2));
-      if (sizingParams.selectedHead > 0) {
-        nextParams.selectedHead = Number((sizingParams.selectedHead * 14.50377).toFixed(2));
+      if (sizingParams.vertLength !== "") nextParams.vertLength = Number((Number(sizingParams.vertLength) * 3.28084).toFixed(1));
+      if (sizingParams.horizLength !== "") nextParams.horizLength = Number((Number(sizingParams.horizLength) * 3.28084).toFixed(1));
+      if (sizingParams.frictionFactor !== "") nextParams.frictionFactor = Number((Number(sizingParams.frictionFactor) * 4.4207).toFixed(3));
+      if (sizingParams.staticHead !== "") nextParams.staticHead = Number((Number(sizingParams.staticHead) * 14.50377).toFixed(2));
+      if (sizingParams.residualPressure !== "") nextParams.residualPressure = Number((Number(sizingParams.residualPressure) * 14.50377).toFixed(2));
+      if (sizingParams.suctionPressure !== "") nextParams.suctionPressure = Number((Number(sizingParams.suctionPressure) * 14.50377).toFixed(2));
+      if (sizingParams.selectedHead !== "" && Number(sizingParams.selectedHead) > 0) {
+        nextParams.selectedHead = Number((Number(sizingParams.selectedHead) * 14.50377).toFixed(2));
       }
     } else {
       // IP -> SI
-      nextParams.vertLength = Number((sizingParams.vertLength / 3.28084).toFixed(1));
-      nextParams.horizLength = Number((sizingParams.horizLength / 3.28084).toFixed(1));
-      nextParams.frictionFactor = Number((sizingParams.frictionFactor / 4.4207).toFixed(3));
-      nextParams.staticHead = Number((sizingParams.staticHead / 14.50377).toFixed(2));
-      nextParams.residualPressure = Number((sizingParams.residualPressure / 14.50377).toFixed(2));
-      nextParams.suctionPressure = Number((sizingParams.suctionPressure / 14.50377).toFixed(2));
-      if (sizingParams.selectedHead > 0) {
-        nextParams.selectedHead = Number((sizingParams.selectedHead / 14.50377).toFixed(2));
+      if (sizingParams.vertLength !== "") nextParams.vertLength = Number((Number(sizingParams.vertLength) / 3.28084).toFixed(1));
+      if (sizingParams.horizLength !== "") nextParams.horizLength = Number((Number(sizingParams.horizLength) / 3.28084).toFixed(1));
+      if (sizingParams.frictionFactor !== "") nextParams.frictionFactor = Number((Number(sizingParams.frictionFactor) / 4.4207).toFixed(3));
+      if (sizingParams.staticHead !== "") nextParams.staticHead = Number((Number(sizingParams.staticHead) / 14.50377).toFixed(2));
+      if (sizingParams.residualPressure !== "") nextParams.residualPressure = Number((Number(sizingParams.residualPressure) / 14.50377).toFixed(2));
+      if (sizingParams.suctionPressure !== "") nextParams.suctionPressure = Number((Number(sizingParams.suctionPressure) / 14.50377).toFixed(2));
+      if (sizingParams.selectedHead !== "" && Number(sizingParams.selectedHead) > 0) {
+        nextParams.selectedHead = Number((Number(sizingParams.selectedHead) / 14.50377).toFixed(2));
       }
     }
 
     saveParams(nextParams, unit, projectInfo);
+    toast.info(`Switched to ${unit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
+  };
+
+  // Custom Load/Save presets dialogs
+  const [saves, setSaves] = useState<SavedCalculation[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+  const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
+  const [saveName, setSaveName] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("mep_chw_pump_custom_saves");
+      if (stored) {
+        setSaves(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error("Failed to load custom saves", e);
+    }
+  }, []);
+
+  const saveToLocalStorage = (newSaves: SavedCalculation[]) => {
+    setSaves(newSaves);
+    localStorage.setItem("mep_chw_pump_custom_saves", JSON.stringify(newSaves));
+  };
+
+  const handleSaveCurrent = () => {
+    if (!saveName.trim()) return;
+    const newSave: SavedCalculation = {
+      id: "chw_save_" + Date.now(),
+      type: "chw-pump-head",
+      name: saveName.trim(),
+      savedAt: new Date().toISOString(),
+      values: { ...sizingParams },
+      unitSystem
+    };
+    const updated = [newSave, ...saves];
+    saveToLocalStorage(updated);
+    setSaveName("");
+    setShowSaveModal(false);
+    toast.success(`Preset "${newSave.name}" saved successfully`);
+    if (typeof forceSaveToCloud === "function") {
+      forceSaveToCloud();
+    }
+  };
+
+  const handleLoadSave = (id: string) => {
+    const target = saves.find(s => s.id === id);
+    if (!target) return;
+    setSizingParams(target.values as typeof sizingParams);
+    if (target.unitSystem) setUnitSystem(target.unitSystem);
+    setShowLoadModal(false);
+    toast.success(`Loaded preset "${target.name}"`);
+  };
+
+  const handleDeleteSave = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = saves.filter(s => s.id !== id);
+    saveToLocalStorage(updated);
+    toast.info("Deleted preset");
   };
 
   // Calculations matching original exact website calcFpump logic
@@ -171,6 +346,9 @@ function ChwPumpHeadPage() {
     const statH = sizingParams.staticHead !== "" ? Number(sizingParams.staticHead) : (ip ? 43.5 : 3.0);
     const resP = sizingParams.residualPressure !== "" ? Number(sizingParams.residualPressure) : (ip ? 29 : 2.0);
     const sucP = sizingParams.suctionPressure !== "" ? Number(sizingParams.suctionPressure) : 0.0;
+    const sfPercent = sizingParams.safetyFactorHead !== "" ? Number(sizingParams.safetyFactorHead) : 5;
+    const effPumpVal = sizingParams.effPump !== "" ? Number(sizingParams.effPump) : 70;
+    const effMotorVal = sizingParams.effMotor !== "" ? Number(sizingParams.effMotor) : 85;
 
     // Normalized internal calculation values in Metric base (m, bar, L/s)
     const L_vert_m = ip ? vertL / 3.28084 : vertL;
@@ -192,7 +370,7 @@ function ChwPumpHeadPage() {
     const H_outlet_bar = ip ? resP / 14.50377 : resP;
     const H_suction_bar = ip ? sucP / 14.50377 : sucP;
 
-    const H_pump_calc_bar = Math.max(0, (H_loss_bar + H_static_bar + H_outlet_bar) - H_suction_bar) * (1 + sizingParams.safetyFactorHead / 100);
+    const H_pump_calc_bar = Math.max(0, (H_loss_bar + H_static_bar + H_outlet_bar) - H_suction_bar) * (1 + sfPercent / 100);
 
     // Selected Head
     const rawSelected = Number(sizingParams.selectedHead) || 0;
@@ -203,12 +381,12 @@ function ChwPumpHeadPage() {
     const F_flow = Q_flow; // kg/s (assuming water density = 1)
     const L_lift_kpa = H_selected_bar * 100; // kPa
 
-    const eff_pump = sizingParams.effPump / 100;
-    const eff_motor = sizingParams.effMotor / 100;
+    const eff_pump = (effPumpVal || 70) / 100;
+    const eff_motor = (effMotorVal || 85) / 100;
 
     // Shaft Power = (Flow * Head Lift) / (1000 * Pump Efficiency)
-    const P_shaft_kw = (F_flow * L_lift_kpa) / (1000 * eff_pump);
-    const P_motor_kw = P_shaft_kw / eff_motor;
+    const P_shaft_kw = (F_flow * L_lift_kpa) / (1000 * (eff_pump || 0.7));
+    const P_motor_kw = P_shaft_kw / (eff_motor || 0.85);
     const HP = P_motor_kw * 1.34102;
 
     // Convert display outputs based on unit system
@@ -222,7 +400,27 @@ function ChwPumpHeadPage() {
 
     return {
       flowRate: Q_flow,
-      flowRateDisplay: ip ? sizingParams.flowUsgpm : toDisplayFlow(Q_flow),
+      flowGpm,
+      vertL,
+      horizL,
+      ff,
+      statH,
+      resP,
+      sucP,
+      sfPercent,
+      effPumpVal,
+      effMotorVal,
+      L_vert_m,
+      L_horiz_m,
+      L_sum_m,
+      L_equiv_m,
+      H_loss_bar,
+      H_static_bar,
+      H_outlet_bar,
+      H_suction_bar,
+      H_pump_calc_bar,
+      H_selected_bar,
+      flowRateDisplay: ip ? flowGpm : toDisplayFlow(Q_flow),
       sumLengthsDisplay: toDisplayLength(L_sum_m),
       equivLengthDisplay: toDisplayLength(L_equiv_m),
       elbowsLengthDisplay: toDisplayLength(L_elbows_m),
@@ -249,7 +447,51 @@ function ChwPumpHeadPage() {
     };
   }, [sizingParams, unitSystem]);
 
-  // Actions
+  // Copy / Paste / Reset helpers
+  const handleCopyValue = (label: string, value: string | number) => {
+    if (value === "" || value === undefined) {
+      toast.info(`No value in ${label} to copy`);
+      return;
+    }
+    navigator.clipboard.writeText(String(value));
+    toast.success(`Copied ${label}: ${value} to clipboard`);
+  };
+
+  const handlePasteValue = async (label: string, fieldKey: keyof typeof sizingParams) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const num = parseFloat(text.trim());
+      if (!isNaN(num)) {
+        const next = { ...sizingParams, [fieldKey]: num };
+        if (fieldKey === "flowUsgpm") {
+          next.flowLps = Number((num * 3.78 / 60).toFixed(2));
+        }
+        saveParams(next, unitSystem, projectInfo);
+        toast.success(`Pasted ${num} into ${label}`);
+      } else {
+        toast.error(`Clipboard content "${text}" is not a valid number`);
+      }
+    } catch (err) {
+      toast.error("Unable to read clipboard");
+    }
+  };
+
+  const handleResetValue = (label: string, fieldKey: keyof typeof sizingParams, defaultVal: number | "") => {
+    const next = { ...sizingParams, [fieldKey]: defaultVal };
+    if (fieldKey === "flowUsgpm") {
+      next.flowLps = defaultVal !== "" ? Number((Number(defaultVal) * 3.78 / 60).toFixed(2)) : "";
+    }
+    saveParams(next, unitSystem, projectInfo);
+    toast.success(`Reset ${label} to default ${defaultVal !== "" ? defaultVal : "(blank)"}`);
+  };
+
+  const handleClearValue = (label: string, fieldKey: keyof typeof sizingParams) => {
+    const next = { ...sizingParams, [fieldKey]: "" };
+    if (fieldKey === "flowUsgpm") next.flowLps = "";
+    saveParams(next, unitSystem, projectInfo);
+    toast.info(`Cleared ${label}`);
+  };
+
   const handleExportJSON = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ projectInfo, sizingParams, unitSystem }));
     const downloadAnchor = document.createElement("a");
@@ -258,6 +500,7 @@ function ChwPumpHeadPage() {
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    toast.success("Exported calculation JSON");
   };
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -270,910 +513,967 @@ function ChwPumpHeadPage() {
         if (parsed.projectInfo) setProjectInfo(parsed.projectInfo);
         if (parsed.sizingParams) setSizingParams(parsed.sizingParams);
         if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
+        toast.success("Loaded configuration from JSON file");
       } catch (err) {
-        alert("Failed to parse JSON file.");
+        toast.error("Failed to parse JSON file.");
       }
     };
     reader.readAsText(file);
   };
 
   const handleExportExcel = async () => {
-    const exceljsModule = await import('exceljs');
-    const ExcelJS = exceljsModule.default || (window as any).ExcelJS;
-    const fileSaverModule = await import('file-saver');
-    const saveAs = fileSaverModule.saveAs || fileSaverModule.default?.saveAs || fileSaverModule.default || ((window as any).saveAs);
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Pump Head");
-
-    sheet.getColumn(1).width = 25;
-    sheet.getColumn(2).width = 20;
-    sheet.getColumn(3).width = 10;
-    sheet.getColumn(4).width = 30;
-    sheet.getColumn(5).width = 45;
-
-    sheet.mergeCells("A1:E1");
-    const cellA1 = sheet.getCell("A1");
-    cellA1.value = "CHW PUMP HEAD REPORT";
-    cellA1.font = { name: "Segoe UI", size: 14, bold: true, color: { argb: "FFFFFF" } };
-    cellA1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "EF4444" } }; // Crimson Red for Fire/Pump Head
-    cellA1.alignment = { horizontal: "center" };
-
-    sheet.addRow([]);
-    sheet.addRow(["Project Information"]);
-    sheet.getCell("A3").font = { name: "Segoe UI", size: 12, bold: true };
-    sheet.addRow(["Project Name", projectInfo.projectName]);
-    sheet.addRow(["Project Number", projectInfo.projectNumber]);
-    sheet.addRow(["Consultant", projectInfo.consultant]);
-    sheet.addRow(["Client", projectInfo.client]);
-
-    sheet.addRow([]);
-    sheet.addRow(["Sizing parameters"]);
-    sheet.getCell("A9").font = { name: "Segoe UI", size: 12, bold: true };
-    sheet.addRow(["Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`]);
-    sheet.addRow(["Vertical Length", `${calculatedData.vertLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`]);
-    sheet.addRow(["Horizontal Length", `${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`]);
-    sheet.addRow(["Friction Factor", `${sizingParams.frictionFactor} ${unitSystem === "ip" ? "psi/100ft" : "bar/100m"}`]);
-
-    sheet.addRow([]);
-    sheet.addRow(["Sizing Results"]);
-    sheet.getCell("A15").font = { name: "Segoe UI", size: 12, bold: true };
-    sheet.addRow(["Sum of component lengths", `${calculatedData.sumLengthsDisplay.toFixed(1)} ${calculatedData.lengthUnit}`]);
-    sheet.addRow(["Total equivalent length", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`]);
-    sheet.addRow(["Major + Minor Friction Losses", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`]);
-    sheet.addRow(["Static lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`]);
-    sheet.addRow(["Residual Outlet Pressure", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`]);
-    sheet.addRow(["Suction pressure deducted", `${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`]);
-    sheet.addRow(["Total calculated head", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`]);
-    sheet.addRow(["Motor Power Requirement", `${calculatedData.motorPowerKw.toFixed(2)} kW / ${calculatedData.motorPowerHp.toFixed(2)} HP`]);
-
-    const sigRow = (sheet as any).rowCount ? (sheet as any).rowCount + 2 : 20;
-    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "chw-pump-head");
-    const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_pump_head_report.xlsx`);
+    try {
+      const wb = XLSX.utils.book_new();
+      const data = [
+        ["CHW Pump Head Loss & Motor Sizing Calculation"],
+        ["Generated on: " + new Date().toLocaleDateString(), `Unit System: ${unitSystem.toUpperCase()}`],
+        [],
+        ["1. Flow Demand Parameters"],
+        ["Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`],
+        ["Metric Flow Basis", `${calculatedData.flowRate.toFixed(2)} L/s (${calculatedData.massFlow.toFixed(3)} kg/s)`],
+        [],
+        ["2. Piping Run & Friction Losses"],
+        ["Vertical Pipe Length", `${calculatedData.vertLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Horizontal Pipe Length", `${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Sum of Straight Pipe Lengths", `${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Elbows & Reducers Allowance (+30%)", `${calculatedData.elbowsLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`],
+        ["Valves & Accessories Allowance (+30%)", `${calculatedData.valvesLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`],
+        ["Total Equivalent Length (with 5% Safety)", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Design Friction Factor", `${sizingParams.frictionFactor || (unitSystem === "ip" ? 1.77 : 0.4)} ${unitSystem === "ip" ? "psi/100ft" : "bar/100m"}`],
+        ["Head Loss in Piping Run", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
+        [],
+        ["3. Pump Head Requirements"],
+        ["Static Elevation Lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
+        ["Residual Pressure at Outlet", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
+        ["Suction Pressure (Deducted)", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
+        ["Safety Margin Applied", `${calculatedData.sfPercent}%`],
+        ["Total Calculated Dynamic Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`],
+        ["Selected Operating Head", `${calculatedData.selectedHeadDisplay.toFixed(3)} ${calculatedData.headUnit}`],
+        [],
+        ["4. Motor & Pump Selection"],
+        ["Pump Hydraulic Efficiency", `${calculatedData.effPumpVal}%`],
+        ["Motor Efficiency", `${calculatedData.effMotorVal}%`],
+        ["Hydraulic Shaft Power", `${calculatedData.shaftPowerKw.toFixed(2)} kW`],
+        ["Total Estimated Motor Power", `${calculatedData.motorPowerKw.toFixed(2)} kW / ${calculatedData.motorPowerHp.toFixed(2)} HP`],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, ws, "CHW Pump Head");
+      const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      downloadFile(new Uint8Array(xlsxBuffer), "CHW_Pump_Head_Calculation.xlsx", "Excel Document", ["xlsx"]);
+      toast.success("Excel report exported successfully");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to export Excel report");
+    }
   };
 
   const handlePrintPDF = async () => {
-    const jsPDFModule = await import('jspdf');
-    const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-    const autoTableModule = await import('jspdf-autotable');
-    const autoTable = autoTableModule.default || autoTableModule;
+    try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default || autoTableModule;
 
-    const doc = new jsPDF("p", "pt", "a4");
+      const doc = new jsPDF("p", "pt", "a4");
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("PUMP HEAD CALCULATION REPORT", 40, 50);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text("PUMP HEAD CALCULATION REPORT", 40, 50);
 
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${projectInfo.date} | Calculation Code: ${projectInfo.calcNumber}`, 40, 68);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100);
+      doc.text(`Generated on: ${projectInfo.date} | Calculation Ref: ${projectInfo.calcNumber} | Unit: ${unitSystem.toUpperCase()}`, 40, 68);
 
-    doc.setDrawColor(200);
-    doc.line(40, 75, 550, 75);
+      doc.setDrawColor(200);
+      doc.line(40, 75, 550, 75);
 
-    // Project details
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(0);
-    doc.text("1. Project Details", 40, 95);
+      // 1. Project details
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(0);
+      doc.text("1. Project Details", 40, 95);
 
-    const projectData = [
-      ["Project Name", projectInfo.projectName, "Project Number", projectInfo.projectNumber],
-      ["Consultant", projectInfo.consultant, "Client", projectInfo.client],
-      ["Revision", projectInfo.revision, "Calculation Ref", projectInfo.calcNumber],
-    ];
+      const projectData = [
+        ["Project Name", projectInfo.projectName, "Project Number", projectInfo.projectNumber],
+        ["Consultant", projectInfo.consultant, "Client", projectInfo.client],
+        ["Revision", projectInfo.revision, "Calculation Ref", projectInfo.calcNumber],
+      ];
 
-    autoTable(doc, {
-      startY: 105,
-      head: [],
-      body: projectData,
-      theme: "plain",
-      styles: { fontSize: 9, cellPadding: 3 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 90 },
-        1: { cellWidth: 170 },
-        2: { fontStyle: "bold", cellWidth: 90 },
-        3: { cellWidth: 170 },
-      },
-    });
+      autoTable(doc, {
+        startY: 105,
+        head: [],
+        body: projectData,
+        theme: "plain",
+        styles: { fontSize: 9, cellPadding: 3 },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 90 },
+          1: { cellWidth: 170 },
+          2: { fontStyle: "bold", cellWidth: 90 },
+          3: { cellWidth: 170 },
+        },
+      });
 
-    // Inputs & Parameters
-    doc.setFont("helvetica", "bold");
-    doc.text("2. Design Sizing Parameters", 40, (doc as any).lastAutoTable.finalY + 20);
+      // 2. Design Sizing Parameters
+      doc.setFont("helvetica", "bold");
+      doc.text("2. Design Sizing Parameters", 40, (doc as any).lastAutoTable.finalY + 20);
 
-    const paramData = [
-      ["Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`, "Vertical Pipe Length", `${calculatedData.vertLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-      ["Horizontal Pipe Length", `${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, "Design Friction Factor", `${sizingParams.frictionFactor} ${unitSystem === "ip" ? "psi/100ft" : "bar/100m"}`],
-      ["Static Elevation Head", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Residual Pressure at Outlet", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-      ["Suction Pressure (Available)", `${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Safety Margin applied", `${sizingParams.safetyFactorHead}%`],
-    ];
+      const paramData = [
+        ["Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`, "Vertical Pipe Length", `${calculatedData.vertLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Horizontal Pipe Length", `${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, "Design Friction Factor", `${sizingParams.frictionFactor || (unitSystem === "ip" ? 1.77 : 0.4)} ${unitSystem === "ip" ? "psi/100ft" : "bar/100m"}`],
+        ["Static Elevation Head", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Residual Pressure at Outlet", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
+        ["Suction Pressure (Available)", `${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Safety Margin applied", `${calculatedData.sfPercent}%`],
+      ];
 
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 30,
-      head: [],
-      body: paramData,
-      theme: "striped",
-      styles: { fontSize: 8.5, cellPadding: 3.5 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 130 },
-        1: { cellWidth: 120 },
-        2: { fontStyle: "bold", cellWidth: 130 },
-        3: { cellWidth: 120 },
-      },
-    });
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 30,
+        head: [],
+        body: paramData,
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 3.5 },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 130 },
+          1: { cellWidth: 120 },
+          2: { fontStyle: "bold", cellWidth: 130 },
+          3: { cellWidth: 120 },
+        },
+      });
 
-    // Results summary
-    doc.setFont("helvetica", "bold");
-    doc.text("3. Friction and Equivalent Length Breakdown", 40, (doc as any).lastAutoTable.finalY + 20);
+      // 3. Friction & Equivalent Length Breakdown
+      doc.setFont("helvetica", "bold");
+      doc.text("3. Friction and Equivalent Length Breakdown", 40, (doc as any).lastAutoTable.finalY + 20);
 
-    const breakdownData = [
-      ["Vertical + Horizontal length sum", `${calculatedData.vertLengthDisplay.toFixed(1)} + ${calculatedData.horizLengthDisplay.toFixed(1)} = ${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`],
-      ["Fittings equivalent allowance", `Elbows: ${calculatedData.elbowsLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit} | Valves: ${calculatedData.valvesLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-      ["Total design equivalent length", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-      ["Major + Minor Friction losses", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-    ];
+      const breakdownData = [
+        ["Vertical + Horizontal length sum", `${calculatedData.vertLengthDisplay.toFixed(1)} + ${calculatedData.horizLengthDisplay.toFixed(1)} = ${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Fittings equivalent allowance", `Elbows: ${calculatedData.elbowsLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit} | Valves: ${calculatedData.valvesLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Total design equivalent length", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["Major + Minor Friction losses", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
+      ];
 
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 30,
-      head: [],
-      body: breakdownData,
-      theme: "plain",
-      styles: { fontSize: 8.5, cellPadding: 3.5 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 180 },
-        1: { cellWidth: 320 },
-      },
-    });
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 30,
+        head: [],
+        body: breakdownData,
+        theme: "plain",
+        styles: { fontSize: 8.5, cellPadding: 3.5 },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 180 },
+          1: { cellWidth: 320 },
+        },
+      });
 
-    doc.setFont("helvetica", "bold");
-    doc.text("4. Head & Motor Selection Sizing Results", 40, (doc as any).lastAutoTable.finalY + 20);
+      // 4. Head & Motor Selection Sizing Results
+      doc.setFont("helvetica", "bold");
+      doc.text("4. Head & Motor Selection Sizing Results", 40, (doc as any).lastAutoTable.finalY + 20);
 
-    const resultsData = [
-      ["Piping Friction Loss head", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-      ["Static Elevation Head lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-      ["Residual pressure required", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-      ["Suction pressure deducted", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-      ["Total dynamic Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-      ["Estimated motor power required", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`],
-    ];
+      const resultsData = [
+        ["Piping Friction Loss head", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
+        ["Static Elevation Head lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
+        ["Residual pressure required", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
+        ["Suction pressure deducted", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
+        ["Total dynamic Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`],
+        ["Estimated motor power required", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`],
+      ];
 
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 30,
-      head: [],
-      body: resultsData,
-      theme: "striped",
-      styles: { fontSize: 8.5, cellPadding: 3.5 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 180 },
-        1: { cellWidth: 320 },
-      },
-    });
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 30,
+        head: [],
+        body: resultsData,
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 3.5 },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 180 },
+          1: { cellWidth: 320 },
+        },
+      });
 
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "chw-pump-head");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
+      const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
+      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "chw-pump-head");
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
+      toast.success("PDF report generated successfully");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to generate PDF report");
+    }
+  };
+
+  // Helper component to render an input field wrapped with Context Menu and Comment Indicator
+  const renderInputBox = (
+    id: string,
+    fieldKey: keyof typeof sizingParams,
+    label: string,
+    value: number | "",
+    defaultVal: number | "",
+    placeholder: string,
+    min?: number,
+    step: string = "any"
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `field-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`field-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <label className="font-semibold text-foreground flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <span>{label}</span>
+                {hasComments && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenComment(id, label);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                    title={`${itemComments.length} comment(s)/task(s) assigned`}
+                  >
+                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                    <span>{itemComments.length}</span>
+                  </button>
+                )}
+              </span>
+              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
+            </label>
+            <input
+              id={id}
+              type="number"
+              min={min}
+              step={step}
+              value={value}
+              onChange={(e) => {
+                const val = e.target.value === "" ? "" : Number(e.target.value);
+                const next = { ...sizingParams, [fieldKey]: val };
+                if (fieldKey === "flowUsgpm") {
+                  next.flowLps = val !== "" ? Number((Number(val) * 3.78 / 60).toFixed(2)) : "";
+                }
+                saveParams(next, unitSystem, projectInfo);
+              }}
+              placeholder={placeholder}
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50"
+            />
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, value)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => handlePasteValue(label, fieldKey)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Clipboard className="size-3.5 text-muted-foreground" />
+            <span>Paste Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleResetValue(label, fieldKey, defaultVal)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <RotateCcw className="size-3.5 text-muted-foreground" />
+            <span>Reset to Default ({defaultVal !== "" ? defaultVal : "Blank"})</span>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => handleClearValue(label, fieldKey)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-amber-600 dark:text-amber-400"
+          >
+            <Trash2 className="size-3.5" />
+            <span>Clear Field</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  // Helper component to render a result output row wrapped with Context Menu and Comment Indicator
+  const renderResultRow = (
+    id: string,
+    label: string,
+    valueFormatted: string,
+    isHighlight: boolean = false,
+    highlightClass: string = "text-foreground",
+    colSpanTwo: boolean = false
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `res-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`res-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/40 dark:hover:bg-slate-800/30 px-2 rounded-lg transition cursor-context-menu group ${
+              colSpanTwo ? "col-span-2" : ""
+            } ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+              <span>{label}</span>
+              {hasComments && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenComment(id, label);
+                  }}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                  title={`${itemComments.length} comment(s)/task(s) assigned`}
+                >
+                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                  <span>{itemComments.length}</span>
+                </button>
+              )}
+            </span>
+            <strong className={`font-bold font-mono ${highlightClass}`}>{valueFormatted}</strong>
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, valueFormatted)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value ({valueFormatted})</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => {
+              navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
+              toast.success(`Copied full line: "${label}: ${valueFormatted}"`);
+            }}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            <span>Copy Full Line</span>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
   };
 
   return (
     <AppShell title="CHW Pump Head" hideSubHeader={true}>
-      <CalculationReviewBar 
-        calculatorTitle="CHW Pump Head"
-        calculatorPath="/chw-pump-head"
-      />
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
           
-          {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print px-6">
-            <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CHW PUMP HEAD</span>
-              <div className="flex items-center gap-3 mt-0.5">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground font-sans">Pump Head</h1>
-                </div>
+          {/* Header Section matching screenshot */}
+          <div className="flex flex-col gap-1 select-none">
+            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; HYDRONIC &gt; CHW PUMP HEAD</span>
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">CHW Pump Head</h1>
+                <CalculationReviewBar projectId={project?.id} calculatorPath="/chw-pump-head" calculatorTitle="CHW Pump Head" />
+                {commentsList.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  </div>
+                )}
               </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Determine volumetric water requirements, dynamic piping losses, safety margin, and total dynamic head to size the pump motor.
-              </p>
+
+              {/* Unit System Toggle & Action Buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    onClick={() => handleUnitSystemChange("si")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      unitSystem === "si"
+                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Metric (SI)
+                  </button>
+                  <button
+                    onClick={() => handleUnitSystemChange("ip")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      unitSystem === "ip"
+                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Imperial (IP)
+                  </button>
+                </div>
+
+                <TBtn onClick={handleExportExcel} className="h-8 text-xs font-semibold">
+                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
+                </TBtn>
+                <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
+                  <Printer className="size-3.5 text-blue-600" /> PDF Report
+                </TBtn>
+                <TBtn onClick={() => setShowSaveModal(true)} className="h-8 text-xs font-semibold">
+                  <Save className="size-3.5 text-amber-600" /> Save Preset
+                </TBtn>
+                {saves.length > 0 && (
+                  <TBtn onClick={() => setShowLoadModal(true)} className="h-8 text-xs font-semibold">
+                    <FolderOpen className="size-3.5 text-indigo-600" /> Load ({saves.length})
+                  </TBtn>
+                )}
+              </div>
             </div>
+            <p className="text-[13px] text-muted-foreground mt-0.5">
+              Calculate chilled water pump dynamic piping friction losses, fittings equivalent lengths, static lift, and motor power requirements.
+            </p>
           </div>
 
-          {/* Core Layout Card */}
-          <div className="mx-6 mb-6 bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
+          {/* Core Calculator Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
-            {/* Tab selection row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60">
-              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  onClick={() => setActiveTab("calculator")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "calculator"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Sizing Calculator
-                </button>
-                <button
-                  onClick={() => setActiveTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "report"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Printable Report
-                </button>
+            {/* Inputs Column (5 cols) */}
+            <div className="lg:col-span-5 flex flex-col gap-6">
+              
+              {/* Card 1: Flow Demand Parameters */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Flow Demand Parameters</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox(
+                    "chw-flow-rate",
+                    "flowUsgpm",
+                    `Design Flow Rate (${unitSystem === "ip" ? "GPM" : "L/s equivalent basis"})`,
+                    sizingParams.flowUsgpm,
+                    unitSystem === "ip" ? 500 : 500,
+                    unitSystem === "ip" ? "500" : "500",
+                    0
+                  )}
+                </div>
               </div>
 
-              {/* Sizing Unit system toggle */}
-              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  onClick={() => handleUnitSystemChange("ip")}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    unitSystem === "ip"
-                      ? "bg-background text-primary shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Imperial (IP)
-                </button>
-                <button
-                  onClick={() => handleUnitSystemChange("si")}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    unitSystem === "si"
-                      ? "bg-background text-primary shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Metric (SI)
-                </button>
+              {/* Card 2: Piping Run & Friction Losses */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Piping Run & Friction Losses</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox(
+                    "chw-vert-length",
+                    "vertLength",
+                    `Vertical Pipe Length (${calculatedData.lengthUnit})`,
+                    sizingParams.vertLength,
+                    unitSystem === "ip" ? 100 : 30,
+                    unitSystem === "ip" ? "100" : "30",
+                    0
+                  )}
+                  {renderInputBox(
+                    "chw-horiz-length",
+                    "horizLength",
+                    `Horizontal Pipe Length (${calculatedData.lengthUnit})`,
+                    sizingParams.horizLength,
+                    unitSystem === "ip" ? 400 : 120,
+                    unitSystem === "ip" ? "400" : "120",
+                    0
+                  )}
+                  {renderInputBox(
+                    "chw-friction-factor",
+                    "frictionFactor",
+                    `Piping Friction Factor (${unitSystem === "ip" ? "psi/100ft" : "bar/100m length"})`,
+                    sizingParams.frictionFactor,
+                    unitSystem === "ip" ? 1.77 : 0.4,
+                    unitSystem === "ip" ? "1.77" : "0.4",
+                    0,
+                    "0.01"
+                  )}
+                </div>
               </div>
+
+              {/* Card 3: Pump Head Requirements */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">3. Pump Head Requirements</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox(
+                    "chw-static-head",
+                    "staticHead",
+                    `Static Elevation Lift (${calculatedData.headUnit})`,
+                    sizingParams.staticHead,
+                    unitSystem === "ip" ? 43.5 : 3.0,
+                    unitSystem === "ip" ? "43.5" : "3.0",
+                    0,
+                    "0.1"
+                  )}
+                  {renderInputBox(
+                    "chw-residual-pressure",
+                    "residualPressure",
+                    `Residual Pressure at Outlet (${calculatedData.headUnit})`,
+                    sizingParams.residualPressure,
+                    unitSystem === "ip" ? 29.0 : 2.0,
+                    unitSystem === "ip" ? "29.0" : "2.0",
+                    0,
+                    "0.1"
+                  )}
+                  {renderInputBox(
+                    "chw-suction-pressure",
+                    "suctionPressure",
+                    `Suction Pressure (Available Deducted) (${calculatedData.headUnit})`,
+                    sizingParams.suctionPressure,
+                    0.0,
+                    "0.0",
+                    0,
+                    "0.1"
+                  )}
+                  {renderInputBox(
+                    "chw-safety-margin",
+                    "safetyFactorHead",
+                    "Considering Safety Margin (%)",
+                    sizingParams.safetyFactorHead,
+                    5,
+                    "5",
+                    0,
+                    "1"
+                  )}
+                  {renderInputBox(
+                    "chw-selected-head",
+                    "selectedHead",
+                    `Selected Operating Head (Override) (${calculatedData.headUnit})`,
+                    sizingParams.selectedHead,
+                    "",
+                    "Same as calculated head if blank",
+                    0,
+                    "0.1"
+                  )}
+                </div>
+              </div>
+
+              {/* Card 4: Motor & Pump Efficiencies */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">4. Motor & Pump Efficiencies</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox(
+                    "chw-eff-pump",
+                    "effPump",
+                    "Pump Hydraulic Efficiency (%)",
+                    sizingParams.effPump,
+                    70,
+                    "70",
+                    1,
+                    "1"
+                  )}
+                  {renderInputBox(
+                    "chw-eff-motor",
+                    "effMotor",
+                    "Motor Efficiency (%)",
+                    sizingParams.effMotor,
+                    85,
+                    "85",
+                    1,
+                    "1"
+                  )}
+                </div>
+              </div>
+
             </div>
 
-            {/* Content view */}
-            <div className="flex-1 min-h-0 animate-fade-in flex flex-col">
-              {activeTab === "calculator" ? (
-                <div className="flex-1 min-h-0 flex flex-col relative">
-                  
-                  {/* Action row */}
-                  <div className="relative flex items-center justify-between gap-4 px-6 h-12 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">File Actions:</span>
-                      <TBtn onClick={handleExportJSON} className="h-8.5 text-xs"><Upload className="size-3.5" /> Export JSON</TBtn>
-                      <label className="flex items-center gap-1.5 h-8.5 px-3 border border-border/80 hover:bg-surface-2 rounded-lg text-xs cursor-pointer font-semibold text-foreground select-none transition-all">
-                        <Download className="size-3.5" /> Import JSON
-                        <input type="file" onChange={handleImportJSON} accept=".json" className="hidden" />
-                      </label>
-                      <TBtn 
-                        onClick={() => {
-                          setCommentTargetItem({ id: "pump-head-calc-main", name: "CHW Pump Head Duty Sizing" });
-                          setCommentModalOpen(true);
-                        }}
-                        className="h-8.5 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 hover:bg-amber-100"
-                      >
-                        <MessageSquare className="size-3.5 text-amber-600" /> Add Comment / Assign Task
-                      </TBtn>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <TBtn onClick={() => setShowFormulaPanel(!showFormulaPanel)} className="h-8.5 text-xs">
-                        <HelpCircle className="size-3.5 text-primary" /> Formula Reference
-                      </TBtn>
-                      <TBtn onClick={handlePrintPDF} primary className="h-8.5 text-xs"><Printer className="size-3.5" /> Generate PDF Report</TBtn>
-                    </div>
-                  </div>
+            {/* Results Column (7 cols) */}
+            <div className="lg:col-span-7 flex flex-col gap-5">
+              
+              {/* Card 1: Piping & Equivalent Length Results */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Piping & Friction Loss Results</h3>
+                </div>
 
-                  {/* Main Work Area */}
-                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 dark:bg-slate-950/20 flex flex-col gap-6">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  {renderResultRow("res-sum-lengths", "Sum of Straight Lengths", `${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`)}
+                  {renderResultRow("res-elbows-eq", "Elbows Equivalent Length (+30%)", `${calculatedData.elbowsLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`)}
+                  {renderResultRow("res-valves-eq", "Valves Equivalent Length (+30%)", `${calculatedData.valvesLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`)}
+                  {renderResultRow("res-total-eq", "Total Equivalent Length (+5% SF)", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, true, "text-[#0A7BC7] text-[13px]")}
+                  {renderResultRow("res-friction-loss", "Major + Minor Friction Losses", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`, true, "text-[#0A7BC7] text-[13.5px]", true)}
+                </div>
+              </div>
+
+              {/* Card 2: Pump Head & Motor Sizing Results */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Pump Head & Motor Sizing Results</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  {renderResultRow("res-flow-rate", "Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`, true, "text-[#0A7BC7]")}
+                  {renderResultRow("res-static-lift", "Static Elevation Lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`)}
+                  {renderResultRow("res-residual-outlet", "Residual Outlet Pressure", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`)}
+                  {renderResultRow("res-suction-deducted", "Suction Pressure Deducted", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`)}
+                  {renderResultRow("res-total-pump-head", "Total Calculated Pump Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`, true, "text-[#0A7BC7] text-[14px]", true)}
+                  {renderResultRow("res-selected-head", "Selected Operating Head", `${calculatedData.selectedHeadDisplay.toFixed(3)} ${calculatedData.headUnit}`)}
+                  {renderResultRow("res-shaft-power", "Hydraulic Shaft Power", `${calculatedData.shaftPowerKw.toFixed(2)} kW`)}
+                  {renderResultRow("res-total-motor-power", "Estimated Motor Power Requirement", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`, true, "text-[#0A7BC7] text-[14px]", true)}
+                </div>
+              </div>
+
+              {/* Card 3: Detailed Calculations Steps Accordion */}
+              <div className="bg-card border border-border rounded-2xl shadow-xs overflow-hidden">
+                <button
+                  onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
+                  className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
+                  </span>
+                  {showDetailedCalcs ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                </button>
+                {showDetailedCalcs && (
+                  <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[420px] overflow-y-auto">
                     
-                    {/* Formula reference area */}
-                    {showFormulaPanel && (
-                      <div className="bg-white/90 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm animate-slide-in flex flex-col gap-5">
-                        {/* Features List */}
-                        <div>
-                          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white mb-2.5 flex items-center gap-1.5">
-                            <span className="w-1.5 h-3.5 bg-primary rounded-sm"></span>
-                            Features: CHW Pump Head Calculator
-                          </h3>
-                          <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5 text-xs text-muted-foreground list-disc list-inside">
-                            <li><strong>All Keyboard shortcuts</strong>: Core navigation & hotkeys.</li>
-                            <li><strong>Dynamic Equivalent Length</strong>: Dynamic 30% additions for elbows and valves.</li>
-                            <li><strong>Static & Residual Head</strong>: Dynamic elevation lift, outlet pressure, and suction head subtraction.</li>
-                            <li><strong>Selected Operating Head</strong>: Custom target head (defaults to calculated head if left blank).</li>
-                            <li><strong>Pump Motor Sizing</strong>: Safety factor, pump/motor efficiency metrics for kW/HP sizing.</li>
-                            <li><strong>SI / IP Dual Unit System</strong>: Dynamic Metric and Imperial unit conversion.</li>
-                          </ul>
-                        </div>
-
-                        <div className="border-t border-border/40 pt-4">
-                          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white mb-3 flex items-center gap-1.5">
-                            <HelpCircle className="size-4 text-primary" /> Pump Head Formulas Reference
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-sans">
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Design Flowrate (L/s):</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">Q = (Flow_GPM × 3.78) ÷ 60</code>
-                              <span className="text-[10px] text-muted-foreground">Volumetric discharge flow converted to metric base.</span>
-                            </div>
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Piping Equivalent length (m):</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">Leq = (L_vert + L_horiz) × 1.6</code>
-                              <span className="text-[10px] text-muted-foreground">Fittings and valves dynamically added at 30% each.</span>
-                            </div>
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Piping friction losses (bar):</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">H_loss = L_equiv × (ff / 100)</code>
-                              <span className="text-[10px] text-muted-foreground">Applies friction factor loss rate per 100m of pipe.</span>
-                            </div>
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Total dynamic Head (TDH):</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">TDH = (H_loss + H_st + H_out − H_suc) × (1 + SF/100)</code>
-                              <span className="text-[10px] text-muted-foreground">Head required including static lift, outlet, and safety margin.</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Split layout: inputs vs results */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                      
-                      {/* Left: Inputs Panel (5 cols) */}
-                      <div className="lg:col-span-5 flex flex-col gap-6">
-                        
-                        {/* FLOW DEMAND PARAMETERS */}
-                        <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
-                          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2 border-b border-border/40 pb-2">
-                            <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
-                            Flow Demand Parameters
-                          </h3>
-                          <div className="grid grid-cols-2 gap-4 items-center font-sans">
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Flow Rate ({unitSystem === "ip" ? "GPM" : "L/s"})
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.flowUsgpm}
-                                onChange={(e) => {
-                                  const val = e.target.value === "" ? "" : Number(e.target.value);
-                                  saveParams({ ...sizingParams, flowUsgpm: val, flowLps: val !== "" ? Number((Number(val) * 3.78 / 60).toFixed(2)) : "" }, unitSystem, projectInfo);
-                                }}
-                                placeholder={unitSystem === "ip" ? "500" : "31.5"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                            <div>
-                              <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Design Flow Rate</div>
-                              <div className="text-sm font-bold mt-1.5 text-slate-800 dark:text-slate-100">
-                                {calculatedData.flowRate.toFixed(2)} L/s
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* MAJOR & MINOR HEAD LOSS (PIPING RUN) */}
-                        <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
-                          <div className="flex justify-between items-center border-b border-border/40 pb-2">
-                            <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-                              <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
-                              Major & Minor Head Loss (Piping Run)
-                            </h3>
-                            <div className="text-xs text-muted-foreground flex items-center gap-1.5 select-none">
-                              <span>Friction Factor:</span>
-                              <div className="bg-[#0A7BC7]/10 dark:bg-[#0A7BC7]/20 text-[#06456F] px-2 py-0.5 rounded flex items-center gap-0.5 font-bold">
-                                <input
-                                  type="number"
-                                  step="0.05"
-                                  value={sizingParams.frictionFactor}
-                                  onChange={(e) => saveParams({ ...sizingParams, frictionFactor: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                  placeholder={unitSystem === "ip" ? "1.77" : "0.4"}
-                                  className="w-9 bg-transparent text-[#06456F] text-center outline-none border-none p-0 focus:ring-0 font-bold font-mono placeholder:text-muted-foreground/45"
-                                />
-                              </div>
-                              <span className="text-[10px] font-semibold">{unitSystem === "ip" ? "psi/100ft" : "bar/100m length"}</span>
-                            </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Vertical Pipe Length ({calculatedData.lengthUnit})
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.vertLength}
-                                onChange={(e) => saveParams({ ...sizingParams, vertLength: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                placeholder={unitSystem === "ip" ? "100" : "30"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Horizontal Pipe Length ({calculatedData.lengthUnit})
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.horizLength}
-                                onChange={(e) => saveParams({ ...sizingParams, horizLength: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                placeholder={unitSystem === "ip" ? "400" : "120"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-2 mt-2 pt-3 border-t border-border/40 text-left select-none">
-                            <div>
-                              <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Elbows Equiv.</div>
-                              <div className="text-sm font-bold mt-1 text-slate-800 dark:text-slate-100">
-                                {calculatedData.elbowsLengthDisplay.toFixed(2)} {calculatedData.lengthUnit}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Valves Equiv.</div>
-                              <div className="text-sm font-bold mt-1 text-slate-800 dark:text-slate-100">
-                                {calculatedData.valvesLengthDisplay.toFixed(2)} {calculatedData.lengthUnit}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Equiv Length</div>
-                              <div className="text-sm font-bold mt-1 text-[#0A7BC7] dark:text-sky-400">
-                                {calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* PUMP HEAD REQUIREMENT */}
-                        <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
-                          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2 border-b border-border/40 pb-2">
-                            <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
-                            Pump Head Requirement
-                          </h3>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Pressure Drop in the Piping</div>
-                              <div className="text-sm font-bold mt-1 text-slate-800 dark:text-slate-100">
-                                {calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}
-                              </div>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Static Head ({calculatedData.headUnit})
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.staticHead}
-                                step="0.1"
-                                onChange={(e) => saveParams({ ...sizingParams, staticHead: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                placeholder={unitSystem === "ip" ? "43.5" : "3.0"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Residual Pressure at Outlet ({calculatedData.headUnit})
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.residualPressure}
-                                step="0.1"
-                                onChange={(e) => saveParams({ ...sizingParams, residualPressure: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                placeholder={unitSystem === "ip" ? "29.0" : "2.0"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Suction Pressure (Available) ({calculatedData.headUnit})
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.suctionPressure}
-                                step="0.1"
-                                onChange={(e) => saveParams({ ...sizingParams, suctionPressure: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                placeholder="0.0"
-                                className="w-full bg-blue-50/40/50 dark:bg-orange-950/20 text-[#06456F] border border-blue-100 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Considering safety margin (%)
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.safetyFactorHead}
-                                onChange={(e) => saveParams({ ...sizingParams, safetyFactorHead: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                placeholder="5"
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">
-                                Selected Operating Head ({calculatedData.headUnit})
-                              </label>
-                              <input
-                                type="number"
-                                value={sizingParams.selectedHead}
-                                placeholder="Same as calculated head if left blank"
-                                onChange={(e) => saveParams({ ...sizingParams, selectedHead: e.target.value === "" ? "" : Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:border-primary outline-none placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="mt-2 pt-3 border-t border-border/40 select-none">
-                            <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Total Calculated Pump Head</div>
-                            <div className="text-base font-extrabold mt-1 text-[#0A7BC7]">
-                              {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* MOTOR & PUMP EFFICIENCY */}
-                        <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm flex flex-col gap-4">
-                          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2 border-b border-border/40 pb-2">
-                            <span className="w-1.5 h-3.5 bg-[#0A7BC7] rounded-sm"></span>
-                            Motor & Pump Efficiencies
-                          </h3>
-                          <div className="grid grid-cols-2 gap-3.5 text-xs font-sans">
-                            <div>
-                              <label className="block text-[11px] font-semibold text-muted-foreground mb-1">Pump Efficiency (%)</label>
-                              <input
-                                type="number"
-                                value={sizingParams.effPump}
-                                onChange={(e) => saveParams({ ...sizingParams, effPump: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 text-xs outline-none font-bold focus:border-primary"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-semibold text-muted-foreground mb-1">Motor Efficiency (%)</label>
-                              <input
-                                type="number"
-                                value={sizingParams.effMotor}
-                                onChange={(e) => saveParams({ ...sizingParams, effMotor: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 text-xs outline-none font-bold focus:border-primary"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                      </div>
-
-                      {/* Right: Results Panel (7 cols) */}
-                      <div className="lg:col-span-7 flex flex-col gap-6">
-                        
-                        {/* PUMP HEAD DUTY HIGHLIGHT CARD */}
-                        <div 
-                          onDoubleClick={() => setEditModalOpen(true)}
-                          className="bg-gradient-to-r from-orange-500 to-amber-600 rounded-2xl p-6 shadow-md text-white select-none relative group/duty cursor-pointer"
-                          title="Double-click to open full parameter editor modal"
-                        >
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10.5px] font-bold uppercase tracking-widest text-orange-100 block">Pump Head Duty</span>
-                              <span className="text-[10px] font-semibold text-orange-100 bg-white/20 px-2 py-0.5 rounded-full opacity-80 group-hover/duty:opacity-100 transition-opacity">
-                                Double-click to Edit
-                              </span>
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCommentTargetItem({ id: "pump-head-duty", name: "Pump Head Duty Sizing" });
-                                setCommentModalOpen(true);
-                              }}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-full text-xs font-semibold backdrop-blur-sm transition-all cursor-pointer"
+                    {/* Step 1 */}
+                    {(() => {
+                      const stepId = "step-1-flow-rate";
+                      const stepLabel = "Step 1: Volumetric & Mass Flow Rate Conversion";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
                             >
-                              <MessageSquare className="size-3" />
-                              Add Comment / Assign Task
-                              {commentsList.filter(c => c.itemId === "pump-head-duty").length > 0 && (
-                                <span className="bg-white text-orange-600 text-[10px] font-extrabold rounded-full px-1.5 py-0.2">
-                                  {commentsList.filter(c => c.itemId === "pump-head-duty").length}
-                                </span>
-                              )}
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <span className="text-[11px] font-semibold text-orange-200 block mb-0.5">Flow Rate</span>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-3xl font-extrabold font-sans leading-none">{calculatedData.flowRateDisplay.toFixed(2)}</span>
-                                <span className="text-sm font-semibold">{calculatedData.flowUnit}</span>
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">1</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Q (L/s) = (Flow_GPM × 3.785) ÷ 60</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Q = ({calculatedData.flowGpm} GPM × 3.785) ÷ 60</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">Q = {calculatedData.flowRate.toFixed(2)} L/s ({calculatedData.massFlow.toFixed(3)} kg/s)</div>
                               </div>
                             </div>
-                            <div>
-                              <span className="text-[11px] font-semibold text-orange-200 block mb-0.5">Required Head</span>
-                              <div className="flex items-baseline gap-1.5">
-                                <span className="text-3xl font-extrabold font-sans leading-none">{calculatedData.pumpHeadCalcDisplay.toFixed(2)}</span>
-                                <span className="text-sm font-semibold">{calculatedData.headUnit}</span>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 1 Flow", `${calculatedData.flowRate.toFixed(2)} L/s`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 1 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
+
+                    {/* Step 2 */}
+                    {(() => {
+                      const stepId = "step-2-equiv-length";
+                      const stepLabel = "Step 2: Total Equivalent Piping Length";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">2</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Leq = (L_vert + L_horiz + L_elbows + L_valves) × 1.05</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">
+                                  Leq = ({calculatedData.L_vert_m.toFixed(1)}m + {calculatedData.L_horiz_m.toFixed(1)}m + {calculatedData.elbowsLengthDisplay.toFixed(1)}{calculatedData.lengthUnit} + {calculatedData.valvesLengthDisplay.toFixed(1)}{calculatedData.lengthUnit}) × 1.05
+                                </div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">Leq = {calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}</div>
                               </div>
                             </div>
-                          </div>
-                        </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 2 Equiv Length", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 2 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                        {/* Breakdown block 1: Equivalent length */}
-                        <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm">
-                          <h3 className="text-[11.5px] font-black text-slate-800 dark:text-slate-100 tracking-wider uppercase mb-3 flex items-center gap-2">
-                            <span className="text-primary font-bold">1.</span>
-                            Friction and Equivalent Length Breakdown
-                          </h3>
-                          <div className="divide-y divide-border/40 text-xs">
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Sum of Component Lengths</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.sumLengthsDisplay.toFixed(1)} {calculatedData.lengthUnit}
-                              </strong>
+                    {/* Step 3 */}
+                    {(() => {
+                      const stepId = "step-3-friction-loss";
+                      const stepLabel = "Step 3: Piping Friction Pressure Losses";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">3</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">H_loss = L_equiv × (FrictionFactor ÷ 100)</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">
+                                  H_loss = {calculatedData.L_equiv_m.toFixed(1)}m × ({calculatedData.ff} ÷ 100)
+                                </div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">H_loss = {calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}</div>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Total Equivalent Length (with Safety)</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}
-                              </strong>
-                            </div>
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Major + Minor Friction Losses</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}
-                              </strong>
-                            </div>
-                          </div>
-                        </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 3 Friction Loss", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 3 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                        {/* Breakdown block 2: Sizing head requirements */}
-                        <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm">
-                          <h3 className="text-[11.5px] font-black text-slate-800 dark:text-slate-100 tracking-wider uppercase mb-3 flex items-center gap-2">
-                            <span className="text-primary font-bold">2.</span>
-                            Sizing Head Requirements
-                          </h3>
-                          <div className="divide-y divide-border/40 text-xs">
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Piping Friction Losses</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}
-                              </strong>
+                    {/* Step 4 */}
+                    {(() => {
+                      const stepId = "step-4-total-head";
+                      const stepLabel = "Step 4: Total Dynamic Pump Head (TDH)";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">4</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">TDH = (H_loss + H_static + H_outlet − H_suction) × (1 + SF ÷ 100)</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">
+                                  TDH = ({calculatedData.frictionLossDisplay.toFixed(3)} + {calculatedData.staticHeadDisplay.toFixed(2)} + {calculatedData.outletHeadDisplay.toFixed(2)} − {calculatedData.suctionHeadDisplay.toFixed(2)}) × (1 + {calculatedData.sfPercent}%)
+                                </div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">TDH = {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}</div>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Static Elevation Lift</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.staticHeadDisplay.toFixed(2)} {calculatedData.headUnit}
-                              </strong>
-                            </div>
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Residual Head at Outlet</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.outletHeadDisplay.toFixed(2)} {calculatedData.headUnit}
-                              </strong>
-                            </div>
-                            <div className="flex justify-between items-center py-2.5 text-[#06456F] dark:text-sky-400">
-                              <span className="font-sans">Suction Pressure (Deducted)</span>
-                              <strong className="font-mono">
-                                -{calculatedData.suctionHeadDisplay.toFixed(2)} {calculatedData.headUnit}
-                              </strong>
-                            </div>
-                            <div className="flex justify-between items-center py-2.5 text-[#06456F] dark:text-sky-400 font-bold border-t border-border/80">
-                              <span className="font-sans">Total Calculated Pump Head</span>
-                              <strong className="font-mono text-[13px]">
-                                {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}
-                              </strong>
-                            </div>
-                          </div>
-                        </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 4 TDH", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 4 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                        {/* Breakdown block 3: Calculations for motor selection */}
-                        <div className="bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm">
-                          <h3 className="text-[11.5px] font-black text-slate-800 dark:text-slate-100 tracking-wider uppercase mb-3 flex items-center gap-2">
-                            <span className="text-primary font-bold">3.</span>
-                            Calculations for Motor Selection
-                          </h3>
-                          <div className="divide-y divide-border/40 text-xs">
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Selected Head for the Pump</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.selectedHeadDisplay.toFixed(3)} {calculatedData.headUnit}
-                              </strong>
+                    {/* Step 5 */}
+                    {(() => {
+                      const stepId = "step-5-motor-power";
+                      const stepLabel = "Step 5: Hydraulic Shaft & Motor Sizing Power";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start pb-1 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">5</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">P_shaft = (Flow_kg/s × Lift_kPa) ÷ (1000 × η_pump), P_motor = P_shaft ÷ η_motor</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">
+                                  P_shaft = ({calculatedData.massFlow.toFixed(3)} × {calculatedData.liftKpa.toFixed(1)}) ÷ (1000 × {calculatedData.effPumpVal / 100}) = {calculatedData.shaftPowerKw.toFixed(2)} kW
+                                </div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">
+                                  P_motor = {calculatedData.motorPowerKw.toFixed(2)} kW ({calculatedData.motorPowerHp.toFixed(2)} HP)
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Pump Flow Rate</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.massFlow.toFixed(3)} kg/s
-                              </strong>
-                            </div>
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Pressure Lift Requirement</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.liftKpa.toFixed(1)} kPa
-                              </strong>
-                            </div>
-                            <div className="flex justify-between items-center py-2.5">
-                              <span className="text-muted-foreground font-sans">Shaft Power Requirement</span>
-                              <strong className="text-slate-950 dark:text-slate-50 font-mono">
-                                {calculatedData.shaftPowerKw.toFixed(2)} kW
-                              </strong>
-                            </div>
-                            <div className="flex justify-between items-center py-3 px-3.5 bg-[#0A7BC7]/5 border border-[#0A7BC7]/10 rounded-xl mt-2 font-bold text-[#06456F] dark:text-sky-400">
-                              <span className="font-sans">Estimated Motor Power</span>
-                              <strong className="font-mono text-[13.5px]">
-                                {calculatedData.motorPowerKw.toFixed(2)} kW / {calculatedData.motorPowerHp.toFixed(2)} HP
-                              </strong>
-                            </div>
-                          </div>
-                        </div>
-
-                      </div>
-
-                    </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 5 Motor Power", `${calculatedData.motorPowerKw.toFixed(2)} kW`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 5 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
                   </div>
+                )}
+              </div>
 
-                </div>
-              ) : (
-                /* Report View */
-                <div className="flex-1 flex flex-col min-h-0">
-                  {/* Toolbar */}
-                  <div className="relative flex items-center justify-end gap-3 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
-                    <button
-                      onClick={handlePrintPDF}
-                      className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
-                    >
-                      <FileText className="size-3.5" /> Export PDF
-                    </button>
-                  </div>
-                  
-                  {/* Report Sheet */}
-                  <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30 dark:bg-slate-950/20 font-sans print:p-0">
-                    <div className="border border-slate-300 dark:border-slate-800 rounded-xl p-8 max-w-4xl mx-auto shadow-sm bg-card print:border-none print:shadow-none print:p-0">
-                      
-                      {/* Report Header */}
-                      <div className="border-b-2 border-slate-800 pb-5 mb-6 flex justify-between items-start">
-                        <div>
-                          <h1 className="text-xl font-extrabold text-slate-900 dark:text-white uppercase tracking-wider font-sans">PUMP HEAD SIZING REPORT</h1>
-                          <p className="text-[12px] text-muted-foreground font-mono mt-1">Chilled Water Secondary Circulation Pump Head and Fittings Loss Report</p>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[13px] font-bold text-primary font-mono block">MEP CALCULATION SUITE</span>
-                          <span className="text-[11px] text-muted-foreground block mt-0.5">Date: {projectInfo.date}</span>
-                        </div>
-                      </div>
-
-                      {/* 1. Project details */}
-                      <div className="mb-6">
-                        <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 pb-1 mb-3">1. Project Details</h3>
-                        <div className="grid grid-cols-2 gap-4 text-xs">
-                          <div>
-                            <span className="text-muted-foreground block">Project Name:</span>
-                            <span className="font-semibold">{projectInfo.projectName}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground block">Project Number:</span>
-                            <span className="font-semibold">{projectInfo.projectNumber}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground block">Consultant / Engineer:</span>
-                            <span className="font-semibold">{projectInfo.consultant}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground block">Client Name:</span>
-                            <span className="font-semibold">{projectInfo.client}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 2. Sizing Parameters */}
-                      <div className="mb-6">
-                        <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 pb-1 mb-3">2. Design Parameters</h3>
-                        <div className="grid grid-cols-3 gap-y-3.5 gap-x-4 text-xs font-mono">
-                          <div>
-                            <span className="text-muted-foreground font-sans block">Design Flow Rate:</span>
-                            <strong>{calculatedData.flowRateDisplay.toFixed(2)} {calculatedData.flowUnit}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground font-sans block">Vertical Pipe Length:</span>
-                            <strong>{calculatedData.vertLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground font-sans block">Horizontal Pipe Length:</span>
-                            <strong>{calculatedData.horizLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground font-sans block">Friction Factor Loss Rate:</span>
-                            <strong>{sizingParams.frictionFactor} {unitSystem === "ip" ? "psi/100ft" : "bar/100m"}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground font-sans block">Design Equivalent Length:</span>
-                            <strong>{calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground font-sans block">Safety Margin applied:</span>
-                            <strong>{sizingParams.safetyFactorHead}%</strong>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 3. Results tables */}
-                      <div className="mb-6">
-                        <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 pb-1 mb-3">3. Head Loss Sizing Summary</h3>
-                        
-                        <table className="w-full text-left text-[11px] border border-collapse border-slate-200 font-sans mb-4">
-                          <thead>
-                            <tr className="bg-slate-100 font-bold text-slate-800 border-b border-slate-200">
-                              <th className="p-2 border-r border-slate-200">Loss Component</th>
-                              <th className="p-2 text-right">Pressure / Head Loss</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-200 font-mono">
-                            <tr>
-                              <td className="p-2 border-r border-slate-200 font-sans">Piping Friction Losses</td>
-                              <td className="p-2 text-right">{calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}</td>
-                            </tr>
-                            <tr>
-                              <td className="p-2 border-r border-slate-200 font-sans">Static elevation Lift</td>
-                              <td className="p-2 text-right">{calculatedData.staticHeadDisplay.toFixed(2)} {calculatedData.headUnit}</td>
-                            </tr>
-                            <tr>
-                              <td className="p-2 border-r border-slate-200 font-sans">Residual Outlet Pressure required</td>
-                              <td className="p-2 text-right">{calculatedData.outletHeadDisplay.toFixed(2)} {calculatedData.headUnit}</td>
-                            </tr>
-                            <tr className="text-[#06456F] font-bold">
-                              <td className="p-2 border-r border-slate-200 font-sans">Suction pressure (Deducted)</td>
-                              <td className="p-2 text-right">-{calculatedData.suctionHeadDisplay.toFixed(2)} {calculatedData.headUnit}</td>
-                            </tr>
-                            <tr className="bg-blue-50/40 font-extrabold text-orange-950">
-                              <td className="p-2 border-r border-slate-200 font-sans">TOTAL RECOMMENDED PUMP HEAD</td>
-                              <td className="p-2 text-right">{calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-
-                        <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-4 bg-slate-50/50 dark:bg-slate-800/10 text-xs">
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono">
-                            <div>
-                              <span className="text-muted-foreground font-sans">Selected Sized Head:</span>
-                              <strong className="block text-[13px] mt-0.5 text-primary">{calculatedData.selectedHeadDisplay.toFixed(3)} {calculatedData.headUnit}</strong>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground font-sans">Fluid Mass Flow Rate:</span>
-                              <strong className="block text-[13px] mt-0.5">{calculatedData.massFlow.toFixed(3)} kg/s</strong>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground font-sans">Required Shaft Power:</span>
-                              <strong className="block text-[13px] mt-0.5">{calculatedData.shaftPowerKw.toFixed(2)} kW</strong>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground font-sans">Estimated Motor Power:</span>
-                              <strong className="block text-[13px] mt-0.5 text-emerald-600 dark:text-emerald-400">{calculatedData.motorPowerKw.toFixed(2)} kW ({calculatedData.motorPowerHp.toFixed(2)} HP)</strong>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Sign off */}
-                      <div className="mt-12 pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-[11px] text-muted-foreground">
-                        <div>
-                          <p className="font-semibold uppercase tracking-wider text-slate-800 mb-6">Prepared By:</p>
-                          <div className="border-b border-slate-300 w-48 mb-1"></div>
-                          <p>Consulting HVAC Engineer</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-semibold uppercase tracking-wider text-slate-800 mb-6">Reviewed & Approved By:</p>
-                          <div className="border-b border-slate-300 w-48 ml-auto mb-1"></div>
-                          <p>Lead MEP Principal Engineer</p>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
           </div>
@@ -1181,37 +1481,98 @@ function ChwPumpHeadPage() {
         </div>
       </div>
 
+      {/* Save Preset Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
+            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
+              <Save className="size-4 text-primary" /> Save Calculation Preset
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Save the current CHW pump sizing parameters and configuration to your preset library.
+            </p>
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder="e.g. Tower A Secondary Chiller Pump"
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:border-primary outline-none"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleSaveCurrent()}
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCurrent}
+                disabled={!saveName.trim()}
+                className="px-4 py-2 text-xs font-bold bg-[#0A7BC7] hover:bg-[#0863A0] text-white rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                Save Preset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Preset Modal */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
+            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
+              <FolderOpen className="size-4 text-primary" /> Saved CHW Pump Presets
+            </h3>
+            <div className="max-h-60 overflow-y-auto flex flex-col gap-2">
+              {saves.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => handleLoadSave(s.id)}
+                  className="flex items-center justify-between p-3 rounded-xl border border-border/60 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-bold text-xs text-foreground">{s.name}</span>
+                    <span className="text-[10px] text-muted-foreground">Saved {new Date(s.savedAt).toLocaleDateString()} | Unit: {s.unitSystem?.toUpperCase() || "SI"}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteSave(s.id, e)}
+                    className="p-1.5 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                    title="Delete preset"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowLoadModal(false)}
+                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comment Assignment Modal */}
       <AssignCommentModal
         isOpen={commentModalOpen}
         onClose={() => setCommentModalOpen(false)}
         targetItem={commentTargetItem}
         comments={commentsList}
-        onSave={async (commentData) => {
-          const newComment = {
-            id: `cmt_${Date.now()}`,
-            text: commentData.text,
-            authorName: currentUserName,
-            authorRole: profile?.role || "Engineer",
-            timestamp: new Date().toISOString(),
-            assignedUsers: commentData.assignedUsers || [],
-            itemId: commentTargetItem?.id,
-          };
-          const updated = [...commentsList, newComment];
-          saveComments(updated);
-
-          notifyCommentAssigned({
-            comment: newComment,
-            targetId: commentTargetItem?.id || "chw-pump-head",
-            targetName: commentTargetItem?.name || "Chilled Water Pump",
-            targetType: "equipment",
-            calculatorTitle: "CHW Pump Head Loss Sizer",
-            calculatorPath: "/chw-pump-head",
-            project,
-            currentUserName,
-            currentUserId: userData?.id || profile?.id
-          }).catch(console.error);
-        }}
+        onSave={handleSaveComment}
       />
+
+      {/* Full Edit Modal */}
       {editModalOpen && (
         <EditChwPumpModal
           params={sizingParams}

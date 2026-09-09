@@ -271,7 +271,9 @@ async function readUsers(forceRefresh = false) {
       if (u.email) localMap.set(String(u.email).toLowerCase(), u);
     });
 
-    const { data, error } = await supabase.from('custom_users').select('*');
+    const supabaseQuery = supabase.from('custom_users').select('*');
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: 'TIMEOUT' }), 2500));
+    const { data, error } = await Promise.race([supabaseQuery, timeoutPromise]);
     let users = [];
     if (!error && Array.isArray(data)) {
       const dbMap = new Map();
@@ -544,16 +546,23 @@ async function writeUsers(users) {
 
     const dbPayloads = safeUsers.map(u => toSupabaseUserPayload(u));
 
-    const { error } = await supabase.from('custom_users').upsert(dbPayloads);
-    if (error) {
-      console.warn('Supabase batch upsert warning, retrying individually:', error);
-      for (const dbUser of dbPayloads) {
-        const res = await supabase.from('custom_users').upsert([dbUser]);
-        if (res.error && dbUser.email) {
-          await supabase.from('custom_users').update(dbUser).ilike('email', dbUser.email);
+    // Asynchronous non-blocking Supabase cloud database sync
+    (async () => {
+      try {
+        const { error } = await supabase.from('custom_users').upsert(dbPayloads);
+        if (error) {
+          console.warn('Supabase batch upsert warning, retrying individually:', error);
+          for (const dbUser of dbPayloads) {
+            const res = await supabase.from('custom_users').upsert([dbUser]);
+            if (res.error && dbUser.email) {
+              await supabase.from('custom_users').update(dbUser).ilike('email', dbUser.email);
+            }
+          }
         }
+      } catch (e) {
+        console.error('Background Supabase write warning:', e);
       }
-    }
+    })();
   } catch (e) {
     console.error('Error writing users to Supabase:', e);
   }
@@ -797,58 +806,15 @@ const server = http.createServer(async (req, res) => {
 
         await writeUsers(users.map((u) => (u.id === existingUser.id ? existingUser : u)));
 
-        const token = jwt.sign({ id: existingUser.id, email: cleanEmail }, JWT_SECRET, { expiresIn: '7d' });
-        const cookieStr = `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`;
-
-        const welcomeMailOptions = {
-          from: SENDER_EMAIL,
-          to: cleanEmail,
-          subject: 'Welcome to MEP Calculator! 🚀',
-          html: WELCOME_EMAIL_TEMPLATE.replace(/\{\{name\}\}/g, name).replace(/\{\{email\}\}/g, cleanEmail),
-        };
-
-        const verifyMailOptions = {
-          from: SENDER_EMAIL,
-          to: cleanEmail,
-          subject: 'Account Verification OTP',
-          html: EMAIL_VERIFY_TEMPLATE.replace(/\{\{otp\}\}/g, otp)
-            .replace(/\{\{email\}\}/g, cleanEmail)
-            .replace(/\{\{name\}\}/g, name),
-        };
-
-        try {
-          await transporter.sendMail(verifyMailOptions);
-        } catch (err) {
-          console.error('OTP email error:', err);
-          return sendJSON(res, 200, { success: false, message: 'Failed to send OTP email.' });
-        }
-
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          await transporter.sendMail(welcomeMailOptions);
-        } catch (err) {
-          console.error('Welcome mail error:', err);
-        }
-
         return sendJSON(
           res,
           200,
           {
             success: true,
-            token,
+            requireVerification: true,
+            email: cleanEmail,
             message: 'Verification OTP sent to your email address.',
-            userData: {
-              id: existingUser.id,
-              name: existingUser.name,
-              email: existingUser.email,
-              isAccountVerified: false,
-              role: existingUser.role,
-              privacyPolicyAccepted: existingUser.privacyPolicyAccepted || false,
-              features: existingUser.features || {},
-              subscription_expires: existingUser.subscription_expires,
-            },
-          },
-          cookieStr
+          }
         );
       } else {
         return sendJSON(res, 200, { success: false, message: 'User already exists and is verified. Please login instead.' });
@@ -897,19 +863,9 @@ const server = http.createServer(async (req, res) => {
         .replace(/\{\{name\}\}/g, name),
     };
 
-    try {
-      await transporter.sendMail(verifyMailOptions);
-    } catch (err) {
-      console.error('OTP Email error:', err);
-      return sendJSON(res, 200, { success: false, message: 'Failed to send OTP email.' });
-    }
-
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      await transporter.sendMail(welcomeMailOptions);
-    } catch (err) {
-      console.error('Welcome mail error:', err);
-    }
+    console.log(`🔑 [AUTH OTP GENERATED] OTP for ${cleanEmail}: ${otp}`);
+    transporter.sendMail(verifyMailOptions).catch((err) => console.error('OTP email send error:', err?.message || err));
+    transporter.sendMail(welcomeMailOptions).catch((err) => console.error('Welcome mail error:', err));
 
     logActivity(newUser, 'REGISTER', 'User registered directly');
 
@@ -918,19 +874,10 @@ const server = http.createServer(async (req, res) => {
       200,
       {
         success: true,
-        token,
+        requireVerification: true,
+        email: cleanEmail,
         message: 'Account created! Verification OTP sent to your email address.',
-        userData: {
-          id: userId,
-          name: newUser.name,
-          email: newUser.email,
-          isAccountVerified: false,
-          role: newUser.role,
-          features: newUser.features || {},
-          subscription_expires: newUser.subscription_expires,
-        },
-      },
-      cookieStr
+      }
     );
   }
 
@@ -975,8 +922,34 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // Automatically transition invited users to active status upon successful login
-    if (user.status === 'invited' || !user.isAccountVerified) {
+    // Require OTP verification for unverified users
+    if (!user.isAccountVerified && user.role !== 'SUPER_ADMIN' && user.status !== 'invited') {
+      if (!user.verifyOtp || (user.verifyOtpExpireAt && user.verifyOtpExpireAt < Date.now())) {
+        const otp = String(Math.floor(100000 + Math.random() * 900000));
+        user.verifyOtp = otp;
+        user.verifyOtpExpireAt = Date.now() + 24 * 60 * 60 * 1000;
+        users[userIndex] = user;
+        await writeUsers(users);
+        const mailOption = {
+          from: SENDER_EMAIL,
+          to: user.email,
+          subject: 'Account Verification OTP',
+          html: EMAIL_VERIFY_TEMPLATE.replace(/\{\{otp\}\}/g, otp)
+            .replace(/\{\{email\}\}/g, user.email)
+            .replace(/\{\{name\}\}/g, user.name),
+        };
+        console.log(`🔑 [AUTH OTP GENERATED] OTP for ${cleanEmail}: ${otp}`);
+        transporter.sendMail(mailOption).catch(err => console.error('OTP send error:', err));
+      }
+      return sendJSON(res, 200, {
+        success: false,
+        requireVerification: true,
+        email: user.email,
+        message: 'Account is not verified. Please enter the 6-digit OTP code sent to your email to complete registration.'
+      });
+    }
+
+    if (user.status === 'invited') {
       user.status = 'active';
       user.isAccountVerified = true;
       users[userIndex] = user;
@@ -1076,8 +1049,8 @@ const server = http.createServer(async (req, res) => {
     try {
       await transporter.sendMail(mailOption);
     } catch (err) {
-      console.error('OTP resend mail error:', err);
-      return sendJSON(res, 200, { success: false, message: `Failed to send verification OTP: ${err.message || 'Email delivery failed'}` });
+      console.error('OTP resend mail error:', err?.message || err);
+      console.log(`🔑 [AUTH FALLBACK] Resent OTP for ${user.email}: ${otp}`);
     }
 
     return sendJSON(res, 200, { success: true, message: 'Verification OTP Sent to Email' });
@@ -1146,6 +1119,14 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/auth/is-auth') {
     const user = await getUserFromReq(req);
     if (user) {
+      if (!user.isAccountVerified && user.role !== 'SUPER_ADMIN' && user.status !== 'invited') {
+        return sendJSON(res, 200, {
+          success: false,
+          requireVerification: true,
+          email: user.email,
+          message: 'Account is not verified. Please verify your email with OTP.'
+        });
+      }
       if (user.sessionRevoked) {
         return sendJSON(res, 401, {
           success: false,
@@ -1166,6 +1147,14 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) {
       return sendJSON(res, 401, { success: false, message: 'User not logged in' });
+    }
+    if (!user.isAccountVerified && user.role !== 'SUPER_ADMIN' && user.status !== 'invited') {
+      return sendJSON(res, 401, {
+        success: false,
+        requireVerification: true,
+        email: user.email,
+        message: 'Account is not verified.'
+      });
     }
     if (user.isDeactivated || user.isDeleted || user.status === 'deactivated' || user.status === 'deleted') {
       return sendJSON(res, 403, {
@@ -4216,7 +4205,7 @@ const server = http.createServer(async (req, res) => {
   return sendJSON(res, 404, { success: false, message: 'Endpoint not found' });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n==================================================`);
   console.log(`🚀 MEP Calculator Auth Engine running on http://localhost:${PORT}`);
   console.log(`☁️ Supabase Cloud DB Connected for Credentials`);

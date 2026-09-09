@@ -10,11 +10,13 @@ const getBackendUrl = () => {
     if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
       return `http://${host}:4000`;
     }
-    if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
-      return 'http://localhost:4000';
+    const isTauri = !!((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:' || window.location.protocol === 'file:');
+    if (isTauri) {
+      return 'http://127.0.0.1:4000';
     }
+    return '';
   }
-  return 'http://localhost:4000';
+  return 'http://127.0.0.1:4000';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -53,6 +55,7 @@ export interface AuthResponse {
   token?: string;
   userData?: AuthUserData;
   requireForceLogout?: boolean;
+  requireVerification?: boolean;
   sessionRevoked?: boolean;
 }
 
@@ -81,8 +84,10 @@ export const authService = {
         name,
         email,
         password,
-      });
-      if (data.success && data.token) {
+      }, { timeout: 25000 });
+      if (data.requireVerification || data.userData?.isAccountVerified === false) {
+        clearAllAuthStorage();
+      } else if (data.success && data.token) {
         localStorage.setItem('auth_token', data.token);
         if (data.userData) {
           localStorage.setItem('mep_user_data', JSON.stringify(data.userData));
@@ -91,9 +96,10 @@ export const authService = {
       }
       return data;
     } catch (error: any) {
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
       return {
         success: false,
-        message: error.response?.data?.message || error.message || 'Registration failed',
+        message: isTimeout ? 'Server connection timed out. Please check your internet connection or server availability.' : (error.response?.data?.message || error.message || 'Registration failed'),
       };
     }
   },
@@ -107,15 +113,18 @@ export const authService = {
         password,
         hwid,
         force,
-      });
-      if (data.success && data.token) {
+      }, { timeout: 25000 });
+      if (data.requireVerification) {
+        clearAllAuthStorage();
+      } else if (data.success && data.token) {
         localStorage.setItem('auth_token', data.token);
       }
       return data;
     } catch (error: any) {
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
       return {
         success: false,
-        message: error.response?.data?.message || error.message || 'Login failed. Could not reach server.',
+        message: isTimeout ? 'Server connection timed out. Please check your network connection.' : (error.response?.data?.message || error.message || 'Login failed. Could not reach server.'),
       };
     }
   },
@@ -187,7 +196,7 @@ export const authService = {
 
   async sendVerifyOtp(email?: string): Promise<AuthResponse> {
     try {
-      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-verify-otp`, { email });
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/send-verify-otp`, { email }, { timeout: 10000 });
       return data;
     } catch (error: any) {
       return {
@@ -202,8 +211,14 @@ export const authService = {
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/verify-account`, {
         otp,
         email,
-      });
-      clearAllAuthStorage();
+      }, { timeout: 10000 });
+      if (data.success && data.token) {
+        localStorage.setItem('auth_token', data.token);
+        if (data.userData) {
+          localStorage.setItem('mep_user_data', JSON.stringify(data.userData));
+          localStorage.setItem('mep_profile', JSON.stringify(data.userData));
+        }
+      }
       return data;
     } catch (error: any) {
       return {

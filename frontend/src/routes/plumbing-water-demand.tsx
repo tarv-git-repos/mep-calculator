@@ -37,6 +37,8 @@ interface WDRow {
   ppl: number;
   cat: string;
   lpd: number;
+  multiplier?: number;
+  autoDetected?: boolean;
   flagged?: boolean;
   comments?: any[];
 }
@@ -88,12 +90,16 @@ const WD_TYPE_MAP: Record<string, number> = {
   // Public & Assembly
   "Mosques": 60,
   "Public amenities": 50,
+  // Custom
+  "Custom Rate / Category": 100,
 };
 
 const IRR_TYPE_MAP: Record<string, number> = {
   "Palm Trees": 150,
   "Small Palm Tree": 75,
   "Ornamental trees": 80,
+  "Mix Vegetation / Mixed Planting": 30,
+  "Mix Vegetarian": 30,
   "Shrubs & hedges": 15,
   "Ground cover and succulents": 12,
   "Seasonal flowers and creepers": 12,
@@ -123,6 +129,143 @@ const PRESET_STANDARDS = {
   },
 };
 
+interface AutoDetectResult {
+  people: number;
+  cat?: string;
+  autoDetected: boolean;
+}
+
+function detectAshraeOccupancy(desc: string): AutoDetectResult | null {
+  if (!desc) return null;
+  const clean = desc.trim().toLowerCase();
+
+  let qty = 1;
+  const qtyMatch = clean.match(/^(\d+)\s*(?:x|nos|no|units|flats|apartments|rooms|beds|seats|offices|classrooms|toilets|restrooms)?\s+/i);
+  let textToScan = clean;
+
+  if (qtyMatch) {
+    const parsedQty = parseInt(qtyMatch[1], 10);
+    if (!isNaN(parsedQty) && parsedQty > 0) {
+      qty = parsedQty;
+      textToScan = clean.substring(qtyMatch[0].length).trim();
+    }
+  }
+
+  // Residential Studio / BHK
+  if (textToScan.includes("studio")) {
+    return { people: qty * 2, cat: "Residential buildings (flat)", autoDetected: true };
+  }
+
+  const bhkMatch = textToScan.match(/(\d+)\s*(?:bhk|bed|bedroom|br)\b/i);
+  if (bhkMatch && bhkMatch[1]) {
+    const bedrooms = parseInt(bhkMatch[1], 10);
+    if (!isNaN(bedrooms) && bedrooms > 0) {
+      const isVilla = clean.includes("villa") || clean.includes("house");
+      return {
+        people: qty * (bedrooms * 2),
+        cat: isVilla ? "Villas" : "Residential buildings (flat)",
+        autoDetected: true,
+      };
+    }
+  }
+
+  const directBhk = clean.match(/(\d+)\s*(?:bhk|bed|bedroom|br)\b/i);
+  if (directBhk && directBhk[1]) {
+    const bedrooms = parseInt(directBhk[1], 10);
+    if (!isNaN(bedrooms) && bedrooms > 0) {
+      return {
+        people: bedrooms * 2,
+        cat: clean.includes("villa") ? "Villas" : "Residential buildings (flat)",
+        autoDetected: true,
+      };
+    }
+  }
+
+  if (textToScan.includes("villa") || textToScan.includes("townhouse")) {
+    return { people: qty * 6, cat: "Villas", autoDetected: true };
+  }
+
+  if (textToScan.includes("flat") || textToScan.includes("apartment") || textToScan.includes("residential")) {
+    return { people: qty * 4, cat: "Residential buildings (flat)", autoDetected: true };
+  }
+
+  if (textToScan.includes("labour") || textToScan.includes("labor") || textToScan.includes("worker")) {
+    return { people: qty * 20, cat: "Labour accommodation", autoDetected: true };
+  }
+
+  // Restroom / Changing Room / Toilet / Amenities
+  if (
+    textToScan.includes("rest room") ||
+    textToScan.includes("restroom") ||
+    textToScan.includes("changing room") ||
+    textToScan.includes("toilet") ||
+    textToScan.includes("washroom") ||
+    textToScan.includes("bathroom") ||
+    textToScan.includes("wc")
+  ) {
+    return { people: qty * 15, cat: "Public amenities", autoDetected: true };
+  }
+
+  // Offices & Commercial
+  if (textToScan.includes("office") || textToScan.includes("workstation") || textToScan.includes("desk")) {
+    return { people: qty * 10, cat: "Offices", autoDetected: true };
+  }
+  if (textToScan.includes("headquarter") || textToScan.includes("hq")) {
+    return { people: qty * 50, cat: "Headquarters", autoDetected: true };
+  }
+  if (textToScan.includes("commercial")) {
+    return { people: qty * 25, cat: "Commercial buildings", autoDetected: true };
+  }
+
+  // Retail & Leisure
+  if (textToScan.includes("shop") || textToScan.includes("retail") || textToScan.includes("store")) {
+    return { people: qty * 8, cat: "Shops", autoDetected: true };
+  }
+  if (textToScan.includes("plaza") || textToScan.includes("mall") || textToScan.includes("town center")) {
+    return { people: qty * 100, cat: "Local plaza / retail / town center", autoDetected: true };
+  }
+  if (textToScan.includes("club") || textToScan.includes("recreation")) {
+    return { people: qty * 30, cat: "Club house / recreation", autoDetected: true };
+  }
+  if (textToScan.includes("theater") || textToScan.includes("theatre") || textToScan.includes("cinema")) {
+    return { people: qty * 50, cat: "Theatre", autoDetected: true };
+  }
+
+  // Hospitality
+  if (textToScan.includes("hotel room") || textToScan.includes("hotel guest") || textToScan.includes("guest room")) {
+    return { people: qty * 2, cat: "Hotels (per guest)", autoDetected: true };
+  }
+  if (textToScan.includes("hotel staff") || textToScan.includes("hotel employee")) {
+    return { people: qty * 10, cat: "Hotels (per employee)", autoDetected: true };
+  }
+  if (textToScan.includes("restaurant") || textToScan.includes("dining") || textToScan.includes("cafeteria") || textToScan.includes("cafe")) {
+    return { people: qty * 40, cat: "Restaurant (per meal)", autoDetected: true };
+  }
+
+  // Education
+  if (textToScan.includes("classroom") || textToScan.includes("class room") || textToScan.includes("school") || textToScan.includes("university")) {
+    return { people: qty * 30, cat: "Schools / university", autoDetected: true };
+  }
+  if (textToScan.includes("nursery") || textToScan.includes("child care") || textToScan.includes("creche")) {
+    return { people: qty * 20, cat: "Nursery / child care centre", autoDetected: true };
+  }
+
+  // Healthcare
+  if (textToScan.includes("hospital") || textToScan.includes("clinic") || textToScan.includes("patient room") || textToScan.includes("bed")) {
+    return { people: qty * 2, cat: "Medical (per bed)", autoDetected: true };
+  }
+  if (textToScan.includes("lab") || textToScan.includes("laboratory")) {
+    return { people: qty * 15, cat: "Laboratory", autoDetected: true };
+  }
+
+  // Mosque & Public
+  if (textToScan.includes("mosque") || textToScan.includes("prayer room")) {
+    return { people: qty * 50, cat: "Mosques", autoDetected: true };
+  }
+
+  return null;
+}
+
 type Tab = "demand" | "tanks" | "report";
 
 function WaterDemandPage() {
@@ -147,6 +290,9 @@ function WaterDemandPage() {
   const [newWdName, setNewWdName] = useState("");
   const [newWdPeople, setNewWdPeople] = useState<number | "">("");
   const [newWdCat, setNewWdCat] = useState("");
+  const [newWdCustomLpd, setNewWdCustomLpd] = useState<number | "">("");
+  const [newWdMultiplier, setNewWdMultiplier] = useState<number | "">(1);
+  const [newWdAutoDetected, setNewWdAutoDetected] = useState<boolean>(false);
 
   // Irrigation state
   const [irrRows, setIrrRows] = useState<IrrRow[]>([]);
@@ -211,6 +357,7 @@ function WaterDemandPage() {
       ppl: 50,
       cat: "Offices",
       lpd: 60,
+      autoDetected: false,
       comments: [],
     };
     setWdRows((prev) => [...prev, newEntry]);
@@ -275,6 +422,7 @@ function WaterDemandPage() {
             ppl: pplVal,
             cat: matchedCat,
             lpd: lpdVal,
+            autoDetected: false,
             comments: [],
           });
         }
@@ -364,8 +512,8 @@ function WaterDemandPage() {
         setPeakFactor(2.5);
         setFillWindowHours(2);
         setWdRows([
-          { id: 1, name: "Apartment Block A", ppl: 150, cat: "Residential buildings (flat)", lpd: 300, comments: [] },
-          { id: 2, name: "Ground Floor Offices", ppl: 45, cat: "Offices", lpd: 60, comments: [] },
+          { id: 1, name: "Apartment Block A", ppl: 150, cat: "Residential buildings (flat)", lpd: 300, autoDetected: true, comments: [] },
+          { id: 2, name: "Ground Floor Offices", ppl: 45, cat: "Offices", lpd: 60, autoDetected: true, comments: [] },
         ]);
         setIrrRows([
           { id: 1, area: 120, vegType: "Lawn with pop-up sprays", lpd: 10, comments: [] },
@@ -474,8 +622,9 @@ function WaterDemandPage() {
     let totalPeople = 0;
     let totalWaterL = 0;
     wdRows.forEach((r) => {
-      totalPeople += r.ppl;
-      totalWaterL += r.ppl * r.lpd;
+      const mult = r.multiplier && r.multiplier > 0 ? r.multiplier : 1;
+      totalPeople += r.ppl * mult;
+      totalWaterL += r.ppl * r.lpd * mult;
     });
 
     // Irrigation Total
@@ -620,9 +769,17 @@ function WaterDemandPage() {
   // Domestic Handlers
   const handleAddWd = () => {
     if (!newWdName.trim() || !newWdPeople || !newWdCat) return;
-    const baseLpd = WD_TYPE_MAP[newWdCat] || 0;
-    const mult = PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.multiplier || 1.0;
-    const lpd = Math.round(baseLpd * mult);
+    let lpd = 0;
+    if (newWdCat === "Custom Rate / Category") {
+      const userVal = newWdCustomLpd !== "" ? Number(newWdCustomLpd) : 100;
+      lpd = unitSystem === "ip" ? Math.round(userVal * 3.78541) : userVal;
+    } else {
+      const baseLpd = WD_TYPE_MAP[newWdCat] || 0;
+      const mult = PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.multiplier || 1.0;
+      lpd = Math.round(baseLpd * mult);
+    }
+
+    const multVal = newWdMultiplier !== "" && Number(newWdMultiplier) > 0 ? Number(newWdMultiplier) : 1;
 
     setWdRows([
       ...wdRows,
@@ -632,20 +789,37 @@ function WaterDemandPage() {
         ppl: Number(newWdPeople),
         cat: newWdCat,
         lpd,
+        multiplier: multVal,
+        autoDetected: newWdAutoDetected,
         comments: [],
       },
     ]);
     setNewWdName("");
     setNewWdPeople("");
     setNewWdCat("");
+    setNewWdCustomLpd("");
+    setNewWdMultiplier(1);
+    setNewWdAutoDetected(false);
   };
 
-  const handleWdRowChange = (id: number, field: "name" | "ppl" | "cat", val: any) => {
+  const handleWdRowChange = (id: number, field: "name" | "ppl" | "cat" | "lpd" | "multiplier", val: any) => {
     setWdRows(
       wdRows.map((r) => {
         if (r.id !== id) return r;
         const updated = { ...r, [field]: val };
-        if (field === "cat") {
+        if (field === "name") {
+          const detected = detectAshraeOccupancy(val);
+          if (detected) {
+            updated.ppl = detected.people;
+            if (detected.cat) {
+              updated.cat = detected.cat;
+              const baseLpd = WD_TYPE_MAP[detected.cat] || 0;
+              const mult = PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.multiplier || 1.0;
+              updated.lpd = Math.round(baseLpd * mult);
+            }
+            updated.autoDetected = true;
+          }
+        } else if (field === "cat" && val !== "Custom Rate / Category") {
           const baseLpd = WD_TYPE_MAP[val] || 0;
           const mult = PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.multiplier || 1.0;
           updated.lpd = Math.round(baseLpd * mult);
@@ -829,17 +1003,18 @@ function WaterDemandPage() {
       callAutoTable(doc, {
         startY: currentY + 11,
         margin: { left: 14, right: 14 },
-        head: [["S.No", "Description", "People", "Category", ip ? "Rate (gpd)" : "Rate (LPD)", ip ? "Total (gal)" : "Total (L)"]],
+        head: [["S.No", "Description", "People / Unit", "Qty / Multiplier", "Category", ip ? "Rate (gpd)" : "Rate (LPD)", ip ? "Total (gal)" : "Total (L)"]],
         body: [
           ...wdRows.map((r, idx) => [
             idx + 1,
             r.name,
             r.ppl,
+            `×${r.multiplier || 1}`,
             r.cat,
             ip ? Math.round(r.lpd / 3.78541) : r.lpd,
-            ip ? Math.round((r.ppl * r.lpd) / 3.78541).toLocaleString() : (r.ppl * r.lpd).toLocaleString(),
+            ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541).toLocaleString() : (r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString(),
           ]),
-          ["", "TOTAL DOMESTIC LOAD", calculations.totalPeople, "", "", calculations.displayDomestic],
+          ["", "TOTAL DOMESTIC LOAD", calculations.totalPeople, "", "", "", calculations.displayDomestic],
         ],
         theme: "striped",
         headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8.5 },
@@ -941,7 +1116,7 @@ function WaterDemandPage() {
       const dTitleRow = sheet.getRow(sheet.rowCount);
       dTitleRow.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF0A7BC7" } };
 
-      const domHeaders = ["S.No", "Description", "No. of People", "Category", ip ? "Rate (gpd)" : "Rate (LPD)", ip ? "Total (gal/day)" : "Total (L/day)"];
+      const domHeaders = ["S.No", "Description", "No. of People", "Space Qty (Multiplier)", "Category", ip ? "Rate (gpd)" : "Rate (LPD)", ip ? "Total (gal/day)" : "Total (L/day)"];
       const dHeaderRow = sheet.addRow(domHeaders);
       dHeaderRow.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
       dHeaderRow.eachCell((cell) => {
@@ -953,13 +1128,14 @@ function WaterDemandPage() {
           idx + 1,
           r.name,
           r.ppl,
+          r.multiplier || 1,
           r.cat,
           ip ? Math.round(r.lpd / 3.78541) : r.lpd,
-          ip ? Math.round((r.ppl * r.lpd) / 3.78541) : r.ppl * r.lpd,
+          ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1),
         ]);
       });
 
-      sheet.addRow(["TOTAL", "DOMESTIC TOTAL", calculations.totalPeople, "", "", ip ? Math.round(calculations.totalWaterL / 3.78541) : calculations.totalWaterL]);
+      sheet.addRow(["TOTAL", "DOMESTIC TOTAL", calculations.totalPeople, "", "", "", ip ? Math.round(calculations.totalWaterL / 3.78541) : calculations.totalWaterL]);
       sheet.getRow(sheet.rowCount).font = { name: "Arial", size: 10, bold: true };
       sheet.addRow([]);
 
@@ -1243,27 +1419,27 @@ function WaterDemandPage() {
                   setPreviewModalOpen(true);
                 }}
                 title="Double-click to open complete calculation executive preview modal"
-                className="bg-gradient-to-r from-blue-900/10 via-slate-900/5 to-sky-900/10 border border-blue-200/40 dark:border-blue-900/40 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 cursor-pointer select-none"
+                className="bg-gradient-to-r from-blue-900/10 via-slate-900/5 to-sky-900/10 border border-blue-200/40 dark:border-blue-900/40 rounded-xl px-3.5 py-2 flex flex-col md:flex-row items-start md:items-center justify-between gap-2.5 cursor-pointer select-none"
               >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-[#0A7BC7]/15 rounded-xl text-[#0A7BC7]">
-                    <Globe className="size-5" />
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 bg-[#0A7BC7]/15 rounded-lg text-[#0A7BC7] shrink-0">
+                    <Globe className="size-3.5" />
                   </div>
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-                      Design Standard &amp; Regional Preset Guidelines
+                  <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-3">
+                    <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-foreground whitespace-nowrap">
+                      Design Standard &amp; Regional Guidelines:
                     </h4>
-                    <p className="text-[12px] text-muted-foreground mt-0.5">
+                    <p className="text-[11px] text-muted-foreground font-medium">
                       {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.desc}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 w-full md:w-auto">
-                  <label className="text-xs font-semibold text-foreground whitespace-nowrap">Preset Standard:</label>
+                <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+                  <label className="text-[11px] font-semibold text-foreground whitespace-nowrap">Preset Standard:</label>
                   <select
                     value={presetStandard}
                     onChange={(e) => setPresetStandard(e.target.value)}
-                    className="bg-white dark:bg-slate-950 border border-border rounded-xl px-3 py-1.5 text-xs font-bold text-foreground outline-none focus:border-[#0A7BC7] shadow-xs cursor-pointer"
+                    className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1 text-[11px] font-bold text-foreground outline-none focus:border-[#0A7BC7] shadow-xs cursor-pointer h-7"
                   >
                     {Object.keys(PRESET_STANDARDS).map((key) => (
                       <option key={key} value={key}>
@@ -1286,25 +1462,66 @@ function WaterDemandPage() {
                     </div>
 
                     {/* Form to add row */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end bg-slate-50/50 dark:bg-slate-900/30 p-3.5 border border-border rounded-xl text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end bg-slate-50/50 dark:bg-slate-900/30 p-3.5 border border-border rounded-xl text-xs">
                       <div className="flex flex-col gap-1">
-                        <label className="font-semibold text-foreground">Description</label>
+                        <div className="flex items-center gap-1.5">
+                          <label className="font-semibold text-foreground">Description</label>
+                          {newWdAutoDetected && (
+                            <span
+                              className="size-2 rounded-full bg-blue-500 shrink-0 inline-block shadow-xs"
+                              title="Auto-detected according to ASHRAE / DEWA standard"
+                            />
+                          )}
+                        </div>
                         <input
                           type="text"
-                          placeholder="e.g. Office Block A"
+                          placeholder="e.g. Rest Room / Changing Room, 1BHK, Office, Classroom, Clinic"
                           value={newWdName}
-                          onChange={(e) => setNewWdName(e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setNewWdName(val);
+                            const detected = detectAshraeOccupancy(val);
+                            if (detected) {
+                              setNewWdPeople(detected.people);
+                              if (detected.cat) {
+                                setNewWdCat(detected.cat);
+                              }
+                              setNewWdAutoDetected(true);
+                            } else {
+                              setNewWdAutoDetected(false);
+                            }
+                          }}
                           className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
                         />
                       </div>
                       <div className="flex flex-col gap-1">
-                        <label className="font-semibold text-foreground">No. of People / Units</label>
+                        <div className="flex items-center gap-1.5">
+                          <label className="font-semibold text-foreground">No. of People / Units</label>
+                          {newWdAutoDetected && (
+                            <span
+                              className="size-2 rounded-full bg-blue-500 shrink-0 inline-block shadow-xs"
+                              title="Auto-calculated occupants per ASHRAE / DEWA standards"
+                            />
+                          )}
+                        </div>
                         <input
                           type="number"
                           placeholder="e.g. 150"
                           value={newWdPeople}
                           onChange={(e) => setNewWdPeople(e.target.value !== "" ? Number(e.target.value) : "")}
                           className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="font-semibold text-foreground">Space Multiplier (Qty)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          placeholder="e.g. 1"
+                          value={newWdMultiplier}
+                          onChange={(e) => setNewWdMultiplier(e.target.value !== "" ? Math.max(1, Number(e.target.value)) : "")}
+                          className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                          title="Multiplier for identical spaces / typical floor count"
                         />
                       </div>
                       <div className="flex flex-col gap-1">
@@ -1360,8 +1577,23 @@ function WaterDemandPage() {
                             <option value="Mosques">Mosques — 60 LPD</option>
                             <option value="Public amenities">Public amenities — 50 LPD</option>
                           </optgroup>
+                          <optgroup label="Custom / Override">
+                            <option value="Custom Rate / Category">✨ Custom Rate / Custom Category...</option>
+                          </optgroup>
                         </select>
                       </div>
+                      {newWdCat === "Custom Rate / Category" && (
+                        <div className="flex flex-col gap-1">
+                          <label className="font-semibold text-foreground">Custom Rate ({ip ? "gpd" : "LPD"})</label>
+                          <input
+                            type="number"
+                            placeholder={ip ? "e.g. 30 gpd" : "e.g. 100 LPD"}
+                            value={newWdCustomLpd}
+                            onChange={(e) => setNewWdCustomLpd(e.target.value !== "" ? Number(e.target.value) : "")}
+                            className="bg-white dark:bg-slate-950 border border-border rounded-lg px-2.5 py-1.5 font-medium outline-none focus:border-[#0A7BC7]"
+                          />
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={handleAddWd}
@@ -1378,7 +1610,8 @@ function WaterDemandPage() {
                           <tr className="bg-slate-100 dark:bg-slate-800/80 border-b border-border text-foreground font-semibold">
                             <th className="p-2.5 text-center w-12">S.No</th>
                             <th className="p-2.5 text-left">Description</th>
-                            <th className="p-2.5 text-center w-24">People</th>
+                            <th className="p-2.5 text-center w-24">People / Unit</th>
+                            <th className="p-2.5 text-center w-24">Space Multiplier</th>
                             <th className="p-2.5 text-left w-48">Category</th>
                             <th className="p-2.5 text-right w-28">Per Capita Rate</th>
                             <th className="p-2.5 text-right w-32">Daily Load</th>
@@ -1387,7 +1620,7 @@ function WaterDemandPage() {
                         <tbody>
                           {filteredAndSortedWdRows.length === 0 ? (
                             <tr>
-                              <td colSpan={6} className="p-8 text-center text-muted-foreground italic">
+                              <td colSpan={7} className="p-8 text-center text-muted-foreground italic">
                                 {wdRows.length === 0
                                   ? "No domestic entries added. Fill in the form above or click Import to populate."
                                   : "No domestic entries match the active search/filter criteria."}
@@ -1419,7 +1652,7 @@ function WaterDemandPage() {
                                             <Flag className="size-3 text-amber-500 fill-amber-500" />
                                           </span>
                                         )}
-                                        {r.comments && r.comments.length > 0 ? (
+                                        {r.comments && r.comments.length > 0 && (
                                           <button
                                             type="button"
                                             onClick={(e) => {
@@ -1439,42 +1672,49 @@ function WaterDemandPage() {
                                             <MessageSquare className="size-3 fill-blue-500/20" />
                                             <span>{r.comments.length}</span>
                                           </button>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setCommentTarget({
-                                                targetId: String(r.id),
-                                                targetName: r.name,
-                                                targetType: "Domestic Water Load",
-                                                rowId: r.id,
-                                                isIrrigation: false,
-                                                existingComments: [],
-                                              });
-                                            }}
-                                            title="Add comment & assign task to user"
-                                            className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded transition-colors cursor-pointer"
-                                          >
-                                            <MessageSquare className="size-3" />
-                                          </button>
                                         )}
                                       </div>
                                     </td>
                                     <td className="p-2">
-                                      <input
-                                        type="text"
-                                        value={r.name}
-                                        onChange={(e) => handleWdRowChange(r.id, "name", e.target.value)}
-                                        className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-medium"
-                                      />
+                                      <div className="flex items-center gap-1.5 w-full">
+                                        {r.autoDetected && (
+                                          <span
+                                            className="size-2 rounded-full bg-blue-500 shrink-0 inline-block shadow-xs"
+                                            title="Auto-detected according to ASHRAE / DEWA standard"
+                                          />
+                                        )}
+                                        <input
+                                          type="text"
+                                          value={r.name}
+                                          onChange={(e) => handleWdRowChange(r.id, "name", e.target.value)}
+                                          className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-medium"
+                                        />
+                                      </div>
+                                    </td>
+                                    <td className="p-2 text-center font-bold">
+                                      <div className="flex items-center justify-center gap-1.5 w-full">
+                                        {r.autoDetected && (
+                                          <span
+                                            className="size-2 rounded-full bg-blue-500 shrink-0 inline-block shadow-xs"
+                                            title="Auto-calculated occupants"
+                                          />
+                                        )}
+                                        <input
+                                          type="number"
+                                          value={r.ppl}
+                                          onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
+                                          className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono"
+                                        />
+                                      </div>
                                     </td>
                                     <td className="p-2 text-center font-bold">
                                       <input
                                         type="number"
-                                        value={r.ppl}
-                                        onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
-                                        className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono"
+                                        min={1}
+                                        value={r.multiplier || 1}
+                                        onChange={(e) => handleWdRowChange(r.id, "multiplier", Math.max(1, Number(e.target.value)))}
+                                        className="w-16 text-center bg-transparent border border-slate-200 dark:border-slate-800 hover:border-[#0A7BC7] focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-mono text-xs font-bold outline-none"
+                                        title="Space multiplier / quantity of identical spaces"
                                       />
                                     </td>
                                     <td className="p-2">
@@ -1490,11 +1730,24 @@ function WaterDemandPage() {
                                         ))}
                                       </select>
                                     </td>
-                                    <td className="p-2 text-right font-mono font-medium text-muted-foreground">
-                                      {(ip ? Math.round(r.lpd / 3.78541) : r.lpd).toLocaleString()} {ip ? "gpd" : "LPD"}
-                                    </td>
+                                     <td className="p-2 text-right font-mono font-medium">
+                                       <div className="flex items-center justify-end gap-1">
+                                         <input
+                                           type="number"
+                                           value={ip ? Math.round(r.lpd / 3.78541) : r.lpd}
+                                           onChange={(e) => {
+                                             const val = Number(e.target.value);
+                                             const lpdVal = ip ? Math.round(val * 3.78541) : val;
+                                             handleWdRowChange(r.id, "lpd", lpdVal);
+                                           }}
+                                           className="w-20 text-right bg-transparent border border-slate-200 dark:border-slate-800 hover:border-[#0A7BC7] focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded font-mono text-xs font-bold text-foreground outline-none transition-colors"
+                                           title="Click or type to edit custom per capita consumption rate"
+                                         />
+                                         <span className="text-[10.5px] text-muted-foreground font-semibold select-none">{ip ? "gpd" : "LPD"}</span>
+                                       </div>
+                                     </td>
                                     <td className="p-2 text-right font-mono font-bold text-[#0A7BC7]">
-                                      {(ip ? Math.round((r.ppl * r.lpd) / 3.78541) : r.ppl * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
+                                      {(ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString()} {ip ? "gal" : "L"}
                                     </td>
                                   </tr>
                                 </ContextMenuTrigger>

@@ -16,6 +16,9 @@ const SENDER_EMAIL = process.env.SENDER_EMAIL || SMTP_USER;
 
 const smtpTransporter = nodemailer.createTransport({
   service: 'gmail',
+  connectionTimeout: 4000,
+  greetingTimeout: 4000,
+  socketTimeout: 5000,
   auth: {
     user: SMTP_USER,
     pass: SMTP_PASS

@@ -2,19 +2,21 @@ import axios from 'axios';
 import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFingerprint';
 
 const getBackendUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
       return `http://${host}:4000`;
     }
-    if ((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:') {
-      return 'http://localhost:4000';
+    const isTauri = !!((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:' || window.location.protocol === 'file:');
+    if (isTauri) {
+      return 'http://127.0.0.1:4000';
     }
+    return '';
   }
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  return 'http://localhost:4000';
+  return 'http://127.0.0.1:4000';
 };
 
 // axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
@@ -493,6 +495,10 @@ export const api = {
     }
   },
   async getProject(id: string) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
+      return null;
+    }
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/projects/get?id=${encodeURIComponent(id)}`);
       return data.success ? data.project : null;

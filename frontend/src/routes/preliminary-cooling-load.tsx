@@ -1196,6 +1196,19 @@ function PreliminaryCoolingLoadPage() {
     localStorage.removeItem("pcl-floor-order");
   };
 
+  const handleMoveFloor = (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sortedFloorsForGrid.length) return;
+
+    const nextList = [...sortedFloorsForGrid];
+    const item = nextList[index];
+    nextList.splice(index, 1);
+    nextList.splice(targetIndex, 0, item);
+
+    setFloorOrder(nextList);
+    localStorage.setItem("pcl-floor-order", JSON.stringify(nextList));
+  };
+
   const filteredRows = useMemo(() => {
     const q = query.toLowerCase().trim();
     return rows.filter((s) => {
@@ -2727,7 +2740,7 @@ function PreliminaryCoolingLoadPage() {
                             )}
                           </div>
                           <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
-                            Drag and drop floors to change their sorting order in the grid views.
+                            Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
                           </p>
                           <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5">
                             {sortedFloorsForGrid.map((floor, index) => (
@@ -2737,13 +2750,39 @@ function PreliminaryCoolingLoadPage() {
                                 onDragStart={(e) => handleDragStart(e, index)}
                                 onDragOver={(e) => handleDragOver(e, index)}
                                 onDragEnd={handleDragEnd}
-                                className={`flex items-center gap-2 p-1.5 bg-surface rounded border border-border text-[11px] cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${
+                                className={`flex items-center justify-between gap-2 p-1.5 bg-surface rounded border border-border text-[11px] cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${
                                   draggingIndex === index
-                                    ? "opacity-40 border-primary bg-primary/5"
+                                    ? "opacity-40 border-primary bg-primary/5 shadow-md"
                                     : "hover:bg-surface-2 hover:border-border-strong"
                                 }`}
                               >
-                                <span className="font-semibold text-foreground uppercase truncate">{floor}</span>
+                                <span className="font-semibold text-foreground uppercase truncate flex-1 min-w-0">{floor}</span>
+
+                                {/* Up / Down Move Action Buttons (Works 100% in Desktop EXE / Electron / WebViews) */}
+                                <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    disabled={index === 0}
+                                    onClick={() => handleMoveFloor(index, "up")}
+                                    className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
+                                      index === 0 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                    title="Move floor up"
+                                  >
+                                    <ChevronUp className="size-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={index === sortedFloorsForGrid.length - 1}
+                                    onClick={() => handleMoveFloor(index, "down")}
+                                    className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
+                                      index === sortedFloorsForGrid.length - 1 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                    title="Move floor down"
+                                  >
+                                    <ChevronDown className="size-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>

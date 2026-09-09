@@ -49,10 +49,16 @@ function startStaticServer(distPath) {
   });
 
   return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(18081, '127.0.0.1', () => {
       const port = server.address().port;
       console.log(`Embedded app server running on http://127.0.0.1:${port}`);
       resolve(port);
+    }).on('error', () => {
+      server.listen(0, '127.0.0.1', () => {
+        const port = server.address().port;
+        console.log(`Fallback embedded server running on http://127.0.0.1:${port}`);
+        resolve(port);
+      });
     });
   });
 }

@@ -244,20 +244,20 @@ function GeneratorSizingPage() {
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
 
   const DEFAULT_GEN_COL_WIDTHS: Record<string, number> = {
-    select: 52,
-    desc: 220,
-    unit: 70,
-    kwPerUnit: 100,
-    starter: 120,
-    multiplier: 80,
-    startCur: 100,
-    totalKw: 95,
-    standby: 95,
-    acl: 95,
-    emergency: 105,
-    powerFail: 160,
-    remark: 180,
-    actions: 60,
+    select: 36,
+    desc: 140,
+    unit: 50,
+    kwPerUnit: 70,
+    starter: 85,
+    multiplier: 52,
+    startCur: 70,
+    totalKw: 70,
+    standby: 70,
+    acl: 70,
+    emergency: 80,
+    powerFail: 95,
+    remark: 95,
+    actions: 40,
   };
 
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
@@ -1342,15 +1342,15 @@ function GeneratorSizingPage() {
           {activeTab === "equipment" && (
             <div className="flex flex-col h-full overflow-hidden">
               {/* Filter & Action Toolbar */}
-              <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-visible">
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                  <div className="relative">
+              <div className="flex flex-wrap items-center justify-between px-3 sm:px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-visible">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  <div className="relative w-full sm:w-auto">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     <input
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Filter loads..."
-                      className="h-7 w-56 pl-8 pr-3 bg-surface-2 text-foreground border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
+                      className="h-7 w-full sm:w-56 pl-8 pr-3 bg-surface-2 text-foreground border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
                     />
                   </div>
 
@@ -1475,7 +1475,7 @@ function GeneratorSizingPage() {
                   </Popover>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-start sm:justify-end">
                   <ImportExcelBtn
                     columnMapping={{
                       "Description": "desc",
@@ -1509,15 +1509,15 @@ function GeneratorSizingPage() {
               <div className="flex flex-col xl:flex-row flex-1 min-h-0 overflow-y-auto xl:overflow-hidden">
                 {/* Left Side: Table */}
                 <div className="flex flex-col flex-1 min-w-0 min-h-0 border-b xl:border-b-0 xl:border-r border-white/40 dark:border-white/10 overflow-y-auto bg-transparent">
-                  <div className="p-4 md:p-6 flex-1 overflow-x-auto w-full">
-                    <div className="bg-card border border-border rounded-2xl overflow-x-auto shadow-xs min-w-[1000px]">
+                  <div className="p-3 md:p-5 flex-1 w-full overflow-x-auto min-w-0">
+                    <div className="w-full min-w-max border border-border/60 rounded-xl overflow-hidden shadow-2xs bg-card">
                       <table id="generator-grid" className="w-full text-[12.5px] border-collapse">
-                        <thead className="bg-header-bg sticky top-0 border-b border-border z-10 font-semibold text-muted-foreground">
+                        <thead className="bg-muted/40 dark:bg-surface-2/60 sticky top-0 z-10 font-semibold text-muted-foreground select-none text-[10.5px] uppercase tracking-wider border-b border-border/60">
                           <tr className="text-left font-semibold">
-                            <th style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="px-2 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="px-2 py-2.5 text-center relative group/col select-none">
                               <input
                                 type="checkbox"
-                                className="cursor-pointer"
+                                className="cursor-pointer rounded border-border"
                                 checked={rows.length > 0 && selectedRows.size === rows.length}
                                 onChange={(e) => {
                                   if (e.target.checked) selectAll();
@@ -1526,23 +1526,23 @@ function GeneratorSizingPage() {
                               />
                               <div onMouseDown={(e) => handleResizeStart("select", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="px-3 py-2 relative group/col select-none">
+                            <th style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="px-3 py-2.5 relative group/col select-none">
                               Description
                               <div onMouseDown={(e) => handleResizeStart("desc", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               Unit
                               <div onMouseDown={(e) => handleResizeStart("unit", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "HP / UNIT" : "kW / UNIT"}
                               <div onMouseDown={(e) => handleResizeStart("kwPerUnit", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               Starter Type
                               <div onMouseDown={(e) => handleResizeStart("starter", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Multiplication factor for starting current. Typically 7 for DOL, 3.5 for Star Delta/Soft Starter, 1 for VFD."
@@ -1551,7 +1551,7 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("multiplier", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="kW * 1.739 * Multiplier"
@@ -1560,15 +1560,15 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("startCur", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "Total (HP)" : "Total (kW)"}
                               <div onMouseDown={(e) => handleResizeStart("totalKw", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "Standby (HP)" : "Standby (kW)"}
                               <div onMouseDown={(e) => handleResizeStart("standby", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Actual Connected Load (Total kW - Standby)"
@@ -1577,7 +1577,7 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("acl", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Defaults to ACL. Used to calculate emergency DG size."
@@ -1586,26 +1586,26 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("emergency", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Power Failure Load"
                               >
-                                {unitSystem === "ip" ? "Power Failure Load (HP)" : "Power Failure Load (kW)"}
+                                {unitSystem === "ip" ? "Power Fail (HP)" : "Power Fail (kW)"}
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("powerFail", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="px-3 py-2 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
                               Remarks
                               <div onMouseDown={(e) => handleResizeStart("remark", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.actions}px`, minWidth: `${colWidths.actions}px` }} className="px-2 py-2 text-center text-[11px] relative group/col select-none">
+                            <th style={{ width: `${colWidths.actions}px`, minWidth: `${colWidths.actions}px` }} className="px-2 py-2.5 text-center relative group/col select-none">
                               Actions
                               <div onMouseDown={(e) => handleResizeStart("actions", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border">
+                        <tbody className="divide-y divide-border/40">
                           {displayRows.length === 0 ? (
                             <tr>
                               <td
@@ -1623,7 +1623,7 @@ function GeneratorSizingPage() {
                               const rMult = Number(r.multiplier) || 0;
 
                               const startCur = rKw * 1.739 * rMult;
-                          const totalKw = rUnit * rKw;
+                              const totalKw = rUnit * rKw;
                               const actualKw = totalKw - rSb;
 
                               const isEditing = editingRow?.row.id === r.id;
@@ -1639,14 +1639,16 @@ function GeneratorSizingPage() {
                                         toggleSelection(r.id, false, false);
                                         setEditingRow({ row: r, index: rowIndex });
                                       }}
-                                      className={`transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11.5px]" : "h-9 text-[12.5px]"} ${
+                                      className={`transition-colors duration-150 cursor-pointer select-none text-[12px] ${rowDensity === "compact" ? "h-7.5" : "h-9"} ${
                                         isEditing
-                                          ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                          ? "bg-primary/15 font-semibold"
                                           : isModalOpen
                                           ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
                                           : selectedRows.has(r.id)
-                                          ? "bg-primary/5"
-                                          : "hover:bg-surface-2"
+                                          ? "bg-primary/10"
+                                          : rowIndex % 2 === 0
+                                          ? "bg-card hover:bg-muted/40 dark:hover:bg-surface-2/60"
+                                          : "bg-muted/15 hover:bg-muted/40 dark:hover:bg-surface-2/60"
                                       } ${draggedRowIndex === rowIndex ? "opacity-50" : ""}`}
                                       draggable
                                       onDragStart={(e) => handleDragStart(e, rowIndex)}
@@ -1745,7 +1747,7 @@ function GeneratorSizingPage() {
                                           <option value="None" className="bg-popover text-popover-foreground">None</option>
                                         </select>
                                       </td>
-                                      <td style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="p-0 bg-primary/10">
+                                      <td style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="p-0 text-center">
                                         <input
                                           data-row={rowIndex}
                                           data-col={4}
@@ -1757,10 +1759,10 @@ function GeneratorSizingPage() {
                                           }
                                         />
                                       </td>
-                                      <td style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="px-3 py-2 text-center font-semibold text-foreground">
+                                      <td style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="p-0 text-center font-semibold text-foreground">
                                         {startCur.toFixed(2)}
                                       </td>
-                                      <td style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="px-3 py-2 text-center text-muted-foreground">
+                                      <td style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="p-0 text-center text-muted-foreground">
                                         {totalKw.toFixed(2)}
                                       </td>
                                       <td style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="p-0">
@@ -1773,7 +1775,7 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "standby", e.target.value)}
                                         />
                                       </td>
-                                      <td style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="px-3 py-2 text-center font-semibold text-primary">
+                                      <td style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="p-0 text-center font-semibold text-primary">
                                         {actualKw.toFixed(2)}
                                       </td>
                                       <td style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="p-0 relative group/em">
@@ -1808,37 +1810,39 @@ function GeneratorSizingPage() {
                                           </button>
                                         </div>
                                       </td>
-                                      <td style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="p-0 flex items-center">
-                                        <input
-                                          data-row={rowIndex}
-                                          data-col={7}
-                                          type="number"
-                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
-                                          value={r.powerFail}
-                                          onChange={(e) => updateRow(r.id, "powerFail", e.target.value)}
-                                        />
-                                        <select
-                                          className="h-9 w-12 px-1 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[11px] font-medium dark:bg-primary/20 dark:text-primary-foreground"
-                                          defaultValue=""
-                                          onChange={(e) => {
-                                            setPowerFailPercent(r.id, e.target.value);
-                                            e.target.value = "";
-                                          }}
-                                        >
-                                          <option value="" disabled className="bg-popover text-popover-foreground">
-                                            %
-                                          </option>
-                                          <option value="10" className="bg-popover text-popover-foreground">10%</option>
-                                          <option value="20" className="bg-popover text-popover-foreground">20%</option>
-                                          <option value="30" className="bg-popover text-popover-foreground">30%</option>
-                                          <option value="40" className="bg-popover text-popover-foreground">40%</option>
-                                          <option value="50" className="bg-popover text-popover-foreground">50%</option>
-                                          <option value="60" className="bg-popover text-popover-foreground">60%</option>
-                                          <option value="70" className="bg-popover text-popover-foreground">70%</option>
-                                          <option value="80" className="bg-popover text-popover-foreground">80%</option>
-                                          <option value="90" className="bg-popover text-popover-foreground">90%</option>
-                                          <option value="100" className="bg-popover text-popover-foreground">100%</option>
-                                        </select>
+                                      <td style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="p-0">
+                                        <div className="flex items-center w-full h-full">
+                                          <input
+                                            data-row={rowIndex}
+                                            data-col={7}
+                                            type="number"
+                                            className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
+                                            value={r.powerFail}
+                                            onChange={(e) => updateRow(r.id, "powerFail", e.target.value)}
+                                          />
+                                          <select
+                                            className="h-9 w-12 px-1 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[11px] font-medium dark:bg-primary/20 dark:text-primary-foreground"
+                                            defaultValue=""
+                                            onChange={(e) => {
+                                              setPowerFailPercent(r.id, e.target.value);
+                                              e.target.value = "";
+                                            }}
+                                          >
+                                            <option value="" disabled className="bg-popover text-popover-foreground">
+                                              %
+                                            </option>
+                                            <option value="10" className="bg-popover text-popover-foreground">10%</option>
+                                            <option value="20" className="bg-popover text-popover-foreground">20%</option>
+                                            <option value="30" className="bg-popover text-popover-foreground">30%</option>
+                                            <option value="40" className="bg-popover text-popover-foreground">40%</option>
+                                            <option value="50" className="bg-popover text-popover-foreground">50%</option>
+                                            <option value="60" className="bg-popover text-popover-foreground">60%</option>
+                                            <option value="70" className="bg-popover text-popover-foreground">70%</option>
+                                            <option value="80" className="bg-popover text-popover-foreground">80%</option>
+                                            <option value="90" className="bg-popover text-popover-foreground">90%</option>
+                                            <option value="100" className="bg-popover text-popover-foreground">100%</option>
+                                          </select>
+                                        </div>
                                       </td>
                                       <td style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="p-0">
                                         <input
@@ -2040,7 +2044,7 @@ function GeneratorSizingPage() {
 
                     <div className="p-4 space-y-3">
                       {/* Header Row */}
-                      <div className="grid grid-cols-[1fr_80px_80px] gap-4 pb-2 border-b border-surface-2">
+                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 pb-2 border-b border-surface-2">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                           Parameter
                         </span>
@@ -2052,7 +2056,7 @@ function GeneratorSizingPage() {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-[1fr_80px_80px] gap-4 items-center pb-2 border-b border-surface-2">
+                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
                         <span 
                           className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
                           title="Total Actual Connected Load"
@@ -2099,7 +2103,7 @@ function GeneratorSizingPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-[1fr_80px_80px] gap-4 items-center pb-2 border-b border-surface-2">
+                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
                         <span 
                           className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
                           title="Demand Load = Actual Connected Load / Power Factor"
@@ -2146,7 +2150,7 @@ function GeneratorSizingPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-[1fr_80px_80px] gap-4 items-center pb-2 border-b border-surface-2">
+                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
                         <span 
                           className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
                           title="Calculated size for DG set (Demand Load / Loading Factor)"

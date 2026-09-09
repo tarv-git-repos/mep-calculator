@@ -31,9 +31,9 @@ function Login() {
       setNameError(null);
       return;
     }
-    const nameRegex = /^[a-zA-Z\s'\-]+$/;
+    const nameRegex = /^[a-zA-Z0-9\s'\-._]+$/;
     if (!nameRegex.test(val.trim())) {
-      setNameError('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).');
+      setNameError('Full Name / User Name should only contain letters, numbers, spaces, dots, hyphens, or underscores.');
     } else if (val.trim().length < 2) {
       setNameError('Full Name must be at least 2 characters long.');
     } else {
@@ -133,9 +133,9 @@ function Login() {
           return;
         }
 
-        const nameRegex = /^[a-zA-Z\s'\-]+$/;
+        const nameRegex = /^[a-zA-Z0-9\s'\-._]+$/;
         if (!nameRegex.test(name.trim())) {
-          toast.error('Full Name should only contain letters, spaces, hyphens, or apostrophes (no numbers).');
+          toast.error('Full Name / User Name should only contain letters, numbers, spaces, dots, hyphens, or underscores.');
           setLoading(false);
           return;
         }
@@ -155,9 +155,6 @@ function Login() {
 
         const res = await authService.register(name, email, password);
         if (res.success) {
-          if (res.userData) {
-            setUserData(res.userData);
-          }
           toast.success(res.message || 'Account created! Verification OTP sent to your email.');
           setMode('Email Verify');
           setResendTimer(30);
@@ -172,6 +169,14 @@ function Login() {
         }
 
         let res = await authService.login(email, password);
+        
+        if (res.requireVerification) {
+          toast.error(res.message || 'Account not verified. Please enter the 6-digit OTP code.');
+          setMode('Email Verify');
+          setResendTimer(30);
+          setLoading(false);
+          return;
+        }
         
         if (res.requireForceLogout) {
           setLoading(false);
@@ -199,7 +204,11 @@ function Login() {
           toast.success(res.message || 'Logged in successfully');
           navigate({ to: '/dashboard' });
         } else {
-          toast.error(res.message || 'Login failed');
+          if (res.message?.includes('Invalid email') || res.message?.includes('User not found')) {
+            toast.error('No account found with this email. Click "Create Account" tab to register.');
+          } else {
+            toast.error(res.message || 'Login failed');
+          }
         }
       }
     } catch (err: any) {
@@ -346,7 +355,7 @@ function Login() {
             <div className="grid grid-cols-2 p-1 mb-8 rounded-2xl bg-slate-100/90 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800/80 relative">
               <button
                 type="button"
-                onClick={() => setMode('Login')}
+                onClick={() => { setMode('Login'); setLoading(false); }}
                 className={`py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-200 z-10 cursor-pointer ${
                   mode === 'Login'
                     ? 'text-white bg-blue-600 dark:bg-gradient-to-r dark:from-sky-500 dark:to-blue-600 shadow-md shadow-blue-600/25 dark:shadow-sky-500/20'
@@ -357,7 +366,7 @@ function Login() {
               </button>
               <button
                 type="button"
-                onClick={() => setMode('Sign Up')}
+                onClick={() => { setMode('Sign Up'); setLoading(false); }}
                 className={`py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all duration-200 z-10 cursor-pointer ${
                   mode === 'Sign Up'
                     ? 'text-white bg-blue-600 dark:bg-gradient-to-r dark:from-sky-500 dark:to-blue-600 shadow-md shadow-blue-600/25 dark:shadow-sky-500/20'
