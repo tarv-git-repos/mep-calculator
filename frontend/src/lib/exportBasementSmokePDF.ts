@@ -221,10 +221,10 @@ export const exportBasementSmokePDF = async (
 
     const summaryData = [
       ["Total Fan Quantity Sized:", `${totalFans} Fans`],
-      ["Total 3 ACH Ventilation Flow:", `${totals.total3.toLocaleString()} ${flowUnit}`],
+      ["Total 3 ACH Ventilation Flow (Normal Mode):", `${totals.total3.toLocaleString()} ${flowUnit}`],
       ["Worst-Case 10 ACH Fire Extract Flow:", `${totals.max10.toLocaleString()} ${flowUnit}`],
-      ["Required Low Speed Capacity / Fan:", `${totals.lowCap.toLocaleString()} ${flowUnit}`],
-      ["Required High Speed Capacity / Fan:", `${totals.highCap.toLocaleString()} ${flowUnit}`]
+      ["Required Normal Mode Capacity / Fan:", `${totals.lowCap.toLocaleString()} ${flowUnit}`],
+      ["Required Fire Condition Capacity / Fan:", `${totals.highCap.toLocaleString()} ${flowUnit}`]
     ];
 
     callAutoTable(doc, {

@@ -3,6 +3,7 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import { api } from "@/services/api";
 import { useState, useMemo, useEffect, Fragment } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -10,7 +11,7 @@ import {
   AlertTriangle, Info, Printer, FileSpreadsheet, Plus, Trash2,
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
   Wind, Layers, Gauge, Zap, Activity, FileText, X, Flag,
-  Copy, Scissors, Clipboard
+  Copy, Scissors, Clipboard, Flame
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { exportBasementSmokePDF } from "@/lib/exportBasementSmokePDF";
@@ -47,11 +48,15 @@ interface FanSystem {
   grille: number;
   sa: number;
   collapsed: boolean;
+  zoneAchModes?: Record<string, 3 | 6>;
+  customNormalCap?: number;
+  customFireCap?: number;
 }
 
 function BasementSmokeCalcPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
   
   // Active section view state
@@ -107,6 +112,7 @@ function BasementSmokeCalcPage() {
   const [modalFSType, setModalFSType] = useState<"Extract" | "Makeup">("Extract");
   const [modalSelectedFloorIds, setModalSelectedFloorIds] = useState<string[]>([]);
   const [modalError, setModalError] = useState<string>("");
+  const [fireConfigFSId, setFireConfigFSId] = useState<string | null>(null);
 
   // Selection & Keyboard Shortcuts state
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
@@ -240,46 +246,80 @@ function BasementSmokeCalcPage() {
 
   const ip = unitSystem === "ip";
 
-  // Load from local storage
+  // Load from local storage and workspace_data
   useEffect(() => {
+    setIsLoaded(false);
     try {
-      const pId = project?.id;
+      const pId = project?.id || "default";
+      let loadedFloors: BasementFloor[] | null = null;
+      let loadedFans: FanSystem[] | null = null;
+      let loadedTotalFans: number | null = null;
+      let loadedUnitSystem: "si" | "ip" | null = null;
+      let loadedShowSizing: boolean | null = null;
 
-      const savedUnitSystem = (pId && localStorage.getItem(`bs_unit_system_${pId}`)) || localStorage.getItem("bs_unit_system") as "si" | "ip" | null;
-      if (savedUnitSystem && (savedUnitSystem === "si" || savedUnitSystem === "ip")) {
-        setUnitSystem(savedUnitSystem);
+      // 1. Try workspace_data first if available
+      if (project?.workspace_data) {
+        let wdata = project.workspace_data;
+        if (typeof wdata === 'string') {
+          try { wdata = JSON.parse(wdata); } catch(e) {}
+        }
+        if (wdata?.basement_smoke_calc) {
+          const bsc = wdata.basement_smoke_calc;
+          if (Array.isArray(bsc.floors) && bsc.floors.length > 0) loadedFloors = bsc.floors;
+          if (Array.isArray(bsc.fanSystems) && bsc.fanSystems.length > 0) loadedFans = bsc.fanSystems;
+          if (typeof bsc.totalFans === 'number') loadedTotalFans = bsc.totalFans;
+          if (bsc.unitSystem === "si" || bsc.unitSystem === "ip") loadedUnitSystem = bsc.unitSystem;
+          if (typeof bsc.showGlobalFanSizing === 'boolean') loadedShowSizing = bsc.showGlobalFanSizing;
+        }
       }
 
-      const savedRows = (pId && localStorage.getItem(`bs_rows_${pId}`)) || localStorage.getItem("bs_rows");
-      if (savedRows) {
-        const parsed: any[] = JSON.parse(savedRows);
-        const converted: BasementFloor[] = parsed.map((f, idx) => {
-          const bLevel = f.basementLevel || (f.name ? f.name.split(" - ")[0] : `Basement ${idx + 1}`);
-          const zName = f.zoneName || (f.name && f.name.includes(" - ") ? f.name.split(" - ")[1] : `Zone ${idx + 1}`);
-          const displayName = f.name && f.name.includes(" - ") ? f.name : `${bLevel} - ${zName}`;
-          return {
-            id: f.id || `floor-${idx}`,
-            basementLevel: bLevel,
-            zoneName: zName,
-            name: displayName,
-            area: typeof f.area === 'number' ? f.area : Number(f.area) || 0,
-            effArea: typeof f.effArea === 'number' ? f.effArea : Number(f.effArea) || 0,
-            height: typeof f.height === 'number' ? f.height : Number(f.height) || 0,
-            flagged: !!f.flagged
-          };
-        });
-        setFloors(converted);
+      // 2. Fallback to localStorage
+      if (!loadedUnitSystem) {
+        const savedUnitSystem = (pId && localStorage.getItem(`bs_unit_system_${pId}`)) || localStorage.getItem("bs_unit_system") as "si" | "ip" | null;
+        if (savedUnitSystem && (savedUnitSystem === "si" || savedUnitSystem === "ip")) {
+          loadedUnitSystem = savedUnitSystem;
+        }
+      }
+      if (loadedUnitSystem) setUnitSystem(loadedUnitSystem);
+
+      if (!loadedFloors) {
+        const savedRows = (pId && localStorage.getItem(`bs_rows_${pId}`)) || localStorage.getItem("bs_rows");
+        if (savedRows) {
+          const parsed: any[] = JSON.parse(savedRows);
+          loadedFloors = parsed.map((f, idx) => {
+            const bLevel = f.basementLevel || (f.name ? f.name.split(" - ")[0] : `Basement ${idx + 1}`);
+            const zName = f.zoneName || (f.name && f.name.includes(" - ") ? f.name.split(" - ")[1] : `Zone ${idx + 1}`);
+            const displayName = f.name && f.name.includes(" - ") ? f.name : `${bLevel} - ${zName}`;
+            return {
+              id: f.id || `floor-${idx}`,
+              basementLevel: bLevel,
+              zoneName: zName,
+              name: displayName,
+              area: typeof f.area === 'number' ? f.area : Number(f.area) || 0,
+              effArea: typeof f.effArea === 'number' ? f.effArea : Number(f.effArea) || 0,
+              height: typeof f.height === 'number' ? f.height : Number(f.height) || 0,
+              flagged: !!f.flagged
+            };
+          });
+        }
+      }
+      if (loadedFloors && loadedFloors.length > 0) {
+        setFloors(loadedFloors);
       } else {
-        // Initial defaults (IP) - Basement 1 with 2 Zones
         setFloors([
           { id: "floor-1", basementLevel: "Basement 1", zoneName: "Zone 1", name: "Basement 1 - Zone 1", area: 600, effArea: 500, height: 3 },
           { id: "floor-2", basementLevel: "Basement 1", zoneName: "Zone 2", name: "Basement 1 - Zone 2", area: 600, effArea: 500, height: 3 }
         ]);
       }
-      
-      const savedFans = (pId && localStorage.getItem(`bs_fan_systems_${pId}`)) || localStorage.getItem("bs_fan_systems");
-      if (savedFans) {
-        setFanSystems(JSON.parse(savedFans));
+
+      if (!loadedFans) {
+        const savedFans = (pId && localStorage.getItem(`bs_fan_systems_${pId}`)) || localStorage.getItem("bs_fan_systems");
+        if (savedFans) {
+          loadedFans = JSON.parse(savedFans);
+        }
+      }
+      if (loadedFans && loadedFans.length > 0) {
+        setFanSystems(loadedFans);
       } else {
         setFanSystems([
           {
@@ -297,52 +337,79 @@ function BasementSmokeCalcPage() {
         ]);
       }
 
-      const savedTotalFans = (pId && localStorage.getItem(`bs_total_fans_${pId}`)) || localStorage.getItem("bs_total_fans");
-      if (savedTotalFans) {
-        setTotalFans(Number(savedTotalFans));
+      if (loadedTotalFans === null) {
+        const savedTotalFans = (pId && localStorage.getItem(`bs_total_fans_${pId}`)) || localStorage.getItem("bs_total_fans");
+        if (savedTotalFans) loadedTotalFans = Number(savedTotalFans);
+      }
+      if (loadedTotalFans !== null && !isNaN(loadedTotalFans)) {
+        setTotalFans(loadedTotalFans);
       }
 
-      const savedShowSizing = localStorage.getItem("bs_show_global_fan_sizing");
-      if (savedShowSizing !== null) {
-        setShowGlobalFanSizing(savedShowSizing === "true");
+      if (loadedShowSizing === null) {
+        const savedShowSizing = localStorage.getItem("bs_show_global_fan_sizing");
+        if (savedShowSizing !== null) loadedShowSizing = savedShowSizing === "true";
       }
+      if (loadedShowSizing !== null) {
+        setShowGlobalFanSizing(loadedShowSizing);
+      }
+
+      if (project?.id) setLoadedProjectId(project.id);
     } catch (e) {
       console.error("Failed to load basement smoke calc configurations", e);
+    } finally {
+      setIsLoaded(true);
     }
   }, [project?.id]);
 
-  // Save to local storage on changes
+  // Save to local storage & workspace data on changes (only after initial load is complete)
   useEffect(() => {
-    if (floors.length > 0) {
-      const pId = project?.id;
-      const str = JSON.stringify(floors);
-      localStorage.setItem("bs_rows", str);
-      if (pId) localStorage.setItem(`bs_rows_${pId}`, str);
+    if (!isLoaded) return;
+    try {
+      const pId = project?.id || "default";
+
+      // 1. Save to Local Storage
+      const strRows = JSON.stringify(floors);
+      localStorage.setItem("bs_rows", strRows);
+      if (pId) localStorage.setItem(`bs_rows_${pId}`, strRows);
+
+      const strFans = JSON.stringify(fanSystems);
+      localStorage.setItem("bs_fan_systems", strFans);
+      if (pId) localStorage.setItem(`bs_fan_systems_${pId}`, strFans);
+
+      const strTotalFans = totalFans.toString();
+      localStorage.setItem("bs_total_fans", strTotalFans);
+      if (pId) localStorage.setItem(`bs_total_fans_${pId}`, strTotalFans);
+
+      localStorage.setItem("bs_show_global_fan_sizing", showGlobalFanSizing.toString());
+      localStorage.setItem("bs_unit_system", unitSystem);
+      if (pId) localStorage.setItem(`bs_unit_system_${pId}`, unitSystem);
+
       dirtyStore.set(true);
+
+      // 2. Sync to project workspace_data & cloud backend
+      if (project?.id) {
+        let wdata = project.workspace_data || {};
+        if (typeof wdata === 'string') {
+          try { wdata = JSON.parse(wdata); } catch(e) {}
+        }
+        wdata.basement_smoke_calc = {
+          floors,
+          fanSystems,
+          totalFans,
+          unitSystem,
+          showGlobalFanSizing,
+          updatedAt: new Date().toISOString()
+        };
+        api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+        useWorkspace.getState().updateProject({ ...project, workspace_data: wdata });
+        if (typeof forceSaveToCloud === "function") {
+          forceSaveToCloud();
+        }
+      }
+    } catch (e) {
+      console.error("Failed to save basement smoke calc state", e);
     }
-  }, [floors, project?.id]);
-
-  useEffect(() => {
-    if (fanSystems.length > 0) {
-      const pId = project?.id;
-      const str = JSON.stringify(fanSystems);
-      localStorage.setItem("bs_fan_systems", str);
-      if (pId) localStorage.setItem(`bs_fan_systems_${pId}`, str);
-      dirtyStore.set(true);
-    }
-  }, [fanSystems, project?.id]);
-
-  useEffect(() => {
-    const pId = project?.id;
-    const str = totalFans.toString();
-    localStorage.setItem("bs_total_fans", str);
-    if (pId) localStorage.setItem(`bs_total_fans_${pId}`, str);
-    dirtyStore.set(true);
-  }, [totalFans, project?.id]);
-
-  useEffect(() => {
-    localStorage.setItem("bs_show_global_fan_sizing", showGlobalFanSizing.toString());
-  }, [showGlobalFanSizing]);
+  }, [floors, fanSystems, totalFans, unitSystem, showGlobalFanSizing, project?.id, isLoaded]);
 
   const handleUnitSystemChange = (unit: "si" | "ip") => {
     if (unit === unitSystem) return;
@@ -429,18 +496,34 @@ function BasementSmokeCalcPage() {
   const totals = useMemo(() => {
     const total3 = calculatedRows.reduce((a, b) => a + b.flow3ach, 0);
     const total6 = calculatedRows.reduce((a, b) => a + b.flow6ach, 0);
-    // In multi-zone fire scenario: fire occurs in 1 zone at a time (worst-case single zone fire extract)
-    const max10 = Math.max(...calculatedRows.map(r => r.flow10ach), 0);
+    
+    // Find the row with maximum flow6ach globally across all basement rows
+    const max6Row = calculatedRows.length > 0
+      ? calculatedRows.reduce((max, r) => r.flow6ach > max.flow6ach ? r : max, calculatedRows[0])
+      : null;
+
+    // Fire Scenario Sum: 1 worst-case zone at 6 ACH, all other zones at 3 ACH
+    const fireScenarioSum = calculatedRows.reduce((a, b) => {
+      const mode = (max6Row && b.id === max6Row.id) ? 6 : 3;
+      return a + (mode === 6 ? b.flow6ach : b.flow3ach);
+    }, 0);
+
+    const max10 = Math.max(0, ...calculatedRows.map(r => r.flow10ach));
+    const fireTotal = Math.max(fireScenarioSum, max10);
 
     const lowCap = Math.ceil(total3 / (totalFans || 1));
-    const highCap = Math.ceil(Math.max(total6, max10) / (totalFans || 1));
+    const highCap = Math.ceil(fireTotal / (totalFans || 1));
 
     return {
       total3,
       total6,
+      fireScenarioSum,
       max10,
+      fireTotal,
       lowCap,
-      highCap
+      highCap,
+      normalCap: lowCap,
+      fireCap: highCap
     };
   }, [calculatedRows, totalFans]);
 
@@ -562,6 +645,22 @@ function BasementSmokeCalcPage() {
       });
     }
 
+    // Auto-sync any fan systems serving this level to include all new zone IDs of this level
+    const oldIds = new Set(existingInLevel.map(f => f.id));
+    const newIds = newLevelRows.map(f => f.id);
+    
+    setFanSystems(prevFS => prevFS.map(fs => {
+      const servesThisLevel = fs.floorIds.some(id => oldIds.has(id));
+      if (servesThisLevel) {
+        const otherLevelIds = fs.floorIds.filter(id => !oldIds.has(id));
+        return {
+          ...fs,
+          floorIds: Array.from(new Set([...otherLevelIds, ...newIds]))
+        };
+      }
+      return fs;
+    }));
+
     updateFloorsWithHistory([...otherFloors, ...newLevelRows]);
     setShowEditLevelModal(false);
     setEditLevelTarget(null);
@@ -569,11 +668,13 @@ function BasementSmokeCalcPage() {
 
   const handleAddZoneToLevel = (bLevel: string) => {
     const existingInLevel = floors.filter(f => f.basementLevel === bLevel);
+    const existingIds = new Set(existingInLevel.map(f => f.id));
     const nextNum = existingInLevel.length + 1;
     const zName = `Zone ${nextNum}`;
     const baseHeight = existingInLevel[0]?.height || 3;
+    const newZoneId = `floor-${Date.now()}`;
     const newZone: BasementFloor = {
-      id: `floor-${Date.now()}`,
+      id: newZoneId,
       basementLevel: bLevel,
       zoneName: zName,
       name: `${bLevel} - ${zName}`,
@@ -582,6 +683,14 @@ function BasementSmokeCalcPage() {
       height: baseHeight
     };
     updateFloorsWithHistory([...floors, newZone]);
+
+    // Automatically associate new zone with fan systems serving this basement level
+    setFanSystems(prevFS => prevFS.map(fs => {
+      if (fs.floorIds.some(id => existingIds.has(id))) {
+        return { ...fs, floorIds: [...fs.floorIds, newZoneId] };
+      }
+      return fs;
+    }));
   };
 
   const handleDeleteLevel = (bLevel: string) => {
@@ -683,23 +792,58 @@ function BasementSmokeCalcPage() {
       const safety = (frictionLoss + fs.louver + fs.grille + fs.sa) * 0.10;
       const totalStatic = Math.round((frictionLoss + fs.louver + fs.grille + fs.sa + safety) / 10) * 10;
 
-      // Find the associated flowrate
+      // Find the associated served floors
       const servedFloors = calculatedRows.filter(r => fs.floorIds.includes(r.id));
+      
+      // Default highest 6 ACH floor in served floors
+      const max6Floor = servedFloors.length > 0
+        ? servedFloors.reduce((max, r) => r.flow6ach > max.flow6ach ? r : max, servedFloors[0])
+        : null;
+      const max6FloorId = max6Floor ? max6Floor.id : "";
+
       let flow3 = servedFloors.reduce((a, b) => a + b.flow3ach, 0);
-      let flow6 = servedFloors.reduce((a, b) => a + b.flow6ach, 0);
-      let flow10Max = Math.max(...servedFloors.map(r => r.flow10ach), 0);
 
-      let lowCap = Math.ceil(flow3 / (totalFans || 1));
-      let highCap = Math.ceil(Math.max(flow6, flow10Max) / (totalFans || 1));
+      // Filter valid zoneAchModes for active served floors
+      const validZoneAchModes: Record<string, 3 | 6> = {};
+      if (fs.zoneAchModes) {
+        servedFloors.forEach(sf => {
+          if (fs.zoneAchModes?.[sf.id] !== undefined) {
+            validZoneAchModes[sf.id] = fs.zoneAchModes[sf.id];
+          }
+        });
+      }
 
-      // Scaling for makeup fan
+      // Dynamic Fire Scenario Sum: auto-evaluates current peak flow6ach zone at 6 ACH and rest at 3 ACH (unless custom overridden)
+      let fireScenarioSum = servedFloors.reduce((a, b) => {
+        const mode = validZoneAchModes[b.id] !== undefined
+          ? validZoneAchModes[b.id]
+          : (b.id === max6FloorId ? 6 : 3);
+        return a + (mode === 6 ? b.flow6ach : b.flow3ach);
+      }, 0);
+
+      let flow10Max = servedFloors.length > 0 ? Math.max(...servedFloors.map(r => r.flow10ach)) : 0;
+      let fireConditionTotalFlow = Math.max(fireScenarioSum, flow10Max);
+
+      let calcNormalCap = Math.ceil(flow3 / (totalFans || 1));
+      let calcFireCap = Math.ceil(fireConditionTotalFlow / (totalFans || 1));
+
+      // Scaling for makeup fan (85%)
       if (fs.fanType === "Makeup") {
         flow3 = Math.round(flow3 * 0.85);
-        flow6 = Math.round(flow6 * 0.85);
+        fireScenarioSum = Math.round(fireScenarioSum * 0.85);
         flow10Max = Math.round(flow10Max * 0.85);
-        lowCap = Math.round(lowCap * 0.85);
-        highCap = Math.round(highCap * 0.85);
+        fireConditionTotalFlow = Math.round(fireConditionTotalFlow * 0.85);
+        calcNormalCap = Math.round(calcNormalCap * 0.85);
+        calcFireCap = Math.round(calcFireCap * 0.85);
       }
+
+      // Custom user capacity overrides (if entered)
+      const lowCap = fs.customNormalCap !== undefined && fs.customNormalCap !== null && !isNaN(fs.customNormalCap)
+        ? fs.customNormalCap
+        : calcNormalCap;
+      const highCap = fs.customFireCap !== undefined && fs.customFireCap !== null && !isNaN(fs.customFireCap)
+        ? fs.customFireCap
+        : calcFireCap;
 
       return {
         ...fs,
@@ -709,10 +853,17 @@ function BasementSmokeCalcPage() {
         safety,
         totalStatic,
         flow3,
-        flow6,
+        flow6: fireScenarioSum,
+        fireScenarioSum,
         flow10Max,
+        fireConditionTotalFlow,
+        calcNormalCap,
+        calcFireCap,
         lowCap,
         highCap,
+        normalCap: lowCap,
+        fireCap: highCap,
+        max6FloorId,
         servedFloors
       };
     });
@@ -1157,19 +1308,19 @@ function BasementSmokeCalcPage() {
 
                       <div className="flex flex-col gap-2.5 font-sans mt-2 pt-2 border-t border-border/60">
                         <div className="bg-slate-100/40 dark:bg-slate-900/30 p-2.5 rounded-xl border border-border/60 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground font-bold uppercase">Total 3 ACH Flow</span>
+                          <span className="text-[10px] text-muted-foreground font-bold uppercase">Total 3 ACH Flow (Normal Mode)</span>
                           <strong className="text-sm font-bold text-foreground font-mono">{totals.total3.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
                         </div>
                         <div className="bg-slate-100/40 dark:bg-slate-900/30 p-2.5 rounded-xl border border-border/60 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-primary font-bold uppercase">Max 10 ACH Flow</span>
+                          <span className="text-[10px] text-primary font-bold uppercase">Peak 10 ACH Fire Flow</span>
                           <strong className="text-sm font-bold text-primary font-mono">{totals.max10.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
                         </div>
                         <div className="bg-slate-100/40 dark:bg-slate-900/30 p-2.5 rounded-xl border border-border/60 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground font-bold uppercase">Low Speed Capacity / Fan</span>
+                          <span className="text-[10px] text-muted-foreground font-bold uppercase">Normal Mode Capacity / Fan</span>
                           <strong className="text-base font-bold text-foreground font-mono">{totals.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
                         </div>
                         <div className="bg-primary/5 p-2.5 rounded-xl border border-primary/20 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-primary font-bold uppercase">High Speed Capacity / Fan</span>
+                          <span className="text-[10px] text-primary font-bold uppercase">Fire Condition Capacity / Fan</span>
                           <strong className="text-base font-bold text-primary font-mono">{totals.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
                         </div>
                       </div>
@@ -1216,45 +1367,53 @@ function BasementSmokeCalcPage() {
                           ))}
                         </div>
                       </div>
-                      <div className="flex gap-1.5 items-center">
+                      <div className="flex gap-1 items-center">
                         <button
                           onClick={(e) => { e.stopPropagation(); handleOpenEditFS(fs); }}
-                          className="bg-transparent text-primary hover:bg-primary/10 font-bold px-2 py-1 rounded text-[11px] flex items-center gap-1 transition cursor-pointer"
+                          className="bg-transparent text-primary hover:bg-primary/10 p-1.5 rounded transition cursor-pointer"
+                          title="Edit Fan System"
                         >
-                          <Edit3 className="size-3" /> Edit
+                          <Edit3 className="size-3.5" />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setFanSystems(fanSystems.filter(x => x.id !== fs.id)); }}
-                          className="bg-transparent text-red-500 hover:bg-red-500/10 font-bold px-2 py-1 rounded text-[11px] flex items-center gap-1 transition cursor-pointer"
+                          className="bg-transparent text-red-500 hover:bg-red-500/10 p-1.5 rounded transition cursor-pointer"
+                          title="Delete Fan System"
                         >
-                          <Trash2 className="size-3" /> Delete
+                          <Trash2 className="size-3.5" />
                         </button>
                       </div>
                     </div>
 
                     {!fs.collapsed && (
                       <div className="p-5 flex flex-col gap-4">
-                        {/* Flow summary for this system */}
-                        <div className="grid grid-cols-5 gap-2 select-none">
-                          <div className="bg-slate-100/30 dark:bg-slate-900/30 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">3 ACH Total</span>
-                            <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fs.flow3.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                        {/* Single trigger button for Fire Scenario Configurator Popup with inline capacity values */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <Flame className="size-4 text-amber-500 shrink-0" />
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-foreground font-sans">Fire Scenario & Zone Configurator</span>
+                              <span className="text-[10px] text-muted-foreground">Select per-zone ACH (3 or 6 ACH) and fan capacity overrides</span>
+                            </div>
                           </div>
-                          <div className="bg-slate-100/30 dark:bg-slate-900/30 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">6 ACH Total</span>
-                            <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fs.flow6.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                          </div>
-                          <div className="bg-slate-100/30 dark:bg-slate-900/30 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                            <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">10 ACH Max</span>
-                            <strong className="text-[12px] font-bold text-red-500 font-mono mt-1 block">{fs.flow10Max.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                          </div>
-                          <div className="bg-primary/5 border border-primary/20 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                            <span className="text-[9px] font-bold text-primary uppercase tracking-wider block">Low Speed</span>
-                            <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fs.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                          </div>
-                          <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                            <span className="text-[9px] font-bold text-red-500 uppercase tracking-wider block">High Speed</span>
-                            <strong className="text-[12px] font-bold text-red-500 font-mono mt-1 block">{fs.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                          
+                          <div className="flex items-center gap-3 text-xs font-mono">
+                            <div className="flex items-center gap-1.5 bg-primary/10 text-primary px-2.5 py-1 rounded-lg">
+                              <span className="text-[10px] font-sans font-bold uppercase">Normal Mode:</span>
+                              <strong className="font-bold text-xs">{fs.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                            </div>
+                            <div className="flex items-center gap-1.5 bg-red-500/10 text-red-500 px-2.5 py-1 rounded-lg">
+                              <span className="text-[10px] font-sans font-bold uppercase">Fire Condition:</span>
+                              <strong className="font-bold text-xs">{fs.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setFireConfigFSId(fs.id)}
+                              className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer shrink-0 ml-1"
+                            >
+                              <Settings className="size-3.5" />
+                              Configure Fire Scenario
+                            </button>
                           </div>
                         </div>
 
@@ -1639,6 +1798,131 @@ function BasementSmokeCalcPage() {
           </div>
         </div>
       )}
+
+      {/* Fire Scenario Configurator Popup Modal */}
+      {fireConfigFSId && (() => {
+        const fireConfigFS = calculatedFanSystems.find(x => x.id === fireConfigFSId);
+        if (!fireConfigFS) return null;
+        return (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <div className="bg-card border border-border rounded-2xl w-full max-w-2xl p-6 flex flex-col gap-5 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
+              {/* Header */}
+              <div className="flex justify-between items-center pb-3 border-b border-border/60">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-500/10 rounded-xl text-amber-500">
+                    <Flame className="size-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-base text-foreground">{fireConfigFS.name}</h3>
+                      <span className="text-[10px] px-2 py-0.5 bg-primary/10 text-primary font-bold rounded-full uppercase">
+                        {fireConfigFS.fanType} System
+                      </span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Fire Scenario & Zone Sizing Configurator</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setFireConfigFSId(null)}
+                  className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
+
+              {/* Live Flow Summary Pills */}
+              <div className="grid grid-cols-5 gap-2 select-none">
+                <div className="bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">3 ACH Normal</span>
+                  <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fireConfigFS.flow3.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                </div>
+                <div className="bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">Fire Combo Sum</span>
+                  <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fireConfigFS.fireScenarioSum.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                </div>
+                <div className="bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">10 ACH Peak</span>
+                  <strong className="text-[12px] font-bold text-amber-500 font-mono mt-1 block">{fireConfigFS.flow10Max.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                </div>
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
+                  <span className="text-[9px] font-bold text-primary uppercase tracking-wider block">Normal Mode</span>
+                  <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fireConfigFS.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                </div>
+                <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
+                  <span className="text-[9px] font-bold text-red-500 uppercase tracking-wider block">Fire Condition</span>
+                  <strong className="text-[12px] font-bold text-red-500 font-mono mt-1 block">{fireConfigFS.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                </div>
+              </div>
+
+              {/* Served Zones ACH Configurator */}
+              {fireConfigFS.servedFloors.length > 0 && (
+                <div className="flex flex-col gap-3 bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-4 text-xs">
+                  <div className="flex justify-between items-center pb-2 border-b border-border/60">
+                    <span className="font-bold text-foreground flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                      <Flame className="size-4 text-amber-500" />
+                      Served Zones Air Change Rate Selection
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Select 3 ACH or 6 ACH for each served zone
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-1">
+                    {fireConfigFS.servedFloors.map(floor => {
+                      const currentAch = fireConfigFS.zoneAchModes?.[floor.id] !== undefined
+                        ? fireConfigFS.zoneAchModes[floor.id]
+                        : (floor.id === fireConfigFS.max6FloorId ? 6 : 3);
+                      const isDefaultMax = floor.id === fireConfigFS.max6FloorId;
+                      return (
+                        <div key={floor.id} className="flex items-center justify-between bg-background border border-border/70 rounded-xl px-3.5 py-2.5 shadow-xs">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-bold text-foreground text-xs">{floor.name}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono">
+                              3 ACH: {floor.flow3ach.toLocaleString()} | 6 ACH: {floor.flow6ach.toLocaleString()} {ip ? "CFM" : "L/s"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-border/60">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFanSystems(fanSystems.map(x => x.id === fireConfigFS.id ? {
+                                  ...x,
+                                  zoneAchModes: { ...(x.zoneAchModes || {}), [floor.id]: 3 }
+                                } : x));
+                              }}
+                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition cursor-pointer ${currentAch === 3 ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
+                            >
+                              3 ACH
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFanSystems(fanSystems.map(x => x.id === fireConfigFS.id ? {
+                                  ...x,
+                                  zoneAchModes: { ...(x.zoneAchModes || {}), [floor.id]: 6 }
+                                } : x));
+                              }}
+                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition cursor-pointer ${currentAch === 6 ? "bg-amber-600 text-white shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
+                            >
+                              6 ACH {isDefaultMax && currentAch === 6 && <span className="text-[9px] opacity-80">(Peak)</span>}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="flex justify-end pt-2 border-t border-border/60">
+                <TBtn onClick={() => setFireConfigFSId(null)} className="px-5 py-2 text-xs font-bold">
+                  Save & Close
+                </TBtn>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       </>
     </AppShell>
   );
