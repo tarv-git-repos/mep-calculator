@@ -5,6 +5,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { AlertTriangle, Info, CheckCircle2, FileSpreadsheet } from "lucide-react";
 import * as XLSX from "xlsx";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/sanity-check-tool")({
   head: () => ({
@@ -39,32 +40,35 @@ function SanityCheckToolPage() {
 
   const ip = unitSystem === "ip";
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
-    // Convert inputs
-    if (unit === "ip") {
-      setDuctVel(Number((ductVel * 196.85).toFixed(0)));
-      setDuctFr(Number((ductFr / 8.16828).toFixed(3)));
-      setEsp(Number((esp / 248.84).toFixed(2)));
-      setPipeVel(Number((pipeVel * 3.28084).toFixed(1)));
-      setPumpHead(Number((pumpHead * 0.33455).toFixed(1)));
-      setCfmTr(Number((cfmTr * 8.48).toFixed(0)));
-      setSupTemp(Number((supTemp * 1.8 + 32).toFixed(1)));
-      setChwDt(Number((chwDt * 1.8).toFixed(1)));
-      setChillerEff(Number((3.51685 / chillerEff).toFixed(2)));
-    } else {
-      setDuctVel(Number((ductVel / 196.85).toFixed(2)));
-      setDuctFr(Number((ductFr * 8.16828).toFixed(2)));
-      setEsp(Number((esp * 248.84).toFixed(0)));
-      setPipeVel(Number((pipeVel / 3.28084).toFixed(2)));
-      setPumpHead(Number((pumpHead / 0.33455).toFixed(0)));
-      setCfmTr(Number((cfmTr / 8.48).toFixed(1)));
-      setSupTemp(Number(((supTemp - 32) / 1.8).toFixed(1)));
-      setChwDt(Number((chwDt / 1.8).toFixed(1)));
-      setChillerEff(Number((3.51685 / chillerEff).toFixed(2)));
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
+
+    if (shouldConvert) {
+      // Convert inputs
+      if (targetUnit === "ip") {
+        setDuctVel(Number((ductVel * 196.85).toFixed(0)));
+        setDuctFr(Number((ductFr / 8.16828).toFixed(3)));
+        setEsp(Number((esp / 248.84).toFixed(2)));
+        setPipeVel(Number((pipeVel * 3.28084).toFixed(1)));
+        setPumpHead(Number((pumpHead * 0.33455).toFixed(1)));
+        setCfmTr(Number((cfmTr * 8.48).toFixed(0)));
+        setSupTemp(Number((supTemp * 1.8 + 32).toFixed(1)));
+        setChwDt(Number((chwDt * 1.8).toFixed(1)));
+        setChillerEff(Number((3.51685 / chillerEff).toFixed(2)));
+      } else {
+        setDuctVel(Number((ductVel / 196.85).toFixed(2)));
+        setDuctFr(Number((ductFr * 8.16828).toFixed(2)));
+        setEsp(Number((esp * 248.84).toFixed(0)));
+        setPipeVel(Number((pipeVel / 3.28084).toFixed(2)));
+        setPumpHead(Number((pumpHead / 0.33455).toFixed(0)));
+        setCfmTr(Number((cfmTr / 8.48).toFixed(1)));
+        setSupTemp(Number(((supTemp - 32) / 1.8).toFixed(1)));
+        setChwDt(Number((chwDt / 1.8).toFixed(1)));
+        setChillerEff(Number((3.51685 / chillerEff).toFixed(2)));
+      }
     }
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   const checks = useMemo((): CheckResult[] => {
@@ -148,15 +152,18 @@ function SanityCheckToolPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left Inputs */}
             <div className="lg:col-span-5 flex flex-col gap-5">
-              <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 self-start select-none">
-                <button type="button" onClick={() => handleUnitSystemChange("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
-                <button type="button" onClick={() => handleUnitSystemChange("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
-              </div>
-
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Design Values</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Design Values</h3>
+                  </div>
+                  <UnitToggle
+                    unitSystem={unitSystem}
+                    onChange={handleUnitSystemChange}
+                    inputDescriptions="Duct & Pipe Velocities, Pressures, Temps"
+                    conversionExample={unitSystem === "si" ? "Convert 7.6 m/s → 1,500 FPM, 20 Pa/m → 0.08 in.wg/100ft" : "Convert 1500 FPM → 7.6 m/s, 0.08 in.wg/100ft → 20 Pa/m"}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">

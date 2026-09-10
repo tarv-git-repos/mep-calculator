@@ -12,6 +12,7 @@ import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { TBtn } from "@/components/workspace/Button";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
@@ -662,20 +663,22 @@ function BusbarCalculationPage() {
     });
   };
 
-  const handleUnitToggle = (newSystem: "si" | "ip") => {
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
     if (newSystem === unitSystem) return;
     pushToUndo(panels);
     setUnitSystem(newSystem);
-    setPanels(prev => prev.map(p => ({
-      ...p,
-      sections: p.sections.map(s => ({
-        ...s,
-        rows: s.rows.map(r => ({
-          ...r,
-          length: newSystem === "ip" ? Number((Number(r.length) * 3.28084).toFixed(2)) : Number((Number(r.length) / 3.28084).toFixed(2))
+    if (shouldConvert) {
+      setPanels(prev => prev.map(p => ({
+        ...p,
+        sections: p.sections.map(s => ({
+          ...s,
+          rows: s.rows.map(r => ({
+            ...r,
+            length: newSystem === "ip" ? Number((Number(r.length) * 3.28084).toFixed(2)) : Number((Number(r.length) / 3.28084).toFixed(2))
+          }))
         }))
-      }))
-    })));
+      })));
+    }
   };
 
   const addPanel = () => {
@@ -1865,6 +1868,18 @@ function BusbarCalculationPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+            <UnitToggle
+              unitSystem={unitSystem}
+              onChange={handleUnitToggle}
+              disabled={isApproved}
+              inputDescriptions="Busbar Run Lengths"
+              conversionExample={
+                unitSystem === "si"
+                  ? "Convert 160.0 m → 524.93 ft, 3.5 m → 11.48 ft"
+                  : "Convert 524.93 ft → 160.0 m, 11.48 ft → 3.5 m"
+              }
+            />
+
             <label className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground transition-all ${isApproved ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer hover:bg-surface-3"}`}>
               <Download className="size-3.5" /> Import Ratings
               <input type="file" disabled={isApproved} accept=".xlsx, .xls" className="hidden" onChange={handleImport} />

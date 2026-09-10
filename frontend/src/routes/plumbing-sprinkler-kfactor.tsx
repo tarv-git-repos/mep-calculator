@@ -13,6 +13,7 @@ import { addPdfSignatureBlock, resolveLatestReviewState } from "@/lib/pdfHelpers
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import ExcelJS from "exceljs";
 import {
   Plus, Download, Upload, Filter, Trash2, Edit3, Copy, X, Sparkles,
@@ -550,60 +551,63 @@ function SprinklerKFactorPage() {
     };
   }, [rows]);
 
-  const handleUnitToggle = (newSystem: "si" | "ip") => {
-    if (newSystem === unitSystem) return;
-    setUnitSystem(newSystem);
+  const handleUnitToggle = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
     
-    // Convert rows in table
-    setRows(prevRows => prevRows.map(row => {
-      let k = row.kFactor;
-      let p = row.pressure;
-      let q = row.flow;
-      let cov = row.coverage;
-      
-      if (newSystem === "si") {
-        k = parseFloat((k * 14.28).toFixed(1));
-        p = parseFloat((p / 14.5038).toFixed(2));
-        q = parseFloat((q * 3.78541).toFixed(2));
-        cov = parseFloat((cov / 10.7639).toFixed(1));
-      } else {
-        k = parseFloat((k / 14.28).toFixed(1));
-        p = parseFloat((p * 14.5038).toFixed(2));
-        q = parseFloat((q / 3.78541).toFixed(2));
-        cov = parseFloat((cov * 10.7639).toFixed(1));
-      }
-      
-      return {
-        ...row,
-        kFactor: k,
-        pressure: p,
-        flow: q,
-        coverage: cov
-      };
-    }));
+    if (shouldConvert) {
+      // Convert rows in table
+      setRows(prevRows => prevRows.map(row => {
+        let k = row.kFactor;
+        let p = row.pressure;
+        let q = row.flow;
+        let cov = row.coverage;
+        
+        if (targetUnit === "si") {
+          k = parseFloat((k * 14.28).toFixed(1));
+          p = parseFloat((p / 14.5038).toFixed(2));
+          q = parseFloat((q * 3.78541).toFixed(2));
+          cov = parseFloat((cov / 10.7639).toFixed(1));
+        } else {
+          k = parseFloat((k / 14.28).toFixed(1));
+          p = parseFloat((p * 14.5038).toFixed(2));
+          q = parseFloat((q / 3.78541).toFixed(2));
+          cov = parseFloat((cov * 10.7639).toFixed(1));
+        }
+        
+        return {
+          ...row,
+          kFactor: k,
+          pressure: p,
+          flow: q,
+          coverage: cov
+        };
+      }));
 
-    // Convert Quick Solver states
-    if (newSystem === "si") {
-      setSolverK(prev => prev === "" ? "" : parseFloat((prev * 14.28).toFixed(1)));
-      setSolverKnownVal(prev => {
-        const numericPrev = prev === "" ? 0 : prev;
-        if (solverSolveFor === "Q") {
-          return parseFloat((numericPrev / 14.5038).toFixed(2));
-        } else {
-          return parseFloat((numericPrev * 3.78541).toFixed(2));
-        }
-      });
-    } else {
-      setSolverK(prev => prev === "" ? "" : parseFloat((prev / 14.28).toFixed(1)));
-      setSolverKnownVal(prev => {
-        const numericPrev = prev === "" ? 0 : prev;
-        if (solverSolveFor === "Q") {
-          return parseFloat((numericPrev * 14.5038).toFixed(2));
-        } else {
-          return parseFloat((numericPrev / 3.78541).toFixed(2));
-        }
-      });
+      // Convert Quick Solver states
+      if (targetUnit === "si") {
+        setSolverK(prev => prev === "" ? "" : parseFloat((prev * 14.28).toFixed(1)));
+        setSolverKnownVal(prev => {
+          const numericPrev = prev === "" ? 0 : prev;
+          if (solverSolveFor === "Q") {
+            return parseFloat((numericPrev / 14.5038).toFixed(2));
+          } else {
+            return parseFloat((numericPrev * 3.78541).toFixed(2));
+          }
+        });
+      } else {
+        setSolverK(prev => prev === "" ? "" : parseFloat((prev / 14.28).toFixed(1)));
+        setSolverKnownVal(prev => {
+          const numericPrev = prev === "" ? 0 : prev;
+          if (solverSolveFor === "Q") {
+            return parseFloat((numericPrev * 14.5038).toFixed(2));
+          } else {
+            return parseFloat((numericPrev / 3.78541).toFixed(2));
+          }
+        });
+      }
     }
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   // Sync to localstorage
@@ -1818,24 +1822,16 @@ function SprinklerKFactorPage() {
             
             {/* Actions / Export buttons on the right */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="flex rounded-full border border-border p-0.5 bg-surface-2 shrink-0">
-                <button
-                  onClick={() => handleUnitToggle("si")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    unitSystem === "si" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  SI
-                </button>
-                <button
-                  onClick={() => handleUnitToggle("ip")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    unitSystem === "ip" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  IP
-                </button>
-              </div>
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                inputDescriptions="K-Factor, Pressure, Flow, Coverage"
+                conversionExample={
+                  unitSystem === "si"
+                    ? "Convert K-80 → K-5.6, 1.0 bar → 14.5 psi, 80 L/min → 21.1 GPM"
+                    : "Convert K-5.6 → K-80, 15 psi → 1.03 bar, 21.7 GPM → 82.1 L/min"
+                }
+              />
               {actions}
             </div>
           </div>

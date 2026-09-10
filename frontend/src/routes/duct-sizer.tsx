@@ -6,6 +6,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle, Lock } from "lucide-react";
 import * as XLSX from "xlsx";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/duct-sizer")({
   head: () => ({
@@ -48,19 +49,21 @@ function DuctSizerPage() {
 
   const ip = unitSystem === "ip";
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
-    // Convert inputs
-    if (unit === "ip") {
-      // SI -> IP
-      setAirflow(airflow !== "" ? Number((Number(airflow) * 2.1189).toFixed(0)) : ""); // L/s to CFM
-      setTargetFr(targetFr !== "" ? Number((Number(targetFr) / 8.16828).toFixed(3)) : ""); // Pa/m to in w.g./100ft
-    } else {
-      // IP -> SI
-      setAirflow(airflow !== "" ? Number((Number(airflow) / 2.1189).toFixed(0)) : ""); // CFM to L/s
-      setTargetFr(targetFr !== "" ? Number((Number(targetFr) * 8.16828).toFixed(2)) : ""); // in w.g./100ft to Pa/m
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
+
+    if (shouldConvert) {
+      // Convert inputs
+      if (targetUnit === "ip") {
+        // SI -> IP
+        setAirflow(airflow !== "" ? Number((Number(airflow) * 2.1189).toFixed(0)) : ""); // L/s to CFM
+        setTargetFr(targetFr !== "" ? Number((Number(targetFr) / 8.16828).toFixed(3)) : ""); // Pa/m to in w.g./100ft
+      } else {
+        // IP -> SI
+        setAirflow(airflow !== "" ? Number((Number(airflow) / 2.1189).toFixed(0)) : ""); // CFM to L/s
+        setTargetFr(targetFr !== "" ? Number((Number(targetFr) * 8.16828).toFixed(2)) : ""); // in w.g./100ft to Pa/m
+      }
     }
   };
 
@@ -249,15 +252,19 @@ function DuctSizerPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left inputs */}
             <div className="lg:col-span-5 flex flex-col gap-5">
-              <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 self-start select-none">
-                <button type="button" disabled={isApproved} onClick={() => handleUnitSystemChange("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
-                <button type="button" disabled={isApproved} onClick={() => handleUnitSystemChange("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
-              </div>
-
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Sizing Parameters</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Sizing Parameters</h3>
+                  </div>
+                  <UnitToggle
+                    unitSystem={unitSystem}
+                    onChange={handleUnitSystemChange}
+                    disabled={isApproved}
+                    inputDescriptions="Airflow, Target Friction Rate"
+                    conversionExample={unitSystem === "si" ? "Convert 1180 L/s → 2,500 CFM, 0.65 Pa/m → 0.08 in.wg/100ft" : "Convert 2500 CFM → 1,180 L/s, 0.08 in.wg/100ft → 0.65 Pa/m"}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">

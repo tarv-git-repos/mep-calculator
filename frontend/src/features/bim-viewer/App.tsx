@@ -47,7 +47,7 @@ export default function App() {
     if (activeSpaces.length > 0) {
       setPendingSpaces(activeSpaces);
       setModalOpen(true);
-      toast.success(`Extracted ${activeSpaces.length} spaces from active 3D Viewer!`);
+      toast.success(`Extracted ${activeSpaces.length} spaces from active 3D Studio!`);
       return;
     }
 

@@ -29,6 +29,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPumpModal } from "@/components/workspace/EditChwPumpModal";
 import { exportChwPumpHeadExcel } from "@/lib/exportChwPumpHeadExcel";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 // Water Specific Heat Capacity lookup table (kJ/kg·K)
 const WATER_CP_LOOKUP: { [temp: number]: number } = {
@@ -346,37 +347,39 @@ function ChwPumpHeadPage() {
   };
 
   // Convert values when unit system changes
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
 
-    const nextParams = { ...sizingParams };
+    let nextParams = { ...sizingParams };
 
-    if (unit === "ip") {
-      // SI -> IP
-      if (sizingParams.vertLength !== "") nextParams.vertLength = Number((Number(sizingParams.vertLength) * 3.28084).toFixed(1));
-      if (sizingParams.horizLength !== "") nextParams.horizLength = Number((Number(sizingParams.horizLength) * 3.28084).toFixed(1));
-      if (sizingParams.frictionFactor !== "") nextParams.frictionFactor = Number((Number(sizingParams.frictionFactor) * 4.4207).toFixed(3));
-      if (sizingParams.staticHead !== "") nextParams.staticHead = Number((Number(sizingParams.staticHead) * 14.50377).toFixed(2));
-      if (sizingParams.residualPressure !== "") nextParams.residualPressure = Number((Number(sizingParams.residualPressure) * 14.50377).toFixed(2));
-      if (sizingParams.suctionPressure !== "") nextParams.suctionPressure = Number((Number(sizingParams.suctionPressure) * 14.50377).toFixed(2));
-      if (sizingParams.selectedHead !== "" && Number(sizingParams.selectedHead) > 0) {
-        nextParams.selectedHead = Number((Number(sizingParams.selectedHead) * 14.50377).toFixed(2));
-      }
-    } else {
-      // IP -> SI
-      if (sizingParams.vertLength !== "") nextParams.vertLength = Number((Number(sizingParams.vertLength) / 3.28084).toFixed(1));
-      if (sizingParams.horizLength !== "") nextParams.horizLength = Number((Number(sizingParams.horizLength) / 3.28084).toFixed(1));
-      if (sizingParams.frictionFactor !== "") nextParams.frictionFactor = Number((Number(sizingParams.frictionFactor) / 4.4207).toFixed(3));
-      if (sizingParams.staticHead !== "") nextParams.staticHead = Number((Number(sizingParams.staticHead) / 14.50377).toFixed(2));
-      if (sizingParams.residualPressure !== "") nextParams.residualPressure = Number((Number(sizingParams.residualPressure) / 14.50377).toFixed(2));
-      if (sizingParams.suctionPressure !== "") nextParams.suctionPressure = Number((Number(sizingParams.suctionPressure) / 14.50377).toFixed(2));
-      if (sizingParams.selectedHead !== "" && Number(sizingParams.selectedHead) > 0) {
-        nextParams.selectedHead = Number((Number(sizingParams.selectedHead) / 14.50377).toFixed(2));
+    if (shouldConvert) {
+      if (targetUnit === "ip") {
+        // SI -> IP
+        if (sizingParams.vertLength !== "") nextParams.vertLength = Number((Number(sizingParams.vertLength) * 3.28084).toFixed(1));
+        if (sizingParams.horizLength !== "") nextParams.horizLength = Number((Number(sizingParams.horizLength) * 3.28084).toFixed(1));
+        if (sizingParams.frictionFactor !== "") nextParams.frictionFactor = Number((Number(sizingParams.frictionFactor) * 4.4207).toFixed(3));
+        if (sizingParams.staticHead !== "") nextParams.staticHead = Number((Number(sizingParams.staticHead) * 14.50377).toFixed(2));
+        if (sizingParams.residualPressure !== "") nextParams.residualPressure = Number((Number(sizingParams.residualPressure) * 14.50377).toFixed(2));
+        if (sizingParams.suctionPressure !== "") nextParams.suctionPressure = Number((Number(sizingParams.suctionPressure) * 14.50377).toFixed(2));
+        if (sizingParams.selectedHead !== "" && Number(sizingParams.selectedHead) > 0) {
+          nextParams.selectedHead = Number((Number(sizingParams.selectedHead) * 14.50377).toFixed(2));
+        }
+      } else {
+        // IP -> SI
+        if (sizingParams.vertLength !== "") nextParams.vertLength = Number((Number(sizingParams.vertLength) / 3.28084).toFixed(1));
+        if (sizingParams.horizLength !== "") nextParams.horizLength = Number((Number(sizingParams.horizLength) / 3.28084).toFixed(1));
+        if (sizingParams.frictionFactor !== "") nextParams.frictionFactor = Number((Number(sizingParams.frictionFactor) / 4.4207).toFixed(3));
+        if (sizingParams.staticHead !== "") nextParams.staticHead = Number((Number(sizingParams.staticHead) / 14.50377).toFixed(2));
+        if (sizingParams.residualPressure !== "") nextParams.residualPressure = Number((Number(sizingParams.residualPressure) / 14.50377).toFixed(2));
+        if (sizingParams.suctionPressure !== "") nextParams.suctionPressure = Number((Number(sizingParams.suctionPressure) / 14.50377).toFixed(2));
+        if (sizingParams.selectedHead !== "" && Number(sizingParams.selectedHead) > 0) {
+          nextParams.selectedHead = Number((Number(sizingParams.selectedHead) / 14.50377).toFixed(2));
+        }
       }
     }
 
-    saveParams(nextParams, unit, projectInfo);
-    toast.info(`Switched to ${unit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
+    saveParams(nextParams, targetUnit, projectInfo);
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   // Custom Load/Save presets dialogs
@@ -1069,43 +1072,16 @@ function ChwPumpHeadPage() {
 
               {/* Unit System Toggle & Action Buttons */}
               <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-full gap-1 border border-border/80">
-                  <button
-                    onClick={() => handleUnitSystemChange("si")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      unitSystem === "si"
-                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Metric (SI)
-                  </button>
-                  <button
-                    onClick={() => handleUnitSystemChange("ip")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      unitSystem === "ip"
-                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Imperial (IP)
-                  </button>
-                </div>
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  inputDescriptions="Vertical/Horizontal Lengths, Friction Factor, Pressures"
+                  conversionExample={unitSystem === "si" ? "Convert 30 m → 98.4 ft, 0.4 bar/100m → 1.77 psi/100ft" : "Convert 100 ft → 30.5 m, 1.77 psi/100ft → 0.4 bar/100m"}
+                />
 
-                <TBtn onClick={handleExportExcel} className="h-8 text-xs font-semibold">
-                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
-                </TBtn>
                 <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
                   <Printer className="size-3.5 text-blue-600" /> PDF Report
                 </TBtn>
-                <TBtn onClick={() => setShowSaveModal(true)} className="h-8 text-xs font-semibold">
-                  <Save className="size-3.5 text-amber-600" /> Save Preset
-                </TBtn>
-                {saves.length > 0 && (
-                  <TBtn onClick={() => setShowLoadModal(true)} className="h-8 text-xs font-semibold">
-                    <FolderOpen className="size-3.5 text-indigo-600" /> Load ({saves.length})
-                  </TBtn>
-                )}
               </div>
             </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -1568,59 +1544,36 @@ function ChwPumpHeadPage() {
             {/* Interactive Sizing Controls */}
             <div className="flex flex-col gap-4">
               
-              {/* 1. Delta T Segmented Selector */}
-              <div className="flex flex-col gap-2">
+              {/* 1. Delta T Text/Number Input Only */}
+              <div className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-center">
                   <label className="text-xs font-bold text-foreground">
                     Chilled Water ΔT
                   </label>
                   <span className="text-xs font-mono font-bold text-primary">
-                    {pclDeltaT.toFixed(1)} °C <span className="text-muted-foreground font-normal">({(pclDeltaT * 1.8).toFixed(1)} °F)</span>
+                    {pclDeltaT > 0 ? pclDeltaT.toFixed(1) : "0.0"} °C{" "}
+                    <span className="text-muted-foreground font-normal">
+                      ({((pclDeltaT || 0) * 1.8).toFixed(1)} °F)
+                    </span>
                   </span>
                 </div>
 
-                {/* Preset Chips */}
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { val: 5.5, title: "5.5 °C", desc: "Standard CHW (10°F)" },
-                    { val: 7.0, title: "7.0 °C", desc: "District Cooling" },
-                    { val: 5.0, title: "5.0 °C", desc: "Low ΔT Coils" },
-                  ].map((preset) => {
-                    const isSelected = Math.abs(pclDeltaT - preset.val) < 0.05;
-                    return (
-                      <button
-                        key={preset.val}
-                        type="button"
-                        onClick={() => setPclDeltaT(preset.val)}
-                        className={`flex flex-col items-start p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                          isSelected
-                            ? "bg-primary text-primary-foreground border-primary shadow-xs ring-2 ring-primary/20"
-                            : "bg-surface-2 border-border/80 text-foreground hover:bg-slate-200/60 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        <span className="text-xs font-bold">{preset.title}</span>
-                        <span className={`text-[10px] ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                          {preset.desc}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Custom ΔT slider */}
-                <div className="flex items-center gap-3 mt-1 bg-surface-2/60 p-2.5 rounded-xl border border-border/60">
-                  <span className="text-[11px] font-semibold text-muted-foreground shrink-0">Adjust ΔT:</span>
+                <div className="relative flex items-center">
                   <input
-                    type="range"
-                    min="3.0"
-                    max="10.0"
+                    type="number"
                     step="0.1"
-                    value={pclDeltaT}
-                    onChange={(e) => setPclDeltaT(parseFloat(e.target.value))}
-                    className="w-full accent-primary h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                    min="1.0"
+                    max="30.0"
+                    value={pclDeltaT || ""}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value);
+                      setPclDeltaT(isNaN(val) ? 0 : val);
+                    }}
+                    placeholder="Enter ΔT (e.g. 5.5)"
+                    className="w-full bg-surface-2 border border-border rounded-xl px-3.5 py-2.5 text-sm font-bold text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-mono"
                   />
-                  <span className="text-xs font-mono font-bold text-foreground w-12 text-right shrink-0">
-                    {pclDeltaT.toFixed(1)} °C
+                  <span className="absolute right-3.5 text-xs font-bold text-muted-foreground font-mono select-none pointer-events-none">
+                    °C
                   </span>
                 </div>
               </div>

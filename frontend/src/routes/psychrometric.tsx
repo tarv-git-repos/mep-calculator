@@ -46,6 +46,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditPsychrometricModal, type PsychrometricFormData } from "@/components/workspace/EditPsychrometricModal";
 import { addPdfHeader, addPdfSignatureBlock, getExporterUserName } from "@/lib/pdfHelpers";
 import { dirtyStore } from "@/lib/dirty-store";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/psychrometric")({
@@ -394,32 +395,35 @@ function PsychrometricPage() {
     toast.info(`Cleared ${label}`);
   };
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
     if (isApprovedLocked) {
       toast.info("Calculation is Approved & Locked by Discipline Coordinator. Unlock required to change unit system.");
       return;
     }
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
-    // Convert temperatures and param values
-    if (unit === "ip") {
-      // SI -> IP
-      setDbtInput(dbtInput !== "" ? Number((Number(dbtInput) * 1.8 + 32).toFixed(1)) : "");
-      if (secondParam === "wb" || secondParam === "dp") {
-        setParamValue(paramValue !== "" ? Number((Number(paramValue) * 1.8 + 32).toFixed(1)) : "");
-      } else if (secondParam === "w") {
-        setParamValue(paramValue !== "" ? Number((Number(paramValue) * 7).toFixed(2)) : ""); // g/kg to gr/lb
-      }
-    } else {
-      // IP -> SI
-      setDbtInput(dbtInput !== "" ? Number(((Number(dbtInput) - 32) / 1.8).toFixed(1)) : "");
-      if (secondParam === "wb" || secondParam === "dp") {
-        setParamValue(paramValue !== "" ? Number(((Number(paramValue) - 32) / 1.8).toFixed(1)) : "");
-      } else if (secondParam === "w") {
-        setParamValue(paramValue !== "" ? Number((Number(paramValue) / 7).toFixed(5)) : ""); // gr/lb to g/kg
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
+
+    if (shouldConvert) {
+      // Convert temperatures and param values
+      if (targetUnit === "ip") {
+        // SI -> IP
+        setDbtInput(dbtInput !== "" ? Number((Number(dbtInput) * 1.8 + 32).toFixed(1)) : "");
+        if (secondParam === "wb" || secondParam === "dp") {
+          setParamValue(paramValue !== "" ? Number((Number(paramValue) * 1.8 + 32).toFixed(1)) : "");
+        } else if (secondParam === "w") {
+          setParamValue(paramValue !== "" ? Number((Number(paramValue) * 7).toFixed(2)) : ""); // g/kg to gr/lb
+        }
+      } else {
+        // IP -> SI
+        setDbtInput(dbtInput !== "" ? Number(((Number(dbtInput) - 32) / 1.8).toFixed(1)) : "");
+        if (secondParam === "wb" || secondParam === "dp") {
+          setParamValue(paramValue !== "" ? Number(((Number(paramValue) - 32) / 1.8).toFixed(1)) : "");
+        } else if (secondParam === "w") {
+          setParamValue(paramValue !== "" ? Number((Number(paramValue) / 7).toFixed(5)) : ""); // gr/lb to g/kg
+        }
       }
     }
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   const calculatedData = useMemo(() => {
@@ -1157,11 +1161,6 @@ function PsychrometricPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left Inputs Panel */}
             <div className="lg:col-span-5 flex flex-col gap-5">
-              <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 self-start select-none">
-                <button type="button" disabled={isApprovedLocked} onClick={() => handleUnitSystemChange("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 ${isApprovedLocked ? "opacity-60 cursor-not-allowed" : "cursor-pointer"} ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
-                <button type="button" disabled={isApprovedLocked} onClick={() => handleUnitSystemChange("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 ${isApprovedLocked ? "opacity-60 cursor-not-allowed" : "cursor-pointer"} ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
-              </div>
-
               <div className={`rounded-2xl p-5 flex flex-col gap-4 transition-all duration-300 ${
                 isApprovedLocked
                   ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]"
@@ -1177,9 +1176,17 @@ function PsychrometricPage() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className={`w-1 h-3.5 rounded-full ${isApprovedLocked ? "bg-emerald-500" : "bg-[#0A7BC7]"}`}></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Input Conditions</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-1 h-3.5 rounded-full ${isApprovedLocked ? "bg-emerald-500" : "bg-[#0A7BC7]"}`}></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Input Conditions</h3>
+                  </div>
+                  <UnitToggle
+                    unitSystem={unitSystem}
+                    onChange={handleUnitSystemChange}
+                    inputDescriptions="Dry Bulb Temp & Second Known Parameter"
+                    conversionExample={unitSystem === "si" ? "Convert 24°C → 75.2°F, 18°C WB → 64.4°F WB" : "Convert 75°F → 23.9°C, 65°F WB → 18.3°C WB"}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">

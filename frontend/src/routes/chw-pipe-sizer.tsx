@@ -28,6 +28,7 @@ import {
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPipeModal } from "@/components/workspace/EditChwPipeModal";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/chw-pipe-sizer")({
   head: () => ({
@@ -336,34 +337,38 @@ function ChwPipeSizerPage() {
     }
   };
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
 
-    let nextFlow = sizingParams.flowRate;
-    let nextDp = sizingParams.targetDp;
-    let nextTemp = sizingParams.temperature;
+    let updatedParams = { ...sizingParams };
 
-    if (unit === "ip") {
-      // SI -> IP
-      nextFlow = sizingParams.flowRate !== "" ? Number((Number(sizingParams.flowRate) * 15.8503).toFixed(1)) : "";
-      nextDp = sizingParams.targetDp !== "" ? Number((Number(sizingParams.targetDp) / 22.62).toFixed(2)) : "";
-      nextTemp = sizingParams.temperature !== "" ? Number((Number(sizingParams.temperature) * 1.8 + 32).toFixed(1)) : "";
-    } else {
-      // IP -> SI
-      nextFlow = sizingParams.flowRate !== "" ? Number((Number(sizingParams.flowRate) / 15.8503).toFixed(2)) : "";
-      nextDp = sizingParams.targetDp !== "" ? Number((Number(sizingParams.targetDp) * 22.62).toFixed(0)) : "";
-      nextTemp = sizingParams.temperature !== "" ? Number(((Number(sizingParams.temperature) - 32) / 1.8).toFixed(1)) : "";
+    if (shouldConvert) {
+      let nextFlow = sizingParams.flowRate;
+      let nextDp = sizingParams.targetDp;
+      let nextTemp = sizingParams.temperature;
+
+      if (targetUnit === "ip") {
+        // SI -> IP
+        nextFlow = sizingParams.flowRate !== "" ? Number((Number(sizingParams.flowRate) * 15.8503).toFixed(1)) : "";
+        nextDp = sizingParams.targetDp !== "" ? Number((Number(sizingParams.targetDp) / 22.62).toFixed(2)) : "";
+        nextTemp = sizingParams.temperature !== "" ? Number((Number(sizingParams.temperature) * 1.8 + 32).toFixed(1)) : "";
+      } else {
+        // IP -> SI
+        nextFlow = sizingParams.flowRate !== "" ? Number((Number(sizingParams.flowRate) / 15.8503).toFixed(2)) : "";
+        nextDp = sizingParams.targetDp !== "" ? Number((Number(sizingParams.targetDp) * 22.62).toFixed(0)) : "";
+        nextTemp = sizingParams.temperature !== "" ? Number(((Number(sizingParams.temperature) - 32) / 1.8).toFixed(1)) : "";
+      }
+
+      updatedParams = {
+        ...sizingParams,
+        flowRate: nextFlow,
+        targetDp: nextDp,
+        temperature: nextTemp
+      };
     }
-
-    const updatedParams = {
-      ...sizingParams,
-      flowRate: nextFlow,
-      targetDp: nextDp,
-      temperature: nextTemp
-    };
     
-    saveParams(updatedParams, unit, projectInfo);
-    toast.info(`Switched to ${unit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
+    saveParams(updatedParams, targetUnit, projectInfo);
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   // Calculations matching original exact website calcHvacPipe logic
@@ -789,28 +794,12 @@ function ChwPipeSizerPage() {
 
               {/* Action Buttons & Unit Toggle */}
               <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-full gap-1 border border-border/80">
-                  <button
-                    onClick={() => handleUnitSystemChange("ip")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      unitSystem === "ip"
-                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Imperial (IP)
-                  </button>
-                  <button
-                    onClick={() => handleUnitSystemChange("si")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      unitSystem === "si"
-                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Metric (SI)
-                  </button>
-                </div>
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  inputDescriptions="Flow Rate, Target ΔP, Operating Temperature"
+                  conversionExample={unitSystem === "si" ? "Convert 5 L/s → 79.3 GPM, 40 Pa/m → 1.77 psi/100ft" : "Convert 80 GPM → 5.05 L/s, 4 psi/100ft → 90.5 Pa/m"}
+                />
 
                 <TBtn onClick={handleExportExcel} className="h-8 text-xs font-semibold">
                   <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel

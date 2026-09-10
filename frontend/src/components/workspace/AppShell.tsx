@@ -5,7 +5,7 @@ import {
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Sun, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy, ShieldAlert, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2
+  Edit3, Trash2, Copy, ShieldAlert, ShieldCheck, Shield, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2
 } from "lucide-react";
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -1909,19 +1909,28 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   // Init Collaboration
   useEffect(() => {
     const initCollab = async () => {
-      const { data } = await supabase.auth.getSession();
-      const userEmail = data.session?.user.email || "unknown";
-      const userName = userData?.name || profile?.name || userEmail;
-      setMyEmail(userEmail);
-      if (project?.id) {
-        joinProject(project.id, userEmail, userName);
+      try {
+        const { data } = await supabase.auth.getSession();
+        const userEmail = data?.session?.user?.email || userData?.email || profile?.email || "engineer@mepcalc.com";
+        const userName = userData?.name || profile?.name || (userEmail.includes('@') ? userEmail.split('@')[0] : userEmail) || "Engineer";
+        setMyEmail(userEmail);
+        if (project?.id) {
+          joinProject(project.id, userEmail, userName);
+        }
+      } catch (err) {
+        const fallbackEmail = userData?.email || profile?.email || "engineer@mepcalc.com";
+        const fallbackName = userData?.name || profile?.name || "Engineer";
+        setMyEmail(fallbackEmail);
+        if (project?.id) {
+          joinProject(project.id, fallbackEmail, fallbackName);
+        }
       }
     };
     initCollab();
     return () => {
       leaveProject();
     };
-  }, [project?.id, userData?.name, profile?.name]);
+  }, [project?.id, userData?.name, userData?.email, profile?.name, profile?.email]);
 
 
 
@@ -1992,9 +2001,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }, [userData?.name, profile?.name]);
 
-  // Update active module on route change
+  const isCalculatorRoute = isVersionAllowed;
+
+  // Update active module on route change across all calculators
   useEffect(() => {
-    if (pathname && !EXCLUDED_PERSIST_PATHS.includes(pathname)) {
+    if (pathname && isCalculatorRoute) {
       setActiveModule(pathname);
     } else {
       setActiveModule(null);
@@ -2005,10 +2016,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     if (!acceptedPrivacy && pathname !== '/login' && pathname !== '/privacy') {
       navigate({ to: '/privacy' });
     }
-  }, [pathname, navigate, userData?.privacyPolicyAccepted]);
+  }, [pathname, isCalculatorRoute, navigate, userData?.privacyPolicyAccepted]);
 
-  const isCalculatorRoute = isVersionAllowed;
-  const lockOwnerObj = isCalculatorRoute ? getLockOwner(pathname) : null;
+  const lockOwnerObj = useMemo(() => {
+    if (!isCalculatorRoute) return null;
+    return getLockOwner(pathname);
+  }, [isCalculatorRoute, pathname, activeUsers, getLockOwner]);
+
   const isLockedByOther = Boolean(isCalculatorRoute && lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
 
@@ -2220,6 +2234,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return isTab;
     };
 
+    const getReadOnlyMessage = () => {
+      if (isLockedByOther) {
+        return `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Editing is locked.`;
+      }
+      if (isViewerRole) {
+        return "🛡️ READ-ONLY MODE: Viewer role accounts cannot edit calculations.";
+      }
+      return "🛡️ READ-ONLY MODE: Workspace is locked. Modifications are disabled.";
+    };
+
     const handleReadOnlyContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target) return;
@@ -2227,7 +2251,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
       e.preventDefault();
       e.stopPropagation();
-      toast.info("Workspace is in Read-Only mode. Context menu is disabled.", { id: "readonly-notice" });
+      toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
     };
 
     const handleReadOnlyClick = (e: MouseEvent) => {
@@ -2242,7 +2266,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (isEditableInput || isMutationBtn) {
         e.preventDefault();
         e.stopPropagation();
-        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
         return;
       }
     };
@@ -2264,14 +2288,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (isEditable && !isCopyCombo && !isNavKey) {
         e.preventDefault();
         e.stopPropagation();
-        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
         return;
       }
       
       if (['Delete', 'Backspace'].includes(e.key)) {
         e.preventDefault();
         e.stopPropagation();
-        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
         return;
       }
       
@@ -2280,7 +2304,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         
         e.preventDefault();
         e.stopPropagation();
-        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
         return;
       }
     };
@@ -2293,7 +2317,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
         e.preventDefault();
         e.stopPropagation();
-        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+        toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
       }
     };
 
@@ -2653,29 +2677,41 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                </div>
              </div>
 
-             {/* Search Bar (Flex responsive, centered in available space) */}
-             <div className="flex-1 max-w-xs sm:max-w-sm md:max-w-md mx-2 min-w-0">
-               <div className="relative w-full">
-                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                 <input
-                   placeholder="Search calculators, projects…"
-                   className="h-10 w-full pl-10 pr-10 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] focus:border-border-strong rounded-full text-[13.5px] outline-none transition-all duration-150"
-                 />
-                 <kbd className="hidden sm:inline-flex absolute right-3 top-1/2 -translate-y-1/2 text-[9.5px] font-sans font-medium text-muted-foreground bg-background dark:bg-white/5 border border-border dark:border-[#262626] rounded px-1.5 py-0.5 select-none leading-none">⌘K</kbd>
-               </div>
-             </div>
+             <div className="flex-1" />
 
             {/* Right side: Actions & Profile */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {isReadOnly && (
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 dark:text-amber-400 rounded-full text-xs font-bold shrink-0">
-                  <Lock className="size-3" />
-                  <span>READ ONLY</span>
+              {/* Concurrency Lock & Read-Only Status Indicator (Non-clickable visual badge) */}
+              {isLockedByOther ? (
+                <div
+                  className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 shadow-xs select-none animate-pulse cursor-help"
+                  title={`READ-ONLY MODE: Currently being edited by ${lockOwnerName}`}
+                >
+                  <ShieldAlert className="size-5 text-red-600 dark:text-red-400" />
+                </div>
+              ) : isReadOnly || isViewerRole ? (
+                <div
+                  className="size-10 rounded-full flex items-center justify-center bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs select-none cursor-help"
+                  title={isViewerRole ? "READ-ONLY MODE: Viewer Role Active" : "READ-ONLY MODE Active"}
+                >
+                  <ShieldAlert className="size-5 text-amber-600 dark:text-amber-400" />
+                </div>
+              ) : (
+                <div
+                  className="size-10 rounded-full flex items-center justify-center bg-surface-2 dark:bg-white/5 text-muted-foreground border border-border dark:border-[#262626] shadow-xs select-none cursor-default"
+                  title="Workspace Active & Editable"
+                >
+                  <Shield className="size-5 text-muted-foreground" />
                 </div>
               )}
+
               <button
                 type="button"
                 onClick={() => {
+                  if (isLockedByOther || isReadOnly || isViewerRole) {
+                    toast.error("Cannot save: Workspace is in Read-Only mode.", { id: "readonly-save-err" });
+                    return;
+                  }
                   savePageInputs(project.id, pathname);
                   triggerSave();
                   forceSaveToCloud();
@@ -2699,24 +2735,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 title="Sync from Cloud"
               >
                 <RefreshCw className="size-4" />
-              </button>
-
-              <button
-                onClick={() => {
-                  if (isViewerRole) {
-                    toast.info("Viewer role accounts are locked in Read-Only mode.", { id: "readonly-notice" });
-                    return;
-                  }
-                  setReadOnly(!isReadOnly);
-                }}
-                className={`size-10 rounded-full flex items-center justify-center transition-colors border ${
-                  isReadOnly 
-                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20"
-                    : "bg-surface-2 dark:bg-white/5 text-muted-foreground border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10"
-                }`}
-                title={isViewerRole ? "Read-Only mode is required for Viewer role" : isReadOnly ? "Unlock Editing" : "Lock Read-Only Mode"}
-              >
-                {isReadOnly ? <Lock className="size-4" /> : <Edit3 className="size-4" />}
               </button>
 
               <button
@@ -3146,7 +3164,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     const NON_CALC_TITLES = new Set([
                       "Dashboard", "Projects", "Project", "Reports", "Report",
                       "Settings", "Teams", "Team", "BIM Viewer", "Admin",
-                      "Notifications", "Company Hierarchy", "3D BIM Viewer",
+                      "Notifications", "Company Hierarchy", "3D BIM Viewer", "3D Studio",
                       "Sanity Check Tool", "Zone Overview", "Equipment"
                     ]);
                     if (NON_CALC_TITLES.has(title) || pathname === "/dashboard" || pathname === "/") {
@@ -3173,16 +3191,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             </div>
           )}
 
-          {isLockedByOther && pathname !== '/notifications' && (
-            <div className="absolute top-0 left-0 right-0 z-40 bg-red-500/10 border-b border-red-500/20 text-red-600 dark:text-red-400 px-4 py-3 flex items-center justify-center gap-2 shrink-0 shadow-sm backdrop-blur-md">
-              <ShieldAlert className="w-5 h-5" />
-              <span className="font-bold text-sm tracking-wide uppercase">
-                READ-ONLY MODE: This calculator is currently being edited by {lockOwnerName}
-              </span>
-            </div>
-          )}
-
-          <div className={`flex-1 min-h-0 w-full flex flex-col transition-opacity duration-300 ${isLockedByOther && pathname !== '/notifications' ? 'opacity-90 mt-10' : ''} ${
+          <div className={`flex-1 min-h-0 w-full flex flex-col transition-opacity duration-300 ${
             sidebarOpen ? "pl-0 pr-3.5 pb-3.5" : "pl-3.5 pr-3.5 pb-3.5"
           }`}>
             {isInitializing ? (

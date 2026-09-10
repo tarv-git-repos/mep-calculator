@@ -20,7 +20,7 @@ export type NavItem =
 export const NAV: NavItem[] = [
   { kind: "item", label: "Dashboard", to: "/", icon: LayoutDashboard },
   { kind: "item", label: "Projects", to: "/projects", icon: FolderKanban },
-  { kind: "item", label: "BIM 3D Viewer", to: "/bim-viewer", icon: Box },
+  { kind: "item", label: "3D Studio", to: "/bim-viewer", icon: Box },
   {
     kind: "group", label: "HVAC", icon: Wind, defaultOpen: true,
     children: [

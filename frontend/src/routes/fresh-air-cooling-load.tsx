@@ -19,6 +19,7 @@ import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBa
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/fresh-air-cooling-load")({
   head: () => ({
@@ -154,18 +155,21 @@ function FreshAirCoolingLoadPage() {
     }
   }, [dbIn, wbIn, dbOut, wbOut, flowRate, safetyFactor, unitSystem, projectInfo]);
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
-    const convT = (t: number) => unit === "ip" ? cToF(t) : fToC(t);
-    const convF = (f: number) => unit === "ip" ? m3sToCfm(f) : cfmToM3s(f);
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
 
-    setDbIn(dbIn !== "" ? Number(convT(Number(dbIn)).toFixed(1)) : "");
-    setWbIn(wbIn !== "" ? Number(convT(Number(wbIn)).toFixed(1)) : "");
-    setDbOut(dbOut !== "" ? Number(convT(Number(dbOut)).toFixed(1)) : "");
-    setWbOut(wbOut !== "" ? Number(convT(Number(wbOut)).toFixed(1)) : "");
-    setFlowRate(flowRate !== "" ? Number(convF(Number(flowRate)).toFixed(unit === "ip" ? 0 : 3)) : "");
+    if (shouldConvert) {
+      const convT = (t: number) => targetUnit === "ip" ? cToF(t) : fToC(t);
+      const convF = (f: number) => targetUnit === "ip" ? m3sToCfm(f) : cfmToM3s(f);
+
+      setDbIn(dbIn !== "" ? Number(convT(Number(dbIn)).toFixed(1)) : "");
+      setWbIn(wbIn !== "" ? Number(convT(Number(wbIn)).toFixed(1)) : "");
+      setDbOut(dbOut !== "" ? Number(convT(Number(dbOut)).toFixed(1)) : "");
+      setWbOut(wbOut !== "" ? Number(convT(Number(wbOut)).toFixed(1)) : "");
+      setFlowRate(flowRate !== "" ? Number(convF(Number(flowRate)).toFixed(targetUnit === "ip" ? 0 : 3)) : "");
+    }
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   const applyPreset = (presetKey: "gulf_summer" | "subtropical" | "moderate" | "desert_peak") => {
@@ -580,26 +584,12 @@ function FreshAirCoolingLoadPage() {
               <div className="lg:col-span-5 flex flex-col gap-5">
                 {/* Unit & Climate Presets */}
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 select-none">
-                    <button
-                      type="button"
-                      onClick={() => handleUnitSystemChange("ip")}
-                      className={`px-3.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                        ip ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Imperial (IP)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUnitSystemChange("si")}
-                      className={`px-3.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                        !ip ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Metric (SI)
-                    </button>
-                  </div>
+                  <UnitToggle
+                    unitSystem={unitSystem}
+                    onChange={handleUnitSystemChange}
+                    inputDescriptions="Entering/Leaving DB, WB, and Airflow"
+                    conversionExample={unitSystem === "si" ? "Convert 35°C → 95°F, 0.47 m³/s → 1,000 CFM" : "Convert 95°F → 35°C, 1000 CFM → 0.47 m³/s"}
+                  />
 
                   {/* Weather Presets Dropdown */}
                   <div className="flex items-center gap-1.5 text-xs">

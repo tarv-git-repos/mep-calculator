@@ -7,7 +7,7 @@ import { Sparkles, RefreshCw } from "lucide-react";
 export const Route = createFileRoute("/bim-viewer")({
   head: () => ({
     meta: [
-      { title: "BIM 3D Viewer — MEP Calculator" },
+      { title: "3D Studio — MEP Calculator" },
       { name: "description", content: "Interactive 3D and 2D IFC model viewer for MEP engineering." },
     ],
   }),
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/bim-viewer")({
 function BimViewerErrorComponent({ error, reset }: { error: any; reset: () => void }) {
   return (
     <AppShell
-      title="BIM 3D Viewer"
+      title="3D Studio"
       subtitle="Interactive 3D & 2D IFC Model Analysis"
     >
       <div className="flex-1 w-full h-full flex flex-col items-center justify-center bg-[#242426] text-white p-6 gap-4">
@@ -26,11 +26,11 @@ function BimViewerErrorComponent({ error, reset }: { error: any; reset: () => vo
           ⚡
         </div>
         <div className="text-center max-w-md">
-          <h2 className="text-lg font-bold text-slate-100">3D Viewer Ready to Initialize</h2>
+          <h2 className="text-lg font-bold text-slate-100">3D Studio Ready to Initialize</h2>
           <p className="text-xs text-slate-400 mt-1">
             {error?.message?.includes("WebGL")
               ? "The WebGL graphics context is resetting. Click below to reconnect the 3D viewport."
-              : "Click below to refresh and launch the 3D BIM workspace."}
+              : "Click below to refresh and launch the 3D Studio workspace."}
           </p>
         </div>
         <button
@@ -51,7 +51,7 @@ function BimViewerErrorComponent({ error, reset }: { error: any; reset: () => vo
 function BimViewerRoute() {
   return (
     <AppShell
-      title="BIM 3D Viewer"
+      title="3D Studio"
       subtitle="Interactive 3D & 2D IFC Model Analysis"
       actions={
         <button

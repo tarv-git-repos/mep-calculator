@@ -52,6 +52,7 @@ import { EditCoilModal, type CoilRow } from "@/components/workspace/EditCoilModa
 import { ImportCoilModal } from "@/components/workspace/ImportCoilModal";
 import { exportCondensateExcel } from "@/lib/exportCondensateExcel";
 import { exportCondensatePDF } from "@/lib/exportCondensatePDF";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/condensate-drain-calc")({
   head: () => ({
@@ -337,36 +338,40 @@ function CondensateDrainCalcPage() {
 
   const ip = unitSystem === "ip";
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
     if (isLocked) {
       toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
       return;
     }
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
     dirtyStore.set(true);
-    const convT = (t: number) => unit === "ip" ? cToF(t) : fToC(t);
-    const convF = (f: number) => unit === "ip" ? lpsToCfm(f) : cfmToLps(f);
 
-    const converted = rows.map(r => ({
-      ...r,
-      dbIn: Number(convT(r.dbIn).toFixed(1)),
-      wbIn: Number(convT(r.wbIn).toFixed(1)),
-      dbOut: Number(convT(r.dbOut).toFixed(1)),
-      wbOut: Number(convT(r.wbOut).toFixed(1)),
-      flow: Number(convF(r.flow).toFixed(0))
-    }));
+    if (shouldConvert) {
+      const convT = (t: number) => targetUnit === "ip" ? cToF(t) : fToC(t);
+      const convF = (f: number) => targetUnit === "ip" ? lpsToCfm(f) : cfmToLps(f);
 
-    updateRowsWithHistory(converted);
+      const converted = rows.map(r => ({
+        ...r,
+        dbIn: Number(convT(r.dbIn).toFixed(1)),
+        wbIn: Number(convT(r.wbIn).toFixed(1)),
+        dbOut: Number(convT(r.dbOut).toFixed(1)),
+        wbOut: Number(convT(r.wbOut).toFixed(1)),
+        flow: Number(convF(r.flow).toFixed(0))
+      }));
 
-    setNewCoil(prev => ({
-      ...prev,
-      dbIn: prev.dbIn !== "" ? Number(convT(Number(prev.dbIn)).toFixed(1)) : "",
-      wbIn: prev.wbIn !== "" ? Number(convT(Number(prev.wbIn)).toFixed(1)) : "",
-      dbOut: prev.dbOut !== "" ? Number(convT(Number(prev.dbOut)).toFixed(1)) : "",
-      wbOut: prev.wbOut !== "" ? Number(convT(Number(prev.wbOut)).toFixed(1)) : "",
-      flow: prev.flow !== "" ? Number(convF(Number(prev.flow)).toFixed(0)) : ""
-    }));
+      updateRowsWithHistory(converted);
+
+      setNewCoil(prev => ({
+        ...prev,
+        dbIn: prev.dbIn !== "" ? Number(convT(Number(prev.dbIn)).toFixed(1)) : "",
+        wbIn: prev.wbIn !== "" ? Number(convT(Number(prev.wbIn)).toFixed(1)) : "",
+        dbOut: prev.dbOut !== "" ? Number(convT(Number(prev.dbOut)).toFixed(1)) : "",
+        wbOut: prev.wbOut !== "" ? Number(convT(Number(prev.wbOut)).toFixed(1)) : "",
+        flow: prev.flow !== "" ? Number(convF(Number(prev.flow)).toFixed(0)) : ""
+      }));
+    }
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   const calculatedRows = useMemo(() => {
@@ -1048,36 +1053,13 @@ function CondensateDrainCalcPage() {
               </div>
 
               {/* Units toggle option */}
-              <div className="flex items-center gap-2.5 select-none shrink-0 bg-slate-50/40 dark:bg-zinc-900/10 border border-slate-200/40 dark:border-zinc-800/40 px-3.5 py-1 rounded-full">
-                <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-                  UNITS:
-                </span>
-                <div className="flex bg-[#f1f5f9] dark:bg-zinc-800/60 p-0.5 rounded-full border border-slate-200/40 dark:border-zinc-700/40 shadow-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleUnitSystemChange("ip")}
-                    disabled={isLocked}
-                    className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer disabled:opacity-60 ${
-                      ip
-                        ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
-                        : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
-                    }`}
-                  >
-                    Imperial (IP)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUnitSystemChange("si")}
-                    disabled={isLocked}
-                    className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer disabled:opacity-60 ${
-                      !ip
-                        ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
-                        : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
-                    }`}
-                  >
-                    Metric (SI)
-                  </button>
-                </div>
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  inputDescriptions="DB In, WB In, DB Out, WB Out, Airflow"
+                  conversionExample={unitSystem === "si" ? "Convert 24°C → 75.2°F, 1500 L/s → 3,178 CFM" : "Convert 75.2°F → 24°C, 3178 CFM → 1,500 L/s"}
+                />
               </div>
             </div>
 

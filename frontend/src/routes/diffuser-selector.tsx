@@ -28,6 +28,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { exportDiffuserSelectorExcel } from "@/lib/exportDiffuserSelectorExcel";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/diffuser-selector")({
   head: () => ({
@@ -374,21 +375,22 @@ function DiffuserSelectorPage() {
     toast.info("Deleted preset");
   };
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
 
-    // Convert flow values
-    setRows(prev =>
-      prev.map(r => ({
-        ...r,
-        airflow: r.airflow !== ""
-          ? Number((unit === "ip" ? Number(r.airflow) * 2.1189 : Number(r.airflow) / 2.1189).toFixed(1))
-          : ""
-      }))
-    );
-    toast.info(`Switched to ${unit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
+    if (shouldConvert) {
+      // Convert flow values
+      setRows(prev =>
+        prev.map(r => ({
+          ...r,
+          airflow: r.airflow !== ""
+            ? Number((targetUnit === "ip" ? Number(r.airflow) * 2.1189 : Number(r.airflow) / 2.1189).toFixed(1))
+            : ""
+        }))
+      );
+    }
+    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
   // Sizing calculation engine for a single row
@@ -812,13 +814,16 @@ function DiffuserSelectorPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            <UnitToggle
+              unitSystem={unitSystem}
+              onChange={handleUnitSystemChange}
+              inputDescriptions="Supply Airflow per space"
+              conversionExample={unitSystem === "si" ? "Convert 500 L/s → 1,059 CFM" : "Convert 1000 CFM → 472 L/s"}
+            />
+
             <CalculationReviewBar
               calculatorTitle="Diffuser Selection Schedule"
               calculatorPath="/diffuser-selector"
-              unitSystem={unitSystem}
-              onUnitSystemChange={handleUnitSystemChange}
-              onExportExcel={handleExportExcel}
-              onPrintPDF={handlePrintPDF}
               commentsCount={commentsList.length}
             />
 

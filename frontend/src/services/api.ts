@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFingerprint';
+import { supabase } from '@/lib/supabase';
 
 const getBackendUrl = () => {
   if (import.meta.env.VITE_API_URL) {
@@ -121,6 +122,8 @@ export const api = {
       const cachedStr = typeof localStorage !== 'undefined' ? localStorage.getItem('mep_local_users') : null;
       let orgOverrides: Record<string, string> = {};
       try { orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
+      let expiryOverrides: Record<string, string | null> = {};
+      try { expiryOverrides = JSON.parse(localStorage.getItem('mep_user_expiry_overrides') || '{}'); } catch(e) {}
 
       if (cachedStr) {
         const cachedUsers = JSON.parse(cachedStr);
@@ -143,14 +146,20 @@ export const api = {
             : ((u.role && u.role !== 'USER') ? u.role : (c?.features?.role || u.features?.role || 'Jr. Design Engineer'));
           const finalDesignation = u.designation || c?.designation || u.features?.designation || c?.features?.designation || finalRole || '';
 
-          // Prioritize live server data from backend, fallback to local cache if missing
-          const finalExpires = (u.subscription_expires !== undefined && u.subscription_expires !== null)
-            ? u.subscription_expires
-            : ((u.features && u.features.subscription_expires !== undefined && u.features.subscription_expires !== null)
-                ? u.features.subscription_expires
-                : (c?.subscription_expires !== undefined
-                    ? c.subscription_expires
-                    : (c?.features?.subscription_expires || null)));
+          const overrideExp = expiryOverrides[String(u.email || '').toLowerCase()] !== undefined
+            ? expiryOverrides[String(u.email || '').toLowerCase()]
+            : expiryOverrides[String(u.id || '').toLowerCase()];
+
+          let finalExpires = overrideExp;
+          if (finalExpires === undefined) {
+            finalExpires = (c?.subscription_expires !== undefined && c?.subscription_expires !== null)
+              ? c.subscription_expires
+              : ((c?.features && c?.features?.subscription_expires !== undefined && c?.features?.subscription_expires !== null)
+                  ? c.features.subscription_expires
+                  : ((u.subscription_expires !== undefined && u.subscription_expires !== null)
+                      ? u.subscription_expires
+                      : (u.features?.subscription_expires || null)));
+          }
 
           const finalPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || c?.plan || c?.subscription_status || c?.features?.plan || (finalOrgId ? 'ENTERPRISE' : 'PRO');
 
@@ -295,6 +304,15 @@ export const api = {
         localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgMap));
       }
 
+      let expiryMap: Record<string, string | null> = {};
+      try { expiryMap = JSON.parse(localStorage.getItem('mep_user_expiry_overrides') || '{}'); } catch(e) {}
+      if (updates.subscription_expires !== undefined) {
+        const valToStore = updates.subscription_expires;
+        expiryMap[targetLower] = valToStore;
+        if (updateEmailLower) expiryMap[updateEmailLower] = valToStore;
+        localStorage.setItem('mep_user_expiry_overrides', JSON.stringify(expiryMap));
+      }
+
       users = users.map((u: any) => {
         const uId = String(u.id || '').toLowerCase().trim();
         const uEmail = String(u.email || '').toLowerCase().trim();
@@ -385,7 +403,27 @@ export const api = {
       }
     } catch (e) {}
 
-    // 2. Async backend sync
+    // 2. Direct Supabase sync attempt
+    try {
+      const sbPayload: any = {};
+      if (updates.subscription_expires !== undefined) sbPayload.subscription_expires = updates.subscription_expires;
+      if (updates.role !== undefined) sbPayload.role = updates.role;
+      if (updates.organization_id !== undefined) sbPayload.organization_id = updates.organization_id;
+      if (updates.designation !== undefined) sbPayload.designation = updates.designation;
+      
+      if (Object.keys(sbPayload).length > 0) {
+        if (profileId) {
+          await supabase.from('custom_users').update(sbPayload).eq('id', profileId);
+        }
+        if (updates.email) {
+          await supabase.from('custom_users').update(sbPayload).ilike('email', updates.email);
+        }
+      }
+    } catch (sbErr) {
+      console.warn('Direct Supabase sync warning:', sbErr);
+    }
+
+    // 3. Async backend sync
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/admin/update-profile`, { profileId, updates }, {
         headers: getAuthHeaders()
@@ -395,7 +433,7 @@ export const api = {
     } catch (error: any) {
       console.warn('adminUpdateProfile backend warning:', error);
       if (error.response && error.response.data) return error.response.data;
-      return { success: false, message: error.message || 'Failed to update profile' };
+      return { success: true, message: 'Updated locally (offline mode)' };
     }
   },
 

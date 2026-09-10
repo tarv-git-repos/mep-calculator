@@ -12,13 +12,15 @@ import {
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
   Wind, Layers, Gauge, Zap, Activity, FileText, X, Flag,
   Copy, Scissors, Clipboard, Flame, CheckCircle2, RefreshCw, Check,
-  Box, Upload, Filter
+  Box, Upload, Filter, ArrowUpDown, Search, MessageSquare
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { exportBasementSmokePDF } from "@/lib/exportBasementSmokePDF";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, getFloorRank, Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
 import { toast } from "sonner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -181,6 +183,150 @@ function BasementSmokeCalcPage() {
   const [history, setHistory] = useState<BasementFloor[][]>([]);
   const [redoStack, setRedoStack] = useState<BasementFloor[][]>([]);
 
+  // Search, Filter & Sort state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterLevel, setFilterLevel] = useState<string>("all");
+  const [filterFlagged, setFilterFlagged] = useState<boolean>(false);
+  const [levelSortOrder, setLevelSortOrder] = useState<"asc" | "desc">("asc");
+  const [zoneSortBy, setZoneSortBy] = useState<"none" | "name" | "area">("none");
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterLevel !== "all") count++;
+    if (filterFlagged) count++;
+    if (searchQuery.trim()) count++;
+    return count;
+  }, [filterLevel, filterFlagged, searchQuery]);
+
+  // Comments & Tasks Assignment State
+  const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type?: string } | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<any>(null);
+
+  const getSyncedComments = useMemo(() => {
+    const pId = project?.id || "default";
+    const storageKey = `mep_calc_comments_${pId}_/basement-smoke-calc`;
+    if (project?.workspace_data) {
+      let wdata = project.workspace_data;
+      if (typeof wdata === 'string') {
+        try { wdata = JSON.parse(wdata); } catch(e) {}
+      }
+      if (wdata?.comments?.[storageKey]) {
+        return wdata.comments[storageKey];
+      }
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) return JSON.parse(saved);
+      } catch(e) {}
+    }
+    return [];
+  }, [project]);
+
+  const [commentsList, setCommentsList] = useState<any[]>(getSyncedComments);
+
+  useEffect(() => {
+    setCommentsList(getSyncedComments);
+  }, [getSyncedComments]);
+
+  const saveComments = (newComments: any[]) => {
+    const pId = project?.id || "default";
+    const storageKey = `mep_calc_comments_${pId}_/basement-smoke-calc`;
+    setCommentsList(newComments);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(newComments));
+      if (project?.id) {
+        let wdata = project.workspace_data || {};
+        if (typeof wdata === 'string') {
+          try { wdata = JSON.parse(wdata); } catch(e) {}
+        }
+        if (!wdata.comments) wdata.comments = {};
+        wdata.comments[storageKey] = newComments;
+        api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+        useWorkspace.getState().updateProject({ ...project, workspace_data: wdata });
+        if (typeof forceSaveToCloud === "function") forceSaveToCloud();
+      }
+    } catch (e) {
+      console.error("Failed to save comments", e);
+    }
+  };
+
+  const handleOpenComment = (id: string, name: string, type: string = "zone") => {
+    setCommentTargetItem({ id, name, type });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (comment: any) => {
+    const commentWithMeta = {
+      ...comment,
+      spaceId: commentTargetItem?.id,
+      targetId: commentTargetItem?.id,
+      targetName: commentTargetItem?.name,
+      calculatorTitle: "Basement Smoke Calc",
+      calculatorPath: "/basement-smoke-calc",
+      projectId: project?.id || "default",
+      projectName: project?.name || "Basement Smoke Calc",
+    };
+    const updated = [commentWithMeta, ...commentsList];
+    saveComments(updated);
+    toast.success(`Comment / task assigned on "${commentTargetItem?.name || "item"}"`);
+    setCommentModalOpen(false);
+  };
+
+  // Notification target listener for scroll & highlight
+  useEffect(() => {
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanId = (targetId || "").toLowerCase().trim();
+      const el = document.getElementById(targetId || "") ||
+                 document.querySelector(`[data-item-id="${targetId}"]`) ||
+                 document.querySelector(`[data-field-id="${targetId}"]`);
+      if (el || cleanId) {
+        setHighlightedTargetId(targetId || cleanId);
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => {
+          setHighlightedTargetId(null);
+          highlightTimeoutRef.current = null;
+        }, 4000);
+        if (el) {
+          setTimeout(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 150);
+        }
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tId = params.get("commentTargetId");
+      const tName = params.get("commentTargetName");
+      if (tId || tName) {
+        setTimeout(() => handleScrollTarget(tId || undefined, tName || undefined), 300);
+      }
+    }
+
+    const handleScrollEvent = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail) handleScrollTarget(detail.id, detail.name);
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
+
+  const handleResetFilters = () => {
+    setFilterLevel("all");
+    setFilterFlagged(false);
+    setSearchQuery("");
+  };
+
   // Navigation & 3D Import State
   const navigate = useNavigate();
   const excelFileInputRef = useRef<HTMLInputElement>(null);
@@ -199,7 +345,7 @@ function BasementSmokeCalcPage() {
         extracted = await extractSpacesFromIFCFile(file);
         toast.dismiss("bs-ifc-parse");
       } else {
-        toast.loading("Scanning active 3D viewer model for basement floors...", { id: "bs-3d-scan" });
+        toast.loading("Scanning active 3D Studio model for basement floors...", { id: "bs-3d-scan" });
         extracted = await extractSpacesFromActiveViewer();
         toast.dismiss("bs-3d-scan");
 
@@ -222,7 +368,7 @@ function BasementSmokeCalcPage() {
         if (extracted.length > 0) {
           toast.error(`Found ${extracted.length} total 3D spaces in the model, but none match basement level keywords (e.g. Basement, B1, B2, Level -1, Cellar).`);
         } else {
-          toast.error("No 3D model is currently loaded in the 3D Viewer. Please select an .ifc file or load a model in the 3D BIM Viewer first.");
+          toast.error("No 3D model is currently loaded in 3D Studio. Please select an .ifc file or load a model in 3D Studio first.");
           ifcFileInputRef.current?.click();
         }
         return;
@@ -730,10 +876,51 @@ function BasementSmokeCalcPage() {
     });
   }, [floors, ip, unitSystem]);
 
-  // Group calculated rows by basementLevel
+  // Unique basement level names for filter dropdown
+  const uniqueBasementLevels = useMemo(() => {
+    const levels = new Set<string>();
+    calculatedRows.forEach(r => {
+      const rawLvl = (r.basementLevel && r.basementLevel !== "undefined")
+        ? r.basementLevel
+        : (r.name && r.name.includes(" - ") ? r.name.split(" - ")[0] : (r.name && r.name !== "undefined" ? r.name : "Basement 1"));
+      if (rawLvl) levels.add(rawLvl.trim());
+    });
+    return Array.from(levels).sort((a, b) => {
+      const matchA = a.match(/(\d+)/);
+      const matchB = b.match(/(\d+)/);
+      const numA = matchA ? parseInt(matchA[1], 10) : 999;
+      const numB = matchB ? parseInt(matchB[1], 10) : 999;
+      if (numA !== numB) return numA - numB;
+      return a.localeCompare(b, undefined, { numeric: true });
+    });
+  }, [calculatedRows]);
+
+  // Filter calculated rows based on search query, level filter, and flagged state
+  const filteredRows = useMemo(() => {
+    return calculatedRows.filter(r => {
+      const lvlName = (r.basementLevel && r.basementLevel !== "undefined")
+        ? r.basementLevel
+        : (r.name && r.name.includes(" - ") ? r.name.split(" - ")[0] : (r.name && r.name !== "undefined" ? r.name : "Basement 1"));
+      
+      if (filterLevel !== "all" && lvlName.trim() !== filterLevel) {
+        return false;
+      }
+      if (filterFlagged && !r.flagged) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const fullStr = `${lvlName} ${r.zoneName || ""} ${r.name || ""}`.toLowerCase();
+        if (!fullStr.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [calculatedRows, filterLevel, filterFlagged, searchQuery]);
+
+  // Group calculated rows by basementLevel and sort ascending (B1, B2, B3...)
   const calculatedGroups = useMemo(() => {
     const map = new Map<string, typeof calculatedRows>();
-    calculatedRows.forEach(r => {
+    filteredRows.forEach(r => {
       const rawLvl = (r.basementLevel && r.basementLevel !== "undefined")
         ? r.basementLevel
         : (r.name && r.name.includes(" - ") ? r.name.split(" - ")[0] : (r.name && r.name !== "undefined" ? r.name : "Basement 1"));
@@ -744,15 +931,22 @@ function BasementSmokeCalcPage() {
 
     const result: { basementLevel: string; rows: typeof calculatedRows; subtotal3: number; subtotal6: number; max10Fire: number; totalArea: number; totalEffArea: number }[] = [];
     map.forEach((rows, bLevel) => {
-      const subtotal3 = rows.reduce((a, b) => a + b.flow3ach, 0);
-      const subtotal6 = rows.reduce((a, b) => a + b.flow6ach, 0);
-      const max10Fire = Math.max(...rows.map(r => r.flow10ach), 0);
-      const totalArea = rows.reduce((a, b) => a + b.area, 0);
-      const totalEffArea = rows.reduce((a, b) => a + b.effArea, 0);
+      let sortedRows = [...rows];
+      if (zoneSortBy === "name") {
+        sortedRows.sort((a, b) => (a.zoneName || a.name).localeCompare(b.zoneName || b.name, undefined, { numeric: true }));
+      } else if (zoneSortBy === "area") {
+        sortedRows.sort((a, b) => b.area - a.area);
+      }
+
+      const subtotal3 = sortedRows.reduce((a, b) => a + b.flow3ach, 0);
+      const subtotal6 = sortedRows.reduce((a, b) => a + b.flow6ach, 0);
+      const max10Fire = Math.max(...sortedRows.map(r => r.flow10ach), 0);
+      const totalArea = sortedRows.reduce((a, b) => a + b.area, 0);
+      const totalEffArea = sortedRows.reduce((a, b) => a + b.effArea, 0);
 
       result.push({
         basementLevel: bLevel,
-        rows,
+        rows: sortedRows,
         subtotal3,
         subtotal6,
         max10Fire,
@@ -761,8 +955,23 @@ function BasementSmokeCalcPage() {
       });
     });
 
+    // Always sort basement levels by level number in specified order (default ascending: BASEMENT 01, BASEMENT 02, BASEMENT 03...)
+    result.sort((a, b) => {
+      const matchA = a.basementLevel.match(/(\d+)/);
+      const matchB = b.basementLevel.match(/(\d+)/);
+      const numA = matchA ? parseInt(matchA[1], 10) : 999;
+      const numB = matchB ? parseInt(matchB[1], 10) : 999;
+      let diff = 0;
+      if (numA !== numB) {
+        diff = numA - numB;
+      } else {
+        diff = a.basementLevel.localeCompare(b.basementLevel, undefined, { numeric: true, sensitivity: 'base' });
+      }
+      return levelSortOrder === "asc" ? diff : -diff;
+    });
+
     return result;
-  }, [calculatedRows]);
+  }, [filteredRows, levelSortOrder, zoneSortBy]);
 
   const totals = useMemo(() => {
     const total3 = calculatedRows.reduce((a, b) => a + b.flow3ach, 0);
@@ -976,7 +1185,7 @@ function BasementSmokeCalcPage() {
           const rawLvl = (f.basementLevel && f.basementLevel !== "undefined")
             ? f.basementLevel
             : (f.name && f.name.includes(" - ") ? f.name.split(" - ")[0] : "Basement 1");
-          return rawLvl.trim() === bLevel.trim();
+          return rawLvl.trim().toLowerCase() === bLevel.trim().toLowerCase();
         }).map(f => f.id));
 
     const updatedFloors = floors.filter(f => !idsToDelete.has(f.id));
@@ -1247,28 +1456,24 @@ function BasementSmokeCalcPage() {
 
   return (
     <AppShell title="Basement Smoke Calc" hideSubHeader={true}>
-      <>
-        <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-1 gap-1.5 overflow-y-auto h-full px-1 sm:px-1.5 pb-1">
-          {/* Breadcrumbs & Page Header (Ventilation style) */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print">
-            <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">SMOKE MANAGEMENT &gt; BASEMENT VENTILATION</span>
-              <div className="flex items-center gap-3 mt-0.5">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Basement Smoke Extract Schedule</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{calculatedGroups.length} levels</span>
+      <div className="flex h-full min-h-0 bg-transparent font-sans">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          {/* Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Basement Smoke Extract Schedule</h1>
+              <CalculationReviewBar
+                projectId={project?.id}
+                calculatorPath="/basement-smoke-calc"
+                calculatorTitle="Basement Smoke Calc"
+                onReviewStateChange={setCalcReviewState}
+              />
+              {commentsList.length > 0 && (
+                <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
+                  <MessageSquare className="size-3.5 fill-blue-500/20" />
+                  <span>{commentsList.length} Active Task(s) / Comment(s)</span>
                 </div>
-                <CalculationReviewBar
-                  projectId={project?.id}
-                  calculatorPath="/basement-smoke-calc"
-                  calculatorTitle="Basement Smoke Calc"
-                  onReviewStateChange={setCalcReviewState}
-                />
-              </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Formulate car park ventilating schedule calculations (3, 6, and 10 ACH) and head losses for extract/makeup fan systems.
-              </p>
+              )}
             </div>
           </div>
 
@@ -1278,7 +1483,7 @@ function BasementSmokeCalcPage() {
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
-            {/* Top SubHeader / Section Navigation Tabs & Action Bar */}
+            {/* Top Row 1: Section Navigation Tabs & Unit System Toggle */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/50 flex-wrap gap-3">
               {/* Rounded-full Pill Tabs (Ventilation style) */}
               <div className="flex bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 gap-1">
@@ -1309,94 +1514,245 @@ function BasementSmokeCalcPage() {
                 </button>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2">
-                {/* Unit System Toggle Pill */}
-                <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl border border-border/80 text-xs font-semibold select-none mr-1">
-                  <button
-                    type="button"
-                    onClick={() => handleUnitSystemClick("ip")}
-                    className={`px-3 py-1 rounded-lg transition cursor-pointer font-bold ${
-                      unitSystem === "ip"
-                        ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    IP (CFM)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUnitSystemClick("si")}
-                    className={`px-3 py-1 rounded-lg transition cursor-pointer font-bold ${
-                      unitSystem === "si"
-                        ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    SI (L/s)
-                  </button>
-                </div>
-
-                {activeSection === "schedule" && (
-                  <>
-                    {clipboard.length > 0 && (
-                      <button
-                        onClick={() => {
-                          const baseTime = Date.now();
-                          const newPasted: BasementFloor[] = clipboard.map((item, idx) => ({
-                            ...item,
-                            id: `floor-${baseTime}-${idx}`,
-                            name: item.name.includes("(Copy)") ? item.name : `${item.name} (Copy)`
-                          }));
-                          updateFloorsWithHistory([...floors, ...newPasted]);
-                          setSelectedRowIds(new Set(newPasted.map(n => n.id)));
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-xl text-xs font-semibold hover:bg-emerald-500/20 transition cursor-pointer shadow-xs"
-                        title="Paste copied rows (Ctrl+V)"
-                      >
-                        <Clipboard className="size-3.5" />
-                        Paste ({clipboard.length})
-                      </button>
-                    )}
-
-                    <button
-                      onClick={() => setShowImportSourceModal(true)}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0A7BC7]/10 text-[#0A7BC7] dark:text-sky-400 border border-[#0A7BC7]/30 rounded-xl text-xs font-semibold hover:bg-[#0A7BC7]/20 transition cursor-pointer shadow-xs"
-                      title="Import basement floor levels from 3D BIM Viewer or Excel schedule"
-                    >
-                      <Sparkles className="size-3.5 text-[#0A7BC7]" />
-                      Import Schedule
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (!newFloor.name) {
-                          const nextLevelNum = calculatedGroups.length + 1;
-                          setNewFloor({ name: `B${nextLevelNum}`, area: 600, effArea: 500, height: 3, numZones: 1 });
-                        }
-                        setShowAddLevelModal(true);
-                      }}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0A7BC7] text-white rounded-xl text-xs font-semibold hover:bg-[#06456F] transition cursor-pointer shadow-xs"
-                    >
-                      <Plus className="size-3.5" />
-                      Add Level
-                    </button>
-                  </>
-                )}
+              {/* Unit System Toggle Pill */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 text-xs font-semibold select-none">
                 <button
-                  onClick={handleExportPDF}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 border border-border rounded-xl text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  type="button"
+                  onClick={() => handleUnitSystemClick("ip")}
+                  className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
+                    unitSystem === "ip"
+                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
                 >
-                  <FileText className="size-3.5 text-red-600" />
-                  Export PDF
+                  IP
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUnitSystemClick("si")}
+                  className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
+                    unitSystem === "si"
+                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  SI
                 </button>
               </div>
             </div>
 
+            {/* Dedicated Toolbar Row 2: Action Buttons & Filter/Search */}
+            {activeSection === "schedule" && (
+              <div className="flex items-center justify-between px-4 py-2 bg-card/60 shrink-0 select-none no-print border-b border-border/50 flex-wrap gap-2">
+                {/* Left Controls: Search, Filter, Sort */}
+                <div className="flex items-center gap-2">
+                  {/* Search Input */}
+                  <div className="relative flex items-center">
+                    <Search className="absolute left-2.5 size-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Filter spaces..."
+                      className="h-7 w-48 pl-8 pr-6 bg-slate-100 dark:bg-slate-900/60 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-2 text-muted-foreground hover:text-foreground text-xs cursor-pointer font-bold"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filter Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center size-7 rounded-full border transition-all duration-150 ease-out outline-none cursor-pointer group overflow-visible ${
+                          activeFiltersCount > 0
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
+                        }`}
+                        title="Filter schedule"
+                      >
+                        <Filter className="size-3.5 shrink-0" />
+                        {activeFiltersCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-xs border border-background">
+                            {activeFiltersCount}
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-xs font-bold text-foreground">Filter Schedule</span>
+                        {activeFiltersCount > 0 && (
+                          <button
+                            onClick={handleResetFilters}
+                            className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Level Filter */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Basement Level</span>
+                        <select
+                          value={filterLevel}
+                          onChange={e => setFilterLevel(e.target.value)}
+                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="all">All Levels ({uniqueBasementLevels.length})</option>
+                          {uniqueBasementLevels.map(lvl => (
+                            <option key={lvl} value={lvl}>{lvl}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Flagged Filter */}
+                      <div className="flex items-center justify-between pt-1 border-t border-border/50">
+                        <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                          <Flag className="size-3 text-red-500" />
+                          Flagged Only
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={filterFlagged}
+                          onChange={e => setFilterFlagged(e.target.checked)}
+                          className="rounded border-border cursor-pointer size-4"
+                        />
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Sort Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center size-7 rounded-full border transition-all duration-150 ease-out outline-none cursor-pointer group overflow-visible ${
+                          levelSortOrder !== "asc" || zoneSortBy !== "none"
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
+                        }`}
+                        title="Sort schedule"
+                      >
+                        <ArrowUpDown className="size-3.5 shrink-0" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-xs font-bold text-foreground">Sort Options</span>
+                        {(levelSortOrder !== "asc" || zoneSortBy !== "none") && (
+                          <button
+                            onClick={() => {
+                              setLevelSortOrder("asc");
+                              setZoneSortBy("none");
+                            }}
+                            className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Level Sort Order */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Level Order</span>
+                        <select
+                          value={levelSortOrder}
+                          onChange={e => setLevelSortOrder(e.target.value as "asc" | "desc")}
+                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="asc">Ascending (B1 → B2 → B3)</option>
+                          <option value="desc">Descending (B3 → B2 → B1)</option>
+                        </select>
+                      </div>
+
+                      {/* Zone Sort Order */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Zone Sorting</span>
+                        <select
+                          value={zoneSortBy}
+                          onChange={e => setZoneSortBy(e.target.value as "none" | "name" | "area")}
+                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="none">Original Order</option>
+                          <option value="name">Zone Name (A-Z)</option>
+                          <option value="area">Gross Area (Highest First)</option>
+                        </select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* Right Controls: Paste, Import, Export PDF, Add Level */}
+                <div className="flex items-center gap-2">
+                  {clipboard.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const baseTime = Date.now();
+                        const newPasted: BasementFloor[] = clipboard.map((item, idx) => ({
+                          ...item,
+                          id: `floor-${baseTime}-${idx}`,
+                          name: item.name.includes("(Copy)") ? item.name : `${item.name} (Copy)`
+                        }));
+                        updateFloorsWithHistory([...floors, ...newPasted]);
+                        setSelectedRowIds(new Set(newPasted.map(n => n.id)));
+                      }}
+                      className="flex items-center gap-1.5 px-3.5 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 rounded-full text-xs font-semibold hover:bg-emerald-500/20 transition cursor-pointer shadow-xs"
+                      title="Paste copied rows (Ctrl+V)"
+                    >
+                      <Clipboard className="size-3.5" />
+                      Paste ({clipboard.length})
+                    </button>
+                  )}
+
+                  {/* Import Button */}
+                  <button
+                    onClick={() => setShowImportSourceModal(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-1 bg-background text-foreground border border-border rounded-full text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
+                    title="Import basement floor levels from 3D Studio or Excel schedule"
+                  >
+                    <Upload className="size-3.5 text-[#0A7BC7]" />
+                    Import
+                  </button>
+
+                  {/* Export PDF */}
+                  <button
+                    onClick={handleExportPDF}
+                    className="flex items-center gap-1.5 px-3.5 py-1 bg-background text-foreground border border-border rounded-full text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
+                  >
+                    <FileText className="size-3.5 text-red-600" />
+                    Export PDF
+                  </button>
+
+                  {/* Add Level (EXTREME RIGHT) */}
+                  <button
+                    onClick={() => {
+                      if (!newFloor.name) {
+                        const nextLevelNum = calculatedGroups.length + 1;
+                        setNewFloor({ name: `B${nextLevelNum}`, area: 600, effArea: 500, height: 3, numZones: 1 });
+                      }
+                      setShowAddLevelModal(true);
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-1 bg-[#0A7BC7] text-white rounded-full text-xs font-bold hover:bg-[#06456F] transition cursor-pointer shadow-xs"
+                  >
+                    <Plus className="size-3.5 text-white" />
+                    Add Level
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Inner Content Area */}
-            <div className={`flex-1 overflow-y-auto ${activeSection === "schedule" ? "p-0" : "p-5"}`}>
+            <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto ${activeSection === "schedule" ? "p-0" : "p-5"}`}>
               {/* Basement Level Schedule Section */}
               {activeSection === "schedule" && (
-                <div className="w-full flex flex-col">
+                <div className="w-full flex-1 flex flex-col min-h-0">
                   {/* Floating Row Selection Toolbar */}
                   {selectedRowIds.size > 0 && (
                     <div className="m-3 flex items-center justify-between bg-primary/10 border border-primary/30 rounded-xl px-4 py-2 text-xs font-semibold text-primary animate-fade-in">
@@ -1448,7 +1804,7 @@ function BasementSmokeCalcPage() {
                   )}
 
                   {/* Grouped Table View */}
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto w-full">
                     <table className="w-full text-xs text-left border-collapse">
                       <thead>
                         <tr className="border-b border-border/70 text-muted-foreground font-semibold bg-slate-100/50 dark:bg-slate-900/30">
@@ -1479,42 +1835,57 @@ function BasementSmokeCalcPage() {
                               <ContextMenuTrigger asChild>
                                 <tr className={`font-sans group/header ${
                                   grpIdx > 0
-                                    ? "border-t-[10px] border-slate-200/90 dark:border-slate-800/90"
+                                    ? "border-t-2 border-slate-200 dark:border-slate-800"
                                     : ""
                                 }`}>
-                                  <td colSpan={9} className="py-2.5 px-3 font-bold text-foreground text-[12px] bg-slate-100/90 dark:bg-slate-800/80 border-y border-slate-300/80 dark:border-slate-700/80">
+                                  <td colSpan={9} className="py-2 px-3 font-bold text-foreground text-[12px] bg-slate-100/70 dark:bg-slate-800/60 border-y border-border/80">
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center gap-2">
-                                        <span className="text-sm">🏢</span>
+                                        <div className="w-1 h-4 bg-[#0A7BC7] rounded-full shrink-0"></div>
                                         <input
                                           type="text"
                                           value={grp.basementLevel}
                                           onChange={e => handleRenameLevel(grp.basementLevel, e.target.value)}
-                                          className="bg-transparent hover:bg-slate-200/60 dark:hover:bg-slate-700/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-2 py-0.5 font-bold text-xs text-foreground outline-none transition-colors"
+                                          className="bg-transparent hover:bg-slate-200/50 dark:hover:bg-slate-700/50 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded-md px-2 py-0.5 font-bold text-xs text-foreground outline-none transition-colors"
                                           title="Click to rename level inline"
                                         />
-                                        <span className="text-muted-foreground text-xs font-semibold">
-                                          ({grp.rows.length} {grp.rows.length === 1 ? "Zone" : "Zones"})
+                                        <span className="text-[10.5px] px-2 py-0.5 bg-slate-200/60 dark:bg-slate-700/50 text-muted-foreground font-semibold rounded-full">
+                                          {grp.rows.length} {grp.rows.length === 1 ? "Zone" : "Zones"}
                                         </span>
+                                        {(() => {
+                                          const grpComments = commentsList.filter(c => c.spaceId === grp.basementLevel || c.targetId === grp.basementLevel);
+                                          if (grpComments.length === 0) return null;
+                                          return (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenComment(grp.basementLevel, grp.basementLevel, "level")}
+                                              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10.5px] hover:bg-blue-200 transition cursor-pointer"
+                                              title={`${grpComments.length} comment(s)/task(s) assigned`}
+                                            >
+                                              <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                              <span>{grpComments.length}</span>
+                                            </button>
+                                          );
+                                        })()}
                                       </div>
                                       <div className="flex items-center gap-1.5">
                                         <button
                                           onClick={() => handleOpenEditLevelModal(grp)}
-                                          className="p-1.5 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-primary hover:bg-primary/10 transition cursor-pointer shadow-2xs"
+                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-primary hover:bg-primary/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
                                           title="Edit level parameters & zones"
                                         >
                                           <Edit3 className="size-3.5" />
                                         </button>
                                         <button
                                           onClick={() => handleAddZoneToLevel(grp.basementLevel)}
-                                          className="p-1.5 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition cursor-pointer shadow-2xs"
+                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
                                           title="Add new zone to this level"
                                         >
                                           <Plus className="size-3.5" />
                                         </button>
                                         <button
-                                          onClick={() => handleDeleteLevel(grp.basementLevel)}
-                                          className="p-1.5 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-red-500 hover:bg-red-500/10 transition cursor-pointer shadow-2xs"
+                                          onClick={() => handleDeleteLevel(grp.basementLevel, grp.rows.map(r => r.id))}
+                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-red-500 hover:bg-red-500/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
                                           title="Delete entire level"
                                         >
                                           <Trash2 className="size-3.5" />
@@ -1525,6 +1896,14 @@ function BasementSmokeCalcPage() {
                                 </tr>
                               </ContextMenuTrigger>
                               <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment(grp.basementLevel, grp.basementLevel, "level")}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                >
+                                  <MessageSquare className="size-3.5 text-blue-600" />
+                                  <span>Add Comment / Task to {grp.basementLevel}</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
                                 <ContextMenuItem
                                   onClick={() => handleOpenEditLevelModal(grp)}
                                   className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
@@ -1613,6 +1992,21 @@ function BasementSmokeCalcPage() {
                                     <td className="py-2.5 font-bold text-primary">{r.flow10ach.toLocaleString()}</td>
                                     <td className="py-1.5 text-center">
                                       <div className="flex items-center justify-center gap-1">
+                                        {(() => {
+                                          const rowComments = commentsList.filter(c => c.spaceId === r.id || c.targetId === r.id);
+                                          if (rowComments.length === 0) return null;
+                                          return (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenComment(r.id, r.name, "zone")}
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer shrink-0"
+                                              title={`${rowComments.length} comment(s)/task(s) assigned`}
+                                            >
+                                              <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                              <span>{rowComments.length}</span>
+                                            </button>
+                                          );
+                                        })()}
                                         <button
                                           type="button"
                                           onClick={() => handleUpdateFloorCell(r.id, "flagged", !r.flagged)}
@@ -1640,6 +2034,14 @@ function BasementSmokeCalcPage() {
                                   </tr>
                                 </ContextMenuTrigger>
                                 <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenComment(r.id, r.name, "zone")}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                  >
+                                    <MessageSquare className="size-3.5 text-blue-600" />
+                                    <span>Add Comment / Task to {r.name}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator className="h-px bg-border my-1" />
                                   <ContextMenuItem
                                     onClick={() => handleDuplicateZone(r)}
                                     className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
@@ -1674,28 +2076,28 @@ function BasementSmokeCalcPage() {
                               </ContextMenu>
                             ))}
                             {/* Basement Subtotal Row */}
-                            <tr className="bg-slate-50/90 dark:bg-slate-900/40 font-bold border-b-2 border-border/70 text-[11.5px]">
-                              <td className="py-2 px-3 font-sans text-muted-foreground uppercase tracking-wider" colSpan={2}>{grp.basementLevel} Subtotal</td>
-                              <td className="py-2 font-mono">{grp.totalArea.toLocaleString()}</td>
-                              <td className="py-2 font-mono">{grp.totalEffArea.toLocaleString()}</td>
-                              <td className="py-2 font-mono">-</td>
-                              <td className="py-2 font-mono text-slate-800 dark:text-slate-200">{grp.subtotal3.toLocaleString()}</td>
-                              <td className="py-2 font-mono text-slate-800 dark:text-slate-200">{grp.subtotal6.toLocaleString()}</td>
-                              <td className="py-2 font-mono text-red-600 dark:text-red-400">
+                            <tr className="bg-slate-100/50 dark:bg-slate-900/50 font-bold border-b border-border/70 text-[11.5px]">
+                              <td className="py-2.5 px-3 font-sans text-muted-foreground uppercase text-[10.5px] tracking-wider" colSpan={2}>{grp.basementLevel} Subtotal</td>
+                              <td className="py-2.5 font-mono">{grp.totalArea.toLocaleString()}</td>
+                              <td className="py-2.5 font-mono">{grp.totalEffArea.toLocaleString()}</td>
+                              <td className="py-2.5 font-mono text-muted-foreground">-</td>
+                              <td className="py-2.5 font-mono text-slate-800 dark:text-slate-200">{grp.subtotal3.toLocaleString()}</td>
+                              <td className="py-2.5 font-mono text-slate-800 dark:text-slate-200">{grp.subtotal6.toLocaleString()}</td>
+                              <td className="py-2.5 font-mono text-rose-600 dark:text-rose-400">
                                 {grp.max10Fire.toLocaleString()}
-                                <span className="ml-1.5 text-[9px] px-1.5 py-0.5 bg-red-500/10 text-red-600 dark:text-red-400 rounded font-bold uppercase tracking-tight">1 Zone Fire Rate</span>
+                                <span className="ml-2 text-[9px] px-2 py-0.5 bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 rounded-full font-bold uppercase tracking-tight">1 Zone Fire Rate</span>
                               </td>
-                              <td className="py-2"></td>
+                              <td className="py-2.5"></td>
                             </tr>
                           </Fragment>
                         ))}
                         {calculatedGroups.length === 0 && (
                           <tr>
-                            <td colSpan={9} className="py-12 text-center text-muted-foreground font-sans">
-                              <div className="flex flex-col items-center justify-center gap-2">
+                            <td colSpan={9} className="py-20 px-4 text-center text-muted-foreground font-sans align-middle">
+                              <div className="flex flex-col items-center justify-center gap-2 min-h-[260px]">
                                 <Layers className="size-8 text-muted-foreground/40" />
                                 <p className="font-bold text-sm text-foreground">No basement levels defined</p>
-                                <p className="text-xs text-muted-foreground">Click "Add Level" or import directly from 3D BIM Viewer / Excel.</p>
+                                <p className="text-xs text-muted-foreground">Click "Add Level" or import directly from 3D Studio / Excel.</p>
                                 <div className="mt-2 flex items-center gap-2 flex-wrap justify-center">
                                   <button
                                     type="button"
@@ -1714,7 +2116,7 @@ function BasementSmokeCalcPage() {
                                     className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary/10 text-primary border border-primary/30 rounded-xl text-xs font-semibold hover:bg-primary/20 transition cursor-pointer shadow-xs"
                                   >
                                     <Box className="size-3.5 text-primary" />
-                                    Import from 3D BIM Viewer
+                                    Import from 3D Studio
                                   </button>
                                 </div>
                               </div>
@@ -1963,6 +2365,14 @@ function BasementSmokeCalcPage() {
                       </div>
                     </ContextMenuTrigger>
                     <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem
+                        onClick={() => handleOpenComment(fs.id, fs.name, "system")}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <MessageSquare className="size-3.5 text-blue-600" />
+                        <span>Add Comment / Task to {fs.name}</span>
+                      </ContextMenuItem>
+                      <ContextMenuSeparator className="h-px bg-border my-1" />
                       <ContextMenuItem
                         onClick={() => setFireConfigFSId(fs.id)}
                         className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
@@ -2733,7 +3143,7 @@ function BasementSmokeCalcPage() {
                 className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <Box className="size-3.5" />
-                Open 3D BIM Viewer
+                Open 3D Studio
               </button>
 
               <div className="flex gap-2">
@@ -2756,7 +3166,21 @@ function BasementSmokeCalcPage() {
           </div>
         </div>
       )}
-      </>
+
+      {/* Assign Comment / Task Modal */}
+      {commentModalOpen && commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => setCommentModalOpen(false)}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType={commentTargetItem.type || "zone"}
+          calculatorTitle="Basement Smoke Calc"
+          calculatorPath="/basement-smoke-calc"
+          onSave={handleSaveComment}
+          existingComments={commentsList.filter(c => c.spaceId === commentTargetItem.id || c.targetId === commentTargetItem.id || c.itemId === commentTargetItem.id)}
+        />
+      )}
     </AppShell>
   );
 }

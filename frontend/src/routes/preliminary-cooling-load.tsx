@@ -893,13 +893,13 @@ function PreliminaryCoolingLoadPage() {
       setPendingRecords(parsedPcl);
       setSelectedPending(new Set(parsedPcl.map((p) => p.id)));
       setImportOpen(true);
-      toast.success(`Extracted ${parsedPcl.length} spaces from 3D BIM Model!`);
+      toast.success(`Extracted ${parsedPcl.length} spaces from 3D Studio!`);
     } else {
       const answer = await confirm(
-        "No 3D IFC model is currently loaded in the 3D Viewer. Please go to the 3D BIM Viewer page and load an IFC model first.",
+        "No 3D IFC model is currently loaded in 3D Studio. Please go to 3D Studio and load an IFC model first.",
         {
           title: "3D Model Required",
-          confirmText: "Go to 3D BIM Viewer",
+          confirmText: "Go to 3D Studio",
           cancelText: "Cancel",
         }
       );
@@ -975,7 +975,7 @@ function PreliminaryCoolingLoadPage() {
     }
 
     if (ventSpaces.length === 0) {
-      toast.error("No spaces found in the Ventilation schedule for this project yet. Please add spaces in Ventilation first or import from Excel / 3D BIM Viewer.");
+      toast.error("No spaces found in the Ventilation schedule for this project yet. Please add spaces in Ventilation first or import from Excel / 3D Studio.");
       return;
     }
 
@@ -3262,7 +3262,7 @@ function PreliminaryCoolingLoadPage() {
                       }}
                       className="px-3 py-1.5 rounded-lg border border-border bg-surface-1 hover:bg-surface-2 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer text-foreground"
                     >
-                      <Box className="size-3.5 text-primary" /> Import from 3D BIM Viewer
+                      <Box className="size-3.5 text-primary" /> Import from 3D Studio
                     </button>
                   </div>
                   <span className="text-[10px] text-muted-foreground mt-3 font-mono">Supports Revit Space Schedules (.xlsx, .xls) and 3D BIM Models</span>

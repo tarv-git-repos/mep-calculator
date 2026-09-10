@@ -210,36 +210,30 @@ export function VentilationModule() {
     >
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
-            <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; VENTILATION</span>
-              <div className="flex items-center gap-3 mt-0.5">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Ventilation</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{spaces.length} spaces</span>
-                </div>
-                <button 
-                  onClick={() => setIntelOpen(v => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                    intelOpen
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                  }`}
-                >
-                  <Sparkles className="size-3.5" />
-                  Intelligence
-                </button>
-                <CalculationReviewBar
-                  projectId={activeProjectId}
-                  calculatorPath="/ventilation"
-                  calculatorTitle="Ventilation"
-                  onReviewStateChange={setCalcReviewState}
-                />
+          {/* Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Ventilation</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{spaces.length} spaces</span>
               </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Fresh air, extract, and pressure balance for every space in the project.
-              </p>
+              <button 
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+              <CalculationReviewBar
+                projectId={activeProjectId}
+                calculatorPath="/ventilation"
+                calculatorTitle="Ventilation"
+                onReviewStateChange={setCalcReviewState}
+              />
             </div>
           </div>
 
@@ -592,13 +586,13 @@ function SpacesView() {
       setPendingRecords(extracted);
       setSelectedPending(new Set(extracted.map((p) => p.id)));
       setImportOpen(true);
-      toast.success(`Extracted ${extracted.length} spaces from 3D BIM Viewer!`);
+      toast.success(`Extracted ${extracted.length} spaces from 3D Studio!`);
     } else {
       const answer = await confirm(
-        "No 3D IFC model is currently loaded in the 3D Viewer. Please go to the 3D BIM Viewer page and load an IFC model first.",
+        "No 3D IFC model is currently loaded in 3D Studio. Please go to 3D Studio and load an IFC model first.",
         {
           title: "3D Model Required",
-          confirmText: "Go to 3D BIM Viewer",
+          confirmText: "Go to 3D Studio",
           cancelText: "Cancel",
         }
       );

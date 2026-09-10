@@ -6,6 +6,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle } from "lucide-react";
 import * as XLSX from "xlsx";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/heating-load")({
   head: () => ({
@@ -31,23 +32,25 @@ function HeatingLoadPage() {
 
   const ip = unitSystem === "ip";
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
-    // Convert inputs
-    const convArea = (a: number) => unit === "ip" ? a * 10.764 : a / 10.764;
-    const convHt = (h: number) => unit === "ip" ? h * 3.28084 : h / 3.28084;
-    const convT = (t: number) => unit === "ip" ? t * 1.8 + 32 : (t - 32) / 1.8;
-    const convU = (u: number) => unit === "ip" ? u / 5.678 : u * 5.678; // W/m²K to BTU/hr·ft²·°F
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
 
-    setArea(area !== "" ? Number(convArea(Number(area)).toFixed(0)) : "");
-    setHeight(height !== "" ? Number(convHt(Number(height)).toFixed(1)) : "");
-    setUWall(uWall !== "" ? Number(convU(Number(uWall)).toFixed(3)) : "");
-    setUGlaz(uGlaz !== "" ? Number(convU(Number(uGlaz)).toFixed(3)) : "");
-    setGlazArea(glazArea !== "" ? Number(convArea(Number(glazArea)).toFixed(0)) : "");
-    setOat(oat !== "" ? Number(convT(Number(oat)).toFixed(1)) : "");
-    setIat(iat !== "" ? Number(convT(Number(iat)).toFixed(1)) : "");
+    if (shouldConvert) {
+      // Convert inputs
+      const convArea = (a: number) => targetUnit === "ip" ? a * 10.764 : a / 10.764;
+      const convHt = (h: number) => targetUnit === "ip" ? h * 3.28084 : h / 3.28084;
+      const convT = (t: number) => targetUnit === "ip" ? t * 1.8 + 32 : (t - 32) / 1.8;
+      const convU = (u: number) => targetUnit === "ip" ? u / 5.678 : u * 5.678; // W/m²K to BTU/hr·ft²·°F
+
+      setArea(area !== "" ? Number(convArea(Number(area)).toFixed(0)) : "");
+      setHeight(height !== "" ? Number(convHt(Number(height)).toFixed(1)) : "");
+      setUWall(uWall !== "" ? Number(convU(Number(uWall)).toFixed(3)) : "");
+      setUGlaz(uGlaz !== "" ? Number(convU(Number(uGlaz)).toFixed(3)) : "");
+      setGlazArea(glazArea !== "" ? Number(convArea(Number(glazArea)).toFixed(0)) : "");
+      setOat(oat !== "" ? Number(convT(Number(oat)).toFixed(1)) : "");
+      setIat(iat !== "" ? Number(convT(Number(iat)).toFixed(1)) : "");
+    }
   };
 
   const calculatedData = useMemo(() => {
@@ -194,15 +197,18 @@ function HeatingLoadPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left Inputs */}
             <div className="lg:col-span-5 flex flex-col gap-5">
-              <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60 self-start select-none">
-                <button type="button" onClick={() => handleUnitSystemChange("ip")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Imperial (IP)</button>
-                <button type="button" onClick={() => handleUnitSystemChange("si")} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer ${!ip ? "bg-white dark:bg-slate-900 text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>Metric (SI)</button>
-              </div>
-
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Envelope parameters</h3>
+                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Envelope parameters</h3>
+                  </div>
+                  <UnitToggle
+                    unitSystem={unitSystem}
+                    onChange={handleUnitSystemChange}
+                    inputDescriptions="Floor Area, Height, U-values, Temperatures"
+                    conversionExample={unitSystem === "si" ? "Convert 185 m² → 2,000 ft², 0.28 W/m²K → 0.05 BTU/hr·ft²·°F" : "Convert 2000 ft² → 185 m², 0.05 BTU/hr·ft²·°F → 0.28 W/m²K"}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">

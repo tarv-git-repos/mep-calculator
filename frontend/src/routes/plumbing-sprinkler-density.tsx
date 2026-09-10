@@ -24,6 +24,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditSprinklerModal, type SprinklerFormData } from "@/components/workspace/EditSprinklerModal";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
 import { dirtyStore } from "@/lib/dirty-store";
 
@@ -468,16 +469,36 @@ function SprinklerDensityPage() {
     await exportSprinklerDensityPDF(exportData, meta);
   };
 
-  const handleUnitToggle = (newUnit: "si" | "ip") => {
+  const handleUnitToggle = (newUnit: "si" | "ip", shouldConvert: boolean) => {
     if (newUnit === unitSystem) return;
     setUnitSystem(newUnit);
-    if (newUnit === "si") {
-      if (coverage !== "") {
-        setCoverage(parseFloat((Number(coverage) / 10.7639).toFixed(1)));
-      }
-    } else {
-      if (coverage !== "") {
-        setCoverage(parseFloat((Number(coverage) * 10.7639).toFixed(0)));
+    if (shouldConvert) {
+      if (newUnit === "si") {
+        if (coverage !== "") {
+          setCoverage(parseFloat((Number(coverage) / 10.7639).toFixed(1)));
+        }
+        if (customDens !== "") {
+          setCustomDens(parseFloat((Number(customDens) * 40.7458).toFixed(2)));
+        }
+        if (customArea !== "") {
+          setCustomArea(parseFloat((Number(customArea) / 10.7639).toFixed(1)));
+        }
+        if (kFactor) {
+          setKFactor(parseFloat((Number(kFactor) * 14.28).toFixed(1)));
+        }
+      } else {
+        if (coverage !== "") {
+          setCoverage(parseFloat((Number(coverage) * 10.7639).toFixed(0)));
+        }
+        if (customDens !== "") {
+          setCustomDens(parseFloat((Number(customDens) / 40.7458).toFixed(2)));
+        }
+        if (customArea !== "") {
+          setCustomArea(parseFloat((Number(customArea) * 10.7639).toFixed(0)));
+        }
+        if (kFactor) {
+          setKFactor(parseFloat((Number(kFactor) / 14.28).toFixed(1)));
+        }
       }
     }
   };
@@ -1187,26 +1208,17 @@ function SprinklerDensityPage() {
             
             {/* Unit Switcher */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="flex rounded-full border border-border p-0.5 bg-surface-2 shrink-0">
-                <button
-                  disabled={isApprovedLocked}
-                  onClick={() => handleUnitToggle("si")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
-                    unitSystem === "si" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  SI
-                </button>
-                <button
-                  disabled={isApprovedLocked}
-                  onClick={() => handleUnitToggle("ip")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
-                    unitSystem === "ip" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  IP
-                </button>
-              </div>
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                disabled={isApprovedLocked}
+                inputDescriptions="Coverage, Design Density, Design Area, K-Factor"
+                conversionExample={
+                  unitSystem === "si"
+                    ? "Convert 130 sq ft → 12.1 m², 0.20 gpm/ft² → 8.15 mm/min, K-5.6 → K-80"
+                    : "Convert 12.1 m² → 130 sq ft, 8.15 mm/min → 0.20 gpm/ft², K-80 → K-5.6"
+                }
+              />
             </div>
           </div>
 

@@ -20,6 +20,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditCableTrayRowModal } from "@/components/workspace/EditCableTrayRowModal";
 import { api } from "@/services/api";
@@ -115,6 +116,28 @@ function CableTraySizingPage() {
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+
+  const handleUnitToggle = (targetUnit: "si" | "ip", shouldConvert: boolean = true) => {
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
+    if (shouldConvert) {
+      setTrays(prev => prev.map(t => ({
+        ...t,
+        cables: t.cables.map(c => {
+          if (c.customOd !== undefined && c.customOd !== "") {
+            const num = Number(c.customOd);
+            if (!isNaN(num)) {
+              return {
+                ...c,
+                customOd: targetUnit === "ip" ? Number((num / 25.4).toFixed(2)) : Number((num * 25.4).toFixed(1))
+              };
+            }
+          }
+          return c;
+        })
+      })));
+    }
+  };
 
   const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
     try {
@@ -1229,6 +1252,17 @@ function CableTraySizingPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+            <UnitToggle
+              unitSystem={unitSystem}
+              onChange={handleUnitToggle}
+              inputDescriptions="Cable Diameters, Tray Sizing Output"
+              conversionExample={
+                unitSystem === "si"
+                  ? "Convert 150 mm → 6\", 300 mm → 12\""
+                  : "Convert 6\" → 150 mm, 12\" → 300 mm"
+              }
+            />
+
             <input type="file" ref={fileInputRef} onChange={handleImportCatalog} className="hidden" accept=".xlsx, .xls, .csv" />
             
             <button

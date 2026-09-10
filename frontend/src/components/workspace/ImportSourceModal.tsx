@@ -69,7 +69,7 @@ export function ImportSourceModal({
             </div>
           </button>
 
-          {/* Option 2: 3D BIM Viewer */}
+          {/* Option 2: 3D Studio */}
           <button
             onClick={() => {
               onClose();
@@ -84,10 +84,10 @@ export function ImportSourceModal({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
-                    Import from 3D BIM Viewer
+                    Import from 3D Studio
                   </span>
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">
-                    BIM 3D
+                    3D Studio
                   </span>
                 </div>
                 <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
