@@ -163,7 +163,8 @@ const EXCLUDED_PERSIST_PATHS = [
   "/condensate-drain-calc",
   "/plumbing-pressure-vessel",
   "/plumbing-storm-water",
-  "/plumbing-sprinkler-density"
+  "/plumbing-sprinkler-density",
+  "/psychrometric"
 ];
 
 const NON_VERSION_PATHS = [
@@ -645,6 +646,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   });
 
   useEffect(() => {
+    const handleNotifRefresh = () => {
+      setNotifTick(t => t + 1);
+      if (typeof window !== "undefined") {
+        const uId = userId || userData?.id || profile?.id;
+        const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
+        const saved = localStorage.getItem(key) || localStorage.getItem("mep_persistent_user_notifs");
+        if (saved) {
+          try { setPersistentNotifs(JSON.parse(saved)); } catch(e) {}
+        }
+      }
+    };
+
     if (typeof window !== "undefined") {
       const uId = userData?.id || profile?.id;
       if (uId) {
@@ -665,8 +678,22 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           if (savedRead) setReadNotifIds(JSON.parse(savedRead));
         } catch (e) {}
       }
+
+      window.addEventListener("mep_notif_tick", handleNotifRefresh);
+      window.addEventListener("mep_notification_received", handleNotifRefresh);
+      window.addEventListener("mep-notification-added", handleNotifRefresh);
+      window.addEventListener("mep_storage_changed", handleNotifRefresh);
+      window.addEventListener("storage", handleNotifRefresh);
+
+      return () => {
+        window.removeEventListener("mep_notif_tick", handleNotifRefresh);
+        window.removeEventListener("mep_notification_received", handleNotifRefresh);
+        window.removeEventListener("mep-notification-added", handleNotifRefresh);
+        window.removeEventListener("mep_storage_changed", handleNotifRefresh);
+        window.removeEventListener("storage", handleNotifRefresh);
+      };
     }
-  }, [userData?.id, profile?.id]);
+  }, [userData?.id, profile?.id, userId]);
 
   const markNotifAsRead = (id: string) => {
     if (!id) return;
@@ -1293,6 +1320,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             key.startsWith("mep_sprinkler_rows_") ||
             key.startsWith("mep_lux_calc_") ||
             key.startsWith("mep_cable_tray_") ||
+            key.startsWith("mep_calc_comments_") ||
             key.startsWith("mep_gen_projects_")
           )) {
             const raw = localStorage.getItem(key);
@@ -1319,6 +1347,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   const projId = key.replace("mep_sprinklers_", "").replace("mep_sprinkler_rows_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
                   if (Array.isArray(data)) addNotifs(data, "Sprinkler Head", projObj?.name || "Active Project", projId, "/plumbing-sprinkler-kfactor");
+                } else if (key.startsWith("mep_calc_comments_")) {
+                  const parts = key.replace("mep_calc_comments_", "").split("_");
+                  const projId = parts[0] || "default";
+                  const calcPath = parts.slice(1).join("_") || "/psychrometric";
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) {
+                    data.forEach((c: any) => {
+                      if (c && (c.text || c.comment)) {
+                        addNotifs(
+                          [{ id: c.targetId || c.spaceId || c.itemId || "param", label: c.targetName || c.spaceName || "Parameter", comments: [c] }],
+                          c.targetType || "Parameter",
+                          projObj?.name || c.projectName || "Active Project",
+                          projId,
+                          c.calculatorPath || calcPath
+                        );
+                      }
+                    });
+                  }
                 } else if (key.startsWith("mep_cable_tray_")) {
                   const projId = key.replace("mep_cable_tray_", "");
                   const projObj = projects.find((p: any) => p.id === projId);

@@ -178,7 +178,7 @@ function HazenWilliamsPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-6">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; HAZEN-WILLIAMS PRESSURE DROP</span>
               <div className="flex items-center gap-3 mt-0.5">
@@ -227,7 +227,7 @@ function HazenWilliamsPage() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className="bg-card border border-border rounded-3xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden mx-6 mb-6">
+          <div className="bg-card border border-border rounded-3xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">

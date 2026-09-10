@@ -525,7 +525,7 @@ function FixtureUnitPage() {
   return (
     <AppShell title="Fixture Unit Calculator" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6 animate-in fade-in-50 duration-200">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full animate-in fade-in-50 duration-200">
           <div className="flex justify-between items-start select-none">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; FIXTURE UNIT SIZER</span>

@@ -856,7 +856,7 @@ function CalculatorsPage() {
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
         {/* Breadcrumbs & Page Header */}
-        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-6 z-10">
+        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg z-10">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">{groupName} &gt; {name}</span>
             <div className="flex items-center gap-3 mt-0.5">
@@ -889,7 +889,7 @@ function CalculatorsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] flex-1 min-h-0 overflow-hidden relative z-10 border border-border mx-6 mb-6 rounded-3xl bg-card shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] flex-1 min-h-0 overflow-hidden relative z-10 border border-border rounded-3xl bg-card shadow-sm">
           {/* Left Side: Calculations Form & Output */}
           <div className="flex flex-col min-h-0 border-r border-border overflow-y-auto bg-surface/30">
             <div className="p-6 max-w-4xl w-full flex flex-col gap-6">

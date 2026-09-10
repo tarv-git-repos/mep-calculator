@@ -10,7 +10,7 @@ import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
   Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
   RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles,
-  Download, Upload, Gauge, Layers
+  Download, Upload, Gauge, Layers, Zap, Flame, X, ArrowRight, Check
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -28,6 +28,33 @@ import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBa
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPumpModal } from "@/components/workspace/EditChwPumpModal";
+import { exportChwPumpHeadExcel } from "@/lib/exportChwPumpHeadExcel";
+
+// Water Specific Heat Capacity lookup table (kJ/kg·K)
+const WATER_CP_LOOKUP: { [temp: number]: number } = {
+  0: 4.217,
+  20: 4.186,
+  40: 4.179,
+  60: 4.184,
+  80: 4.196,
+  100: 4.216,
+};
+
+function getWaterCp(tempC: number): number {
+  const temps = [0, 20, 40, 60, 80, 100];
+  if (tempC <= 0) return WATER_CP_LOOKUP[0];
+  if (tempC >= 100) return WATER_CP_LOOKUP[100];
+  for (let i = 0; i < temps.length - 1; i++) {
+    const t0 = temps[i];
+    const t1 = temps[i + 1];
+    if (tempC >= t0 && tempC <= t1) {
+      const cp0 = WATER_CP_LOOKUP[t0];
+      const cp1 = WATER_CP_LOOKUP[t1];
+      return Number((cp0 + ((tempC - t0) / (t1 - t0)) * (cp1 - cp0)).toFixed(4));
+    }
+  }
+  return 4.186;
+}
 
 export const Route = createFileRoute("/chw-pump-head")({
   head: () => ({
@@ -84,9 +111,84 @@ function ChwPumpHeadPage() {
     notes: "Chilled water secondary circulation loop pump head and fittings loss calculation report.",
   });
 
-  // Expandable sections
-  const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
+  // Expandable sections & Detailed Calculations Dialog
+  const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+
+  // Preliminary Cooling Load Import Modal & Thermodynamic State
+  const [showPclModal, setShowPclModal] = useState<boolean>(false);
+  const [pclDeltaT, setPclDeltaT] = useState<number>(5.5); // °C (standard CHW ΔT is 5.5°C / 10°F)
+  const [pclWaterTemp, setPclWaterTemp] = useState<number>(7.0); // °C CHW supply
+  const [pclDiversity, setPclDiversity] = useState<number>(100); // %
+
+  const getPclSummary = () => {
+    const pId = project?.id || "default";
+    let pclList: any[] = [];
+    try {
+      const saved = localStorage.getItem(`mep_pcl_rows_${pId}`) || localStorage.getItem("pcl_rows");
+      if (saved) {
+        pclList = JSON.parse(saved);
+      }
+    } catch (e) {}
+
+    if (pclList.length === 0 && (project as any)?.workspace_data) {
+      const wdata = typeof (project as any).workspace_data === "string"
+        ? JSON.parse((project as any).workspace_data)
+        : (project as any).workspace_data;
+      if (wdata?.pcl_rows) pclList = wdata.pcl_rows;
+    }
+
+    const totalKw = pclList.reduce((acc, row) => {
+      const kw = Number(row.kw || (row.tr ? row.tr * 3.517 : (row.dissipation ? row.dissipation / 1000 : 0)));
+      return acc + (isNaN(kw) ? 0 : kw);
+    }, 0);
+
+    const totalTr = pclList.reduce((acc, row) => {
+      const tr = Number(row.tr || (row.kw ? row.kw / 3.517 : 0));
+      return acc + (isNaN(tr) ? 0 : tr);
+    }, 0);
+
+    const totalArea = pclList.reduce((acc, row) => {
+      const area = Number(row.area || 0);
+      return acc + (isNaN(area) ? 0 : area);
+    }, 0);
+
+    return {
+      spaces: pclList,
+      count: pclList.length,
+      totalKw: Number(totalKw.toFixed(2)),
+      totalTr: Number(totalTr.toFixed(2)),
+      totalArea: Number(totalArea.toFixed(1)),
+    };
+  };
+
+  const pclSummary = useMemo(() => getPclSummary(), [project?.id, showPclModal]);
+
+  const handleApplyPclFlowRate = () => {
+    if (!pclSummary || pclSummary.totalKw <= 0) {
+      toast.error("No cooling load data found in Preliminary Cooling Load to import.");
+      return;
+    }
+
+    const effectiveKw = pclSummary.totalKw * (pclDiversity / 100);
+    const cp = getWaterCp(pclWaterTemp);
+    const dt = pclDeltaT > 0 ? pclDeltaT : 5.5;
+    // Mass flow m = Q / (cp * dt) [kg/s]
+    const flowLps = effectiveKw / (cp * dt); // L/s
+    const flowGpm = (flowLps * 60) / 3.78; // GPM basis
+    
+    const targetVal = unitSystem === "ip" ? Number(flowGpm.toFixed(1)) : Number(flowGpm.toFixed(0));
+    const next = { 
+      ...sizingParams, 
+      flowUsgpm: targetVal, 
+      flowLps: Number(flowLps.toFixed(2)) 
+    };
+    saveParams(next, unitSystem, projectInfo);
+    setShowPclModal(false);
+    toast.success(
+      `Imported ${flowLps.toFixed(2)} L/s (${flowGpm.toFixed(1)} GPM) from Preliminary Cooling Load (${pclSummary.totalKw} kW @ ΔT=${dt}°C)`
+    );
+  };
 
   // Comment System State & Persistence
   const [commentsList, setCommentsList] = useState<any[]>([]);
@@ -523,43 +625,22 @@ function ChwPumpHeadPage() {
 
   const handleExportExcel = async () => {
     try {
-      const wb = XLSX.utils.book_new();
-      const data = [
-        ["CHW Pump Head Loss & Motor Sizing Calculation"],
-        ["Generated on: " + new Date().toLocaleDateString(), `Unit System: ${unitSystem.toUpperCase()}`],
-        [],
-        ["1. Flow Demand Parameters"],
-        ["Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`],
-        ["Metric Flow Basis", `${calculatedData.flowRate.toFixed(2)} L/s (${calculatedData.massFlow.toFixed(3)} kg/s)`],
-        [],
-        ["2. Piping Run & Friction Losses"],
-        ["Vertical Pipe Length", `${calculatedData.vertLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Horizontal Pipe Length", `${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Sum of Straight Pipe Lengths", `${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Elbows & Reducers Allowance (+30%)", `${calculatedData.elbowsLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`],
-        ["Valves & Accessories Allowance (+30%)", `${calculatedData.valvesLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`],
-        ["Total Equivalent Length (with 5% Safety)", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Design Friction Factor", `${sizingParams.frictionFactor || (unitSystem === "ip" ? 1.77 : 0.4)} ${unitSystem === "ip" ? "psi/100ft" : "bar/100m"}`],
-        ["Head Loss in Piping Run", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-        [],
-        ["3. Pump Head Requirements"],
-        ["Static Elevation Lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-        ["Residual Pressure at Outlet", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-        ["Suction Pressure (Deducted)", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-        ["Safety Margin Applied", `${calculatedData.sfPercent}%`],
-        ["Total Calculated Dynamic Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-        ["Selected Operating Head", `${calculatedData.selectedHeadDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-        [],
-        ["4. Motor & Pump Selection"],
-        ["Pump Hydraulic Efficiency", `${calculatedData.effPumpVal}%`],
-        ["Motor Efficiency", `${calculatedData.effMotorVal}%`],
-        ["Hydraulic Shaft Power", `${calculatedData.shaftPowerKw.toFixed(2)} kW`],
-        ["Total Estimated Motor Power", `${calculatedData.motorPowerKw.toFixed(2)} kW / ${calculatedData.motorPowerHp.toFixed(2)} HP`],
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      XLSX.utils.book_append_sheet(wb, ws, "CHW Pump Head");
-      const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      downloadFile(new Uint8Array(xlsxBuffer), "CHW_Pump_Head_Calculation.xlsx", "Excel Document", ["xlsx"]);
+      await exportChwPumpHeadExcel(
+        {
+          projectInfo,
+          sizingParams,
+          calculatedData,
+          unitSystem,
+        },
+        {
+          calcNo: projectInfo.calcNumber || "TRV-CHW-PUMP-01",
+          projectNo: projectInfo.projectNumber || project?.code || "P000",
+          projectName: projectInfo.projectName || project?.name || "CHW Pump Station",
+          client: projectInfo.client || project?.client || "",
+          date: projectInfo.date || new Date().toLocaleDateString("en-GB"),
+          userName: currentUserName,
+        }
+      );
       toast.success("Excel report exported successfully");
     } catch (e) {
       console.error(e);
@@ -577,47 +658,53 @@ function ChwPumpHeadPage() {
       const doc = new jsPDF("p", "pt", "a4");
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.text("PUMP HEAD CALCULATION REPORT", 40, 50);
+      doc.setFontSize(16);
+      doc.text("PUMP HEAD CALCULATION REPORT", 40, 44);
 
-      doc.setFontSize(10);
+      doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(100);
-      doc.text(`Generated on: ${projectInfo.date} | Calculation Ref: ${projectInfo.calcNumber} | Unit: ${unitSystem.toUpperCase()}`, 40, 68);
+      doc.setTextColor(90);
+      doc.text(`Generated on: ${projectInfo.date || new Date().toLocaleDateString("en-GB")} | Calculation Ref: ${projectInfo.calcNumber || "TRV-CHW-PUMP-01"} | Unit System: ${unitSystem.toUpperCase()}`, 40, 58);
 
-      doc.setDrawColor(200);
-      doc.line(40, 75, 550, 75);
+      doc.setDrawColor(210);
+      doc.setLineWidth(0.75);
+      doc.line(40, 66, 555, 66);
 
-      // 1. Project details
+      const tableMargin = { left: 40, right: 40 };
+
+      // 1. Project Details Table
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setTextColor(0);
-      doc.text("1. Project Details", 40, 95);
+      doc.text("1. Project Details", 40, 82);
 
       const projectData = [
-        ["Project Name", projectInfo.projectName, "Project Number", projectInfo.projectNumber],
-        ["Consultant", projectInfo.consultant, "Client", projectInfo.client],
-        ["Revision", projectInfo.revision, "Calculation Ref", projectInfo.calcNumber],
+        ["Project Name", projectInfo.projectName || project?.name || "-", "Project Number", projectInfo.projectNumber || project?.code || "-"],
+        ["Consultant", projectInfo.consultant || "-", "Client", projectInfo.client || project?.client || "-"],
+        ["Revision", projectInfo.revision || "Rev 0", "Calculation Ref", projectInfo.calcNumber || "TRV-CHW-PUMP-01"],
       ];
 
       autoTable(doc, {
-        startY: 105,
+        startY: 88,
         head: [],
         body: projectData,
-        theme: "plain",
-        styles: { fontSize: 9, cellPadding: 3 },
+        theme: "grid",
+        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
+        margin: tableMargin,
         columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 90 },
-          1: { cellWidth: 170 },
-          2: { fontStyle: "bold", cellWidth: 90 },
-          3: { cellWidth: 170 },
+          0: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
+          1: { cellWidth: 157 },
+          2: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
+          3: { cellWidth: 158 },
         },
       });
 
-      // 2. Design Sizing Parameters
+      // 2. Design Sizing Parameters Table
       doc.setFont("helvetica", "bold");
-      doc.text("2. Design Sizing Parameters", 40, (doc as any).lastAutoTable.finalY + 20);
+      doc.setFontSize(10);
+      doc.text("2. Design Sizing Parameters", 40, (doc as any).lastAutoTable.finalY + 14);
 
+      const paramHead = [["Parameter", "Design Value", "Parameter", "Design Value"]];
       const paramData = [
         ["Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`, "Vertical Pipe Length", `${calculatedData.vertLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
         ["Horizontal Pipe Length", `${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, "Design Friction Factor", `${sizingParams.frictionFactor || (unitSystem === "ip" ? 1.77 : 0.4)} ${unitSystem === "ip" ? "psi/100ft" : "bar/100m"}`],
@@ -626,71 +713,110 @@ function ChwPumpHeadPage() {
       ];
 
       autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 30,
-        head: [],
+        startY: (doc as any).lastAutoTable.finalY + 20,
+        head: paramHead,
         body: paramData,
-        theme: "striped",
-        styles: { fontSize: 8.5, cellPadding: 3.5 },
+        theme: "grid",
+        headStyles: {
+          fillColor: [220, 230, 242],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+          fontSize: 8.5,
+        },
+        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
+        margin: tableMargin,
         columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 130 },
-          1: { cellWidth: 120 },
-          2: { fontStyle: "bold", cellWidth: 130 },
-          3: { cellWidth: 120 },
+          0: { fontStyle: "bold", cellWidth: 135, fillColor: [248, 250, 252] },
+          1: { cellWidth: 122, halign: "center" },
+          2: { fontStyle: "bold", cellWidth: 135, fillColor: [248, 250, 252] },
+          3: { cellWidth: 123, halign: "center" },
         },
       });
 
-      // 3. Friction & Equivalent Length Breakdown
+      // 3. Friction & Equivalent Length Breakdown Table
       doc.setFont("helvetica", "bold");
-      doc.text("3. Friction and Equivalent Length Breakdown", 40, (doc as any).lastAutoTable.finalY + 20);
+      doc.setFontSize(10);
+      doc.text("3. Friction and Equivalent Length Breakdown", 40, (doc as any).lastAutoTable.finalY + 14);
 
+      const ffVal = sizingParams.frictionFactor || (unitSystem === "ip" ? 1.77 : 0.4);
+      const breakdownHead = [["Item", "Piping Element / Friction Component", "Equivalent Length / Basis", "Design Value"]];
       const breakdownData = [
-        ["Vertical + Horizontal length sum", `${calculatedData.vertLengthDisplay.toFixed(1)} + ${calculatedData.horizLengthDisplay.toFixed(1)} = ${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Fittings equivalent allowance", `Elbows: ${calculatedData.elbowsLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit} | Valves: ${calculatedData.valvesLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Total design equivalent length", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Major + Minor Friction losses", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
+        ["1", "Straight Pipe Run (Vertical + Horizontal)", `${calculatedData.vertLengthDisplay.toFixed(1)} + ${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, `${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["2", "Elbows, Bends & Reducers Allowance (+30%)", "30% of Straight Pipe Sum", `${calculatedData.elbowsLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["3", "Valves & Accessories Allowance (+30%)", "30% of Straight Pipe Sum", `${calculatedData.valvesLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["4", "Total Design Equivalent Length (Leff)", "Sum with +5% Engineering Safety Factor", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
+        ["5", "Major + Minor Piping Friction Loss", `ΔH = Leff × (${ffVal} / 100)`, `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
       ];
 
       autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 30,
-        head: [],
+        startY: (doc as any).lastAutoTable.finalY + 20,
+        head: breakdownHead,
         body: breakdownData,
-        theme: "plain",
-        styles: { fontSize: 8.5, cellPadding: 3.5 },
+        theme: "grid",
+        headStyles: {
+          fillColor: [220, 230, 242],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+          fontSize: 8.5,
+        },
+        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
+        margin: tableMargin,
         columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 180 },
-          1: { cellWidth: 320 },
+          0: { fontStyle: "bold", halign: "center", cellWidth: 35 },
+          1: { fontStyle: "bold", cellWidth: 215 },
+          2: { cellWidth: 155, halign: "left" },
+          3: { fontStyle: "bold", cellWidth: 110, halign: "center" },
         },
       });
 
-      // 4. Head & Motor Selection Sizing Results
+      // 4. Head & Motor Selection Sizing Results Table
       doc.setFont("helvetica", "bold");
-      doc.text("4. Head & Motor Selection Sizing Results", 40, (doc as any).lastAutoTable.finalY + 20);
+      doc.setFontSize(10);
+      doc.text("4. Head & Motor Selection Sizing Results", 40, (doc as any).lastAutoTable.finalY + 14);
 
+      const resultsHead = [["Item", "Hydronic & Electrical Output Parameter", "Calculated Sizing Value", "Design Status"]];
       const resultsData = [
-        ["Piping Friction Loss head", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-        ["Static Elevation Head lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-        ["Residual pressure required", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-        ["Suction pressure deducted", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-        ["Total dynamic Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-        ["Estimated motor power required", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`],
+        ["1", "Piping Friction Loss Head", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`, "Included in TDH"],
+        ["2", "Static Elevation Head Lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Included in TDH"],
+        ["3", "Residual Pressure Required at Terminal", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Included in TDH"],
+        ["4", "Suction Pressure Deducted", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Suction Credit"],
+        ["5", "Total Dynamic Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`, "Calculated Duty Point"],
+        ["6", "Selected Operating Pump Head", `${calculatedData.selectedHeadDisplay.toFixed(3)} ${calculatedData.headUnit}`, "Selected Duty Head"],
+        ["7", "Pump & Motor Efficiencies", `Pump: ${calculatedData.effPumpVal}% | Motor: ${calculatedData.effMotorVal}%`, "Design Baseline"],
+        ["8", "Estimated Motor Power Required", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`, "Recommended Motor"],
       ];
 
       autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 30,
-        head: [],
+        startY: (doc as any).lastAutoTable.finalY + 20,
+        head: resultsHead,
         body: resultsData,
-        theme: "striped",
-        styles: { fontSize: 8.5, cellPadding: 3.5 },
+        theme: "grid",
+        headStyles: {
+          fillColor: [220, 230, 242],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          valign: "middle",
+          fontSize: 8.5,
+        },
+        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
+        margin: tableMargin,
         columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 180 },
-          1: { cellWidth: 320 },
+          0: { fontStyle: "bold", halign: "center", cellWidth: 35 },
+          1: { fontStyle: "bold", cellWidth: 215 },
+          2: { fontStyle: "bold", cellWidth: 145, halign: "center" },
+          3: { cellWidth: 120, halign: "center" },
         },
       });
 
       const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "chw-pump-head");
+      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "/chw-pump-head", tableMargin);
       const pdfBuffer = doc.output("arraybuffer");
-      downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
+      downloadFile(new Uint8Array(pdfBuffer), `${(projectInfo.projectName || "CHW_Pump_Head").replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
       toast.success("PDF report generated successfully");
     } catch (e) {
       console.error(e);
@@ -844,7 +970,9 @@ function ChwPumpHeadPage() {
             id={`res-${id}`}
             data-item-id={id}
             data-field-id={id}
-            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/40 dark:hover:bg-slate-800/30 px-2 rounded-lg transition cursor-context-menu group ${
+            onDoubleClick={() => setShowDetailedCalcs(true)}
+            title="Double-click to view step-by-step engineering calculation formulas"
+            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 px-2 rounded-lg transition cursor-pointer group ${
               colSpanTwo ? "col-span-2" : ""
             } ${
               isHighlighted
@@ -873,7 +1001,18 @@ function ChwPumpHeadPage() {
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => setShowDetailedCalcs(true)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary hover:text-primary rounded-lg cursor-pointer font-semibold"
+          >
+            <HelpCircle className="size-3.5 text-primary" />
+            <span>View Calculation Steps</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double-Click</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
           <ContextMenuItem
             onClick={() => handleCopyValue(label, valueFormatted)}
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
@@ -911,7 +1050,7 @@ function ChwPumpHeadPage() {
   return (
     <AppShell title="CHW Pump Head" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
           {/* Header Section matching screenshot */}
           <div className="flex flex-col gap-1 select-none">
@@ -974,20 +1113,32 @@ function ChwPumpHeadPage() {
             </p>
           </div>
 
-          {/* Core Calculator Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Core Calculator Layout (Balanced 6-6 Column Grid - No Scrolling Needed) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
             
-            {/* Inputs Column (5 cols) */}
-            <div className="lg:col-span-5 flex flex-col gap-6">
+            {/* Inputs Column (6 cols) */}
+            <div className="lg:col-span-6 flex flex-col gap-4">
               
-              {/* Card 1: Flow Demand Parameters */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Flow Demand Parameters</h3>
+              {/* Card 1: Flow Demand & Piping Network */}
+              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
+                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Flow Demand & Piping Geometry</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowPclModal(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 hover:border-primary/40 border border-primary/25 rounded-lg transition shadow-2xs cursor-pointer"
+                    title="Import total cooling load and calculate flow rate from Preliminary Cooling Load using Q = m·Cp·ΔT"
+                  >
+                    <Sparkles className="size-3 text-primary" />
+                    <span>Import from PCL</span>
+                  </button>
                 </div>
 
-                <div className="flex flex-col gap-3.5 text-xs">
+                <div className="flex flex-col gap-2.5 text-xs">
+                  {/* Flow Rate Input */}
                   {renderInputBox(
                     "chw-flow-rate",
                     "flowUsgpm",
@@ -997,56 +1148,87 @@ function ChwPumpHeadPage() {
                     unitSystem === "ip" ? "500" : "500",
                     0
                   )}
+
+                  {/* Quick PCL Indicator & 1-Click Apply */}
+                  {pclSummary.count > 0 && pclSummary.totalKw > 0 && (
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 text-xs">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Zap className="size-3.5 text-amber-500 shrink-0" />
+                        <span className="truncate text-muted-foreground text-[11px]">
+                          PCL Load: <strong className="text-foreground font-mono">{pclSummary.totalKw} kW</strong> ({pclSummary.totalTr} TR) • {pclSummary.count} spaces
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cp = getWaterCp(7.0);
+                          const flowLps = pclSummary.totalKw / (cp * 5.5);
+                          const flowGpm = (flowLps * 60) / 3.78;
+                          const targetVal = unitSystem === "ip" ? Number(flowGpm.toFixed(1)) : Number(flowGpm.toFixed(0));
+                          const next = { ...sizingParams, flowUsgpm: targetVal, flowLps: Number(flowLps.toFixed(2)) };
+                          saveParams(next, unitSystem, projectInfo);
+                          toast.success(`Imported ${flowLps.toFixed(2)} L/s (${flowGpm.toFixed(1)} GPM) from Preliminary Cooling Load (ΔT=5.5°C)`);
+                        }}
+                        className="px-2 py-0.5 text-[10px] font-bold text-primary hover:text-primary-foreground hover:bg-primary rounded-md border border-primary/30 transition cursor-pointer shrink-0 ml-2"
+                        title="Quick import with standard ΔT = 5.5°C"
+                      >
+                        Quick Apply
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 2-Column Grid for Lengths & Friction */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                    {renderInputBox(
+                      "chw-vert-length",
+                      "vertLength",
+                      `Vertical Length (${calculatedData.lengthUnit})`,
+                      sizingParams.vertLength,
+                      unitSystem === "ip" ? 100 : 30,
+                      unitSystem === "ip" ? "100" : "30",
+                      0
+                    )}
+                    {renderInputBox(
+                      "chw-horiz-length",
+                      "horizLength",
+                      `Horizontal Length (${calculatedData.lengthUnit})`,
+                      sizingParams.horizLength,
+                      unitSystem === "ip" ? 400 : 120,
+                      unitSystem === "ip" ? "400" : "120",
+                      0
+                    )}
+                    {renderInputBox(
+                      "chw-friction-factor",
+                      "frictionFactor",
+                      `Friction Factor (${unitSystem === "ip" ? "psi/100ft" : "bar/100m"})`,
+                      sizingParams.frictionFactor,
+                      unitSystem === "ip" ? 1.77 : 0.4,
+                      unitSystem === "ip" ? "1.77" : "0.4",
+                      0,
+                      "0.01"
+                    )}
+                    {renderInputBox(
+                      "chw-safety-margin",
+                      "safetyFactorHead",
+                      "Safety Margin (%)",
+                      sizingParams.safetyFactorHead,
+                      5,
+                      "5",
+                      0,
+                      "1"
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Card 2: Piping Run & Friction Losses */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+              {/* Card 2: Head Lift & Equipment Efficiencies */}
+              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
                   <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Piping Run & Friction Losses</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Head Pressures & Efficiencies</h3>
                 </div>
 
-                <div className="flex flex-col gap-3.5 text-xs">
-                  {renderInputBox(
-                    "chw-vert-length",
-                    "vertLength",
-                    `Vertical Pipe Length (${calculatedData.lengthUnit})`,
-                    sizingParams.vertLength,
-                    unitSystem === "ip" ? 100 : 30,
-                    unitSystem === "ip" ? "100" : "30",
-                    0
-                  )}
-                  {renderInputBox(
-                    "chw-horiz-length",
-                    "horizLength",
-                    `Horizontal Pipe Length (${calculatedData.lengthUnit})`,
-                    sizingParams.horizLength,
-                    unitSystem === "ip" ? 400 : 120,
-                    unitSystem === "ip" ? "400" : "120",
-                    0
-                  )}
-                  {renderInputBox(
-                    "chw-friction-factor",
-                    "frictionFactor",
-                    `Piping Friction Factor (${unitSystem === "ip" ? "psi/100ft" : "bar/100m length"})`,
-                    sizingParams.frictionFactor,
-                    unitSystem === "ip" ? 1.77 : 0.4,
-                    unitSystem === "ip" ? "1.77" : "0.4",
-                    0,
-                    "0.01"
-                  )}
-                </div>
-              </div>
-
-              {/* Card 3: Pump Head Requirements */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">3. Pump Head Requirements</h3>
-                </div>
-
-                <div className="flex flex-col gap-3.5 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                   {renderInputBox(
                     "chw-static-head",
                     "staticHead",
@@ -1060,7 +1242,7 @@ function ChwPumpHeadPage() {
                   {renderInputBox(
                     "chw-residual-pressure",
                     "residualPressure",
-                    `Residual Pressure at Outlet (${calculatedData.headUnit})`,
+                    `Residual Outlet Press (${calculatedData.headUnit})`,
                     sizingParams.residualPressure,
                     unitSystem === "ip" ? 29.0 : 2.0,
                     unitSystem === "ip" ? "29.0" : "2.0",
@@ -1070,7 +1252,7 @@ function ChwPumpHeadPage() {
                   {renderInputBox(
                     "chw-suction-pressure",
                     "suctionPressure",
-                    `Suction Pressure (Available Deducted) (${calculatedData.headUnit})`,
+                    `Suction Press Deducted (${calculatedData.headUnit})`,
                     sizingParams.suctionPressure,
                     0.0,
                     "0.0",
@@ -1078,40 +1260,19 @@ function ChwPumpHeadPage() {
                     "0.1"
                   )}
                   {renderInputBox(
-                    "chw-safety-margin",
-                    "safetyFactorHead",
-                    "Considering Safety Margin (%)",
-                    sizingParams.safetyFactorHead,
-                    5,
-                    "5",
-                    0,
-                    "1"
-                  )}
-                  {renderInputBox(
                     "chw-selected-head",
                     "selectedHead",
-                    `Selected Operating Head (Override) (${calculatedData.headUnit})`,
+                    `Operating Head Override (${calculatedData.headUnit})`,
                     sizingParams.selectedHead,
                     "",
-                    "Same as calculated head if blank",
+                    "Calculated if blank",
                     0,
                     "0.1"
                   )}
-                </div>
-              </div>
-
-              {/* Card 4: Motor & Pump Efficiencies */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">4. Motor & Pump Efficiencies</h3>
-                </div>
-
-                <div className="flex flex-col gap-3.5 text-xs">
                   {renderInputBox(
                     "chw-eff-pump",
                     "effPump",
-                    "Pump Hydraulic Efficiency (%)",
+                    "Pump Efficiency (%)",
                     sizingParams.effPump,
                     70,
                     "70",
@@ -1133,345 +1294,111 @@ function ChwPumpHeadPage() {
 
             </div>
 
-            {/* Results Column (7 cols) */}
-            <div className="lg:col-span-7 flex flex-col gap-5">
+            {/* Results Column (6 cols) */}
+            <div className="lg:col-span-6 flex flex-col gap-4">
               
-              {/* Card 1: Piping & Equivalent Length Results */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Piping & Friction Loss Results</h3>
+              {/* Hero KPI Summary Strip */}
+              <div 
+                onDoubleClick={() => setShowDetailedCalcs(true)}
+                title="Double-click to view step-by-step engineering calculation formulas"
+                className="bg-gradient-to-r from-blue-50 via-sky-50/50 to-indigo-50/30 dark:from-blue-950/40 dark:via-sky-950/20 dark:to-indigo-950/20 border border-blue-200/80 dark:border-blue-800/60 rounded-2xl p-3.5 shadow-2xs flex items-center justify-between gap-3 cursor-pointer hover:border-primary transition"
+              >
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Total Pump Head (TDH)</span>
+                  <span className="text-xl font-black font-mono text-primary mt-0.5">
+                    {calculatedData.pumpHeadCalcDisplay.toFixed(3)} <span className="text-xs font-bold text-muted-foreground">{calculatedData.headUnit}</span>
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                <div className="h-8 w-px bg-border/80"></div>
+
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Estimated Motor Power</span>
+                  <span className="text-xl font-black font-mono text-foreground mt-0.5">
+                    {calculatedData.motorPowerKw.toFixed(2)} <span className="text-xs font-bold text-muted-foreground">kW</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono">({calculatedData.motorPowerHp.toFixed(2)} HP)</span>
+                </div>
+
+                <div className="h-8 w-px bg-border/80 hidden sm:block"></div>
+
+                <div className="flex flex-col hidden sm:flex">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Design Flow</span>
+                  <span className="text-base font-bold font-mono text-foreground mt-0.5">
+                    {calculatedData.flowRateDisplay.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">{calculatedData.flowUnit}</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 1: Piping & Equivalent Length Results */}
+              <div 
+                onDoubleClick={() => setShowDetailedCalcs(true)}
+                title="Double-click to view step-by-step engineering calculation formulas"
+                className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs hover:border-primary/40 transition cursor-pointer"
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Piping & Friction Loss Results</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDetailedCalcs(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 transition cursor-pointer"
+                    title="Double-click to view step-by-step math formulas"
+                  >
+                    <HelpCircle className="size-3" />
+                    <span>Steps</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 font-sans text-xs">
                   {renderResultRow("res-sum-lengths", "Sum of Straight Lengths", `${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`)}
-                  {renderResultRow("res-elbows-eq", "Elbows Equivalent Length (+30%)", `${calculatedData.elbowsLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`)}
-                  {renderResultRow("res-valves-eq", "Valves Equivalent Length (+30%)", `${calculatedData.valvesLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`)}
-                  {renderResultRow("res-total-eq", "Total Equivalent Length (+5% SF)", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, true, "text-[#0A7BC7] text-[13px]")}
-                  {renderResultRow("res-friction-loss", "Major + Minor Friction Losses", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`, true, "text-[#0A7BC7] text-[13.5px]", true)}
+                  {renderResultRow("res-elbows-eq", "Elbows Eq Length (+30%)", `${calculatedData.elbowsLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`)}
+                  {renderResultRow("res-valves-eq", "Valves Eq Length (+30%)", `${calculatedData.valvesLengthDisplay.toFixed(2)} ${calculatedData.lengthUnit}`)}
+                  {renderResultRow("res-total-eq", "Total Eq Length (+5% SF)", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, true, "text-[#0A7BC7] text-[12.5px]")}
+                  {renderResultRow("res-friction-loss", "Major + Minor Friction Losses", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`, true, "text-[#0A7BC7] text-[13px]", true)}
                 </div>
               </div>
 
               {/* Card 2: Pump Head & Motor Sizing Results */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Pump Head & Motor Sizing Results</h3>
+              <div 
+                onDoubleClick={() => setShowDetailedCalcs(true)}
+                title="Double-click to view step-by-step engineering calculation formulas"
+                className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs hover:border-primary/40 transition cursor-pointer"
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Pump Head & Motor Sizing Results</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowDetailedCalcs(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 transition cursor-pointer"
+                    title="Double-click to view step-by-step math formulas"
+                  >
+                    <HelpCircle className="size-3" />
+                    <span>Steps</span>
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 font-sans text-xs">
                   {renderResultRow("res-flow-rate", "Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`, true, "text-[#0A7BC7]")}
                   {renderResultRow("res-static-lift", "Static Elevation Lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`)}
                   {renderResultRow("res-residual-outlet", "Residual Outlet Pressure", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`)}
                   {renderResultRow("res-suction-deducted", "Suction Pressure Deducted", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`)}
-                  {renderResultRow("res-total-pump-head", "Total Calculated Pump Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`, true, "text-[#0A7BC7] text-[14px]", true)}
+                  {renderResultRow("res-total-pump-head", "Total Calculated Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`, true, "text-[#0A7BC7] text-[13.5px]", true)}
                   {renderResultRow("res-selected-head", "Selected Operating Head", `${calculatedData.selectedHeadDisplay.toFixed(3)} ${calculatedData.headUnit}`)}
                   {renderResultRow("res-shaft-power", "Hydraulic Shaft Power", `${calculatedData.shaftPowerKw.toFixed(2)} kW`)}
-                  {renderResultRow("res-total-motor-power", "Estimated Motor Power Requirement", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`, true, "text-[#0A7BC7] text-[14px]", true)}
+                  {renderResultRow("res-total-motor-power", "Estimated Motor Power", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`, true, "text-[#0A7BC7] text-[13.5px]", true)}
                 </div>
-              </div>
-
-              {/* Card 3: Detailed Calculations Steps Accordion */}
-              <div className="bg-card border border-border rounded-2xl shadow-xs overflow-hidden">
-                <button
-                  onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
-                  className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
-                >
-                  <span className="flex items-center gap-2">
-                    <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
-                  </span>
-                  {showDetailedCalcs ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                </button>
-                {showDetailedCalcs && (
-                  <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[420px] overflow-y-auto">
-                    
-                    {/* Step 1 */}
-                    {(() => {
-                      const stepId = "step-1-flow-rate";
-                      const stepLabel = "Step 1: Volumetric & Mass Flow Rate Conversion";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">1</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">Q (L/s) = (Flow_GPM × 3.785) ÷ 60</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">Q = ({calculatedData.flowGpm} GPM × 3.785) ÷ 60</div>
-                                <div className="font-bold text-[11px] text-foreground mt-0.5">Q = {calculatedData.flowRate.toFixed(2)} L/s ({calculatedData.massFlow.toFixed(3)} kg/s)</div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 1 Flow", `${calculatedData.flowRate.toFixed(2)} L/s`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 1 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                    {/* Step 2 */}
-                    {(() => {
-                      const stepId = "step-2-equiv-length";
-                      const stepLabel = "Step 2: Total Equivalent Piping Length";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">2</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">Leq = (L_vert + L_horiz + L_elbows + L_valves) × 1.05</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">
-                                  Leq = ({calculatedData.L_vert_m.toFixed(1)}m + {calculatedData.L_horiz_m.toFixed(1)}m + {calculatedData.elbowsLengthDisplay.toFixed(1)}{calculatedData.lengthUnit} + {calculatedData.valvesLengthDisplay.toFixed(1)}{calculatedData.lengthUnit}) × 1.05
-                                </div>
-                                <div className="font-bold text-[11px] text-foreground mt-0.5">Leq = {calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}</div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 2 Equiv Length", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 2 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                    {/* Step 3 */}
-                    {(() => {
-                      const stepId = "step-3-friction-loss";
-                      const stepLabel = "Step 3: Piping Friction Pressure Losses";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">3</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">H_loss = L_equiv × (FrictionFactor ÷ 100)</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">
-                                  H_loss = {calculatedData.L_equiv_m.toFixed(1)}m × ({calculatedData.ff} ÷ 100)
-                                </div>
-                                <div className="font-bold text-[11px] text-foreground mt-0.5">H_loss = {calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}</div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 3 Friction Loss", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 3 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                    {/* Step 4 */}
-                    {(() => {
-                      const stepId = "step-4-total-head";
-                      const stepLabel = "Step 4: Total Dynamic Pump Head (TDH)";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">4</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">TDH = (H_loss + H_static + H_outlet − H_suction) × (1 + SF ÷ 100)</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">
-                                  TDH = ({calculatedData.frictionLossDisplay.toFixed(3)} + {calculatedData.staticHeadDisplay.toFixed(2)} + {calculatedData.outletHeadDisplay.toFixed(2)} − {calculatedData.suctionHeadDisplay.toFixed(2)}) × (1 + {calculatedData.sfPercent}%)
-                                </div>
-                                <div className="font-bold text-[11px] text-foreground mt-0.5">TDH = {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}</div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 4 TDH", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 4 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                    {/* Step 5 */}
-                    {(() => {
-                      const stepId = "step-5-motor-power";
-                      const stepLabel = "Step 5: Hydraulic Shaft & Motor Sizing Power";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start pb-1 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">5</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">P_shaft = (Flow_kg/s × Lift_kPa) ÷ (1000 × η_pump), P_motor = P_shaft ÷ η_motor</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">
-                                  P_shaft = ({calculatedData.massFlow.toFixed(3)} × {calculatedData.liftKpa.toFixed(1)}) ÷ (1000 × {calculatedData.effPumpVal / 100}) = {calculatedData.shaftPowerKw.toFixed(2)} kW
-                                </div>
-                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">
-                                  P_motor = {calculatedData.motorPowerKw.toFixed(2)} kW ({calculatedData.motorPowerHp.toFixed(2)} HP)
-                                </div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 5 Motor Power", `${calculatedData.motorPowerKw.toFixed(2)} kW`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 5 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                  </div>
-                )}
               </div>
 
             </div>
@@ -1584,6 +1511,581 @@ function ChwPumpHeadPage() {
           }}
           calculatedData={calculatedData}
         />
+      )}
+
+      {/* Modal: Import Flow Rate from Preliminary Cooling Load */}
+      {showPclModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl flex flex-col gap-5 max-h-[92vh] overflow-y-auto">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border/70">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <Zap className="size-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Import Flow Rate from PCL</h3>
+                  <p className="text-xs text-muted-foreground">Thermodynamic derivation: Q = ṁ · Cp · ΔT</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPclModal(false)}
+                className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* PCL Source Summary Banner */}
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/60">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Flame className="size-3.5 text-orange-500" /> Building Total Cooling Load
+                </span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-lg font-bold font-mono text-primary">
+                    {pclSummary.totalKw > 0 ? pclSummary.totalKw.toLocaleString() : "0"} kW
+                  </span>
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    ({pclSummary.totalTr > 0 ? pclSummary.totalTr.toLocaleString() : "0"} TR)
+                  </span>
+                </div>
+              </div>
+              <div className="text-right flex flex-col items-end">
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                  {pclSummary.count} Space{pclSummary.count !== 1 ? "s" : ""}
+                </span>
+                {pclSummary.totalArea > 0 && (
+                  <span className="text-[10px] text-muted-foreground mt-0.5 font-mono">
+                    {pclSummary.totalArea.toLocaleString()} m²
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Interactive Sizing Controls */}
+            <div className="flex flex-col gap-4">
+              
+              {/* 1. Delta T Segmented Selector */}
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-foreground">
+                    Chilled Water ΔT
+                  </label>
+                  <span className="text-xs font-mono font-bold text-primary">
+                    {pclDeltaT.toFixed(1)} °C <span className="text-muted-foreground font-normal">({(pclDeltaT * 1.8).toFixed(1)} °F)</span>
+                  </span>
+                </div>
+
+                {/* Preset Chips */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { val: 5.5, title: "5.5 °C", desc: "Standard CHW (10°F)" },
+                    { val: 7.0, title: "7.0 °C", desc: "District Cooling" },
+                    { val: 5.0, title: "5.0 °C", desc: "Low ΔT Coils" },
+                  ].map((preset) => {
+                    const isSelected = Math.abs(pclDeltaT - preset.val) < 0.05;
+                    return (
+                      <button
+                        key={preset.val}
+                        type="button"
+                        onClick={() => setPclDeltaT(preset.val)}
+                        className={`flex flex-col items-start p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary shadow-xs ring-2 ring-primary/20"
+                            : "bg-surface-2 border-border/80 text-foreground hover:bg-slate-200/60 dark:hover:bg-slate-800"
+                        }`}
+                      >
+                        <span className="text-xs font-bold">{preset.title}</span>
+                        <span className={`text-[10px] ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                          {preset.desc}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom ΔT slider */}
+                <div className="flex items-center gap-3 mt-1 bg-surface-2/60 p-2.5 rounded-xl border border-border/60">
+                  <span className="text-[11px] font-semibold text-muted-foreground shrink-0">Adjust ΔT:</span>
+                  <input
+                    type="range"
+                    min="3.0"
+                    max="10.0"
+                    step="0.1"
+                    value={pclDeltaT}
+                    onChange={(e) => setPclDeltaT(parseFloat(e.target.value))}
+                    className="w-full accent-primary h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
+                  />
+                  <span className="text-xs font-mono font-bold text-foreground w-12 text-right shrink-0">
+                    {pclDeltaT.toFixed(1)} °C
+                  </span>
+                </div>
+              </div>
+
+              {/* 2. Diversity Factor */}
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-foreground">
+                    Diversity / Coincidence Factor
+                  </label>
+                  <span className="text-xs font-mono font-bold text-foreground">
+                    {pclDiversity}% <span className="text-muted-foreground font-normal">({((pclSummary.totalKw || 300) * (pclDiversity / 100)).toFixed(1)} kW)</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {[80, 85, 90, 95, 100].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setPclDiversity(d)}
+                      className={`flex-1 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                        pclDiversity === d
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-surface-2 text-muted-foreground border-border/80 hover:bg-slate-200/60 dark:hover:bg-slate-800"
+                      }`}
+                    >
+                      {d}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Hero Result Card */}
+            {(() => {
+              const kw = (pclSummary.totalKw > 0 ? pclSummary.totalKw : 300) * (pclDiversity / 100);
+              const cp = getWaterCp(pclWaterTemp);
+              const dt = pclDeltaT > 0 ? pclDeltaT : 5.5;
+              const flowLps = kw / (cp * dt);
+              const flowGpm = (flowLps * 60) / 3.78;
+
+              return (
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/25 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-primary flex items-center gap-1.5">
+                      <Check className="size-4" /> Resulting CHW Design Flow Rate
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground bg-primary/10 px-2 py-0.5 rounded-md">
+                      Cp = {cp} kJ/kg·K
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-card/90 backdrop-blur-xs p-3.5 rounded-xl border border-border/80 flex flex-col items-center justify-center text-center shadow-2xs">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Metric Flow Rate</span>
+                      <span className="text-2xl font-black font-mono text-primary mt-0.5">
+                        {flowLps.toFixed(2)} <span className="text-sm font-semibold">L/s</span>
+                      </span>
+                      <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        {flowLps.toFixed(2)} kg/s mass flow
+                      </span>
+                    </div>
+
+                    <div className="bg-card/90 backdrop-blur-xs p-3.5 rounded-xl border border-border/80 flex flex-col items-center justify-center text-center shadow-2xs">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Imperial Flow Rate</span>
+                      <span className="text-2xl font-black font-mono text-foreground mt-0.5">
+                        {flowGpm.toFixed(1)} <span className="text-sm font-semibold">GPM</span>
+                      </span>
+                      <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        {(flowGpm / (pclSummary.totalTr || 85)).toFixed(2)} GPM/TR
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] text-muted-foreground font-mono text-center pt-1 border-t border-border/40">
+                    ṁ = {kw.toFixed(1)} kW ÷ ({cp} × {dt.toFixed(1)}°C) = <strong className="text-foreground">{flowLps.toFixed(2)} L/s</strong>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Action Footer */}
+            <div className="flex items-center justify-end gap-2.5 pt-1 border-t border-border/60">
+              <button
+                type="button"
+                onClick={() => setShowPclModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              
+              {(() => {
+                const kw = (pclSummary.totalKw > 0 ? pclSummary.totalKw : 300) * (pclDiversity / 100);
+                const cp = getWaterCp(pclWaterTemp);
+                const dt = pclDeltaT > 0 ? pclDeltaT : 5.5;
+                const flowLps = kw / (cp * dt);
+
+                return (
+                  <button
+                    type="button"
+                    onClick={handleApplyPclFlowRate}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 rounded-xl transition cursor-pointer shadow-md shadow-primary/20 active:scale-[0.98]"
+                  >
+                    <Sparkles className="size-4" />
+                    <span>Apply {flowLps.toFixed(2)} L/s to CHW Pump</span>
+                  </button>
+                );
+              })()}
+            </div>
+
+          </div>
+        </div>
+      )}
+      {/* Modal: Detailed Calculations Steps (Triggered by Double-Clicking Calculation Output) */}
+      {showDetailedCalcs && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-2xl shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-border/70">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <HelpCircle className="size-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Σ Detailed Calculations Steps & Engineering Formulas</h3>
+                  <p className="text-xs text-muted-foreground">Governing thermodynamic & fluid dynamics equations for CHW Pump Head</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDetailedCalcs(false)}
+                className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Quick Sizing Summary Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-surface-2 border border-border/70 text-center">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Total Head (TDH)</span>
+                <span className="text-sm font-bold font-mono text-primary mt-0.5">{calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Motor Power</span>
+                <span className="text-sm font-bold font-mono text-foreground mt-0.5">{calculatedData.motorPowerKw.toFixed(2)} kW</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Design Flow Rate</span>
+                <span className="text-sm font-bold font-mono text-foreground mt-0.5">{calculatedData.flowRateDisplay.toFixed(2)} {calculatedData.flowUnit}</span>
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Total Equiv Length</span>
+                <span className="text-sm font-bold font-mono text-foreground mt-0.5">{calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}</span>
+              </div>
+            </div>
+
+            {/* Step 1 to 5 List */}
+            <div className="flex flex-col gap-3 text-xs font-sans">
+              
+              {/* Step 1 */}
+              {(() => {
+                const stepId = "step-1-flow-rate";
+                const stepLabel = "Step 1: Volumetric & Mass Flow Rate Conversion";
+                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                return (
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id={stepId}
+                        data-item-id={stepId}
+                        data-field-id={stepId}
+                        className={`flex gap-3 items-start border border-border/60 bg-surface-2/40 p-3 rounded-xl transition cursor-context-menu hover:border-primary/40 ${
+                          isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                        }`}
+                      >
+                        <div className="size-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">1</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-foreground flex items-center justify-between">
+                            <span>{stepLabel}</span>
+                            {stepComments.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenComment(stepId, stepLabel);
+                                }}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                              >
+                                <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                <span>{stepComments.length}</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="font-mono text-primary my-1 font-semibold">Q (L/s) = (Flow_GPM × 3.785) ÷ 60  |  ṁ = Q / (Cp · ΔT)</div>
+                          <div className="font-mono text-[10.5px] text-muted-foreground">Q = ({calculatedData.flowGpm} GPM × 3.785) ÷ 60</div>
+                          <div className="font-bold text-[11px] text-foreground mt-0.5">Q = {calculatedData.flowRate.toFixed(2)} L/s ({calculatedData.massFlow.toFixed(3)} kg/s)</div>
+                        </div>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem onClick={() => handleCopyValue("Step 1 Flow", `${calculatedData.flowRate.toFixed(2)} L/s`)}>
+                        <Copy className="size-3.5 text-muted-foreground mr-2" />
+                        <span>Copy Step 1 Result</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                        <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                        <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })()}
+
+              {/* Step 2 */}
+              {(() => {
+                const stepId = "step-2-equiv-length";
+                const stepLabel = "Step 2: Total Equivalent Piping Length";
+                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                return (
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id={stepId}
+                        data-item-id={stepId}
+                        data-field-id={stepId}
+                        className={`flex gap-3 items-start border border-border/60 bg-surface-2/40 p-3 rounded-xl transition cursor-context-menu hover:border-primary/40 ${
+                          isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                        }`}
+                      >
+                        <div className="size-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">2</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-foreground flex items-center justify-between">
+                            <span>{stepLabel}</span>
+                            {stepComments.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenComment(stepId, stepLabel);
+                                }}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                              >
+                                <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                <span>{stepComments.length}</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="font-mono text-primary my-1 font-semibold">Leq = (L_vert + L_horiz + L_elbows + L_valves) × 1.05</div>
+                          <div className="font-mono text-[10.5px] text-muted-foreground">
+                            Leq = ({calculatedData.L_vert_m.toFixed(1)}m + {calculatedData.L_horiz_m.toFixed(1)}m + {calculatedData.elbowsLengthDisplay.toFixed(1)}{calculatedData.lengthUnit} + {calculatedData.valvesLengthDisplay.toFixed(1)}{calculatedData.lengthUnit}) × 1.05
+                          </div>
+                          <div className="font-bold text-[11px] text-foreground mt-0.5">Leq = {calculatedData.equivLengthDisplay.toFixed(1)} {calculatedData.lengthUnit}</div>
+                        </div>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem onClick={() => handleCopyValue("Step 2 Equiv Length", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`)}>
+                        <Copy className="size-3.5 text-muted-foreground mr-2" />
+                        <span>Copy Step 2 Result</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                        <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                        <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })()}
+
+              {/* Step 3 */}
+              {(() => {
+                const stepId = "step-3-friction-loss";
+                const stepLabel = "Step 3: Piping Friction Pressure Losses";
+                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                return (
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id={stepId}
+                        data-item-id={stepId}
+                        data-field-id={stepId}
+                        className={`flex gap-3 items-start border border-border/60 bg-surface-2/40 p-3 rounded-xl transition cursor-context-menu hover:border-primary/40 ${
+                          isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                        }`}
+                      >
+                        <div className="size-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">3</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-foreground flex items-center justify-between">
+                            <span>{stepLabel}</span>
+                            {stepComments.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenComment(stepId, stepLabel);
+                                }}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                              >
+                                <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                <span>{stepComments.length}</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="font-mono text-primary my-1 font-semibold">H_loss = L_equiv × (FrictionFactor ÷ 100)</div>
+                          <div className="font-mono text-[10.5px] text-muted-foreground">
+                            H_loss = {calculatedData.L_equiv_m.toFixed(1)}m × ({calculatedData.ff} ÷ 100)
+                          </div>
+                          <div className="font-bold text-[11px] text-foreground mt-0.5">H_loss = {calculatedData.frictionLossDisplay.toFixed(3)} {calculatedData.headUnit}</div>
+                        </div>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem onClick={() => handleCopyValue("Step 3 Friction Loss", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`)}>
+                        <Copy className="size-3.5 text-muted-foreground mr-2" />
+                        <span>Copy Step 3 Result</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                        <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                        <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })()}
+
+              {/* Step 4 */}
+              {(() => {
+                const stepId = "step-4-total-head";
+                const stepLabel = "Step 4: Total Dynamic Pump Head (TDH)";
+                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                return (
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id={stepId}
+                        data-item-id={stepId}
+                        data-field-id={stepId}
+                        className={`flex gap-3 items-start border border-border/60 bg-surface-2/40 p-3 rounded-xl transition cursor-context-menu hover:border-primary/40 ${
+                          isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                        }`}
+                      >
+                        <div className="size-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">4</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-foreground flex items-center justify-between">
+                            <span>{stepLabel}</span>
+                            {stepComments.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenComment(stepId, stepLabel);
+                                }}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                              >
+                                <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                <span>{stepComments.length}</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="font-mono text-primary my-1 font-semibold">TDH = (H_loss + H_static + H_outlet − H_suction) × (1 + SF ÷ 100)</div>
+                          <div className="font-mono text-[10.5px] text-muted-foreground">
+                            TDH = ({calculatedData.frictionLossDisplay.toFixed(3)} + {calculatedData.staticHeadDisplay.toFixed(2)} + {calculatedData.outletHeadDisplay.toFixed(2)} − {calculatedData.suctionHeadDisplay.toFixed(2)}) × (1 + {calculatedData.sfPercent}%)
+                          </div>
+                          <div className="font-bold text-[11px] text-foreground mt-0.5">TDH = {calculatedData.pumpHeadCalcDisplay.toFixed(3)} {calculatedData.headUnit}</div>
+                        </div>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem onClick={() => handleCopyValue("Step 4 TDH", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`)}>
+                        <Copy className="size-3.5 text-muted-foreground mr-2" />
+                        <span>Copy Step 4 Result</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                        <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                        <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })()}
+
+              {/* Step 5 */}
+              {(() => {
+                const stepId = "step-5-motor-power";
+                const stepLabel = "Step 5: Hydraulic Shaft & Motor Sizing Power";
+                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                return (
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id={stepId}
+                        data-item-id={stepId}
+                        data-field-id={stepId}
+                        className={`flex gap-3 items-start border border-border/60 bg-surface-2/40 p-3 rounded-xl transition cursor-context-menu hover:border-primary/40 ${
+                          isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                        }`}
+                      >
+                        <div className="size-6 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">5</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-foreground flex items-center justify-between">
+                            <span>{stepLabel}</span>
+                            {stepComments.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenComment(stepId, stepLabel);
+                                }}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                              >
+                                <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                <span>{stepComments.length}</span>
+                              </button>
+                            )}
+                          </div>
+                          <div className="font-mono text-primary my-1 font-semibold">P_shaft = (Flow_kg/s × Lift_kPa) ÷ (1000 × η_pump), P_motor = P_shaft ÷ η_motor</div>
+                          <div className="font-mono text-[10.5px] text-muted-foreground">
+                            P_shaft = ({calculatedData.massFlow.toFixed(3)} × {calculatedData.liftKpa.toFixed(1)}) ÷ (1000 × {calculatedData.effPumpVal / 100}) = {calculatedData.shaftPowerKw.toFixed(2)} kW
+                          </div>
+                          <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">
+                            P_motor = {calculatedData.motorPowerKw.toFixed(2)} kW ({calculatedData.motorPowerHp.toFixed(2)} HP)
+                          </div>
+                        </div>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem onClick={() => handleCopyValue("Step 5 Motor Power", `${calculatedData.motorPowerKw.toFixed(2)} kW`)}>
+                        <Copy className="size-3.5 text-muted-foreground mr-2" />
+                        <span>Copy Step 5 Result</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                        <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                        <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })()}
+
+            </div>
+
+            {/* Footer Actions */}
+            <div className="flex items-center justify-between pt-2 border-t border-border/60">
+              <span className="text-[11px] text-muted-foreground font-mono">
+                Tip: You can double-click any calculation row on the main screen to open this breakdown.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDetailedCalcs(false)}
+                className="px-5 py-2 text-xs font-bold text-primary-foreground bg-primary hover:bg-primary/90 rounded-xl transition cursor-pointer shadow-sm"
+              >
+                Close Breakdown
+              </button>
+            </div>
+
+          </div>
+        </div>
       )}
     </AppShell>
   );

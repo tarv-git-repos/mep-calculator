@@ -46,10 +46,70 @@ const defaultPanel = (id: number): CapPanel => ({
   maxDemandLoadKw: 1097.7,
   initialPf: 0.8,
   targetPf: 0.9,
-  stepUnit: 50,
   overcurrentFactor: 1.35,
   voltageKv: 0.4
 });
+
+function generateCapBankSteps(proposedKvar: number, stepUnit: number) {
+  const steps: string[] = [];
+  const unit = Number(stepUnit) || 50;
+  const halfUnit = unit / 2;
+  
+  const remainder = proposedKvar % unit;
+  const numFullSteps = Math.floor(proposedKvar / unit);
+
+  let stepIdx = 1;
+  if (remainder > 0) {
+    steps.push(`STEP-${stepIdx} = ${remainder}kVAr`);
+    stepIdx++;
+  }
+
+  for (let i = 0; i < numFullSteps; i++) {
+    steps.push(`STEP-${stepIdx} = ${unit}kVAr(${halfUnit === 25 ? "2x25kVAr" : `2x${halfUnit}kVAr`})`);
+    stepIdx++;
+  }
+
+  return steps;
+}
+
+function drawPdfThetaText(doc: jsPDF, text: string, x: number, y: number, isBold: boolean = false) {
+  const fontStyle = isBold ? "bold" : "normal";
+  let currentX = x;
+
+  const parts = text.split(/(θ1|θ2|θ|Cos⁻¹|Cos⁻1)/g);
+
+  parts.forEach((part) => {
+    if (!part) return;
+    if (part === "θ1") {
+      doc.setFont("symbol", "normal");
+      doc.text("q", currentX, y);
+      currentX += doc.getTextWidth("q");
+      doc.setFont("helvetica", fontStyle);
+      doc.text("1", currentX, y);
+      currentX += doc.getTextWidth("1");
+    } else if (part === "θ2") {
+      doc.setFont("symbol", "normal");
+      doc.text("q", currentX, y);
+      currentX += doc.getTextWidth("q");
+      doc.setFont("helvetica", fontStyle);
+      doc.text("2", currentX, y);
+      currentX += doc.getTextWidth("2");
+    } else if (part === "θ") {
+      doc.setFont("symbol", "normal");
+      doc.text("q", currentX, y);
+      currentX += doc.getTextWidth("q");
+      doc.setFont("helvetica", fontStyle);
+    } else if (part === "Cos⁻¹" || part === "Cos⁻1") {
+      doc.setFont("helvetica", fontStyle);
+      doc.text("Cos-1", currentX, y);
+      currentX += doc.getTextWidth("Cos-1");
+    } else {
+      doc.setFont("helvetica", fontStyle);
+      doc.text(part, currentX, y);
+      currentX += doc.getTextWidth(part);
+    }
+  });
+}
 
 function CapacitorBankSizingPage() {
   const { userData, profile } = useAuth();
@@ -74,6 +134,7 @@ function CapacitorBankSizingPage() {
   const [commentTargetPanel, setCommentTargetPanel] = useState<CapPanel | null>(null);
   const [editingPanel, setEditingPanel] = useState<CapPanel | null>(null);
   const [intelOpen, setIntelOpen] = useState(false);
+  const [tableModalOpen, setTableModalOpen] = useState(false);
 
   const panelInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -571,119 +632,238 @@ function CapacitorBankSizingPage() {
     try {
       const doc = new jsPDF();
       const base64ImageURL = getDiagramBase64();
-
       const projName = projectObj?.name || project || "PFC Project";
-      let currentY = addPdfHeader(doc, "P.F. CORRECTION CAPACITOR CALCULATION", {
-        projectName: projName,
-        calcNo: "TRV-CAP-001",
-      });
 
       panels.forEach((p, index) => {
         if (index > 0) {
           doc.addPage();
-          currentY = addPdfHeader(doc, "P.F. CORRECTION CAPACITOR CALCULATION", {
-            projectName: projName,
-            calcNo: "TRV-CAP-001",
-          });
         }
+
+        let currentY = addPdfHeader(doc, "P.F. CORRECTION CAPACITOR CALCULATION", {
+          projectName: projName,
+          calcNo: `TRV-CAP-00${index + 1}`,
+        });
 
         const c = calculatePanel(p);
 
-        // Panel Section Title
-        doc.setFontSize(11);
+        // Header Sub & Panel Ref section
+        currentY += 4;
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(30, 41, 59);
-        doc.text(`PANEL: ${p.name} (${p.panelRef})`, 14, currentY + 6);
+        doc.setFontSize(8.5);
+        doc.setTextColor(0, 0, 0);
+
+        doc.text("SUB", 14, currentY);
+        doc.text(":", 40, currentY);
+        doc.text("P.F. CORRECTION CAPACITOR CALCULATION", 46, currentY);
+
+        currentY += 5.5;
+        doc.text("PANEL REF", 14, currentY);
+        doc.text(":", 40, currentY);
+        doc.text(`PFC ${c.proposedKvar}kVAr (${p.panelRef || p.name})`, 46, currentY);
+
         currentY += 10;
 
-        // Table 1: Input Parameters
-        const inputData = [
-          ["Total Connected Load", `${Number(p.totalLoadKw || 0).toFixed(2)} kW`, "Sub / System Ref", sub || "-"],
-          ["Max Demand Load (IFC)", `${Number(p.maxDemandLoadKw || 0).toFixed(2)} kW`, "System Voltage", `${p.voltageKv} kV`],
-          ["Assumed Existing P.F (Cos θ1)", `${p.initialPf}`, "Target P.F (Cos θ2)", `${p.targetPf}`],
-          ["Overcurrent Safety Factor", `${p.overcurrentFactor}`, "Capacitor Step Unit", `${p.stepUnit} kVAr`],
-        ];
+        const startY = currentY;
+        let leftY = startY;
 
-        autoTable(doc, {
-          startY: currentY,
-          head: [["Parameter", "Value", "Parameter", "Value"]],
-          body: inputData,
-          theme: "grid",
-          styles: { fontSize: 8, cellPadding: 2.5 },
-          headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: "bold" },
-          columnStyles: {
-            0: { fontStyle: "bold", cellWidth: 45 },
-            1: { cellWidth: 39 },
-            2: { fontStyle: "bold", cellWidth: 45 },
-            3: { cellWidth: 39 },
-          },
-          margin: { left: 14, right: 14 }
-        });
+        // Left Column (Calculations)
+        doc.setFontSize(8.5);
 
-        currentY = (doc as any).lastAutoTable.finalY + 8;
+        // Total Connected Load
+        doc.setFont("helvetica", "normal");
+        doc.text("Total Connected Load", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.text(`${Number(p.totalLoadKw || 0).toFixed(1)} kW`, 72, leftY);
+        leftY += 3.8;
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 100, 100);
+        doc.text("(Including all standby, duty power and spares)", 72, leftY);
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(8.5);
+        leftY += 6;
 
-        // Table 2: Calculations & Steps Breakdown
-        const stepsDetail: string[] = [];
-        for (let i = 0; i < c.numFullSteps; i++) {
-          stepsDetail.push(`STEP-${i + 1}: ${p.stepUnit} kVAr (2x${p.stepUnit / 2}kVAr)`);
-        }
-        if (c.remainderStep > 0) {
-          stepsDetail.push(`STEP-${c.numFullSteps + 1}: ${c.remainderStep} kVAr (2x${c.remainderStep / 2}kVAr)`);
-        }
+        // Max Demand Load (IFC)
+        doc.setFont("helvetica", "normal");
+        doc.text("Max Demand Load (IFC)", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.text(`${Number(p.maxDemandLoadKw || 0).toFixed(1)} kW`, 72, leftY);
+        leftY += 7;
 
-        const calcData = [
-          ["Existing Angle (θ1)", `${c.theta1Deg.toFixed(2)}°`],
-          ["Target Angle (θ2)", `${c.theta2Deg.toFixed(2)}°`],
-          ["Tan θ (Tan θ1 - Tan θ2)", `${c.tanThetaDiff.toFixed(3)} kVAr/kW`],
-          ["Required Reactive Power (Qc)", `${c.requiredKvar.toFixed(2)} kVAr`],
-          ["Proposed Capacitor Bank", `${c.proposedKvar} kVAr`],
-          ["Capacitor Steps Breakdown", stepsDetail.join(" | ") || `1 x ${c.proposedKvar} kVAr`],
-          ["Required Breaker Amp (I)", `${c.ampI.toFixed(2)} A (Formula: [${p.overcurrentFactor} × ${c.proposedKvar}] / [1.732 × ${p.voltageKv}])`],
-        ];
+        // Assumed Existing P.F
+        doc.setFont("helvetica", "normal");
+        doc.text("Assumed Existing P.F", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${p.initialPf}`, 72, leftY);
+        leftY += 7;
 
-        autoTable(doc, {
-          startY: currentY,
-          head: [["Calculation Step / Metric", "Result"]],
-          body: calcData,
-          theme: "striped",
-          styles: { fontSize: 8, cellPadding: 2.5 },
-          headStyles: { fillColor: [15, 118, 110], textColor: [255, 255, 255], fontStyle: "bold" },
-          columnStyles: {
-            0: { fontStyle: "bold", cellWidth: 60 },
-            1: { cellWidth: 108 },
-          },
-          margin: { left: 14, right: 14 }
-        });
+        // Target P.F
+        doc.setFont("helvetica", "normal");
+        doc.text("Target P.F", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${p.targetPf}`, 72, leftY);
+        leftY += 9;
 
-        currentY = (doc as any).lastAutoTable.finalY + 6;
+        // Initial Power Factor
+        doc.setFont("helvetica", "normal");
+        doc.text("Initial Power Factor", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${p.initialPf}`, 72, leftY);
+        leftY += 6;
 
-        // Diagram Image
+        // ie Cos θ1
+        drawPdfThetaText(doc, "ie     Cos θ1", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${(Number(p.initialPf) || 0).toFixed(2)}`, 72, leftY);
+        leftY += 6;
+
+        // θ1
+        drawPdfThetaText(doc, "        θ1", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        drawPdfThetaText(doc, `${p.initialPf} Cos-1`, 72, leftY);
+        leftY += 5.5;
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.text(`${c.theta1Deg.toFixed(2)}`, 72, leftY);
+        leftY += 9;
+
+        // Corrective Power Factor
+        doc.setFont("helvetica", "normal");
+        doc.text("Corrective Power Factor", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${p.targetPf}`, 72, leftY);
+        leftY += 6;
+
+        // ie Cos θ2
+        drawPdfThetaText(doc, "ie     Cos θ2", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${(Number(p.targetPf) || 0).toFixed(2)}`, 72, leftY);
+        leftY += 6;
+
+        // θ2
+        drawPdfThetaText(doc, "        θ2", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        drawPdfThetaText(doc, `${p.targetPf} Cos-1`, 72, leftY);
+        leftY += 5.5;
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.text(`${c.theta2Deg.toFixed(2)}`, 72, leftY);
+        leftY += 9;
+
+        // Tan θ
+        drawPdfThetaText(doc, "Tan θ", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        drawPdfThetaText(doc, "Tan θ1 - Tan θ2", 72, leftY);
+        leftY += 5.5;
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${c.tanThetaDiff.toFixed(3)}`, 72, leftY);
+        leftY += 5.5;
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.setFont("helvetica", "italic");
+        doc.text("kVAr/kW", 72, leftY);
+        leftY += 9;
+
+        // Therefore kVAr
+        doc.setFont("helvetica", "normal");
+        doc.text("Therefore kVAr", 14, leftY);
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        drawPdfThetaText(doc, "kW x Tan θ", 72, leftY);
+        leftY += 5.5;
+        doc.setFont("helvetica", "bold");
+        doc.text("=", 64, leftY);
+        doc.text(`${c.requiredKvar.toFixed(2)} kVAr`, 72, leftY);
+        leftY += 9;
+
+        // Proposed Capacitor Bank
+        doc.setFont("helvetica", "bold");
+        doc.text("Proposed Capacitor Bank", 14, leftY);
+        doc.text("=", 64, leftY);
+        doc.text(`${c.proposedKvar} kVAr`, 72, leftY);
+        leftY += 8;
+
+        // Right Column: Phasor Diagram Image + Steps Box
+        const rightX = 120;
+        const rightWidth = 76;
+
         if (base64ImageURL) {
-          if (currentY + 55 > 270) {
-            doc.addPage();
-            currentY = 20;
-          }
-          doc.setFontSize(9);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(30, 41, 59);
-          doc.text("Power Factor Phasor Diagram:", 14, currentY + 4);
-          doc.addImage(base64ImageURL, "JPEG", 14, currentY + 6, 85, 48);
-          currentY += 56;
+          doc.addImage(base64ImageURL, "PNG", rightX, startY + 24, rightWidth, 44);
+        }
+
+        // Steps Box
+        const stepsList = generateCapBankSteps(c.proposedKvar, Number(p.stepUnit) || 50);
+        const boxY = startY + 75;
+        const lineSpacing = 5;
+        const boxHeaderHeight = 9;
+        const boxFooterHeight = 8;
+        const boxHeight = boxHeaderHeight + (stepsList.length * lineSpacing) + boxFooterHeight + 4;
+
+        // Box border
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.5);
+        doc.rect(rightX, boxY, rightWidth, boxHeight);
+
+        // Header Title
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(0, 0, 0);
+        const titleText = "STEPS OF CAPACITOR BANK";
+        const titleWidth = doc.getTextWidth(titleText);
+        const titleX = rightX + (rightWidth - titleWidth) / 2;
+        doc.text(titleText, titleX, boxY + 6);
+        doc.line(titleX, boxY + 6.8, titleX + titleWidth, boxY + 6.8);
+
+        // Step lines
+        let stepY = boxY + boxHeaderHeight + 2;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+
+        stepsList.forEach((stepText) => {
+          doc.text(stepText, rightX + 4, stepY);
+          stepY += lineSpacing;
+        });
+
+        // Box Footer
+        stepY += 1.5;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.text(`TOTAL = ${c.proposedKvar}kVAr CAPACITORS`, rightX + 4, stepY);
+
+        // Sign off block at bottom
+        const maxY = Math.max(leftY, boxY + boxHeight + 10);
+        if (maxY + 40 > 270) {
+          doc.addPage();
+          addPdfSignatureBlock(doc, 20, currentUserName, projectObj?.id || "default", "/capacitor-bank-sizing");
+        } else {
+          addPdfSignatureBlock(doc, maxY + 5, currentUserName, projectObj?.id || "default", "/capacitor-bank-sizing");
         }
       });
 
-      if (currentY + 40 > 270) {
-        doc.addPage();
-        currentY = 15;
-      }
-      addPdfSignatureBlock(doc, currentY, currentUserName, projectObj?.name || project || "default", "capacitor-bank-sizing");
-
-      const pdfBuffer = doc.output("arraybuffer");
-      await downloadFile(new Uint8Array(pdfBuffer), "Capacitor_Bank_Calculations.pdf", "PDF Document", ["pdf"]);
-      toast.success("PDF report generated successfully!");
-    } catch (err: any) {
-      console.error("Failed to export PDF:", err);
-      toast.error(`PDF Export Error: ${err?.message || String(err)}`);
+      doc.save(`Capacitor_Bank_Calculation_${projName.replace(/\s+/g, "_")}.pdf`);
+      toast.success("Exported Capacitor Bank Calculation PDF");
+    } catch (err) {
+      console.error("PDF Export error:", err);
+      toast.error("Failed to generate PDF");
     }
   };
 
@@ -745,7 +925,7 @@ function CapacitorBankSizingPage() {
       <div className="flex flex-col h-full overflow-hidden pt-4 gap-4 bg-slate-50/30 dark:bg-slate-950/30 relative">
         
         {/* Breadcrumbs & Page Header */}
-        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-4 z-10">
+        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg z-10">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; CAPACITOR BANK SIZING</span>
             <div className="flex items-center gap-3 mt-0.5">
@@ -762,6 +942,13 @@ function CapacitorBankSizingPage() {
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
+                <button
+                  onClick={() => setTableModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 transition-all cursor-pointer shadow-2xs"
+                >
+                  <Activity className="size-3.5 text-emerald-600" />
+                  Multiplication Table
+                </button>
                 <CalculationReviewBar projectId={projectObj?.id} calculatorPath="/capacitor-bank-sizing" calculatorTitle="Capacitor Bank Sizing" />
               </div>
             </div>
@@ -771,7 +958,7 @@ function CapacitorBankSizingPage() {
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden p-4 z-10 min-h-0 gap-4">
+        <div className="flex-1 flex overflow-hidden z-10 min-h-0 gap-4">
           <div className="flex-1 overflow-y-auto min-h-0">
             <div className="w-full flex flex-col gap-4">
             
@@ -1389,6 +1576,14 @@ function CapacitorBankSizingPage() {
           onSave={handleSaveComment}
         />
       )}
+
+      {/* Multiplication Factor Table Modal */}
+      <MultiplicationFactorModal
+        isOpen={tableModalOpen}
+        onClose={() => setTableModalOpen(false)}
+        currentInitialPf={Number((panels.find(p => p.id === activePanelId) || panels[0])?.initialPf) || 0.8}
+        currentTargetPf={Number((panels.find(p => p.id === activePanelId) || panels[0])?.targetPf) || 0.9}
+      />
     </AppShell>
   );
 }
@@ -1675,4 +1870,132 @@ function getDiagramBase64() {
   ctx.restore();
 
   return canvas.toDataURL('image/jpeg', 0.95);
+}
+
+const INITIAL_PF_ROWS = [
+  0.40, 0.42, 0.44, 0.46, 0.48, 0.50, 0.52, 0.54, 0.56, 0.58,
+  0.60, 0.62, 0.64, 0.66, 0.68, 0.70, 0.72, 0.74, 0.75, 0.76,
+  0.78, 0.80, 0.82, 0.84, 0.85, 0.86, 0.87, 0.88, 0.89, 0.90,
+  0.91, 0.92, 0.93, 0.94, 0.95
+];
+
+const TARGET_PF_COLS = [0.90, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99];
+
+function getMultFactor(initialPf: number, targetPf: number): string {
+  if (initialPf >= targetPf) return "-";
+  const tan1 = Math.tan(Math.acos(initialPf));
+  const tan2 = Math.tan(Math.acos(targetPf));
+  const diff = tan1 - tan2;
+  return diff > 0 ? diff.toFixed(3) : "-";
+}
+
+interface MultiplicationFactorModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentInitialPf?: number;
+  currentTargetPf?: number;
+}
+
+function MultiplicationFactorModal({ isOpen, onClose, currentInitialPf = 0.8, currentTargetPf = 0.9 }: MultiplicationFactorModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-slate-900 border border-border rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border bg-emerald-700 text-white">
+          <div className="flex items-center gap-2">
+            <Activity className="size-5 text-emerald-200" />
+            <div>
+              <h3 className="font-bold text-sm tracking-tight">Calculation of Capacitor Ratings - kVAr</h3>
+              <p className="text-[11px] text-emerald-100">Multiplication Factor Table (Industrial / Distribution Networks)</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-emerald-800 text-emerald-100 transition-colors">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="p-4 overflow-y-auto flex flex-col gap-4 text-xs">
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl p-3 flex flex-col sm:flex-row justify-between gap-3 text-foreground">
+            <div className="flex flex-col gap-1">
+              <span className="font-bold text-emerald-800 dark:text-emerald-300">Methodology & Formula</span>
+              <p className="text-muted-foreground text-[11px]">
+                Operating Load kW = kVA demand × Average PF | Required kVAr = kW × Multiplying Factor (from Table)
+              </p>
+              <p className="font-mono text-[11px] text-emerald-700 dark:text-emerald-400">
+                Multiplying Factor (Tan θ) = Tan(Cos⁻¹ PF₁) - Tan(Cos⁻¹ PF₂)
+              </p>
+            </div>
+            <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-border shrink-0 font-mono text-[11px]">
+              <span className="font-bold text-foreground">Example:</span><br/>
+              Initial PF = 0.85, Target PF = 0.98<br/>
+              kVAr = 800 kW × 0.417 = <span className="font-bold text-emerald-600">334 kVAr</span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border border-emerald-600/30 rounded-xl shadow-xs">
+            <table className="w-full text-[11px] border-collapse">
+              <thead>
+                <tr className="bg-emerald-700 text-white font-bold">
+                  <th className="p-2 border-r border-emerald-600 text-left bg-emerald-800">INITIAL PF</th>
+                  <th colSpan={TARGET_PF_COLS.length} className="p-2 text-center border-b border-emerald-600 uppercase tracking-wider">
+                    TARGET PF
+                  </th>
+                </tr>
+                <tr className="bg-emerald-600 text-white font-bold text-center">
+                  <th className="p-1.5 border-r border-emerald-500 bg-emerald-700"></th>
+                  {TARGET_PF_COLS.map(tpf => (
+                    <th 
+                      key={tpf} 
+                      className={`p-1.5 border-r border-emerald-500 min-w-[50px] ${
+                        Math.abs(tpf - currentTargetPf) < 0.005 ? "bg-amber-400 text-slate-950 font-extrabold" : ""
+                      }`}
+                    >
+                      {tpf.toFixed(2)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {INITIAL_PF_ROWS.map(ipf => {
+                  const isCurrentRow = Math.abs(ipf - currentInitialPf) < 0.005;
+                  return (
+                    <tr key={ipf} className={`border-b border-border hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 ${isCurrentRow ? "bg-amber-100/70 dark:bg-amber-950/40" : ""}`}>
+                      <td className={`p-1.5 font-bold border-r border-border text-center ${isCurrentRow ? "bg-amber-400 text-slate-950" : "bg-emerald-700 text-white"}`}>
+                        {ipf.toFixed(2)}
+                      </td>
+                      {TARGET_PF_COLS.map(tpf => {
+                        const isMatch = isCurrentRow && Math.abs(tpf - currentTargetPf) < 0.005;
+                        const factor = getMultFactor(ipf, tpf);
+                        return (
+                          <td 
+                            key={tpf} 
+                            className={`p-1.5 text-center font-mono text-[11px] border-r border-border/40 ${
+                              isMatch 
+                                ? "bg-amber-400 text-slate-950 font-bold shadow-inner ring-2 ring-amber-500" 
+                                : factor === "-" 
+                                  ? "text-muted-foreground/30 bg-surface-2" 
+                                  : "text-foreground"
+                            }`}
+                          >
+                            {factor}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

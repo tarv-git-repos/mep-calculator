@@ -1,20 +1,76 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { api } from "@/services/api";
-import { useState, useMemo, useEffect, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, Plus, Trash2,
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
   Wind, Layers, Gauge, Zap, Activity, FileText, X, Flag,
-  Copy, Scissors, Clipboard, Flame
+  Copy, Scissors, Clipboard, Flame, CheckCircle2, RefreshCw, Check,
+  Box, Upload, Filter
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { exportBasementSmokePDF } from "@/lib/exportBasementSmokePDF";
+import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
+import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, getFloorRank, Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
+import { toast } from "sonner";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut
+} from "@/components/ui/context-menu";
+
+export function isBasementTerm(str: string): boolean {
+  if (!str) return false;
+  const s = str.trim().toUpperCase();
+  
+  // 1. Explicit Basement Keywords & Synonyms
+  const keywords = [
+    "BASEMENT", "BSMT", "CELLAR", "SUB-BASEMENT", "SUBBASEMENT",
+    "SUB BASEMENT", "SUB-CELLAR", "SUBCELLAR", "UNDERGROUND",
+    "LOWER GROUND", "SUBGRADE", "SUB-GRADE", "PARKING BASEMENT",
+    "CAR PARK BASEMENT", "PODIUM BASEMENT", "BASEMENT PARKING"
+  ];
+  for (const kw of keywords) {
+    if (s.includes(kw)) return true;
+  }
+
+  // 2. Negative Level patterns: Level -1, Level -2, L-1, B1, B2, B3, B4, B5
+  if (/LEVEL\s*-\d+/i.test(s) || /L\s*-\d+/i.test(s) || /FLOOR\s*-\d+/i.test(s) || /STOREY\s*-\d+/i.test(s)) {
+    return true;
+  }
+  if (/\bB[1-9]\b/i.test(s) || /\bBSMT\s*[1-9]\b/i.test(s)) {
+    return true;
+  }
+
+  // 3. Floor Rank check (< 0 rank)
+  if (typeof getFloorRank === "function" && getFloorRank(str) < 0) {
+    return true;
+  }
+
+  return false;
+}
+
+export function isExcludedSpaceName(name: string, category?: string): boolean {
+  const s = `${name || ""} ${category || ""}`.toLowerCase();
+  const excludedKeywords = [
+    "room",      // Electrical room, Generator room, Telecom room, Transformer room, Elec room, LV room, MTR room, etc.
+    "stair",     // Stairs, Staircase, Stairwell
+    "mep",       // MEP, MEP plant, MEP space
+    "tank",      // Water tank, Fire tank, Fuel tank, Tanks, Sump tank
+    "corridor",  // Corridor, Service Corridor, Lift Corridor
+    "lobby",     // Lobby, Lift Lobby, Fire Lobby
+  ];
+  return excludedKeywords.some(kw => s.includes(kw));
+}
 
 export const Route = createFileRoute("/basement-smoke-calc")({
   head: () => ({
@@ -42,6 +98,7 @@ interface FanSystem {
   name: string;
   floorIds: string[];
   fanType: "Extract" | "Makeup";
+  fanQty?: number;
   length: number;
   frictionFactor: number;
   louver: number;
@@ -110,15 +167,217 @@ function BasementSmokeCalcPage() {
   const [modalFSId, setModalFSId] = useState<string | null>(null);
   const [modalFSName, setModalFSName] = useState<string>("");
   const [modalFSType, setModalFSType] = useState<"Extract" | "Makeup">("Extract");
+  const [modalFSFanQty, setModalFSFanQty] = useState<number | "">(2);
   const [modalSelectedFloorIds, setModalSelectedFloorIds] = useState<string[]>([]);
   const [modalError, setModalError] = useState<string>("");
   const [fireConfigFSId, setFireConfigFSId] = useState<string | null>(null);
+  const [showModalCalcPreview, setShowModalCalcPreview] = useState<boolean>(false);
+  const [showUnitConfirmModal, setShowUnitConfirmModal] = useState<boolean>(false);
+  const [pendingUnitTarget, setPendingUnitTarget] = useState<"si" | "ip" | null>(null);
 
   // Selection & Keyboard Shortcuts state
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [clipboard, setClipboard] = useState<BasementFloor[]>([]);
   const [history, setHistory] = useState<BasementFloor[][]>([]);
   const [redoStack, setRedoStack] = useState<BasementFloor[][]>([]);
+
+  // Navigation & 3D Import State
+  const navigate = useNavigate();
+  const excelFileInputRef = useRef<HTMLInputElement>(null);
+  const ifcFileInputRef = useRef<HTMLInputElement>(null);
+  const [showImportSourceModal, setShowImportSourceModal] = useState<boolean>(false);
+  const [show3DPreviewModal, setShow3DPreviewModal] = useState<boolean>(false);
+  const [pending3DSpaces, setPending3DSpaces] = useState<Extracted3DSpace[]>([]);
+  const [selected3DIds, setSelected3DIds] = useState<Set<string>>(new Set());
+
+  // Handle extraction of 3D spaces from active BIM viewer / model
+  const handleExtractFrom3DModel = async (file?: File) => {
+    try {
+      let extracted: Extracted3DSpace[] = [];
+      if (file) {
+        toast.loading("Parsing 3D IFC Model spaces...", { id: "bs-ifc-parse" });
+        extracted = await extractSpacesFromIFCFile(file);
+        toast.dismiss("bs-ifc-parse");
+      } else {
+        toast.loading("Scanning active 3D viewer model for basement floors...", { id: "bs-3d-scan" });
+        extracted = await extractSpacesFromActiveViewer();
+        toast.dismiss("bs-3d-scan");
+
+        if (extracted.length === 0 && project?.id) {
+          const savedFile = (window as any).__ACTIVE_IFC_FILE__ || (window as any).activeIfcFile;
+          if (savedFile instanceof File) {
+            try {
+              extracted = await extractSpacesFromIFCFile(savedFile);
+            } catch (e) {}
+          }
+        }
+      }
+
+      // Filter basement levels & spaces
+      const basementSpaces = extracted.filter(sp => 
+        isBasementTerm(sp.level) || isBasementTerm(sp.name) || isBasementTerm(sp.category)
+      );
+
+      if (basementSpaces.length === 0) {
+        if (extracted.length > 0) {
+          toast.error(`Found ${extracted.length} total 3D spaces in the model, but none match basement level keywords (e.g. Basement, B1, B2, Level -1, Cellar).`);
+        } else {
+          toast.error("No 3D model is currently loaded in the 3D Viewer. Please select an .ifc file or load a model in the 3D BIM Viewer first.");
+          ifcFileInputRef.current?.click();
+        }
+        return;
+      }
+
+      setPending3DSpaces(basementSpaces);
+      const initialSelected = new Set(
+        basementSpaces
+          .filter(sp => !isExcludedSpaceName(sp.name, sp.category))
+          .map(sp => sp.id)
+      );
+      setSelected3DIds(initialSelected);
+      setShow3DPreviewModal(true);
+      setShowImportSourceModal(false);
+      const autoDeselectedCount = basementSpaces.length - initialSelected.size;
+      toast.success(
+        `Found ${basementSpaces.length} basement space(s)! Selected ${initialSelected.size} space(s) (${autoDeselectedCount} utility/room spaces auto-deselected).`
+      );
+    } catch (err) {
+      toast.dismiss("bs-3d-scan");
+      toast.dismiss("bs-ifc-parse");
+      console.error("Error extracting 3D basement spaces", err);
+      toast.error("Failed to extract 3D model spaces.");
+    }
+  };
+
+  const getCleanLevelName = (sp: Extracted3DSpace): string => {
+    let cleanLvl = sp.level ? sp.level.trim() : "";
+    const upperLvl = cleanLvl.toUpperCase();
+    if (upperLvl.includes("BASEMENT 1") || upperLvl === "B1" || upperLvl.includes("LEVEL -1") || upperLvl.includes("L-1")) {
+      return "Basement 1";
+    } else if (upperLvl.includes("BASEMENT 2") || upperLvl === "B2" || upperLvl.includes("LEVEL -2") || upperLvl.includes("L-2")) {
+      return "Basement 2";
+    } else if (upperLvl.includes("BASEMENT 3") || upperLvl === "B3" || upperLvl.includes("LEVEL -3") || upperLvl.includes("L-3")) {
+      return "Basement 3";
+    } else if (upperLvl.includes("BASEMENT 4") || upperLvl === "B4" || upperLvl.includes("LEVEL -4") || upperLvl.includes("L-4")) {
+      return "Basement 4";
+    } else if (upperLvl.includes("BASEMENT 5") || upperLvl === "B5" || upperLvl.includes("LEVEL -5") || upperLvl.includes("L-5")) {
+      return "Basement 5";
+    } else if (!cleanLvl || cleanLvl === "undefined") {
+      return "Basement 1";
+    }
+    return cleanLvl;
+  };
+
+  const handleConfirmImport3DSpaces = () => {
+    const selectedSpaces = pending3DSpaces.filter(sp => selected3DIds.has(sp.id));
+    if (selectedSpaces.length === 0) {
+      toast.error("Please select at least one basement space to import.");
+      return;
+    }
+
+    // 1. Group ALL pending 3D spaces on each level (selected + unselected)
+    const allSpacesByLevel = new Map<string, Extracted3DSpace[]>();
+    pending3DSpaces.forEach(sp => {
+      const bLvl = getCleanLevelName(sp);
+      if (!allSpacesByLevel.has(bLvl)) allSpacesByLevel.set(bLvl, []);
+      allSpacesByLevel.get(bLvl)!.push(sp);
+    });
+
+    // 2. Group SELECTED spaces on each level
+    const selectedSpacesByLevel = new Map<string, Extracted3DSpace[]>();
+    selectedSpaces.forEach(sp => {
+      const bLvl = getCleanLevelName(sp);
+      if (!selectedSpacesByLevel.has(bLvl)) selectedSpacesByLevel.set(bLvl, []);
+      selectedSpacesByLevel.get(bLvl)!.push(sp);
+    });
+
+    const baseTime = Date.now();
+    const importedFloors: BasementFloor[] = [];
+    let levelIdx = 0;
+
+    // 3. Create 1 aggregated Basement Level entry per level
+    selectedSpacesByLevel.forEach((selSpaces, bLevel) => {
+      levelIdx++;
+      const allSpacesInLevel = allSpacesByLevel.get(bLevel) || selSpaces;
+
+      // Gross Area = Sum of ALL spaces (selected + unselected) on this basement level
+      const totalRawGrossArea = allSpacesInLevel.reduce((acc, sp) => acc + (sp.area || 0), 0);
+      // Effective Area = Sum of ONLY SELECTED spaces on this basement level
+      const totalRawEffArea = selSpaces.reduce((acc, sp) => acc + (sp.area || 0), 0);
+
+      const grossAreaVal = ip ? Math.round(totalRawGrossArea * 10.7639) : Math.round(totalRawGrossArea);
+      const effAreaVal = ip ? Math.round(totalRawEffArea * 10.7639) : Math.round(totalRawEffArea);
+
+      // Height from 3D space
+      const sampleHeight = selSpaces[0]?.height || 3;
+      const heightVal = ip ? Number((sampleHeight * 3.28084).toFixed(1)) : Number(sampleHeight.toFixed(1));
+
+      importedFloors.push({
+        id: `floor-${baseTime}-${levelIdx}`,
+        basementLevel: bLevel,
+        zoneName: "Zone 1",
+        name: `${bLevel} - Zone 1`,
+        area: grossAreaVal || 500,
+        effArea: effAreaVal || 425,
+        height: heightVal || 3
+      });
+    });
+
+    updateFloorsWithHistory([...floors, ...importedFloors]);
+    setShow3DPreviewModal(false);
+    toast.success(
+      `Successfully imported ${importedFloors.length} basement level(s) combining ${selectedSpaces.length} selected space(s)!`
+    );
+  };
+
+  const handleExcelFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data: any[] = XLSX.utils.sheet_to_json(ws);
+        
+        if (data.length === 0) {
+          toast.error("Uploaded Excel file is empty.");
+          return;
+        }
+
+        const imported: BasementFloor[] = [];
+        const baseTime = Date.now();
+        data.forEach((row, i) => {
+          const rawLvl = row["Basement Level"] || row["Level"] || row["Floor"] || `Basement 1`;
+          const rawZone = row["Zone Name"] || row["Zone"] || row["Space"] || `Zone ${i + 1}`;
+          const area = parseFloat(row["Gross Area"] || row["Area"] || 500) || 500;
+          const effArea = parseFloat(row["Eff. Area"] || row["Effective Area"] || area * 0.85) || Math.round(area * 0.85);
+          const height = parseFloat(row["Height"] || 3) || 3;
+
+          imported.push({
+            id: `floor-${baseTime}-${i}`,
+            basementLevel: String(rawLvl).trim(),
+            zoneName: String(rawZone).trim(),
+            name: `${String(rawLvl).trim()} - ${String(rawZone).trim()}`,
+            area: area,
+            effArea: effArea,
+            height: height
+          });
+        });
+
+        updateFloorsWithHistory([...floors, ...imported]);
+        setShowImportSourceModal(false);
+        toast.success(`Imported ${imported.length} floor(s) from Excel file!`);
+      } catch (err) {
+        toast.error("Failed to parse Excel file.");
+      } finally {
+        if (e.target) e.target.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   // Push to history helper
   const updateFloorsWithHistory = (newFloors: BasementFloor[]) => {
@@ -411,30 +670,39 @@ function BasementSmokeCalcPage() {
     }
   }, [floors, fanSystems, totalFans, unitSystem, showGlobalFanSizing, project?.id, isLoaded]);
 
-  const handleUnitSystemChange = (unit: "si" | "ip") => {
-    if (unit === unitSystem) return;
-    setUnitSystem(unit);
+  const handleUnitSystemClick = (targetUnit: "si" | "ip") => {
+    if (targetUnit === unitSystem) return;
+    setPendingUnitTarget(targetUnit);
+    setShowUnitConfirmModal(true);
+  };
+
+  const executeUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (shouldConvert) {
+      const convArea = targetUnit === "ip" ? 10.7639 : 1 / 10.7639;
+      const convHeight = targetUnit === "ip" ? 3.28084 : 1 / 3.28084;
+
+      updateFloorsWithHistory(floors.map(f => ({
+        ...f,
+        area: Math.round(f.area * convArea),
+        effArea: Math.round(f.effArea * convArea),
+        height: Number((f.height * convHeight).toFixed(1))
+      })));
+
+      setNewFloor(prev => ({
+        ...prev,
+        area: prev.area !== "" ? Math.round(Number(prev.area) * convArea) : "",
+        effArea: prev.effArea !== "" ? Math.round(Number(prev.effArea) * convArea) : "",
+        height: prev.height !== "" ? Number((Number(prev.height) * convHeight).toFixed(1)) : ""
+      }));
+    }
+
+    setUnitSystem(targetUnit);
     const pId = project?.id;
-    localStorage.setItem("bs_unit_system", unit);
-    if (pId) localStorage.setItem(`bs_unit_system_${pId}`, unit);
-    if ((window as any).__mep_keep_values) return;
-    // Convert current floor values
-    const conv = unit === "ip" ? 10.7639 : 1 / 10.7639; // m² to ft²
-    const convH = unit === "ip" ? 3.28084 : 1 / 3.28084; // m to ft
+    localStorage.setItem("bs_unit_system", targetUnit);
+    if (pId) localStorage.setItem(`bs_unit_system_${pId}`, targetUnit);
 
-    setFloors(floors.map(f => ({
-      ...f,
-      area: Number((f.area * conv).toFixed(0)),
-      effArea: Number((f.effArea * conv).toFixed(0)),
-      height: Number((f.height * convH).toFixed(1))
-    })));
-
-    setNewFloor(prev => ({
-      ...prev,
-      area: prev.area !== "" ? Number((Number(prev.area) * conv).toFixed(0)) : "",
-      effArea: prev.effArea !== "" ? Number((Number(prev.effArea) * conv).toFixed(0)) : "",
-      height: prev.height !== "" ? Number((Number(prev.height) * convH).toFixed(1)) : ""
-    }));
+    setShowUnitConfirmModal(false);
+    setPendingUnitTarget(null);
   };
 
   const calculatedRows = useMemo(() => {
@@ -466,7 +734,10 @@ function BasementSmokeCalcPage() {
   const calculatedGroups = useMemo(() => {
     const map = new Map<string, typeof calculatedRows>();
     calculatedRows.forEach(r => {
-      const bLevel = r.basementLevel || r.name.split(" - ")[0] || r.name || "Basement 1";
+      const rawLvl = (r.basementLevel && r.basementLevel !== "undefined")
+        ? r.basementLevel
+        : (r.name && r.name.includes(" - ") ? r.name.split(" - ")[0] : (r.name && r.name !== "undefined" ? r.name : "Basement 1"));
+      const bLevel = (rawLvl || "").trim() || "Basement 1";
       if (!map.has(bLevel)) map.set(bLevel, []);
       map.get(bLevel)!.push(r);
     });
@@ -502,28 +773,33 @@ function BasementSmokeCalcPage() {
       ? calculatedRows.reduce((max, r) => r.flow6ach > max.flow6ach ? r : max, calculatedRows[0])
       : null;
 
-    // Fire Scenario Sum: 1 worst-case zone at 6 ACH, all other zones at 3 ACH
-    const fireScenarioSum = calculatedRows.reduce((a, b) => {
+    // Normal Mode (3-3-6 Recommendation): 1 worst-case zone at 6 ACH, all other zones at 3 ACH
+    const normalScenarioSum = calculatedRows.reduce((a, b) => {
       const mode = (max6Row && b.id === max6Row.id) ? 6 : 3;
       return a + (mode === 6 ? b.flow6ach : b.flow3ach);
     }, 0);
 
+    // Fire Mode: Strictly consider only 10 ACH Max across all zones
     const max10 = Math.max(0, ...calculatedRows.map(r => r.flow10ach));
-    const fireTotal = Math.max(fireScenarioSum, max10);
 
-    const lowCap = Math.ceil(total3 / (totalFans || 1));
-    const highCap = Math.ceil(fireTotal / (totalFans || 1));
+    const lowCap = Math.ceil(normalScenarioSum / (totalFans || 1));
+    const highCap = Math.ceil(max10 / (totalFans || 1));
+    const sizedCap = Math.max(lowCap, highCap);
+    const governingMode = lowCap > highCap ? "Normal Mode" : "Fire Mode";
 
     return {
       total3,
       total6,
-      fireScenarioSum,
+      normalScenarioSum,
+      fireScenarioSum: normalScenarioSum,
       max10,
-      fireTotal,
+      fireTotal: max10,
       lowCap,
       highCap,
       normalCap: lowCap,
-      fireCap: highCap
+      fireCap: highCap,
+      sizedCap,
+      governingMode
     };
   }, [calculatedRows, totalFans]);
 
@@ -693,16 +969,24 @@ function BasementSmokeCalcPage() {
     }));
   };
 
-  const handleDeleteLevel = (bLevel: string) => {
-    const idsToDelete = new Set(floors.filter(f => f.basementLevel === bLevel).map(f => f.id));
-    const updatedFloors = floors.filter(f => f.basementLevel !== bLevel);
+  const handleDeleteLevel = (bLevel: string, targetFloorIds?: string[]) => {
+    const idsToDelete = targetFloorIds && targetFloorIds.length > 0
+      ? new Set(targetFloorIds)
+      : new Set(floors.filter(f => {
+          const rawLvl = (f.basementLevel && f.basementLevel !== "undefined")
+            ? f.basementLevel
+            : (f.name && f.name.includes(" - ") ? f.name.split(" - ")[0] : "Basement 1");
+          return rawLvl.trim() === bLevel.trim();
+        }).map(f => f.id));
+
+    const updatedFloors = floors.filter(f => !idsToDelete.has(f.id));
     updateFloorsWithHistory(updatedFloors);
     setSelectedRowIds(prev => {
       const next = new Set(prev);
       idsToDelete.forEach(id => next.delete(id));
       return next;
     });
-    setFanSystems(fanSystems.map(fs => ({
+    setFanSystems(prevFS => prevFS.map(fs => ({
       ...fs,
       floorIds: fs.floorIds.filter(fId => !idsToDelete.has(fId))
     })));
@@ -717,14 +1001,38 @@ function BasementSmokeCalcPage() {
       if (field === "name" && typeof value === "string") {
         if (value.includes(" - ")) {
           const parts = value.split(" - ");
-          updated.basementLevel = parts[0].trim();
-          updated.zoneName = parts.slice(1).join(" - ").trim();
+          updated.basementLevel = parts[0].trim() || f.basementLevel || "Basement 1";
+          updated.zoneName = parts.slice(1).join(" - ").trim() || f.zoneName || "Zone 1";
         } else {
-          updated.basementLevel = value.trim();
+          const trimmed = value.trim();
+          if (trimmed) {
+            updated.basementLevel = trimmed;
+          }
         }
       }
       return updated;
     }));
+  };
+
+  const handleDuplicateZone = (r: BasementFloor) => {
+    const newZoneId = `floor-${Date.now()}`;
+    const duplicated: BasementFloor = {
+      ...r,
+      id: newZoneId,
+      zoneName: `${r.zoneName || "Zone"} (Copy)`,
+      name: `${r.basementLevel} - ${r.zoneName || "Zone"} (Copy)`
+    };
+    updateFloorsWithHistory([...floors, duplicated]);
+  };
+
+  const handleDuplicateFanSystem = (targetFs: FanSystem) => {
+    const newFs: FanSystem = {
+      ...targetFs,
+      id: `fs-${Date.now()}`,
+      name: `${targetFs.name} (Copy)`,
+      collapsed: false
+    };
+    setFanSystems([...fanSystems, newFs]);
   };
 
   // Open Fan System Modal for create
@@ -732,6 +1040,7 @@ function BasementSmokeCalcPage() {
     setModalFSId(null);
     setModalFSName("");
     setModalFSType("Extract");
+    setModalFSFanQty(2);
     setModalSelectedFloorIds([]);
     setModalError("");
     setShowFSModal(true);
@@ -742,6 +1051,7 @@ function BasementSmokeCalcPage() {
     setModalFSId(fs.id);
     setModalFSName(fs.name);
     setModalFSType(fs.fanType);
+    setModalFSFanQty(fs.fanQty || 1);
     setModalSelectedFloorIds(fs.floorIds);
     setModalError("");
     setShowFSModal(true);
@@ -763,6 +1073,7 @@ function BasementSmokeCalcPage() {
         ...fs,
         name: modalFSName.trim(),
         fanType: modalFSType,
+        fanQty: modalFSFanQty || 1,
         floorIds: modalSelectedFloorIds
       } : fs));
     } else {
@@ -771,6 +1082,7 @@ function BasementSmokeCalcPage() {
         id: "fs-" + Date.now(),
         name: modalFSName.trim(),
         fanType: modalFSType,
+        fanQty: modalFSFanQty || 1,
         floorIds: modalSelectedFloorIds,
         length: 20,
         frictionFactor: 1.2,
@@ -813,28 +1125,31 @@ function BasementSmokeCalcPage() {
         });
       }
 
-      // Dynamic Fire Scenario Sum: auto-evaluates current peak flow6ach zone at 6 ACH and rest at 3 ACH (unless custom overridden)
-      let fireScenarioSum = servedFloors.reduce((a, b) => {
+      // Dynamic Normal Mode 3-3-6 Sum: auto-evaluates current peak flow6ach zone at 6 ACH and rest at 3 ACH (unless custom overridden)
+      let normalScenarioSum = servedFloors.reduce((a, b) => {
         const mode = validZoneAchModes[b.id] !== undefined
           ? validZoneAchModes[b.id]
           : (b.id === max6FloorId ? 6 : 3);
         return a + (mode === 6 ? b.flow6ach : b.flow3ach);
       }, 0);
 
+      // Fire Mode: Strictly consider only 10 ACH Max across served floors
       let flow10Max = servedFloors.length > 0 ? Math.max(...servedFloors.map(r => r.flow10ach)) : 0;
-      let fireConditionTotalFlow = Math.max(fireScenarioSum, flow10Max);
+      let fireConditionTotalFlow = flow10Max;
 
-      let calcNormalCap = Math.ceil(flow3 / (totalFans || 1));
-      let calcFireCap = Math.ceil(fireConditionTotalFlow / (totalFans || 1));
+      const currentFanQty = Math.max(1, fs.fanQty || 1);
+      // Strictly calculate total system capacities as 1 combined system
+      let calcNormalCap = normalScenarioSum;
+      let calcFireCap = fireConditionTotalFlow;
 
       // Scaling for makeup fan (85%)
       if (fs.fanType === "Makeup") {
         flow3 = Math.round(flow3 * 0.85);
-        fireScenarioSum = Math.round(fireScenarioSum * 0.85);
+        normalScenarioSum = Math.round(normalScenarioSum * 0.85);
         flow10Max = Math.round(flow10Max * 0.85);
         fireConditionTotalFlow = Math.round(fireConditionTotalFlow * 0.85);
-        calcNormalCap = Math.round(calcNormalCap * 0.85);
-        calcFireCap = Math.round(calcFireCap * 0.85);
+        calcNormalCap = Math.round(normalScenarioSum * 0.85);
+        calcFireCap = Math.round(fireConditionTotalFlow * 0.85);
       }
 
       // Custom user capacity overrides (if entered)
@@ -845,6 +1160,13 @@ function BasementSmokeCalcPage() {
         ? fs.customFireCap
         : calcFireCap;
 
+      const sizedCap = Math.max(lowCap, highCap);
+      const isNormalGoverning = lowCap > highCap;
+      const governingMode = isNormalGoverning ? "Normal Mode" : "Fire Mode";
+
+      // Per-fan capacity split evenly across fans
+      const perFanCap = Math.ceil(sizedCap / currentFanQty);
+
       return {
         ...fs,
         fittings,
@@ -853,8 +1175,9 @@ function BasementSmokeCalcPage() {
         safety,
         totalStatic,
         flow3,
-        flow6: fireScenarioSum,
-        fireScenarioSum,
+        flow6: normalScenarioSum,
+        normalScenarioSum,
+        fireScenarioSum: normalScenarioSum,
         flow10Max,
         fireConditionTotalFlow,
         calcNormalCap,
@@ -863,11 +1186,15 @@ function BasementSmokeCalcPage() {
         highCap,
         normalCap: lowCap,
         fireCap: highCap,
+        sizedCap,
+        perFanCap,
+        isNormalGoverning,
+        governingMode,
         max6FloorId,
         servedFloors
       };
     });
-  }, [fanSystems, calculatedRows, totalFans]);
+  }, [fanSystems, calculatedRows]);
 
   // Check if a floor is already assigned to a system of the target type
   const assignedFloorsMap = useMemo(() => {
@@ -922,7 +1249,7 @@ function BasementSmokeCalcPage() {
     <AppShell title="Basement Smoke Calc" hideSubHeader={true}>
       <>
         <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
+        <div className="flex-1 min-w-0 flex flex-col pt-1 gap-1.5 overflow-y-auto h-full px-1 sm:px-1.5 pb-1">
           {/* Breadcrumbs & Page Header (Ventilation style) */}
           <div className="flex justify-between items-start shrink-0 select-none no-print">
             <div className="flex flex-col gap-1 w-full">
@@ -984,6 +1311,32 @@ function BasementSmokeCalcPage() {
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2">
+                {/* Unit System Toggle Pill */}
+                <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl border border-border/80 text-xs font-semibold select-none mr-1">
+                  <button
+                    type="button"
+                    onClick={() => handleUnitSystemClick("ip")}
+                    className={`px-3 py-1 rounded-lg transition cursor-pointer font-bold ${
+                      unitSystem === "ip"
+                        ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    IP (CFM)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUnitSystemClick("si")}
+                    className={`px-3 py-1 rounded-lg transition cursor-pointer font-bold ${
+                      unitSystem === "si"
+                        ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    SI (L/s)
+                  </button>
+                </div>
+
                 {activeSection === "schedule" && (
                   <>
                     {clipboard.length > 0 && (
@@ -1007,6 +1360,14 @@ function BasementSmokeCalcPage() {
                     )}
 
                     <button
+                      onClick={() => setShowImportSourceModal(true)}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0A7BC7]/10 text-[#0A7BC7] dark:text-sky-400 border border-[#0A7BC7]/30 rounded-xl text-xs font-semibold hover:bg-[#0A7BC7]/20 transition cursor-pointer shadow-xs"
+                      title="Import basement floor levels from 3D BIM Viewer or Excel schedule"
+                    >
+                      <Sparkles className="size-3.5 text-[#0A7BC7]" />
+                      Import Schedule
+                    </button>
+                    <button
                       onClick={() => {
                         if (!newFloor.name) {
                           const nextLevelNum = calculatedGroups.length + 1;
@@ -1028,33 +1389,17 @@ function BasementSmokeCalcPage() {
                   <FileText className="size-3.5 text-red-600" />
                   Export PDF
                 </button>
-                {activeSection === "schedule" && (
-                  <button
-                    onClick={() => setShowGlobalFanSizing(!showGlobalFanSizing)}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 border rounded-xl text-xs font-semibold transition cursor-pointer ${
-                      showGlobalFanSizing
-                        ? "border-primary/40 text-primary bg-primary/5 hover:bg-primary/10"
-                        : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    <Gauge className="size-3.5" />
-                    Global Sizing
-                  </button>
-                )}
               </div>
             </div>
 
             {/* Inner Content Area */}
-            <div className="p-5 flex-1 overflow-y-auto">
-              {/* Basement Level Schedule & Global Sizing Section */}
+            <div className={`flex-1 overflow-y-auto ${activeSection === "schedule" ? "p-0" : "p-5"}`}>
+              {/* Basement Level Schedule Section */}
               {activeSection === "schedule" && (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Left - Schedule Table */}
-                  <div className={`${showGlobalFanSizing ? "lg:col-span-9" : "lg:col-span-12"} flex flex-col gap-4 transition-all duration-200`}>
-
+                <div className="w-full flex flex-col">
                   {/* Floating Row Selection Toolbar */}
                   {selectedRowIds.size > 0 && (
-                    <div className="flex items-center justify-between bg-primary/10 border border-primary/30 rounded-xl px-4 py-2 text-xs font-semibold text-primary animate-fade-in">
+                    <div className="m-3 flex items-center justify-between bg-primary/10 border border-primary/30 rounded-xl px-4 py-2 text-xs font-semibold text-primary animate-fade-in">
                       <div className="flex items-center gap-2">
                         <span className="font-bold">{selectedRowIds.size} row(s) selected</span>
                         <span className="text-muted-foreground text-[11px]">(Shortcuts: Ctrl+C, Ctrl+X, Ctrl+V, Del, Esc)</span>
@@ -1127,138 +1472,206 @@ function BasementSmokeCalcPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/40 font-mono">
-                        {calculatedGroups.map(grp => (
+                        {calculatedGroups.map((grp, grpIdx) => (
                           <Fragment key={grp.basementLevel + "-group"}>
                             {/* Basement Level Group Header */}
-                            <tr className="bg-slate-100/70 dark:bg-slate-800/50 font-sans border-t-2 border-border/70 group/header">
-                              <td colSpan={9} className="py-1.5 px-3 font-bold text-foreground text-[12px]">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm">🏢</span>
-                                    <input
-                                      type="text"
-                                      value={grp.basementLevel}
-                                      onChange={e => handleRenameLevel(grp.basementLevel, e.target.value)}
-                                      className="bg-transparent hover:bg-slate-200/60 dark:hover:bg-slate-700/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-2 py-0.5 font-bold text-xs text-foreground outline-none transition-colors"
-                                      title="Click to rename level inline"
-                                    />
-                                    <span className="text-muted-foreground text-xs font-semibold">
-                                      ({grp.rows.length} {grp.rows.length === 1 ? "Zone" : "Zones"})
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      onClick={() => handleOpenEditLevelModal(grp)}
-                                      className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-[11px] font-semibold text-primary hover:bg-primary/10 transition cursor-pointer shadow-2xs"
-                                      title="Edit level parameters & zones"
-                                    >
-                                      <Edit3 className="size-3" /> Edit Level
-                                    </button>
-                                    <button
-                                      onClick={() => handleAddZoneToLevel(grp.basementLevel)}
-                                      className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition cursor-pointer shadow-2xs"
-                                      title="Add new zone to this level"
-                                    >
-                                      <Plus className="size-3" /> Add Zone
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteLevel(grp.basementLevel)}
-                                      className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-[11px] font-semibold text-red-500 hover:bg-red-500/10 transition cursor-pointer shadow-2xs"
-                                      title="Delete entire level"
-                                    >
-                                      <Trash2 className="size-3" /> Delete Level
-                                    </button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
+                            <ContextMenu key={grp.basementLevel + "-level-ctx"}>
+                              <ContextMenuTrigger asChild>
+                                <tr className={`font-sans group/header ${
+                                  grpIdx > 0
+                                    ? "border-t-[10px] border-slate-200/90 dark:border-slate-800/90"
+                                    : ""
+                                }`}>
+                                  <td colSpan={9} className="py-2.5 px-3 font-bold text-foreground text-[12px] bg-slate-100/90 dark:bg-slate-800/80 border-y border-slate-300/80 dark:border-slate-700/80">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm">🏢</span>
+                                        <input
+                                          type="text"
+                                          value={grp.basementLevel}
+                                          onChange={e => handleRenameLevel(grp.basementLevel, e.target.value)}
+                                          className="bg-transparent hover:bg-slate-200/60 dark:hover:bg-slate-700/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-2 py-0.5 font-bold text-xs text-foreground outline-none transition-colors"
+                                          title="Click to rename level inline"
+                                        />
+                                        <span className="text-muted-foreground text-xs font-semibold">
+                                          ({grp.rows.length} {grp.rows.length === 1 ? "Zone" : "Zones"})
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          onClick={() => handleOpenEditLevelModal(grp)}
+                                          className="p-1.5 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-primary hover:bg-primary/10 transition cursor-pointer shadow-2xs"
+                                          title="Edit level parameters & zones"
+                                        >
+                                          <Edit3 className="size-3.5" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleAddZoneToLevel(grp.basementLevel)}
+                                          className="p-1.5 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition cursor-pointer shadow-2xs"
+                                          title="Add new zone to this level"
+                                        >
+                                          <Plus className="size-3.5" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteLevel(grp.basementLevel)}
+                                          className="p-1.5 bg-white dark:bg-slate-800 border border-border/80 rounded-lg text-red-500 hover:bg-red-500/10 transition cursor-pointer shadow-2xs"
+                                          title="Delete entire level"
+                                        >
+                                          <Trash2 className="size-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenEditLevelModal(grp)}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                >
+                                  <Edit3 className="size-3.5 text-primary" />
+                                  <span>Edit {grp.basementLevel} Parameters</span>
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  onClick={() => handleAddZoneToLevel(grp.basementLevel)}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                >
+                                  <Plus className="size-3.5 text-emerald-600" />
+                                  <span>Add Zone to {grp.basementLevel}</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleDeleteLevel(grp.basementLevel)}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                  <span>Delete Entire {grp.basementLevel}</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+
                             {/* Zone Rows */}
                             {grp.rows.map(r => (
-                              <tr
-                                key={r.id}
-                                className={`transition-colors group ${
-                                  selectedRowIds.has(r.id)
-                                    ? "bg-primary/10 dark:bg-primary/20 border-l-2 border-l-primary"
-                                    : "hover:bg-slate-50/50 dark:hover:bg-slate-900/10"
-                                }`}
-                              >
-                                <td className="py-1 px-2 text-center w-8 select-none">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedRowIds.has(r.id)}
-                                    onChange={e => {
-                                      e.stopPropagation();
-                                      const next = new Set(selectedRowIds);
-                                      if (next.has(r.id)) next.delete(r.id);
-                                      else next.add(r.id);
-                                      setSelectedRowIds(next);
-                                    }}
-                                    className="rounded border-border cursor-pointer"
-                                  />
-                                </td>
-                                <td className="py-1 px-3 font-sans font-semibold pl-4">
-                                  <input
-                                    type="text"
-                                    value={r.name}
-                                    onChange={e => handleUpdateFloorCell(r.id, "name", e.target.value)}
-                                    className="w-full bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-2 py-1 font-semibold text-xs text-foreground outline-none transition-colors"
-                                  />
-                                </td>
-                                <td className="py-1 px-1">
-                                  <input
-                                    type="number"
-                                    value={r.area === 0 ? "" : r.area}
-                                    onChange={e => handleUpdateFloorCell(r.id, "area", e.target.value === "" ? 0 : Number(e.target.value))}
-                                    className="w-24 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
-                                  />
-                                </td>
-                                <td className="py-1 px-1">
-                                  <input
-                                    type="number"
-                                    value={r.effArea === 0 ? "" : r.effArea}
-                                    onChange={e => handleUpdateFloorCell(r.id, "effArea", e.target.value === "" ? 0 : Number(e.target.value))}
-                                    className="w-24 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
-                                  />
-                                </td>
-                                <td className="py-1 px-1">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    value={r.height === 0 ? "" : r.height}
-                                    onChange={e => handleUpdateFloorCell(r.id, "height", e.target.value === "" ? 0 : Number(e.target.value))}
-                                    className="w-20 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
-                                  />
-                                </td>
-                                <td className="py-2.5 font-semibold text-slate-700 dark:text-slate-300">{r.flow3ach.toLocaleString()}</td>
-                                <td className="py-2.5">{r.flow6ach.toLocaleString()}</td>
-                                <td className="py-2.5 font-bold text-primary">{r.flow10ach.toLocaleString()}</td>
-                                <td className="py-1.5 text-center">
-                                  <div className="flex items-center justify-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUpdateFloorCell(r.id, "flagged", !r.flagged)}
-                                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer group/flag flex items-center justify-center"
-                                      title={r.flagged ? "Unflag zone" : "Flag zone"}
-                                    >
-                                      <Flag
-                                        className={`size-3.5 transition-all duration-200 ${
-                                          r.flagged
-                                            ? "fill-red-500 text-red-500 scale-110"
-                                            : "text-muted-foreground/30 hover:text-red-500/60 group-hover/flag:scale-110"
-                                        }`}
+                              <ContextMenu key={r.id}>
+                                <ContextMenuTrigger asChild>
+                                  <tr
+                                    className={`transition-colors group ${
+                                      selectedRowIds.has(r.id)
+                                        ? "bg-primary/10 dark:bg-primary/20 border-l-2 border-l-primary"
+                                        : "hover:bg-slate-50/50 dark:hover:bg-slate-900/10"
+                                    }`}
+                                  >
+                                    <td className="py-1 px-2 text-center w-8 select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedRowIds.has(r.id)}
+                                        onChange={e => {
+                                          e.stopPropagation();
+                                          const next = new Set(selectedRowIds);
+                                          if (next.has(r.id)) next.delete(r.id);
+                                          else next.add(r.id);
+                                          setSelectedRowIds(next);
+                                        }}
+                                        className="rounded border-border cursor-pointer"
                                       />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteFloor(r.id)}
-                                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground/40 hover:text-red-500 transition cursor-pointer"
-                                      title="Delete zone"
-                                    >
-                                      <Trash2 className="size-3" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
+                                    </td>
+                                    <td className="py-1 px-3 font-sans font-semibold pl-4">
+                                      <input
+                                        type="text"
+                                        value={r.name}
+                                        onChange={e => handleUpdateFloorCell(r.id, "name", e.target.value)}
+                                        className="w-full bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-2 py-1 font-semibold text-xs text-foreground outline-none transition-colors"
+                                      />
+                                    </td>
+                                    <td className="py-1 px-1">
+                                      <input
+                                        type="number"
+                                        value={r.area === 0 ? "" : r.area}
+                                        onChange={e => handleUpdateFloorCell(r.id, "area", e.target.value === "" ? 0 : Number(e.target.value))}
+                                        className="w-24 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
+                                      />
+                                    </td>
+                                    <td className="py-1 px-1">
+                                      <input
+                                        type="number"
+                                        value={r.effArea === 0 ? "" : r.effArea}
+                                        onChange={e => handleUpdateFloorCell(r.id, "effArea", e.target.value === "" ? 0 : Number(e.target.value))}
+                                        className="w-24 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
+                                      />
+                                    </td>
+                                    <td className="py-1 px-1">
+                                      <input
+                                        type="number"
+                                        step="0.1"
+                                        value={r.height === 0 ? "" : r.height}
+                                        onChange={e => handleUpdateFloorCell(r.id, "height", e.target.value === "" ? 0 : Number(e.target.value))}
+                                        className="w-20 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
+                                      />
+                                    </td>
+                                    <td className="py-2.5 font-semibold text-slate-700 dark:text-slate-300">{r.flow3ach.toLocaleString()}</td>
+                                    <td className="py-2.5">{r.flow6ach.toLocaleString()}</td>
+                                    <td className="py-2.5 font-bold text-primary">{r.flow10ach.toLocaleString()}</td>
+                                    <td className="py-1.5 text-center">
+                                      <div className="flex items-center justify-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateFloorCell(r.id, "flagged", !r.flagged)}
+                                          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer group/flag flex items-center justify-center"
+                                          title={r.flagged ? "Unflag zone" : "Flag zone"}
+                                        >
+                                          <Flag
+                                            className={`size-3.5 transition-all duration-200 ${
+                                              r.flagged
+                                                ? "fill-red-500 text-red-500 scale-110"
+                                                : "text-muted-foreground/30 hover:text-red-500/60 group-hover/flag:scale-110"
+                                            }`}
+                                          />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteFloor(r.id)}
+                                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground/40 hover:text-red-500 transition cursor-pointer"
+                                          title="Delete zone"
+                                        >
+                                          <Trash2 className="size-3" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleDuplicateZone(r)}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                  >
+                                    <Copy className="size-3.5 text-muted-foreground" />
+                                    <span>Duplicate Zone</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => handleAddZoneToLevel(r.basementLevel)}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                  >
+                                    <Plus className="size-3.5 text-emerald-600" />
+                                    <span>Add Zone to {r.basementLevel}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator className="h-px bg-border my-1" />
+                                  <ContextMenuItem
+                                    onClick={() => handleUpdateFloorCell(r.id, "flagged", !r.flagged)}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                  >
+                                    <Flag className="size-3.5 text-red-500" />
+                                    <span>{r.flagged ? "Unflag Zone" : "Flag Zone"}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator className="h-px bg-border my-1" />
+                                  <ContextMenuItem
+                                    onClick={() => handleDeleteFloor(r.id)}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                    <span>Delete Zone</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
                             ))}
                             {/* Basement Subtotal Row */}
                             <tr className="bg-slate-50/90 dark:bg-slate-900/40 font-bold border-b-2 border-border/70 text-[11.5px]">
@@ -1276,65 +1689,48 @@ function BasementSmokeCalcPage() {
                             </tr>
                           </Fragment>
                         ))}
+                        {calculatedGroups.length === 0 && (
+                          <tr>
+                            <td colSpan={9} className="py-12 text-center text-muted-foreground font-sans">
+                              <div className="flex flex-col items-center justify-center gap-2">
+                                <Layers className="size-8 text-muted-foreground/40" />
+                                <p className="font-bold text-sm text-foreground">No basement levels defined</p>
+                                <p className="text-xs text-muted-foreground">Click "Add Level" or import directly from 3D BIM Viewer / Excel.</p>
+                                <div className="mt-2 flex items-center gap-2 flex-wrap justify-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setNewFloor({ name: "B1", area: 600, effArea: 500, height: 3, numZones: 1 });
+                                      setShowAddLevelModal(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0A7BC7] text-white rounded-xl text-xs font-semibold hover:bg-[#06456F] transition cursor-pointer shadow-xs"
+                                  >
+                                    <Plus className="size-3.5" />
+                                    Add Level
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowImportSourceModal(true)}
+                                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary/10 text-primary border border-primary/30 rounded-xl text-xs font-semibold hover:bg-primary/20 transition cursor-pointer shadow-xs"
+                                  >
+                                    <Box className="size-3.5 text-primary" />
+                                    Import from 3D BIM Viewer
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
                 </div>
-
-              {/* Right - Global Selection */}
-              {showGlobalFanSizing && (
-                <div className="lg:col-span-3 flex flex-col gap-5 animate-fade-in">
-                  {/* Fan selection parameters */}
-                  <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
-                    <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Global Fan Sizing</h3>
-                      </div>
-                      <button
-                        onClick={() => setShowGlobalFanSizing(false)}
-                        className="text-muted-foreground hover:text-foreground text-[11px] font-bold px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                        title="Hide section"
-                      >
-                        Hide
-                      </button>
-                    </div>
-
-                    <div className="flex flex-col gap-3.5 text-xs">
-                      <div className="flex flex-col gap-1">
-                        <label className="font-semibold text-foreground">Total Fan Qty Sized</label>
-                        <input type="number" min="1" step="1" value={totalFans} onChange={e => setTotalFans(Number(e.target.value))} className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-1.5 text-xs font-bold outline-none focus:border-[#0A7BC7]" />
-                      </div>
-
-                      <div className="flex flex-col gap-2.5 font-sans mt-2 pt-2 border-t border-border/60">
-                        <div className="bg-slate-100/40 dark:bg-slate-900/30 p-2.5 rounded-xl border border-border/60 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground font-bold uppercase">Total 3 ACH Flow (Normal Mode)</span>
-                          <strong className="text-sm font-bold text-foreground font-mono">{totals.total3.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                        </div>
-                        <div className="bg-slate-100/40 dark:bg-slate-900/30 p-2.5 rounded-xl border border-border/60 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-primary font-bold uppercase">Peak 10 ACH Fire Flow</span>
-                          <strong className="text-sm font-bold text-primary font-mono">{totals.max10.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                        </div>
-                        <div className="bg-slate-100/40 dark:bg-slate-900/30 p-2.5 rounded-xl border border-border/60 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground font-bold uppercase">Normal Mode Capacity / Fan</span>
-                          <strong className="text-base font-bold text-foreground font-mono">{totals.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                        </div>
-                        <div className="bg-primary/5 p-2.5 rounded-xl border border-primary/20 flex flex-col gap-0.5">
-                          <span className="text-[10px] text-primary font-bold uppercase">Fire Condition Capacity / Fan</span>
-                          <strong className="text-base font-bold text-primary font-mono">{totals.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
               )}
-            </div>
-          )}
 
           {/* Fan Systems Head Loss Section */}
           {activeSection === "fan-systems" && (
             <div className="flex flex-col gap-4">
-              <div className="flex justify-between items-center pb-2 border-b border-border/60">
+              <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-border/60">
                 <div className="flex items-center gap-2">
                   <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Fan Systems Head Loss Calculations</h3>
@@ -1346,179 +1742,266 @@ function BasementSmokeCalcPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {calculatedFanSystems.map(fs => (
-                  <div key={fs.id} className="border border-border/75 rounded-2xl bg-slate-50/30 dark:bg-slate-900/10 flex flex-col overflow-hidden shadow-xs">
-                    
-                    {/* Card Header with Toggle Collapse */}
-                    <div
-                      onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
-                      className="flex justify-between items-center bg-slate-100/50 dark:bg-slate-800/40 p-4 border-b border-border/70 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/60 select-none transition"
-                    >
-                      <div className="flex items-center gap-2 flex-wrap max-w-[80%]">
-                        <span className={`text-[10px] text-muted-foreground transition duration-200 block ${fs.collapsed ? "-rotate-90" : ""}`}>▼</span>
-                        <strong className="text-xs text-foreground font-sans font-bold">{fs.name}</strong>
-                        <span className="text-[9.5px] px-2 py-0.5 bg-primary/10 text-primary font-bold rounded-full uppercase">
-                          {fs.fanType} System
-                        </span>
-                        <div className="flex items-center gap-1.5 ml-2">
-                          {fs.servedFloors.map(f => (
-                            <span key={f.id} className="text-[10px] bg-slate-200/50 dark:bg-slate-700/40 text-slate-700 dark:text-slate-300 font-bold px-1.5 py-0.5 rounded-md">
-                              {f.name}
+                  <ContextMenu key={fs.id}>
+                    <ContextMenuTrigger asChild>
+                      <div className="border border-border/75 rounded-2xl bg-slate-50/30 dark:bg-slate-900/10 flex flex-col overflow-hidden shadow-xs">
+                        
+                        {/* Card Header with Toggle Collapse */}
+                        <div
+                          onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
+                          className="flex justify-between items-center gap-2 bg-slate-100/50 dark:bg-slate-800/40 p-4 border-b border-border/70 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/60 select-none transition"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                            <span className={`text-[10px] text-muted-foreground transition duration-200 block ${fs.collapsed ? "-rotate-90" : ""}`}>▼</span>
+                            <strong className="text-xs text-foreground font-sans font-bold">{fs.name}</strong>
+                            <span className="text-[9.5px] px-2 py-0.5 bg-primary/10 text-primary font-bold rounded-full uppercase shrink-0">
+                              {fs.fanType} System
                             </span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex gap-1 items-center">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleOpenEditFS(fs); }}
-                          className="bg-transparent text-primary hover:bg-primary/10 p-1.5 rounded transition cursor-pointer"
-                          title="Edit Fan System"
-                        >
-                          <Edit3 className="size-3.5" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setFanSystems(fanSystems.filter(x => x.id !== fs.id)); }}
-                          className="bg-transparent text-red-500 hover:bg-red-500/10 p-1.5 rounded transition cursor-pointer"
-                          title="Delete Fan System"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {!fs.collapsed && (
-                      <div className="p-5 flex flex-col gap-4">
-                        {/* Single trigger button for Fire Scenario Configurator Popup with inline capacity values */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <Flame className="size-4 text-amber-500 shrink-0" />
-                            <div className="flex flex-col">
-                              <span className="text-xs font-bold text-foreground font-sans">Fire Scenario & Zone Configurator</span>
-                              <span className="text-[10px] text-muted-foreground">Select per-zone ACH (3 or 6 ACH) and fan capacity overrides</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {fs.servedFloors.map(f => (
+                                <span key={f.id} className="text-[10px] bg-slate-200/50 dark:bg-slate-700/40 text-slate-700 dark:text-slate-300 font-bold px-1.5 py-0.5 rounded-md">
+                                  {f.name}
+                                </span>
+                              ))}
                             </div>
                           </div>
-                          
-                          <div className="flex items-center gap-3 text-xs font-mono">
-                            <div className="flex items-center gap-1.5 bg-primary/10 text-primary px-2.5 py-1 rounded-lg">
-                              <span className="text-[10px] font-sans font-bold uppercase">Normal Mode:</span>
-                              <strong className="font-bold text-xs">{fs.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                            </div>
-                            <div className="flex items-center gap-1.5 bg-red-500/10 text-red-500 px-2.5 py-1 rounded-lg">
-                              <span className="text-[10px] font-sans font-bold uppercase">Fire Condition:</span>
-                              <strong className="font-bold text-xs">{fs.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                            </div>
+                          <div className="flex gap-1 items-center shrink-0">
                             <button
-                              type="button"
-                              onClick={() => setFireConfigFSId(fs.id)}
-                              className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition shadow-xs cursor-pointer shrink-0 ml-1"
+                              onClick={(e) => { e.stopPropagation(); handleOpenEditFS(fs); }}
+                              className="bg-transparent text-primary hover:bg-primary/10 p-1.5 rounded transition cursor-pointer"
+                              title="Edit Fan System"
                             >
-                              <Settings className="size-3.5" />
-                              Configure Fire Scenario
+                              <Edit3 className="size-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setFanSystems(fanSystems.filter(x => x.id !== fs.id)); }}
+                              className="bg-transparent text-red-500 hover:bg-red-500/10 p-1.5 rounded transition cursor-pointer"
+                              title="Delete Fan System"
+                            >
+                              <Trash2 className="size-3.5" />
                             </button>
                           </div>
                         </div>
 
-                        {/* Friction configuration row */}
-                        <div className="flex justify-between items-center bg-slate-100/30 dark:bg-slate-900/30 border border-border rounded-xl px-4 py-2.5 text-xs select-none">
-                          <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Design Friction Rate</span>
-                          <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-                            <span>Friction Factor:</span>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={fs.frictionFactor}
-                              onChange={e => {
-                                const val = Number(e.target.value);
-                                setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, frictionFactor: val } : x));
-                              }}
-                              className="w-12 bg-transparent text-primary font-bold text-center border-b border-primary/50 outline-none"
-                            />
-                            <span>Pa/m of ducting</span>
-                          </div>
-                        </div>
+                        {!fs.collapsed && (
+                          <div className="p-4 sm:p-5 flex flex-col gap-4">
+                            {/* Compact Fire Scenario & Capacity Bar */}
+                            <div className="flex items-center justify-between gap-2 bg-slate-100/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 rounded-xl px-3 py-2 text-xs">
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <Flame className="size-3.5 text-rose-500 dark:text-rose-400" />
+                                <span className="font-bold text-foreground text-xs font-sans">Fire Scenario</span>
+                              </div>
+                              
+                              <div className="flex items-center gap-2 font-mono flex-wrap">
+                                <div className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[11px] whitespace-nowrap">
+                                  <span className="font-sans font-bold text-[9.5px] text-muted-foreground uppercase">Normal:</span>
+                                  <strong className="font-bold text-xs">{fs.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                                </div>
+                                <div className="flex items-center gap-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-md text-[11px] whitespace-nowrap">
+                                  <span className="font-sans font-bold text-[9.5px] text-muted-foreground uppercase">Fire:</span>
+                                  <strong className="font-bold text-xs">{fs.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setFireConfigFSId(fs.id)}
+                                  className="bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1 transition cursor-pointer shrink-0 shadow-xs"
+                                  title="Configure Fire Scenario & Zone ACH"
+                                >
+                                  <Settings className="size-3" />
+                                  <span>Configure</span>
+                                </button>
+                              </div>
+                            </div>
 
-                        {/* Inputs Split */}
-                        <div className="grid grid-cols-2 gap-5">
-                          <div className="flex flex-col gap-2.5 text-xs">
-                            <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Ductwork Inputs</div>
-                            <div className="flex flex-col gap-1">
-                              <label className="font-semibold text-muted-foreground">Duct Length (m)</label>
-                              <input
-                                type="number"
-                                value={fs.length}
-                                onChange={e => {
-                                  const val = Number(e.target.value);
-                                  setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, length: val } : x));
-                                }}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="font-semibold text-muted-foreground">Losses in Louver (Pa)</label>
-                              <input
-                                type="number"
-                                value={fs.louver}
-                                onChange={e => {
-                                  const val = Number(e.target.value);
-                                  setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, louver: val } : x));
-                                }}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="font-semibold text-muted-foreground">Losses in Grille (Pa)</label>
-                              <input
-                                type="number"
-                                value={fs.grille}
-                                onChange={e => {
-                                  const val = Number(e.target.value);
-                                  setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, grille: val } : x));
-                                }}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <label className="font-semibold text-muted-foreground">Losses in SAs (Pa)</label>
-                              <input
-                                type="number"
-                                value={fs.sa}
-                                onChange={e => {
-                                  const val = Number(e.target.value);
-                                  setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, sa: val } : x));
-                                }}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                              />
-                            </div>
-                          </div>
+                            {/* System Parameters Row: Number of Fans & Friction Factor */}
+                            <div className="flex flex-wrap justify-between items-center gap-3 bg-slate-100/30 dark:bg-slate-900/30 border border-border rounded-xl px-4 py-2 text-xs select-none">
+                              <div className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                                <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Number of Fans:</span>
+                                 <input
+                                  type="number"
+                                  min="1"
+                                  value={fs.fanQty === 0 ? "" : (fs.fanQty ?? 1)}
+                                  onChange={e => {
+                                    const val = e.target.value === "" ? 0 : Number(e.target.value);
+                                    setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, fanQty: val } : x));
+                                  }}
+                                  onBlur={() => {
+                                    if (!fs.fanQty || fs.fanQty < 1) {
+                                      setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, fanQty: 1 } : x));
+                                    }
+                                  }}
+                                  className="w-7 bg-transparent text-primary font-bold text-center outline-none focus:bg-slate-200/50 dark:focus:bg-slate-800/50 rounded transition-colors"
+                                />
+                                <span className="text-muted-foreground font-semibold">Fan(s)</span>
+                              </div>
 
-                          <div className="flex flex-col gap-2.5 text-xs">
-                            <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Calculated Results</div>
-                            <div className="bg-slate-100/20 dark:bg-slate-900/10 border border-border rounded-xl p-3 flex flex-col gap-2 font-sans">
-                              <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                <span className="font-semibold text-muted-foreground">Fittings in Ducting</span>
-                                <strong className="font-bold text-foreground font-mono">{fs.fittings.toFixed(1)} m</strong>
+                              <div className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
+                                <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Friction Factor:</span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  value={fs.frictionFactor}
+                                  onChange={e => {
+                                    const val = Number(e.target.value);
+                                    setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, frictionFactor: val } : x));
+                                  }}
+                                  className="w-8 bg-transparent text-primary font-bold text-center outline-none focus:bg-slate-200/50 dark:focus:bg-slate-800/50 rounded transition-colors"
+                                />
+                                <span>Pa/m</span>
                               </div>
-                              <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                <span className="font-semibold text-muted-foreground">Equivalent Length</span>
-                                <strong className="font-bold text-foreground font-mono">{fs.eqLen.toFixed(1)} m</strong>
+                            </div>
+
+                            {/* Inputs Split */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-stretch">
+                              <div className="flex flex-col h-full gap-2.5 text-xs">
+                                <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Ductwork Inputs</div>
+                                <div className="bg-slate-100/20 dark:bg-slate-900/10 border border-border rounded-xl p-3 flex-1 flex flex-col justify-between gap-2">
+                                  <div className="flex flex-col gap-1">
+                                    <label className="font-semibold text-muted-foreground">Duct Length (m)</label>
+                                    <input
+                                      type="number"
+                                      value={fs.length}
+                                      onChange={e => {
+                                        const val = Number(e.target.value);
+                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, length: val } : x));
+                                      }}
+                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="font-semibold text-muted-foreground">Losses in Louver (Pa)</label>
+                                    <input
+                                      type="number"
+                                      value={fs.louver}
+                                      onChange={e => {
+                                        const val = Number(e.target.value);
+                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, louver: val } : x));
+                                      }}
+                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="font-semibold text-muted-foreground">Losses in Grille (Pa)</label>
+                                    <input
+                                      type="number"
+                                      value={fs.grille}
+                                      onChange={e => {
+                                        const val = Number(e.target.value);
+                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, grille: val } : x));
+                                      }}
+                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="font-semibold text-muted-foreground">Losses in SAs (Pa)</label>
+                                    <input
+                                      type="number"
+                                      value={fs.sa}
+                                      onChange={e => {
+                                        const val = Number(e.target.value);
+                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, sa: val } : x));
+                                      }}
+                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
+                                    />
+                                  </div>
+                                </div>
                               </div>
-                              <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                <span className="font-semibold text-muted-foreground">Frictional Losses</span>
-                                <strong className="font-bold text-foreground font-mono">{fs.frictionLoss.toFixed(2)} Pa</strong>
-                              </div>
-                              <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                <span className="font-semibold text-muted-foreground">Safety Overhead (10%)</span>
-                                <strong className="font-bold text-foreground font-mono">{fs.safety.toFixed(2)} Pa</strong>
-                              </div>
-                              <div className="flex justify-between items-center pt-1 text-[#0A7BC7]">
-                                <span className="font-bold">Total Static Sized</span>
-                                <strong className="font-bold text-sm font-mono">{fs.totalStatic} Pa</strong>
+
+                              <div className="flex flex-col gap-2.5 text-xs">
+                                <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Calculated Results</div>
+                                <div className="bg-slate-100/20 dark:bg-slate-900/10 border border-border rounded-xl p-3 flex flex-col gap-2 font-sans">
+                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                    <span className="font-semibold text-muted-foreground">Fittings in Ducting</span>
+                                    <strong className="font-bold text-foreground font-mono">{fs.fittings.toFixed(1)} m</strong>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                    <span className="font-semibold text-muted-foreground">Equivalent Length</span>
+                                    <strong className="font-bold text-foreground font-mono">{fs.eqLen.toFixed(1)} m</strong>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                    <span className="font-semibold text-muted-foreground">Frictional Losses</span>
+                                    <strong className="font-bold text-foreground font-mono">{fs.frictionLoss.toFixed(2)} Pa</strong>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                    <span className="font-semibold text-muted-foreground">Safety Overhead (10%)</span>
+                                    <strong className="font-bold text-foreground font-mono">{fs.safety.toFixed(2)} Pa</strong>
+                                  </div>
+                                  <div className="flex justify-between items-center pt-1 text-[#0A7BC7]">
+                                    <span className="font-bold">Total Static Sized</span>
+                                    <strong className="font-bold text-sm font-mono">{fs.totalStatic} Pa</strong>
+                                  </div>
+                                </div>
+
+                                {/* Final Equipment Duty Selection Box */}
+                                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex flex-col gap-1 shadow-2xs font-sans text-xs">
+                                  <div className="flex items-center justify-between font-bold text-emerald-900 dark:text-emerald-200">
+                                    <span className="flex items-center gap-1.5 uppercase text-[9.5px] tracking-wider text-emerald-800 dark:text-emerald-300">
+                                      <Gauge className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                                      Final Fan Selection ({fs.governingMode})
+                                    </span>
+                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 rounded font-bold">
+                                      {fs.fanQty || 1} Fan(s)
+                                    </span>
+                                  </div>
+
+                                  <div className="font-mono text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-300 mt-0.5">
+                                    {(fs.fanQty || 1) === 1 ? (
+                                      <span>1 Fan: {fs.totalStatic} Pa at {fs.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}</span>
+                                    ) : (
+                                      <span>{fs.fanQty} Fans: {fs.totalStatic} Pa at {fs.perFanCap.toLocaleString()} {ip ? "CFM" : "L/s"} each</span>
+                                    )}
+                                  </div>
+
+                                  <div className="text-[10.5px] font-mono text-emerald-800/80 dark:text-emerald-300/80 font-medium">
+                                    Total System Airflow: <strong>{fs.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong> @ {fs.totalStatic} Pa
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem
+                        onClick={() => setFireConfigFSId(fs.id)}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <Flame className="size-3.5 text-rose-500" />
+                        <span>Configure Fire Scenario & Zone ACH</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => handleOpenEditFS(fs)}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <Edit3 className="size-3.5 text-primary" />
+                        <span>Edit Fan System Properties</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <Settings className="size-3.5 text-muted-foreground" />
+                        <span>{fs.collapsed ? "Expand Fan System Card" : "Collapse Fan System Card"}</span>
+                      </ContextMenuItem>
+                      <ContextMenuSeparator className="h-px bg-border my-1" />
+                      <ContextMenuItem
+                        onClick={() => handleDuplicateFanSystem(fs)}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <Copy className="size-3.5 text-muted-foreground" />
+                        <span>Duplicate Fan System</span>
+                      </ContextMenuItem>
+                      <ContextMenuSeparator className="h-px bg-border my-1" />
+                      <ContextMenuItem
+                        onClick={() => setFanSystems(fanSystems.filter(x => x.id !== fs.id))}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+                      >
+                        <Trash2 className="size-3.5" />
+                        <span>Delete Fan System</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 ))}
               </div>
             </div>
@@ -1732,16 +2215,34 @@ function BasementSmokeCalcPage() {
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="font-semibold text-foreground">System Type</label>
-                <select
-                  value={modalFSType}
-                  onChange={e => setModalFSType(e.target.value as any)}
-                  className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7]"
-                >
-                  <option value="Extract">Smoke Extract Fan</option>
-                  <option value="Makeup">Makeup Air Fan</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="font-semibold text-foreground">System Type</label>
+                  <select
+                    value={modalFSType}
+                    onChange={e => setModalFSType(e.target.value as any)}
+                    className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+                  >
+                    <option value="Extract">Smoke Extract Fan</option>
+                    <option value="Makeup">Makeup Air Fan</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="font-semibold text-foreground">Number of Fans (Qty)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={modalFSFanQty}
+                    onChange={e => setModalFSFanQty(e.target.value === "" ? "" : Number(e.target.value))}
+                    onBlur={() => {
+                      if (modalFSFanQty === "" || Number(modalFSFanQty) < 1) {
+                        setModalFSFanQty(1);
+                      }
+                    }}
+                    className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col gap-1">
@@ -1805,11 +2306,13 @@ function BasementSmokeCalcPage() {
         if (!fireConfigFS) return null;
         return (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-            <div className="bg-card border border-border rounded-2xl w-full max-w-2xl p-6 flex flex-col gap-5 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
+            <div className={`bg-card border border-border rounded-2xl w-full p-6 flex flex-col justify-between shadow-2xl h-[640px] max-h-[90vh] overflow-hidden ${
+              showModalCalcPreview ? "max-w-5xl" : "max-w-lg"
+            }`}>
               {/* Header */}
-              <div className="flex justify-between items-center pb-3 border-b border-border/60">
+              <div className="flex justify-between items-center pb-3 border-b border-border/60 shrink-0">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-amber-500/10 rounded-xl text-amber-500">
+                  <div className="p-2 bg-rose-500/10 rounded-xl text-rose-500">
                     <Flame className="size-5" />
                   </div>
                   <div className="flex flex-col">
@@ -1822,99 +2325,182 @@ function BasementSmokeCalcPage() {
                     <span className="text-xs text-muted-foreground">Fire Scenario & Zone Sizing Configurator</span>
                   </div>
                 </div>
-                <button
-                  onClick={() => setFireConfigFSId(null)}
-                  className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <X className="size-5" />
-                </button>
-              </div>
 
-              {/* Live Flow Summary Pills */}
-              <div className="grid grid-cols-5 gap-2 select-none">
-                <div className="bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">3 ACH Normal</span>
-                  <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fireConfigFS.flow3.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                </div>
-                <div className="bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">Fire Combo Sum</span>
-                  <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fireConfigFS.fireScenarioSum.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                </div>
-                <div className="bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">10 ACH Peak</span>
-                  <strong className="text-[12px] font-bold text-amber-500 font-mono mt-1 block">{fireConfigFS.flow10Max.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                </div>
-                <div className="bg-primary/5 border border-primary/20 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                  <span className="text-[9px] font-bold text-primary uppercase tracking-wider block">Normal Mode</span>
-                  <strong className="text-[12px] font-bold text-primary font-mono mt-1 block">{fireConfigFS.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                </div>
-                <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-2.5 flex flex-col justify-between shadow-xs">
-                  <span className="text-[9px] font-bold text-red-500 uppercase tracking-wider block">Fire Condition</span>
-                  <strong className="text-[12px] font-bold text-red-500 font-mono mt-1 block">{fireConfigFS.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowModalCalcPreview(!showModalCalcPreview)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer shadow-xs ${
+                      showModalCalcPreview
+                        ? "bg-[#0A7BC7] text-white border border-[#0A7BC7]"
+                        : "bg-background border border-border text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <Info className="size-3.5" />
+                    <span>Calculations Preview</span>
+                  </button>
+                  <button
+                    onClick={() => setFireConfigFSId(null)}
+                    className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <X className="size-5" />
+                  </button>
                 </div>
               </div>
 
-              {/* Served Zones ACH Configurator */}
-              {fireConfigFS.servedFloors.length > 0 && (
-                <div className="flex flex-col gap-3 bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-4 text-xs">
-                  <div className="flex justify-between items-center pb-2 border-b border-border/60">
-                    <span className="font-bold text-foreground flex items-center gap-1.5 text-xs uppercase tracking-wider">
-                      <Flame className="size-4 text-amber-500" />
-                      Served Zones Air Change Rate Selection
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
-                      Select 3 ACH or 6 ACH for each served zone
-                    </span>
+              {/* Main Body Layout */}
+              <div className={`w-full flex-1 min-h-0 my-2 ${showModalCalcPreview ? "grid grid-cols-2 gap-6 items-start" : "flex flex-col"}`}>
+                {/* Left Side: Parameters & Zone ACH Configurator */}
+                <div className="flex flex-col gap-4 min-w-0 h-full overflow-y-auto pr-1">
+                  {/* Live Flow Summary Pills */}
+                  <div className="grid grid-cols-2 gap-3 select-none shrink-0">
+                    <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex justify-between items-center shadow-xs">
+                      <span className="text-xs font-bold text-primary uppercase tracking-wider">Normal Mode:</span>
+                      <strong className="text-sm font-bold text-primary font-mono">{fireConfigFS.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                    </div>
+                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3 flex justify-between items-center shadow-xs">
+                      <span className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Fire Mode:</span>
+                      <strong className="text-sm font-bold text-rose-600 dark:text-rose-400 font-mono">{fireConfigFS.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-1">
-                    {fireConfigFS.servedFloors.map(floor => {
-                      const currentAch = fireConfigFS.zoneAchModes?.[floor.id] !== undefined
-                        ? fireConfigFS.zoneAchModes[floor.id]
-                        : (floor.id === fireConfigFS.max6FloorId ? 6 : 3);
-                      const isDefaultMax = floor.id === fireConfigFS.max6FloorId;
-                      return (
-                        <div key={floor.id} className="flex items-center justify-between bg-background border border-border/70 rounded-xl px-3.5 py-2.5 shadow-xs">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="font-bold text-foreground text-xs">{floor.name}</span>
-                            <span className="text-[10px] text-muted-foreground font-mono">
-                              3 ACH: {floor.flow3ach.toLocaleString()} | 6 ACH: {floor.flow6ach.toLocaleString()} {ip ? "CFM" : "L/s"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-border/60">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFanSystems(fanSystems.map(x => x.id === fireConfigFS.id ? {
-                                  ...x,
-                                  zoneAchModes: { ...(x.zoneAchModes || {}), [floor.id]: 3 }
-                                } : x));
-                              }}
-                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition cursor-pointer ${currentAch === 3 ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-                            >
-                              3 ACH
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFanSystems(fanSystems.map(x => x.id === fireConfigFS.id ? {
-                                  ...x,
-                                  zoneAchModes: { ...(x.zoneAchModes || {}), [floor.id]: 6 }
-                                } : x));
-                              }}
-                              className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition cursor-pointer ${currentAch === 6 ? "bg-amber-600 text-white shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
-                            >
-                              6 ACH {isDefaultMax && currentAch === 6 && <span className="text-[9px] opacity-80">(Peak)</span>}
-                            </button>
-                          </div>
+
+                  {/* Served Zones ACH Configurator */}
+                  {fireConfigFS.servedFloors.length > 0 && (
+                    <div className="flex flex-col gap-3 bg-slate-100/40 dark:bg-slate-900/40 border border-border/80 rounded-xl p-4 text-xs">
+                      <div className="flex justify-between items-center pb-2 border-b border-border/60">
+                        <span className="font-bold text-foreground flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                          <Flame className="size-4 text-rose-500" />
+                          Served Zones Normal Mode ACH Selection
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Recommended: Highest Zone @ 6 ACH, Rest @ 3 ACH
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2.5 mt-1 max-h-[350px] overflow-y-auto pr-1">
+                        {fireConfigFS.servedFloors.map(floor => {
+                          const currentAch = fireConfigFS.zoneAchModes?.[floor.id] !== undefined
+                            ? fireConfigFS.zoneAchModes[floor.id]
+                            : (floor.id === fireConfigFS.max6FloorId ? 6 : 3);
+                          return (
+                            <div key={floor.id} className="flex items-center justify-between bg-background border border-border/70 rounded-xl px-3.5 py-2.5 shadow-xs">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="font-bold text-foreground text-xs">{floor.name}</span>
+                                <span className="text-[10px] text-muted-foreground font-mono">
+                                  3 ACH: {floor.flow3ach.toLocaleString()} | 6 ACH: {floor.flow6ach.toLocaleString()} {ip ? "CFM" : "L/s"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-border/60">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFanSystems(fanSystems.map(x => x.id === fireConfigFS.id ? {
+                                      ...x,
+                                      zoneAchModes: { ...(x.zoneAchModes || {}), [floor.id]: 3 }
+                                    } : x));
+                                  }}
+                                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition cursor-pointer ${currentAch === 3 ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
+                                >
+                                  3 ACH
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFanSystems(fanSystems.map(x => x.id === fireConfigFS.id ? {
+                                      ...x,
+                                      zoneAchModes: { ...(x.zoneAchModes || {}), [floor.id]: 6 }
+                                    } : x));
+                                  }}
+                                  className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition cursor-pointer ${currentAch === 6 ? "bg-rose-600 hover:bg-rose-700 text-white shadow-xs" : "text-muted-foreground hover:text-foreground"}`}
+                                >
+                                  6 ACH
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Side: Side-by-Side Live Calculations Preview Panel */}
+                {showModalCalcPreview && (
+                  <div className="flex flex-col gap-4 min-w-0 h-full overflow-y-auto border-l border-border/70 pl-6">
+                    <div className="flex items-center justify-between shrink-0">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground font-sans">Calculations Preview</span>
+                      <span className="text-[10px] font-mono text-muted-foreground font-bold">
+                        {fireConfigFS.fanQty || 1} Fan(s) | {fireConfigFS.fanType}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-3.5">
+                      {/* Normal Airflow Required */}
+                      <div className="bg-background border border-border/80 rounded-xl p-3.5 flex flex-col gap-2 shadow-2xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-sans font-bold text-foreground text-xs">Normal Airflow Required</span>
+                          <strong className="font-mono font-bold text-sm text-primary">{fireConfigFS.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
                         </div>
-                      );
-                    })}
+                        <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border/60 rounded-lg p-2 font-mono text-[11px] text-muted-foreground">
+                          Total System Normal Airflow: {fireConfigFS.normalScenarioSum.toLocaleString()} {ip ? "CFM" : "L/s"}
+                          {(fireConfigFS.fanQty || 1) > 1 && ` (${fireConfigFS.fanQty} Fans @ ${Math.ceil(fireConfigFS.lowCap / (fireConfigFS.fanQty || 1)).toLocaleString()} ${ip ? "CFM" : "L/s"} each)`}
+                        </div>
+                      </div>
+
+                      {/* Fire Condition Airflow Required */}
+                      <div className="bg-background border border-border/80 rounded-xl p-3.5 flex flex-col gap-2 shadow-2xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-sans font-bold text-foreground text-xs">Fire Condition Airflow Required</span>
+                          <strong className="font-mono font-bold text-sm text-rose-600 dark:text-rose-400">{fireConfigFS.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                        </div>
+                        <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border/60 rounded-lg p-2 font-mono text-[11px] text-muted-foreground">
+                          Total System Fire Airflow: 10 ACH Max ({fireConfigFS.flow10Max.toLocaleString()} {ip ? "CFM" : "L/s"})
+                          {(fireConfigFS.fanQty || 1) > 1 && ` (${fireConfigFS.fanQty} Fans @ ${Math.ceil(fireConfigFS.highCap / (fireConfigFS.fanQty || 1)).toLocaleString()} ${ip ? "CFM" : "L/s"} each)`}
+                        </div>
+                      </div>
+
+                      {/* Governing Sized Fan Capacity Card */}
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3.5 flex flex-col gap-1.5 shadow-2xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-sans font-bold text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-1.5">
+                            <Gauge className="size-4 text-emerald-600 dark:text-emerald-400" />
+                            Governing Sized Fan Capacity
+                          </span>
+                          <strong className="font-mono font-extrabold text-base text-emerald-600 dark:text-emerald-400 font-bold">
+                            {fireConfigFS.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}
+                          </strong>
+                        </div>
+                        <div className="font-mono text-[11px] text-emerald-700/90 dark:text-emerald-300/90 font-medium">
+                          Governed by <strong className="font-bold">{fireConfigFS.governingMode}</strong> ({fireConfigFS.lowCap > fireConfigFS.highCap ? "Normal Mode > Fire Mode" : "Fire Mode ≥ Normal Mode"})
+                          {(fireConfigFS.fanQty || 1) > 1 && (
+                            <div className="mt-0.5 text-[10.5px]">
+                              Equipment Duty: <strong>{fireConfigFS.fanQty} Fans @ {fireConfigFS.perFanCap.toLocaleString()} {ip ? "CFM" : "L/s"} each</strong>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Verification Status Box */}
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2.5">
+                        <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                        <div>
+                          <strong className="font-bold block">Calculations verified & Fan Sized.</strong>
+                          <span className="text-[11px] opacity-90">
+                            Total System Capacity: <strong>{fireConfigFS.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong> based on peak governing requirement ({fireConfigFS.governingMode}).
+                            {(fireConfigFS.fanQty || 1) > 1 && (
+                              <span className="block font-semibold mt-0.5">
+                                Selection: {fireConfigFS.fanQty} Fans @ {fireConfigFS.perFanCap.toLocaleString()} {ip ? "CFM" : "L/s"} each.
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Footer */}
-              <div className="flex justify-end pt-2 border-t border-border/60">
+              <div className="flex justify-end pt-2 border-t border-border/60 shrink-0">
                 <TBtn onClick={() => setFireConfigFSId(null)} className="px-5 py-2 text-xs font-bold">
                   Save & Close
                 </TBtn>
@@ -1923,6 +2509,253 @@ function BasementSmokeCalcPage() {
           </div>
         );
       })()}
+
+      {/* Unit System Conversion Preference Modal */}
+      {showUnitConfirmModal && pendingUnitTarget && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-5 shadow-2xl animate-fade-in select-none">
+            <div className="flex justify-between items-center pb-2 border-b border-border/60">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                  <Gauge className="size-5" />
+                </div>
+                <h3 className="font-bold text-base text-foreground">Unit System Change</h3>
+              </div>
+              <button
+                onClick={() => { setShowUnitConfirmModal(false); setPendingUnitTarget(null); }}
+                className="text-muted-foreground hover:text-foreground p-1 rounded-lg cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground text-sm">
+                Switching to {pendingUnitTarget === "ip" ? "Imperial (IP - CFM, ft², ft)" : "Metric (SI - L/s, m², m)"}
+              </p>
+              <p>
+                How would you like to handle your entered floor inputs (Gross Area, Effective Area, Height)?
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {/* Option 1: Convert Input Values */}
+              <button
+                type="button"
+                onClick={() => executeUnitSystemChange(pendingUnitTarget, true)}
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition cursor-pointer text-left group"
+              >
+                <div className="p-2 rounded-lg bg-primary/15 text-primary shrink-0 mt-0.5">
+                  <RefreshCw className="size-4" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-bold text-xs text-foreground group-hover:text-primary transition">
+                    Convert Input Values (Convert Numbers)
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Convert Area & Height to {pendingUnitTarget === "ip" ? "ft² / ft" : "m² / m"} (e.g. {pendingUnitTarget === "ip" ? "500 m² → 5,382 ft²" : "5,382 ft² → 500 m²"}). Airflow outputs recalculate accordingly.
+                  </span>
+                </div>
+              </button>
+
+              {/* Option 2: Keep Current Input Values */}
+              <button
+                type="button"
+                onClick={() => executeUnitSystemChange(pendingUnitTarget, false)}
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-border/80 bg-slate-100/40 dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer text-left group"
+              >
+                <div className="p-2 rounded-lg bg-slate-200/60 dark:bg-slate-700/60 text-muted-foreground shrink-0 mt-0.5">
+                  <Check className="size-4" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-bold text-xs text-foreground group-hover:text-primary transition">
+                    Keep Current Input Numbers Unchanged
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Do not convert input numbers. Only update airflow calculations & unit labels.
+                  </span>
+                </div>
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-1 border-t border-border/50">
+              <button
+                onClick={() => { setShowUnitConfirmModal(false); setPendingUnitTarget(null); }}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Source Selector Modal */}
+      <ImportSourceModal
+        isOpen={showImportSourceModal}
+        onClose={() => setShowImportSourceModal(false)}
+        onSelectExcel={() => excelFileInputRef.current?.click()}
+        onSelect3DViewer={() => handleExtractFrom3DModel()}
+      />
+
+      <input
+        type="file"
+        ref={excelFileInputRef}
+        onChange={handleExcelFileUpload}
+        accept=".xlsx,.xls"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={ifcFileInputRef}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleExtractFrom3DModel(file);
+        }}
+        accept=".ifc"
+        className="hidden"
+      />
+
+      {/* 3D Model Basement Preview Modal */}
+      {show3DPreviewModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 font-sans">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-3xl flex flex-col max-h-[85vh] overflow-hidden shadow-2xl animate-fade-in select-none">
+            <div className="p-5 border-b border-border flex justify-between items-center bg-slate-100/40 dark:bg-slate-900/40">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <Box className="size-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-foreground">3D BIM Model Basement Floors Preview</h3>
+                  <p className="text-xs text-muted-foreground">Extracted basement levels and spaces from active 3D model</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShow3DPreviewModal(false)}
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="p-5 flex-1 min-h-0 overflow-y-auto flex flex-col gap-4">
+              <div className="flex justify-between items-center bg-primary/5 border border-primary/20 rounded-xl px-4 py-3 text-xs shrink-0">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-primary shrink-0" />
+                  <span className="font-semibold text-foreground">
+                    Found <strong>{pending3DSpaces.length}</strong> basement space(s) across 3D model storeys
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const filtered = new Set(
+                        pending3DSpaces
+                          .filter(sp => !isExcludedSpaceName(sp.name, sp.category))
+                          .map(sp => sp.id)
+                      );
+                      setSelected3DIds(filtered);
+                      toast.info(`Auto-deselected rooms, MEP, stairs, tanks, corridors, and lobby spaces (${pending3DSpaces.length - filtered.size} deselected).`);
+                    }}
+                    className="text-[11px] font-bold text-[#0A7BC7] hover:underline transition cursor-pointer flex items-center gap-1"
+                  >
+                    <Filter className="size-3" />
+                    Auto-deselect Rooms/MEP/Tanks/Corridors/Lobbies
+                  </button>
+                  <span className="text-[11px] font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-md">
+                    {selected3DIds.size} space(s) selected
+                  </span>
+                </div>
+              </div>
+
+              <div className="border border-border rounded-xl overflow-y-auto text-xs max-h-[50vh] min-h-[250px] relative">
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 border-b border-border shadow-2xs">
+                    <tr className="text-[11px] font-bold text-muted-foreground uppercase">
+                      <th className="py-2.5 px-3 text-center w-10">
+                        <input
+                          type="checkbox"
+                          checked={selected3DIds.size === pending3DSpaces.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelected3DIds(new Set(pending3DSpaces.map(sp => sp.id)));
+                            } else {
+                              setSelected3DIds(new Set());
+                            }
+                          }}
+                          className="rounded border-border cursor-pointer"
+                        />
+                      </th>
+                      <th className="py-2.5 px-3">3D Model Level / Storey</th>
+                      <th className="py-2.5 px-3">Space / Zone Name</th>
+                      <th className="py-2.5 px-3 text-right">Gross Area ({ip ? "ft²" : "m²"})</th>
+                      <th className="py-2.5 px-3 text-right">Height ({ip ? "ft" : "m"})</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50 font-mono text-[11.5px]">
+                    {pending3DSpaces.map((sp) => (
+                      <tr key={sp.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/20">
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selected3DIds.has(sp.id)}
+                            onChange={(e) => {
+                              const next = new Set(selected3DIds);
+                              if (next.has(sp.id)) next.delete(sp.id);
+                              else next.add(sp.id);
+                              setSelected3DIds(next);
+                            }}
+                            className="rounded border-border cursor-pointer"
+                          />
+                        </td>
+                        <td className="py-2 px-3 font-bold font-sans text-foreground">{sp.level}</td>
+                        <td className="py-2 px-3 font-sans text-muted-foreground">{sp.name}</td>
+                        <td className="py-2 px-3 text-right font-mono text-primary font-bold">
+                          {ip ? Math.round(sp.area * 10.7639).toLocaleString() : Math.round(sp.area).toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-right font-mono text-foreground font-semibold">
+                          {ip ? (sp.height * 3.28084).toFixed(1) : sp.height}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50/50 dark:bg-slate-900/40 border-t border-border flex justify-between items-center">
+              <button
+                onClick={() => {
+                  setShow3DPreviewModal(false);
+                  navigate({ to: "/bim-viewer" });
+                }}
+                className="text-xs font-semibold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Box className="size-3.5" />
+                Open 3D BIM Viewer
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShow3DPreviewModal(false)}
+                  className="px-4 py-2 border border-border rounded-xl text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmImport3DSpaces}
+                  disabled={selected3DIds.size === 0}
+                  className="px-5 py-2 bg-[#0A7BC7] hover:bg-[#06456F] disabled:opacity-50 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                >
+                  <Plus className="size-3.5" />
+                  Import Selected Basement Floors ({selected3DIds.size})
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </>
     </AppShell>
   );

@@ -440,7 +440,7 @@ function FM200SizerPage() {
                           <div className="flex flex-col">
                             <span className="text-[12.5px] font-medium text-foreground">Lock S Value to Standard Default</span>
                             <span className="text-[11px] text-muted-foreground">
-                              Forces $S$ to {unitSystem === "si" ? "0.1473 m³/kg" : "2.3595 ft³/lb"} (Baseline reference temperature)
+                              Forces S to {unitSystem === "si" ? "0.1473 m³/kg" : "2.3595 ft³/lb"} (Baseline reference temperature)
                             </span>
                           </div>
                           <input

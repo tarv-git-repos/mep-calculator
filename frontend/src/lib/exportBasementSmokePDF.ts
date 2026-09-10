@@ -43,6 +43,7 @@ export interface CalculatedFanSystem {
 export interface BasementPdfTotals {
   total3: number;
   total6: number;
+  normalScenarioSum?: number;
   max10: number;
   lowCap: number;
   highCap: number;
@@ -219,12 +220,16 @@ export const exportBasementSmokePDF = async (
     doc.text("2. Global Fan Capacity Summary", 14, finalY);
     finalY += 4;
 
+    const sizedCap = Math.max(totals.lowCap || 0, totals.highCap || 0);
+    const governingMode = (totals.lowCap || 0) > (totals.highCap || 0) ? "Normal Mode" : "Fire Mode";
+
     const summaryData = [
       ["Total Fan Quantity Sized:", `${totalFans} Fans`],
-      ["Total 3 ACH Ventilation Flow (Normal Mode):", `${totals.total3.toLocaleString()} ${flowUnit}`],
+      ["Normal Mode Total Flow (3-3-6 Recommendation):", `${(totals.normalScenarioSum || totals.total3).toLocaleString()} ${flowUnit}`],
       ["Worst-Case 10 ACH Fire Extract Flow:", `${totals.max10.toLocaleString()} ${flowUnit}`],
       ["Required Normal Mode Capacity / Fan:", `${totals.lowCap.toLocaleString()} ${flowUnit}`],
-      ["Required Fire Condition Capacity / Fan:", `${totals.highCap.toLocaleString()} ${flowUnit}`]
+      ["Required Fire Condition Capacity / Fan:", `${totals.highCap.toLocaleString()} ${flowUnit}`],
+      ["Governing Sized Fan Capacity / Fan:", `${sizedCap.toLocaleString()} ${flowUnit} (${governingMode})`]
     ];
 
     callAutoTable(doc, {

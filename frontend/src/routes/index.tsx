@@ -48,16 +48,14 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 
 
 
-import { DashboardPage } from "./dashboard";
-
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — MEP Calculator" },
-      { name: "description", content: "MEP project analytics, compliance, alerts, and quick calculation access." },
+      { title: "Ventilation — MEP Calculator" },
+      { name: "description", content: "Ventilation module: spaces, zones, equipment, and reports with live intelligence." },
     ],
   }),
-  component: DashboardPage,
+  component: VentilationModule,
 });
 
 const STATUS_STYLE: Record<SpaceStatus, string> = {
@@ -2124,7 +2122,7 @@ function SpacesView() {
   };
 
   const columns: Column<Space>[] = [
-    { key: "name", header: "Space Name", width: 240, editable: true, render: (r) => {
+    { key: "name", header: "SPACE NAME", width: 240, editable: true, render: (r) => {
       const rawStr = String(r.name || "").trim();
       const isBadName = !rawStr || rawStr === "undefined" || rawStr === "null";
       const displayName = isBadName
@@ -2160,7 +2158,7 @@ function SpacesView() {
         </div>
       );
     } },
-    { key: "zone", header: "Zone", width: 200, mono: true, editable: true, render: (r) => {
+    { key: "zone", header: "ZONE", width: 200, mono: true, editable: true, render: (r) => {
       const matchingZone = zones.find((z) => z.id === r.zone || z.name === r.zone);
       const zoneName = matchingZone ? matchingZone.name : (r.zone || "");
       return (
@@ -2234,7 +2232,7 @@ function SpacesView() {
         />
       );
     } },
-    { key: "category", header: "Category", width: 280, editable: true, render: (r) => {
+    { key: "category", header: "CATEGORY", width: 280, editable: true, render: (r) => {
       const isRestRoom = r.category === "Rest Room / Changing Room";
       
       const handleCategoryChange = (newVal: string) => {
@@ -2345,7 +2343,7 @@ function SpacesView() {
         </span>
       );
     } },
-    { key: "pressure", header: "Pressure", width: 80, align: "center", editable: true, render: (r) => {
+    { key: "pressure", header: "PRESSURE", width: 80, align: "center", editable: true, render: (r) => {
       const displayVal = PRESSURE_MAP[r.pressure || "Positive"] || "1";
       return (
         <span className="inline-flex items-center gap-1.5 w-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
@@ -2385,7 +2383,7 @@ function SpacesView() {
       );
     } },
 
-    { key: "area", header: "Area (m²)", width: 90, align: "center", mono: true, editable: true, render: (r) => (
+    { key: "area", header: "AREA (M²)", width: 90, align: "center", mono: true, editable: true, render: (r) => (
       <InlineInput disabled={isEffectiveReadOnly}
         type="number"
         step="0.1"
@@ -2401,7 +2399,7 @@ function SpacesView() {
       />
     ) },
 
-    { key: "occupancy", header: "Occ.", width: 80, align: "center", mono: true, editable: true, render: (r) => (
+    { key: "occupancy", header: "OCC.", width: 80, align: "center", mono: true, editable: true, render: (r) => (
       <div className="flex items-center justify-center gap-1.5 w-full h-full px-1">
         {!r.isOccupancyCustomized && (
           <span title="Default occupancy value" className="size-1.5 rounded-full bg-blue-500 shrink-0" />
@@ -2427,8 +2425,8 @@ function SpacesView() {
       </div>
     ) },
 
-    { key: "minFresh", header: "Min Fresh\n(L/s)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minOA || 0).toLocaleString() },
-    { key: "minExtract", header: "Min Extract\n(L/s)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minExt || 0).toLocaleString() },
+    { key: "minFresh", header: "MIN FRESH (L/S)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minOA || 0).toLocaleString() },
+    { key: "minExtract", header: "MIN EXTRACT (L/S)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minExt || 0).toLocaleString() },
     {
       key: "flagged",
       header: "",

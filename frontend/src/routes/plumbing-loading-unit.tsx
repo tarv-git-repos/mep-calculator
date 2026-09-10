@@ -2281,7 +2281,7 @@ function LoadingUnitPage() {
   return (
     <AppShell title="Loading Unit Calculator" onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-2.5 overflow-hidden h-full px-6 pb-4 animate-in fade-in-50 duration-200">
+        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-2.5 overflow-hidden h-full animate-in fade-in-50 duration-200">
           
           {/* Top Stationary Header Block (Fixed & Stationary) */}
           <div className="shrink-0 flex flex-col gap-2.5">

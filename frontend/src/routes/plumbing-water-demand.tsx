@@ -5,7 +5,7 @@ import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { Trash2, Plus, Download, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag } from "lucide-react";
+import { Trash2, Plus, Download, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag, Gauge, RefreshCw } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { TBtn } from "@/components/workspace/Button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -20,6 +20,12 @@ import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
+
+interface OverheadTank {
+  id: number;
+  name: string;
+  splitPct: number;
+}
 
 export const Route = createFileRoute("/plumbing-water-demand")({
   head: () => ({
@@ -274,16 +280,79 @@ function WaterDemandPage() {
   const currentUserId = userData?.id || profile?.id || "user_id";
   const { project, forceSaveToCloud } = useWorkspace();
 
+  type DemandSection = "all" | "domestic" | "irrigation" | "pool" | "fire";
   const [tab, setTab] = useState<Tab>("demand");
+  const [demandSection, setDemandSection] = useState<DemandSection>("all");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [showUnitConfirmModal, setShowUnitConfirmModal] = useState<boolean>(false);
+  const [pendingUnitTarget, setPendingUnitTarget] = useState<"si" | "ip" | null>(null);
   const [presetStandard, setPresetStandard] = useState<string>("dewa");
   const [intelOpen, setIntelOpen] = useState(false);
 
+  const handleUnitSystemClick = (targetUnit: "si" | "ip") => {
+    if (targetUnit === unitSystem) return;
+    setPendingUnitTarget(targetUnit);
+    setShowUnitConfirmModal(true);
+  };
+
+  const executeUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (shouldConvert) {
+      const convArea = targetUnit === "ip" ? 10.7639 : 1 / 10.7639;
+      const convDepth = targetUnit === "ip" ? 3.28084 : 1 / 3.28084;
+
+      setIrrRows((prev) =>
+        prev.map((r) => ({
+          ...r,
+          area: Math.max(1, Math.round(r.area * convArea)),
+        }))
+      );
+
+      if (poolArea !== "") {
+        setPoolArea(Math.max(1, Math.round(Number(poolArea) * convArea)));
+      }
+      if (poolDepth !== "") {
+        setPoolDepth(Number((Number(poolDepth) * convDepth).toFixed(1)));
+      }
+    }
+
+    setUnitSystem(targetUnit);
+    setShowUnitConfirmModal(false);
+    setPendingUnitTarget(null);
+    toast.success(`Unit system switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"}`);
+  };
+
   // Storage Tank & Transfer Pump Settings
   const [storageDays, setStorageDays] = useState<number>(1);
-  const [tankSplit, setTankSplit] = useState<"60-40" | "100-0" | "80-20" | "50-50">("60-40");
+  const [groundTankPct, setGroundTankPct] = useState<number>(100);
+  const [overheadTanks, setOverheadTanks] = useState<OverheadTank[]>([
+    { id: 1, name: "Overhead Roof Tank 1", splitPct: 40 },
+  ]);
   const [peakFactor, setPeakFactor] = useState<number>(2.5);
   const [fillWindowHours, setFillWindowHours] = useState<number>(2);
+
+  const handleAddOverheadTank = () => {
+    const newId = Date.now();
+    setOverheadTanks((prev) => [
+      ...prev,
+      { id: newId, name: `Overhead Roof Tank ${prev.length + 1}`, splitPct: prev.length === 0 ? 40 : 20 },
+    ]);
+  };
+
+  const handleRemoveOverheadTank = (id: number) => {
+    setOverheadTanks((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handleRenameOverheadTank = (id: number, name: string) => {
+    setOverheadTanks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, name } : t))
+    );
+  };
+
+  const handleUpdateOverheadTankPct = (id: number, splitPct: number) => {
+    setOverheadTanks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, splitPct: Math.max(0, Math.min(100, splitPct)) } : t))
+    );
+  };
 
   // Domestic state
   const [wdRows, setWdRows] = useState<WDRow[]>([]);
@@ -490,7 +559,8 @@ function WaterDemandPage() {
         if (data.unitSystem) setUnitSystem(data.unitSystem);
         if (data.presetStandard) setPresetStandard(data.presetStandard);
         if (data.storageDays !== undefined) setStorageDays(data.storageDays);
-        if (data.tankSplit !== undefined) setTankSplit(data.tankSplit);
+        if (data.groundTankPct !== undefined) setGroundTankPct(data.groundTankPct);
+        if (data.overheadTanks) setOverheadTanks(data.overheadTanks);
         if (data.peakFactor !== undefined) setPeakFactor(data.peakFactor);
         if (data.fillWindowHours !== undefined) setFillWindowHours(data.fillWindowHours);
         if (data.wdRows) setWdRows(data.wdRows);
@@ -508,7 +578,8 @@ function WaterDemandPage() {
         setUnitSystem("si");
         setPresetStandard("dewa");
         setStorageDays(1);
-        setTankSplit("60-40");
+        setGroundTankPct(100);
+        setOverheadTanks([{ id: 1, name: "Overhead Roof Tank 1", splitPct: 40 }]);
         setPeakFactor(2.5);
         setFillWindowHours(2);
         setWdRows([
@@ -541,7 +612,8 @@ function WaterDemandPage() {
         unitSystem,
         presetStandard,
         storageDays,
-        tankSplit,
+        groundTankPct,
+        overheadTanks,
         peakFactor,
         fillWindowHours,
         wdRows,
@@ -569,7 +641,8 @@ function WaterDemandPage() {
     unitSystem,
     presetStandard,
     storageDays,
-    tankSplit,
+    groundTankPct,
+    overheadTanks,
     peakFactor,
     fillWindowHours,
     wdRows,
@@ -595,7 +668,8 @@ function WaterDemandPage() {
         unitSystem,
         presetStandard,
         storageDays,
-        tankSplit,
+        groundTankPct,
+        overheadTanks,
         peakFactor,
         fillWindowHours,
         wdRows,
@@ -652,21 +726,14 @@ function WaterDemandPage() {
     const reqStorageM3 = reqStorageL / 1000;
     const reqStorageGal = reqStorageL / 3.78541;
 
-    let groundRatio = 0.6;
-    let roofRatio = 0.4;
-    if (tankSplit === "100-0") {
-      groundRatio = 1.0;
-      roofRatio = 0.0;
-    } else if (tankSplit === "80-20") {
-      groundRatio = 0.8;
-      roofRatio = 0.2;
-    } else if (tankSplit === "50-50") {
-      groundRatio = 0.5;
-      roofRatio = 0.5;
-    }
+    const totalOverheadPct = overheadTanks.reduce(
+      (sum, t) => sum + (Number(t.splitPct) || 0),
+      0
+    );
+    const groundPct = Number(groundTankPct) || 100;
 
-    const groundTankL = reqStorageL * groundRatio;
-    const roofTankL = reqStorageL * roofRatio;
+    const groundTankL = reqStorageL * (groundPct / 100);
+    const roofTankL = reqStorageL * (totalOverheadPct / 100);
 
     // Dimensions helper (assuming rectangular cube with H ~ 2.2m for ground, H ~ 1.5m for roof)
     const estimateDimensions = (volM3: number, hDefault: number) => {
@@ -683,18 +750,6 @@ function WaterDemandPage() {
     };
 
     const groundDim = estimateDimensions(groundTankL / 1000, 2.2);
-    const roofDim = estimateDimensions(roofTankL / 1000, 1.5);
-
-    // Peak Demand & Transfer Pump Flow
-    const peakFactorVal = peakFactor || 2.5;
-    const peakHourlyFlowL = (totalWaterL * peakFactorVal) / 10; // Peak 10-hr operating window
-    const peakLPS = peakHourlyFlowL / 3600;
-    const peakGPM = (peakHourlyFlowL / 3.78541) / 60;
-
-    const fillHrs = fillWindowHours || 2;
-    const transferPumpFlowLPH = roofTankL > 0 ? roofTankL / fillHrs : totalWaterL / fillHrs;
-    const transferPumpLPS = transferPumpFlowLPH / 3600;
-    const transferPumpGPM = (transferPumpFlowLPH / 3.78541) / 60;
 
     // Unit Formatter
     const formatVol = (liters: number) => {
@@ -711,6 +766,30 @@ function WaterDemandPage() {
       return `${Math.round(litersPerDay).toLocaleString()} L/day`;
     };
 
+    const overheadTanksCalculated = overheadTanks.map((t) => {
+      const pct = Number(t.splitPct) || 0;
+      const volL = reqStorageL * (pct / 100);
+      const dim = estimateDimensions(volL / 1000, 1.5);
+      return {
+        ...t,
+        volL,
+        sharePct: pct,
+        dim,
+        displayVol: formatVol(volL),
+      };
+    });
+
+    // Peak Demand & Transfer Pump Flow
+    const peakFactorVal = peakFactor || 2.5;
+    const peakHourlyFlowL = (totalWaterL * peakFactorVal) / 10; // Peak 10-hr operating window
+    const peakLPS = peakHourlyFlowL / 3600;
+    const peakGPM = (peakHourlyFlowL / 3.78541) / 60;
+
+    const fillHrs = fillWindowHours || 2;
+    const transferPumpFlowLPH = roofTankL > 0 ? roofTankL / fillHrs : totalWaterL / fillHrs;
+    const transferPumpLPS = transferPumpFlowLPH / 3600;
+    const transferPumpGPM = (transferPumpFlowLPH / 3.78541) / 60;
+
     return {
       totalPeople,
       totalWaterL,
@@ -723,10 +802,12 @@ function WaterDemandPage() {
       reqStorageL,
       reqStorageM3,
       reqStorageGal,
+      totalOverheadPct,
+      groundPct,
       groundTankL,
       roofTankL,
       groundDim,
-      roofDim,
+      overheadTanksCalculated,
       peakHourlyFlowL,
       peakLPS,
       peakGPM,
@@ -760,7 +841,8 @@ function WaterDemandPage() {
     poolEvap,
     fireFlow,
     storageDays,
-    tankSplit,
+    groundTankPct,
+    overheadTanks,
     peakFactor,
     fillWindowHours,
     ip,
@@ -983,8 +1065,8 @@ function WaterDemandPage() {
           ["Pool Daily Makeup Water", calculations.displayPoolDemand, ip ? "gal/day" : "L/day", `Evaporation Rate = ${poolEvap}%/day`],
           ["GRAND TOTAL DAILY DEMAND", calculations.displayGrandTotal, ip ? "gal/day" : "L/day", "Combined Site Daily Load"],
           ["Required Storage Tank Volume", calculations.displayTotalStorage, ip ? "gal" : "m³", `${storageDays} Day(s) Retention`],
-          ["Ground Water Tank (Break Tank)", calculations.displayGroundTank, ip ? "gal" : "L", `Ground Split: ${(tankSplit || "60-40").split("-")[0]}%`],
-          ["Overhead Roof Tank", calculations.displayRoofTank, ip ? "gal" : "L", `Roof Split: ${(tankSplit || "60-40").split("-")[1]}%`],
+          ["Ground Water Tank (Break Tank)", calculations.displayGroundTank, ip ? "gal" : "L", `Ground Split: ${calculations.groundPct}%`],
+          ["Overhead Roof Tank Total", calculations.displayRoofTank, ip ? "gal" : "L", `Roof Split: ${calculations.totalOverheadPct}%`],
           ["Transfer Pump Flow Rate", calculations.displayTransferPump, ip ? "GPM" : "L/s", `${fillWindowHours}-Hr Filling Window`],
         ],
         theme: "grid",
@@ -1040,8 +1122,14 @@ function WaterDemandPage() {
             ip ? `${(r.lpd / 40.7458).toFixed(2)} gal/ft²` : `${r.lpd} L/m²`,
             ip ? `${Math.round((r.area * r.lpd) / 3.78541).toLocaleString()} gal` : `${(r.area * r.lpd).toLocaleString()} L`,
           ]),
-          ["Ground Tank", "Reinforced Concrete / GRP", `${(calculations.groundTankL / 1000).toFixed(2)} m³`, `${(tankSplit || "60-40").split("-")[0]}% Share`, `${calculations.groundDim.l}m L × ${calculations.groundDim.w}m W × ${calculations.groundDim.h}m H`],
-          ["Roof Tank", "Modular Sectional Tank", `${(calculations.roofTankL / 1000).toFixed(2)} m³`, `${(tankSplit || "60-40").split("-")[1]}% Share`, `${calculations.roofDim.l}m L × ${calculations.roofDim.w}m W × ${calculations.roofDim.h}m H`],
+          ["Ground Tank", "Reinforced Concrete / GRP", `${(calculations.groundTankL / 1000).toFixed(2)} m³`, `${calculations.groundPct}% Share`, `${calculations.groundDim.l}m L × ${calculations.groundDim.w}m W × ${calculations.groundDim.h}m H`],
+          ...calculations.overheadTanksCalculated.map((t) => [
+            t.name,
+            "Modular Sectional Tank",
+            `${(t.volL / 1000).toFixed(2)} m³`,
+            `${t.sharePct.toFixed(0)}% Share`,
+            `${t.dim.l}m L × ${t.dim.w}m W × ${t.dim.h}m H`,
+          ]),
         ],
         theme: "grid",
         headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8.5 },
@@ -1103,8 +1191,13 @@ function WaterDemandPage() {
         ["Pool Makeup Water", calculations.displayPoolDemand, ip ? "gal/day" : "L/day", `Evaporation Rate = ${poolEvap}%`],
         ["GRAND TOTAL DAILY DEMAND", calculations.displayGrandTotal, ip ? "gal/day" : "L/day", "Combined Site Consumption"],
         ["Total Storage Requirement", calculations.displayTotalStorage, ip ? "gal" : "m³", `${storageDays} Day(s) Retention`],
-        ["Ground Break Tank Capacity", calculations.displayGroundTank, ip ? "gal" : "L", `Split Allocation: ${tankSplit.split("-")[0]}%`],
-        ["Overhead Roof Tank Capacity", calculations.displayRoofTank, ip ? "gal" : "L", `Split Allocation: ${tankSplit.split("-")[1]}%`],
+        ["Ground Break Tank Capacity", calculations.displayGroundTank, ip ? "gal" : "L", `Split Allocation: ${calculations.groundPct}%`],
+        ...calculations.overheadTanksCalculated.map((t) => [
+          `${t.name} Capacity`,
+          t.displayVol,
+          ip ? "gal" : "L",
+          `Split Allocation: ${t.sharePct.toFixed(0)}%`,
+        ]),
         ["Transfer Pump Duty Flow", calculations.displayTransferPump, ip ? "GPM" : "L/s", `${fillWindowHours}-Hour Roof Tank Filling Window`],
       ];
 
@@ -1192,7 +1285,7 @@ function WaterDemandPage() {
   return (
     <AppShell title="Water Demand & Tank Sizer" hideSubHeader={true} onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           {/* Header Bar */}
           <div className="flex justify-between items-start select-none flex-wrap gap-4">
             <div className="flex flex-col gap-1">
@@ -1263,6 +1356,32 @@ function WaterDemandPage() {
                   }`}
                 >
                   Report
+                </button>
+              </div>
+
+              {/* IP / SI Unit System Toggle Pill */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-2xl border border-border/80 text-xs font-semibold select-none">
+                <button
+                  type="button"
+                  onClick={() => handleUnitSystemClick("ip")}
+                  className={`px-3 py-1 rounded-xl transition cursor-pointer font-bold ${
+                    unitSystem === "ip"
+                      ? "bg-white dark:bg-slate-800 text-[#0A7BC7] shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  IP (GPD / Imperial)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleUnitSystemClick("si")}
+                  className={`px-3 py-1 rounded-xl transition cursor-pointer font-bold ${
+                    unitSystem === "si"
+                      ? "bg-white dark:bg-slate-800 text-[#0A7BC7] shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  SI (LPD / Metric)
                 </button>
               </div>
             </div>
@@ -1450,9 +1569,84 @@ function WaterDemandPage() {
                 </div>
               </div>
 
+              {/* Demand Sizing Category Sub-Tabs */}
+              <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900/80 rounded-2xl border border-border/70 overflow-x-auto my-1">
+                <button
+                  type="button"
+                  onClick={() => setDemandSection("all")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    demandSection === "all"
+                      ? "bg-[#0A7BC7] text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Layers className="size-3.5" />
+                  All Demands
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDemandSection("domestic")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    demandSection === "domestic"
+                      ? "bg-[#0A7BC7] text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Building2 className="size-3.5" />
+                  Domestic Water Demand
+                  <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-white/20 rounded-full font-mono font-extrabold">
+                    {wdRows.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDemandSection("irrigation")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    demandSection === "irrigation"
+                      ? "bg-[#0A7BC7] text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Globe className="size-3.5 text-emerald-400" />
+                  Irrigation Water Demand
+                  <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-white/20 rounded-full font-mono font-extrabold">
+                    {irrRows.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDemandSection("pool")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    demandSection === "pool"
+                      ? "bg-[#0A7BC7] text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Droplet className="size-3.5 text-sky-400" />
+                  Swimming Pool Makeup
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDemandSection("fire")}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    demandSection === "fire"
+                      ? "bg-red-600 text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Flag className="size-3.5 text-red-400" />
+                  Fire Fighting Reserve Sizing
+                </button>
+              </div>
+
               {/* Main Content Layout */}
               <div className="flex flex-col gap-6 w-full">
                 {/* 1. Domestic Water Demand Schedule */}
+                {(demandSection === "all" || demandSection === "domestic") && (
                   <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                     <div className="flex items-center gap-2 pb-2 border-b border-border/60">
                       <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -1615,12 +1809,13 @@ function WaterDemandPage() {
                             <th className="p-2.5 text-left w-48">Category</th>
                             <th className="p-2.5 text-right w-28">Per Capita Rate</th>
                             <th className="p-2.5 text-right w-32">Daily Load</th>
+                            <th className="p-2.5 text-center w-20">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredAndSortedWdRows.length === 0 ? (
                             <tr>
-                              <td colSpan={7} className="p-8 text-center text-muted-foreground italic">
+                              <td colSpan={8} className="p-8 text-center text-muted-foreground italic">
                                 {wdRows.length === 0
                                   ? "No domestic entries added. Fill in the form above or click Import to populate."
                                   : "No domestic entries match the active search/filter criteria."}
@@ -1645,35 +1840,7 @@ function WaterDemandPage() {
                                     }`}
                                   >
                                     <td className="p-2 text-center text-muted-foreground font-mono">
-                                      <div className="flex items-center justify-center gap-1.5">
-                                        <span>{idx + 1}</span>
-                                        {r.flagged && (
-                                          <span title="Flagged for review" className="inline-flex">
-                                            <Flag className="size-3 text-amber-500 fill-amber-500" />
-                                          </span>
-                                        )}
-                                        {r.comments && r.comments.length > 0 && (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setCommentTarget({
-                                                targetId: String(r.id),
-                                                targetName: r.name,
-                                                targetType: "Domestic Water Load",
-                                                rowId: r.id,
-                                                isIrrigation: false,
-                                                existingComments: r.comments || [],
-                                              });
-                                            }}
-                                            title={`${r.comments.length} comment(s) - click to view`}
-                                            className="inline-flex items-center gap-0.5 bg-blue-50 dark:bg-blue-950/50 text-blue-600 px-1.5 py-0.5 rounded-md text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors cursor-pointer"
-                                          >
-                                            <MessageSquare className="size-3 fill-blue-500/20" />
-                                            <span>{r.comments.length}</span>
-                                          </button>
-                                        )}
-                                      </div>
+                                      {idx + 1}
                                     </td>
                                     <td className="p-2">
                                       <div className="flex items-center gap-1.5 w-full">
@@ -1730,24 +1897,75 @@ function WaterDemandPage() {
                                         ))}
                                       </select>
                                     </td>
-                                     <td className="p-2 text-right font-mono font-medium">
-                                       <div className="flex items-center justify-end gap-1">
-                                         <input
-                                           type="number"
-                                           value={ip ? Math.round(r.lpd / 3.78541) : r.lpd}
-                                           onChange={(e) => {
-                                             const val = Number(e.target.value);
-                                             const lpdVal = ip ? Math.round(val * 3.78541) : val;
-                                             handleWdRowChange(r.id, "lpd", lpdVal);
-                                           }}
-                                           className="w-20 text-right bg-transparent border border-slate-200 dark:border-slate-800 hover:border-[#0A7BC7] focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded font-mono text-xs font-bold text-foreground outline-none transition-colors"
-                                           title="Click or type to edit custom per capita consumption rate"
-                                         />
-                                         <span className="text-[10.5px] text-muted-foreground font-semibold select-none">{ip ? "gpd" : "LPD"}</span>
-                                       </div>
-                                     </td>
+                                    <td className="p-2 text-right font-mono font-medium">
+                                      <div className="flex items-center justify-end gap-1">
+                                        <input
+                                          type="number"
+                                          value={ip ? Math.round(r.lpd / 3.78541) : r.lpd}
+                                          onChange={(e) => {
+                                            const val = Number(e.target.value);
+                                            const lpdVal = ip ? Math.round(val * 3.78541) : val;
+                                            handleWdRowChange(r.id, "lpd", lpdVal);
+                                          }}
+                                          className="w-20 text-right bg-transparent border border-slate-200 dark:border-slate-800 hover:border-[#0A7BC7] focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded font-mono text-xs font-bold text-foreground outline-none transition-colors"
+                                          title="Click or type to edit custom per capita consumption rate"
+                                        />
+                                        <span className="text-[10.5px] text-muted-foreground font-semibold select-none">{ip ? "gpd" : "LPD"}</span>
+                                      </div>
+                                    </td>
                                     <td className="p-2 text-right font-mono font-bold text-[#0A7BC7]">
                                       {(ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString()} {ip ? "gal" : "L"}
+                                    </td>
+                                    <td className="p-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center justify-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setCommentTarget({
+                                              targetId: String(r.id),
+                                              targetName: r.name,
+                                              targetType: "Domestic Water Load",
+                                              rowId: r.id,
+                                              isIrrigation: false,
+                                              existingComments: r.comments || [],
+                                            })
+                                          }
+                                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors relative cursor-pointer"
+                                          title="Add comment & assign task to user"
+                                        >
+                                          <MessageSquare className="size-3.5" />
+                                          {r.comments && r.comments.length > 0 && (
+                                            <span className="absolute -top-1 -right-1 size-3.5 bg-blue-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center">
+                                              {r.comments.length}
+                                            </span>
+                                          )}
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleWdFlag(r.id)}
+                                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                            r.flagged
+                                              ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
+                                              : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                          }`}
+                                          title={r.flagged ? "Flagged for review" : "Flag for review"}
+                                        >
+                                          <Flag className={`size-3.5 ${r.flagged ? "fill-amber-500" : ""}`} />
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setWdRows((prev) => prev.filter((x) => x.id !== r.id));
+                                            toast.success(`Deleted "${r.name}"`);
+                                          }}
+                                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                                          title="Delete entry"
+                                        >
+                                          <Trash2 className="size-3.5" />
+                                        </button>
+                                      </div>
                                     </td>
                                   </tr>
                                 </ContextMenuTrigger>
@@ -1816,15 +2034,17 @@ function WaterDemandPage() {
                       </table>
                     </div>
                   </div>
+                  )}
 
                   {/* 2. Irrigation Water Demand Schedule */}
-                  <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                    <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                        🌿 2. Irrigation Water Demand Schedule
-                      </h3>
-                    </div>
+                  {(demandSection === "all" || demandSection === "irrigation") && (
+                    <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                      <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                        <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
+                          🌿 2. Irrigation Water Demand Schedule
+                        </h3>
+                      </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end bg-slate-50/50 dark:bg-slate-900/30 p-3.5 border border-border rounded-xl text-xs">
                       <div className="flex flex-col gap-1">
@@ -2061,11 +2281,14 @@ function WaterDemandPage() {
                       </table>
                     </div>
                   </div>
+                  )}
 
                   {/* 3. Swimming Pool & Fire Fighting Demand */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Pool Card */}
-                    <ContextMenu>
+                  {(demandSection === "all" || demandSection === "pool" || demandSection === "fire") && (
+                    <div className={demandSection === "all" ? "grid grid-cols-1 md:grid-cols-2 gap-6" : "flex flex-col gap-6 w-full"}>
+                      {/* Pool Card */}
+                      {(demandSection === "all" || demandSection === "pool") && (
+                        <ContextMenu>
                       <ContextMenuTrigger asChild>
                         <div
                           onDoubleClick={() => {
@@ -2131,9 +2354,6 @@ function WaterDemandPage() {
                                   <Flag className={`size-3.5 ${poolFlagged ? "fill-amber-500" : ""}`} />
                                 </button>
                               </div>
-                              <span className="text-[10px] font-bold text-[#0A7BC7] bg-[#0A7BC7]/10 px-2 py-0.5 rounded-full">
-                                Double-click for Preview
-                              </span>
                             </div>
                           </div>
                           <div className="flex flex-col gap-3 text-xs font-sans">
@@ -2216,10 +2436,12 @@ function WaterDemandPage() {
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
+                    )}
 
                     {/* Fire Card */}
-                    <ContextMenu>
-                      <ContextMenuTrigger asChild>
+                    {(demandSection === "all" || demandSection === "fire") && (
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
                         <div
                           onDoubleClick={() => {
                             setPreviewTarget({ type: "fire" });
@@ -2284,9 +2506,6 @@ function WaterDemandPage() {
                                   <Flag className={`size-3.5 ${fireFlagged ? "fill-amber-500" : ""}`} />
                                 </button>
                               </div>
-                              <span className="text-[10px] font-bold text-red-600 bg-red-500/10 px-2 py-0.5 rounded-full">
-                                Double-click for Preview
-                              </span>
                             </div>
                           </div>
                           <div className="flex flex-col gap-3 text-xs font-sans">
@@ -2352,11 +2571,13 @@ function WaterDemandPage() {
                           className="gap-2 cursor-pointer"
                         >
                           <Flag className={`size-3.5 ${fireFlagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
-                          <span>{fireFlagged ? "Unflag Card" : "Flag for Review"}</span>
+                          <span>{fireFlagged ? "Unflag Item" : "Flag for Review"}</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
-                    </ContextMenu>
-                  </div>
+                      </ContextMenu>
+                      )}
+                    </div>
+                  )}
               </div>
             </>
           )}
@@ -2420,12 +2641,9 @@ function WaterDemandPage() {
                           <Building2 className="size-4 text-[#0A7BC7]" /> 1. Storage Tank Capacity &amp; Split Sizing
                         </h3>
                       </div>
-                      <span className="text-[10px] font-bold text-[#0A7BC7] bg-[#0A7BC7]/10 px-2 py-0.5 rounded-full">
-                        Double-click for Preview
-                      </span>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                       <div className="flex flex-col gap-1.5">
                         <label className="font-semibold text-foreground">Storage Retention Days</label>
                         <select
@@ -2434,22 +2652,9 @@ function WaterDemandPage() {
                           className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
                         >
                           <option value={1}>1 Day Storage (24 Hours — Standard)</option>
+                          <option value={1.5}>1.5 Day Storage (36 Hours — Intermediate Reserve)</option>
                           <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
                           <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
-                        </select>
-                      </div>
-
-                      <div className="flex flex-col gap-1.5">
-                        <label className="font-semibold text-foreground">Ground vs Overhead Tank Split</label>
-                        <select
-                          value={tankSplit}
-                          onChange={(e) => setTankSplit(e.target.value as any)}
-                          className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-[#0A7BC7]"
-                        >
-                          <option value="60-40">60% Ground Tank / 40% Roof Tank (DEWA Standard)</option>
-                          <option value="80-20">80% Ground Tank / 20% Roof Tank</option>
-                          <option value="100-0">100% Ground Tank (Direct Booster Sizing)</option>
-                          <option value="50-50">50% Ground Tank / 50% Roof Tank</option>
                         </select>
                       </div>
 
@@ -2457,29 +2662,116 @@ function WaterDemandPage() {
                         <label className="font-semibold text-foreground">Target Storage Volume</label>
                         <div className="bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-[#0A7BC7] flex items-center justify-between">
                           <span>{calculations.displayTotalStorage}</span>
+                          <span className="text-[10px] text-muted-foreground font-sans font-medium">({storageDays} Day Retention)</span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                    <div className="flex flex-col gap-3 mt-2">
+                      {/* Ground Water Break Tank */}
                       <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-foreground">Ground Water Break Tank ({tankSplit.split("-")[0]}%)</span>
-                          <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">{calculations.displayGroundTank}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-foreground">
+                              Ground Water Break Tank
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1 bg-white dark:bg-slate-950 border border-border rounded px-2 py-0.5">
+                              <input
+                                type="number"
+                                min={0}
+                                max={500}
+                                value={groundTankPct}
+                                onChange={(e) => setGroundTankPct(Number(e.target.value))}
+                                className="w-12 bg-transparent text-xs font-mono font-bold text-[#0A7BC7] text-right outline-none"
+                              />
+                              <span className="text-[10px] font-bold text-muted-foreground">%</span>
+                            </div>
+                            <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">{calculations.displayGroundTank}</span>
+                          </div>
                         </div>
                         <div className="text-[11.5px] text-muted-foreground">
                           Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H</strong> (+ 0.3m freeboard)
                         </div>
                       </div>
 
-                      <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
+                      {/* Overhead Roof Tanks Container */}
+                      <div className="flex flex-col gap-2.5 pt-2 border-t border-border/60">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-foreground">Overhead Roof Tank ({tankSplit.split("-")[1]}%)</span>
-                          <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">{calculations.displayRoofTank}</span>
+                          <div className="flex items-center gap-2">
+                            <Building2 className="size-4 text-[#0A7BC7]" />
+                            <span className="text-xs font-bold text-foreground">
+                              Overhead Roof Tanks ({overheadTanks.length})
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddOverheadTank();
+                            }}
+                            className="text-xs text-[#0A7BC7] hover:text-white bg-blue-50 dark:bg-blue-950/50 hover:bg-[#0A7BC7] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                          >
+                            <Plus className="size-3.5" /> Add Overhead Tank
+                          </button>
                         </div>
-                        <div className="text-[11.5px] text-muted-foreground">
-                          Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.roofDim.l}m L × {calculations.roofDim.w}m W × {calculations.roofDim.h}m H</strong> (+ 0.3m freeboard)
-                        </div>
+
+                        {overheadTanks.length === 0 ? (
+                          <div className="p-3 bg-slate-50 dark:bg-slate-900/30 border border-dashed border-border rounded-xl text-center text-xs text-muted-foreground italic">
+                            No overhead roof tanks configured. Click &quot;+ Add Overhead Tank&quot; above to add overhead roof storage tanks.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {calculations.overheadTanksCalculated.map((t) => (
+                              <div
+                                key={t.id}
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-3.5 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2 relative group"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <input
+                                    type="text"
+                                    value={t.name}
+                                    onChange={(e) => handleRenameOverheadTank(t.id, e.target.value)}
+                                    className="bg-transparent font-bold text-xs text-foreground outline-none focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-300 focus:border-[#0A7BC7] w-full"
+                                    placeholder="Overhead Tank Name"
+                                  />
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="flex items-center gap-1 bg-white dark:bg-slate-950 border border-border rounded px-1.5 py-0.5">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={t.splitPct}
+                                        onChange={(e) => handleUpdateOverheadTankPct(t.id, Number(e.target.value))}
+                                        className="w-10 bg-transparent text-xs font-mono font-bold text-[#0A7BC7] text-right outline-none"
+                                      />
+                                      <span className="text-[10px] font-bold text-muted-foreground">%</span>
+                                    </div>
+                                    <span className="text-xs font-mono font-extrabold text-[#0A7BC7]">
+                                      {t.displayVol}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveOverheadTank(t.id);
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
+                                      title="Remove Overhead Tank"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="text-[11.5px] text-muted-foreground">
+                                  Suggested Dimensions: <strong className="text-foreground font-mono">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H</strong> (+ 0.3m freeboard)
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2500,9 +2792,6 @@ function WaterDemandPage() {
                           <Sparkles className="size-4 text-[#0A7BC7]" /> 2. Domestic Peak Flow &amp; Transfer Pump Sizing
                         </h3>
                       </div>
-                      <span className="text-[10px] font-bold text-[#0A7BC7] bg-[#0A7BC7]/10 px-2 py-0.5 rounded-full">
-                        Double-click for Preview
-                      </span>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-sans">
@@ -2595,7 +2884,7 @@ function WaterDemandPage() {
                 <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-1 shadow-xs">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Total Required Storage Volume</span>
                   <div className="text-xl font-black text-foreground font-mono mt-1">{calculations.displayTotalStorage}</div>
-                  <span className="text-[11px] text-muted-foreground mt-0.5">{storageDays} Day(s) Retention ({tankSplit})</span>
+                  <span className="text-[11px] text-muted-foreground mt-0.5">{storageDays} Day(s) Retention ({calculations.groundPct}% Ground / {calculations.totalOverheadPct}% Roof)</span>
                 </div>
 
                 <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-1 shadow-xs">
@@ -2714,14 +3003,20 @@ function WaterDemandPage() {
                         <td className="p-3 font-semibold">Ground Water Break Tank</td>
                         <td className="p-3 text-right font-mono font-bold text-foreground">{calculations.displayGroundTank}</td>
                         <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "L"}</td>
-                        <td className="p-3 text-muted-foreground">{tankSplit.split("-")[0]}% Share Allocation ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)</td>
+                        <td className="p-3 text-muted-foreground">
+                          {calculations.groundPct}% Share Allocation ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)
+                        </td>
                       </tr>
-                      <tr>
-                        <td className="p-3 font-semibold">Overhead Roof Tank</td>
-                        <td className="p-3 text-right font-mono font-bold text-foreground">{calculations.displayRoofTank}</td>
-                        <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "L"}</td>
-                        <td className="p-3 text-muted-foreground">{tankSplit.split("-")[1]}% Share Allocation ({calculations.roofDim.l}m × {calculations.roofDim.w}m × {calculations.roofDim.h}m)</td>
-                      </tr>
+                      {calculations.overheadTanksCalculated.map((t) => (
+                        <tr key={t.id}>
+                          <td className="p-3 font-semibold">{t.name}</td>
+                          <td className="p-3 text-right font-mono font-bold text-foreground">{t.displayVol}</td>
+                          <td className="p-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "L"}</td>
+                          <td className="p-3 text-muted-foreground">
+                            {t.sharePct.toFixed(0)}% Share Allocation ({t.dim.l}m × {t.dim.w}m × {t.dim.h}m)
+                          </td>
+                        </tr>
+                      ))}
                       <tr>
                         <td className="p-3 font-semibold">Transfer Pump Duty Flow Rate</td>
                         <td className="p-3 text-right font-mono font-bold text-[#0A7BC7]">{calculations.displayTransferPump}</td>
@@ -3113,24 +3408,19 @@ function WaterDemandPage() {
                           className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold text-neutral-800 dark:text-neutral-100 cursor-pointer"
                         >
                           <option value={1}>1 Day Storage (24 Hours — Standard)</option>
+                          <option value={1.5}>1.5 Day Storage (36 Hours — Intermediate Reserve)</option>
                           <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
                           <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
                         </select>
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1.5">
-                          Ground vs Roof Tank Split
+                          Total Storage Volume Required
                         </label>
-                        <select
-                          value={tankSplit}
-                          onChange={(e) => setTankSplit(e.target.value as any)}
-                          className="w-full h-9.5 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/10 rounded-xl text-[12.5px] outline-none font-bold text-neutral-800 dark:text-neutral-100 cursor-pointer"
-                        >
-                          <option value="60-40">60% Ground Tank / 40% Roof Tank (DEWA Standard)</option>
-                          <option value="80-20">80% Ground Tank / 20% Roof Tank</option>
-                          <option value="100-0">100% Ground Tank (Direct Booster Sizing)</option>
-                          <option value="50-50">50% Ground Tank / 50% Roof Tank</option>
-                        </select>
+                        <div className="h-9.5 px-3 bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 rounded-xl text-xs font-mono font-bold text-[#0A7BC7] flex items-center justify-between">
+                          <span>{calculations.displayTotalStorage}</span>
+                          <span className="text-[10px] font-sans text-neutral-500">({calculations.groundPct}% Ground / {calculations.totalOverheadPct}% Roof)</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3147,19 +3437,25 @@ function WaterDemandPage() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 flex flex-col gap-1">
-                        <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">Ground Break Tank ({tankSplit.split("-")[0]}% Share):</span>
+                        <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">
+                          Ground Break Tank ({calculations.groundPct}% Share):
+                        </span>
                         <strong className="text-neutral-800 dark:text-neutral-100">{calculations.displayGroundTank}</strong>
                         <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-sans mt-1">
                           Dimensions: <strong>{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H</strong> (+ 0.3m freeboard)
                         </span>
                       </div>
-                      <div className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 flex flex-col gap-1">
-                        <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">Overhead Roof Tank ({tankSplit.split("-")[1]}% Share):</span>
-                        <strong className="text-neutral-800 dark:text-neutral-100">{calculations.displayRoofTank}</strong>
-                        <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-sans mt-1">
-                          Dimensions: <strong>{calculations.roofDim.l}m L × {calculations.roofDim.w}m W × {calculations.roofDim.h}m H</strong> (+ 0.3m freeboard)
-                        </span>
-                      </div>
+                      {calculations.overheadTanksCalculated.map((t) => (
+                        <div key={t.id} className="p-3 bg-white/80 dark:bg-neutral-950/80 rounded-xl border border-black/5 dark:border-white/5 flex flex-col gap-1">
+                          <span className="text-neutral-500 dark:text-neutral-400 text-[10px] font-sans font-semibold">
+                            {t.name} ({t.sharePct.toFixed(0)}% Share):
+                          </span>
+                          <strong className="text-neutral-800 dark:text-neutral-100">{t.displayVol}</strong>
+                          <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-sans mt-1">
+                            Dimensions: <strong>{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H</strong> (+ 0.3m freeboard)
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -3281,14 +3577,16 @@ function WaterDemandPage() {
                           <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Ground Break Tank Capacity</td>
                           <td className="p-2.5 text-right font-bold text-[#0A7BC7]">{calculations.displayGroundTank}</td>
                           <td className="p-2.5 text-center">{ip ? "gal" : "L"}</td>
-                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Ground Split Allocation: {tankSplit.split("-")[0]}%</td>
+                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Ground Split Allocation: {calculations.groundPct}%</td>
                         </tr>
-                        <tr>
-                          <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Overhead Roof Tank Capacity</td>
-                          <td className="p-2.5 text-right font-bold text-[#0A7BC7]">{calculations.displayRoofTank}</td>
-                          <td className="p-2.5 text-center">{ip ? "gal" : "L"}</td>
-                          <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Roof Split Allocation: {tankSplit.split("-")[1]}%</td>
-                        </tr>
+                        {calculations.overheadTanksCalculated.map((t) => (
+                          <tr key={t.id}>
+                            <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">{t.name} Capacity</td>
+                            <td className="p-2.5 text-right font-bold text-[#0A7BC7]">{t.displayVol}</td>
+                            <td className="p-2.5 text-center">{ip ? "gal" : "L"}</td>
+                            <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Roof Split Allocation: {t.sharePct.toFixed(0)}%</td>
+                          </tr>
+                        ))}
                         <tr className="bg-blue-50/60 dark:bg-blue-950/40 font-bold">
                           <td className="p-2.5 font-sans text-[#0A7BC7]">Transfer Pump Duty Flow</td>
                           <td className="p-2.5 text-right text-[#0A7BC7]">{calculations.displayTransferPump}</td>
@@ -3332,6 +3630,88 @@ function WaterDemandPage() {
           existingComments={commentTarget.existingComments}
           onSave={handleSaveRowComment}
         />
+      )}
+
+      {/* Unit System Change Confirmation Modal */}
+      {showUnitConfirmModal && pendingUnitTarget && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 font-sans">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-5 shadow-2xl animate-fade-in select-none">
+            <div className="flex justify-between items-center pb-2 border-b border-border/60">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-[#0A7BC7]/10 rounded-xl text-[#0A7BC7]">
+                  <Gauge className="size-5" />
+                </div>
+                <h3 className="font-bold text-base text-foreground">Unit System Change</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowUnitConfirmModal(false); setPendingUnitTarget(null); }}
+                className="text-muted-foreground hover:text-foreground p-1 rounded-lg cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground text-sm">
+                Switching to {pendingUnitTarget === "ip" ? "Imperial (IP - GPD, ft², ft)" : "Metric (SI - LPD, m², m)"}
+              </p>
+              <p>
+                How would you like to handle your existing area and depth inputs (Irrigation Areas, Pool Area, Pool Depth)?
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {/* Option 1: Convert Input Values */}
+              <button
+                type="button"
+                onClick={() => executeUnitSystemChange(pendingUnitTarget, true)}
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-[#0A7BC7]/30 bg-[#0A7BC7]/5 hover:bg-[#0A7BC7]/10 transition cursor-pointer text-left group"
+              >
+                <div className="p-2 rounded-lg bg-[#0A7BC7]/15 text-[#0A7BC7] shrink-0 mt-0.5">
+                  <RefreshCw className="size-4" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-bold text-xs text-foreground group-hover:text-[#0A7BC7] transition">
+                    Convert Input Values (Convert Numbers)
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Convert Areas &amp; Depths to {pendingUnitTarget === "ip" ? "ft² / ft" : "m² / m"} (e.g. {pendingUnitTarget === "ip" ? "100 m² → 1,076 ft²" : "1,076 ft² → 100 m²"}). Water loads recalculate accordingly.
+                  </span>
+                </div>
+              </button>
+
+              {/* Option 2: Keep Current Input Values */}
+              <button
+                type="button"
+                onClick={() => executeUnitSystemChange(pendingUnitTarget, false)}
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-border/80 bg-slate-100/40 dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer text-left group"
+              >
+                <div className="p-2 rounded-lg bg-slate-200/60 dark:bg-slate-700/60 text-muted-foreground shrink-0 mt-0.5">
+                  <Check className="size-4" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-bold text-xs text-foreground transition">
+                    Switch Units Only (Keep Numbers)
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    Keep your numerical inputs as-is and only change display labels to {pendingUnitTarget === "ip" ? "IP (gpd/gal)" : "SI (lpd/L)"}.
+                  </span>
+                </div>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-border/60 flex justify-end">
+              <button
+                type="button"
+                onClick={() => { setShowUnitConfirmModal(false); setPendingUnitTarget(null); }}
+                className="px-4 py-2 border border-border rounded-xl text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </AppShell>
   );

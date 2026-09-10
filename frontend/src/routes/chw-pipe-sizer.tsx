@@ -4,16 +4,29 @@ import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
-  Download, Upload, Sparkles, AlertTriangle, CheckCircle2,
-  Info, Gauge, FileText, Printer, FileSpreadsheet, Bookmark, HelpCircle, Wrench
+  AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
+  Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
+  RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles,
+  Download, Upload, Gauge, Layers
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import { toast } from "sonner";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+} from "@/components/ui/context-menu";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPipeModal } from "@/components/workspace/EditChwPipeModal";
 
 export const Route = createFileRoute("/chw-pipe-sizer")({
@@ -63,23 +76,20 @@ function fToC(f: number): number {
   return (f - 32) * 5 / 9;
 }
 
+interface SavedCalculation {
+  id: string;
+  type: string;
+  name: string;
+  savedAt: string;
+  values: Record<string, any>;
+  unitSystem: "si" | "ip";
+}
+
 function ChwPipeSizerPage() {
-  const isApproved = useCalculationLock("/chw-pipe-sizer");
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-
   const { project, forceSaveToCloud } = useWorkspace();
-  // State matching the original defaults for IP mode
-  const [projectInfo, setProjectInfo] = useState({
-    projectName: "Commercial Tower CHW Sizing",
-    projectNumber: "MEP-CHW-02",
-    client: "Summit Estates Ltd",
-    consultant: "Consistent Engineering Consultants",
-    date: new Date().toISOString().split("T")[0],
-    revision: "Rev 0",
-    calcNumber: "CALC-HVAC-CHW02",
-    notes: "Chilled water distribution pipe sizing study to identify optimal NPS sizes and pressure drops.",
-  });
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
 
@@ -91,15 +101,208 @@ function ChwPipeSizerPage() {
     targetDp: "" as number | "",
   });
 
-  const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
-  const [showFormulaPanel, setShowFormulaPanel] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [hasCalculated, setHasCalculated] = useState(false);
-  const [inputError, setInputError] = useState<string | null>(null);
+  const [projectInfo, setProjectInfo] = useState({
+    projectName: "Commercial Tower CHW Sizing",
+    projectNumber: "MEP-CHW-02",
+    client: "Summit Estates Ltd",
+    consultant: "Consistent Engineering Consultants",
+    date: new Date().toISOString().split("T")[0],
+    revision: "Rev 0",
+    calcNumber: "CALC-HVAC-CHW02",
+    notes: "Chilled water distribution pipe sizing study to identify optimal NPS sizes and pressure drops.",
+  });
 
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
+  const [editModalOpen, setEditModalOpen] = useState<boolean>(false);
 
-  // Load from local storage
+  // Comment System State & Persistence
+  const [commentsList, setCommentsList] = useState<any[]>([]);
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const ip = unitSystem === "ip";
+
+  useEffect(() => {
+    const pId = project?.id || "default";
+    const savedComments = localStorage.getItem(`mep_calc_comments_${pId}_/chw-pipe-sizer`);
+    if (savedComments) {
+      try {
+        setCommentsList(JSON.parse(savedComments));
+      } catch (e) {
+        console.error("Failed to load comments", e);
+      }
+    }
+  }, [project?.id]);
+
+  const saveComments = (newList: any[]) => {
+    setCommentsList(newList);
+    const pId = project?.id || "default";
+    localStorage.setItem(`mep_calc_comments_${pId}_/chw-pipe-sizer`, JSON.stringify(newList));
+    try {
+      if (typeof forceSaveToCloud === "function") {
+        forceSaveToCloud(true);
+      }
+    } catch (e) {}
+  };
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (commentData: any) => {
+    const newComment = {
+      id: `cmt_${Date.now()}`,
+      text: commentData.text,
+      authorName: currentUserName,
+      authorRole: profile?.role || "Engineer",
+      timestamp: new Date().toISOString(),
+      assignedUsers: commentData.assignedUsers || [],
+      itemId: commentTargetItem?.id,
+      spaceId: commentTargetItem?.id,
+      targetId: commentTargetItem?.id,
+      targetName: commentTargetItem?.name,
+      calculatorTitle: "CHW Pipe Sizer",
+      calculatorPath: "/chw-pipe-sizer",
+      projectId: project?.id || "default",
+      projectName: project?.name || "CHW Pipe Sizing",
+    };
+    const updated = [newComment, ...commentsList];
+    saveComments(updated);
+    toast.success(`Comment / task assigned on "${commentTargetItem?.name || "parameter"}"`);
+    setCommentModalOpen(false);
+
+    notifyCommentAssigned({
+      comment: newComment,
+      targetId: commentTargetItem?.id || "chw-pipe-sizer",
+      targetName: commentTargetItem?.name || "CHW Pipe",
+      targetType: "equipment",
+      calculatorTitle: "CHW Pipe Sizer",
+      calculatorPath: "/chw-pipe-sizer",
+      project,
+      currentUserName,
+      currentUserId: userData?.id || profile?.id
+    }).catch(console.error);
+  };
+
+  // Scroll and highlight notification target item
+  useEffect(() => {
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanId = (targetId || "").toLowerCase().trim();
+
+      const el = document.getElementById(targetId || "") ||
+                 document.getElementById(`field-${targetId}`) ||
+                 document.getElementById(`res-${targetId}`) ||
+                 document.querySelector(`[data-item-id="${targetId}"]`) ||
+                 document.querySelector(`[data-field-id="${targetId}"]`);
+
+      if (el || cleanId) {
+        setHighlightedTargetId(targetId || cleanId);
+
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => {
+          setHighlightedTargetId(null);
+          highlightTimeoutRef.current = null;
+        }, 4000);
+
+        if (el) {
+          setTimeout(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 150);
+        }
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("commentTargetId");
+      const targetName = params.get("commentTargetName");
+      if (targetId || targetName) {
+        setTimeout(() => {
+          handleScrollTarget(targetId || undefined, targetName || undefined);
+        }, 300);
+      }
+    }
+
+    const handleScrollEvent = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail) {
+        handleScrollTarget(detail.id, detail.name);
+      }
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
+
+  // Presets load/save
+  const [saves, setSaves] = useState<SavedCalculation[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+  const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
+  const [saveName, setSaveName] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("mep_chw_pipe_sizer_saves");
+      if (stored) {
+        setSaves(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error("Failed to load custom saves", e);
+    }
+  }, []);
+
+  const saveToLocalStorage = (newSaves: SavedCalculation[]) => {
+    setSaves(newSaves);
+    localStorage.setItem("mep_chw_pipe_sizer_saves", JSON.stringify(newSaves));
+  };
+
+  const handleSaveCurrent = () => {
+    if (!saveName.trim()) return;
+    const newSave: SavedCalculation = {
+      id: "pipe_save_" + Date.now(),
+      type: "chw-pipe-sizer",
+      name: saveName.trim(),
+      savedAt: new Date().toISOString(),
+      values: { ...sizingParams },
+      unitSystem
+    };
+    const updated = [newSave, ...saves];
+    saveToLocalStorage(updated);
+    setSaveName("");
+    setShowSaveModal(false);
+    toast.success(`Preset "${newSave.name}" saved`);
+    if (typeof forceSaveToCloud === "function") {
+      forceSaveToCloud();
+    }
+  };
+
+  const handleLoadSave = (id: string) => {
+    const target = saves.find(s => s.id === id);
+    if (!target) return;
+    setSizingParams(target.values as typeof sizingParams);
+    if (target.unitSystem) setUnitSystem(target.unitSystem);
+    setShowLoadModal(false);
+    toast.success(`Loaded preset "${target.name}"`);
+  };
+
+  const handleDeleteSave = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = saves.filter(s => s.id !== id);
+    saveToLocalStorage(updated);
+    toast.info("Deleted preset");
+  };
+
+  // State persistence per project
   useEffect(() => {
     try {
       const saved = localStorage.getItem("chw_pipe_sizer_params");
@@ -107,7 +310,6 @@ function ChwPipeSizerPage() {
         const parsed = JSON.parse(saved);
         if (parsed.sizingParams) {
           let loadedParams = { ...parsed.sizingParams };
-          // Migrate old mm roughness values (>= 0.001) to meters
           if (loadedParams.materialRoughness >= 0.001) {
             loadedParams.materialRoughness = loadedParams.materialRoughness / 1000;
           }
@@ -115,29 +317,24 @@ function ChwPipeSizerPage() {
         }
         if (parsed.projectInfo) setProjectInfo(parsed.projectInfo);
         if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
-        setHasCalculated(true); // Automatically show results if we have loaded parameters
       }
     } catch (e) {
       console.error(e);
-      if (project?.id) setLoadedProjectId(project.id); else setLoadedProjectId("loaded");
     }
-  }, []);
+    if (project?.id) setLoadedProjectId(project.id);
+  }, [project?.id]);
 
-  const saveParams = (params: typeof sizingParams, unit: "si" | "ip", proj: typeof projectInfo) => {
+  const saveParams = (params: typeof sizingParams, unit: "si" | "ip", proj: typeof projectInfo = projectInfo) => {
     setSizingParams(params);
     setUnitSystem(unit);
-    if ((window as any).__mep_keep_values) return;
     setProjectInfo(proj);
-  };
-
-  useEffect(() => {
     try {
-      localStorage.setItem("chw_pipe_sizer_params", JSON.stringify({ sizingParams, unitSystem, projectInfo }));
+      localStorage.setItem("chw_pipe_sizer_params", JSON.stringify({ sizingParams: params, unitSystem: unit, projectInfo: proj }));
       dirtyStore.set(true);
     } catch (e) {
       console.error(e);
     }
-  }, [sizingParams, unitSystem, projectInfo]);
+  };
 
   const handleUnitSystemChange = (unit: "si" | "ip") => {
     if (unit === unitSystem) return;
@@ -166,13 +363,13 @@ function ChwPipeSizerPage() {
     };
     
     saveParams(updatedParams, unit, projectInfo);
+    toast.info(`Switched to ${unit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
-  // Calculations
+  // Calculations matching original exact website calcHvacPipe logic
   const calculatedData = useMemo(() => {
-    const ip = unitSystem === "ip";
     const flowVal = sizingParams.flowRate !== "" ? Number(sizingParams.flowRate) : (ip ? 80 : 5.0);
-    const Q = ip ? flowVal * 6.30902e-5 : flowVal * 1e-3;
+    const Q = ip ? flowVal * 6.30902e-5 : flowVal * 1e-3; // m³/s
     const tRaw = sizingParams.temperature !== "" ? Number(sizingParams.temperature) : (ip ? 44 : 6.7);
     const tC = ip ? fToC(tRaw) : tRaw;
     const eps = Number(sizingParams.materialRoughness) || 0.000046;
@@ -186,7 +383,6 @@ function ChwPipeSizerPage() {
     let chosen: any = null;
     const allPipes: any[] = [];
 
-    // Exact sizing logic from original calcHvacPipe (02-hvac-calcs.js):
     for (const [nps, idMm] of Object.entries(pipeTable)) {
       const D = idMm / 1000;
       const A = (Math.PI * D * D) / 4;
@@ -198,331 +394,376 @@ function ChwPipeSizerPage() {
       const vFps = v / 0.3048;
       const isCompliant = dp <= targetDpPaM * 1.05;
 
-      const item = { nps, idMm, D, v, vFps, Re, f, dp, dpFt, isCompliant };
-      allPipes.push(item);
+      const rowObj = {
+        nps: Number(nps),
+        idMm,
+        D,
+        A,
+        v,
+        vFps,
+        Re,
+        f,
+        dp,
+        dpFt,
+        isCompliant
+      };
+      allPipes.push(rowObj);
 
-      if (isCompliant) {
-        chosen = item;
-        break;
+      if (!chosen && isCompliant) {
+        chosen = rowObj;
       }
     }
 
-    if (!chosen) {
-      const last = Object.entries(pipeTable).pop()!;
-      const D = last[1] / 1000;
-      const A = (Math.PI * D * D) / 4;
-      const v = Q / A;
-      const Re = (rho * v * D) / mu;
-      const f = colebrook(Re, eps / D);
-      const dp = (f * rho * v * v) / (2 * D);
-      chosen = { nps: last[0], idMm: last[1], D, v, vFps: v / 0.3048, Re, f, dp, dpFt: dp / 22.62 };
+    if (!chosen && allPipes.length > 0) {
+      chosen = allPipes[allPipes.length - 1];
     }
 
-    const regime = chosen.Re < 2300 ? "Laminar" : chosen.Re < 4000 ? "Transitional" : "Turbulent";
+    const flowDisplay = ip ? `${flowVal.toFixed(1)} GPM` : `${flowVal.toFixed(2)} L/s`;
+    const tempDisplay = ip ? `${tRaw.toFixed(1)} °F` : `${tRaw.toFixed(1)} °C`;
+    const targetDpDisplay = ip ? `${dpRaw.toFixed(2)} psi/100ft` : `${dpRaw.toFixed(0)} Pa/m`;
 
     return {
-      nps: chosen.nps,
-      DN: (chosen.D * 1000).toFixed(0),
-      innerDiameterMm: chosen.D * 1000,
-      velocity: chosen.v,
-      velocityFps: chosen.vFps,
-      pressureDropPaM: chosen.dp,
-      pressureDropFt100ft: chosen.dpFt,
-      reynoldsNumber: chosen.Re,
-      frictionFactor: chosen.f,
-      regime,
+      flowVal,
+      flowDisplay,
+      Q,
+      tRaw,
+      tC,
+      tempDisplay,
+      dpRaw,
+      targetDpDisplay,
       rho,
       mu,
+      chosen,
       allPipes
     };
-  }, [sizingParams, unitSystem]);
+  }, [sizingParams, unitSystem, ip]);
 
-  const handleSizePipe = () => {
-    if (!sizingParams.flowRate || !sizingParams.temperature || !sizingParams.targetDp) {
-      setInputError("Please fill in all required fields before calculating.");
+  const handleCopyValue = (label: string, value: string | number) => {
+    if (value === "" || value === undefined) {
+      toast.info(`No value in ${label} to copy`);
       return;
     }
-    setInputError(null);
-    setHasCalculated(true);
+    navigator.clipboard.writeText(String(value));
+    toast.success(`Copied ${label}: ${value} to clipboard`);
   };
 
-  const handleExportJSON = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ projectInfo, sizingParams, unitSystem }));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `${projectInfo.projectName.replace(/\s+/g, "_")}_chw_pipe_sizer.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  };
-
-  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.projectInfo) setProjectInfo(parsed.projectInfo);
-        if (parsed.sizingParams) {
-          let loadedParams = { ...parsed.sizingParams };
-          if (loadedParams.materialRoughness >= 0.001) {
-            loadedParams.materialRoughness = loadedParams.materialRoughness / 1000;
-          }
-          setSizingParams(loadedParams);
-        }
-        if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
-        setHasCalculated(true);
-      } catch (err) {
-        alert("Failed to parse JSON file.");
+  const handlePasteValue = async (label: string, fieldKey: keyof typeof sizingParams) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const num = parseFloat(text.trim());
+      if (!isNaN(num)) {
+        const next = { ...sizingParams, [fieldKey]: num };
+        saveParams(next, unitSystem, projectInfo);
+        toast.success(`Pasted ${num} into ${label}`);
+      } else {
+        toast.error(`Clipboard content "${text}" is not a valid number`);
       }
-    };
-    reader.readAsText(file);
+    } catch (err) {
+      toast.error("Unable to read clipboard");
+    }
   };
 
-  const handleExportExcel = async () => {
-    const exceljsModule = await import('exceljs');
-    const ExcelJS = exceljsModule.default || (window as any).ExcelJS;
-    const fileSaverModule = await import('file-saver');
-    const saveAs = fileSaverModule.saveAs || fileSaverModule.default?.saveAs || fileSaverModule.default || ((window as any).saveAs);
+  const handleResetValue = (label: string, fieldKey: keyof typeof sizingParams, defaultVal: any) => {
+    const next = { ...sizingParams, [fieldKey]: defaultVal };
+    saveParams(next, unitSystem, projectInfo);
+    toast.success(`Reset ${label} to default`);
+  };
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Pipe Sizer");
+  const handleClearValue = (label: string, fieldKey: keyof typeof sizingParams) => {
+    const next = { ...sizingParams, [fieldKey]: "" };
+    saveParams(next, unitSystem, projectInfo);
+    toast.info(`Cleared ${label}`);
+  };
 
-    sheet.getColumn(1).width = 25;
-    sheet.getColumn(2).width = 25;
-    sheet.getColumn(3).width = 20;
-    sheet.getColumn(4).width = 20;
-
-    sheet.mergeCells("A1:D1");
-    const cellA1 = sheet.getCell("A1");
-    cellA1.value = "CHW PIPE SIZING REPORT";
-    cellA1.font = { name: "Segoe UI", size: 16, bold: true, color: { argb: "FFFFFF" } };
-    cellA1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "E28743" } }; // theme accent orange
-    cellA1.alignment = { horizontal: "center" };
-
-    sheet.addRow([]);
-    sheet.addRow(["Project Information"]);
-    sheet.getCell("A3").font = { name: "Segoe UI", size: 13, bold: true };
-    sheet.addRow(["Project Name", projectInfo.projectName]);
-    sheet.addRow(["Project Number", projectInfo.projectNumber]);
-    sheet.addRow(["Consultant", projectInfo.consultant]);
-
-    sheet.addRow([]);
-    sheet.addRow(["Sizing parameters"]);
-    sheet.getCell("A8").font = { name: "Segoe UI", size: 13, bold: true };
-    sheet.addRow(["Fluid Type", sizingParams.fluidType === "chw" ? "Chilled Water" : sizingParams.fluidType === "cw" ? "Condenser Water" : sizingParams.fluidType === "g25" ? "25% Glycol" : "40% Glycol"]);
-    sheet.addRow(["Flow Rate", `${sizingParams.flowRate} ${unitSystem === "ip" ? "GPM" : "L/s"}`]);
-    sheet.addRow(["Operating Temp", `${sizingParams.temperature} ${unitSystem === "ip" ? "°F" : "°C"}`]);
-    sheet.addRow(["Pipe Material Roughness", `${(sizingParams.materialRoughness * 1000).toFixed(4)} mm`]);
-    sheet.addRow(["Target Pressure Drop Limit", `${sizingParams.targetDp} ${unitSystem === "ip" ? "ft w.g./100ft" : "Pa/m"}`]);
-
-    sheet.addRow([]);
-    sheet.addRow(["Sizing Results"]);
-    sheet.getCell("A15").font = { name: "Segoe UI", size: 13, bold: true };
-    sheet.addRow(["Recommended Pipe Size", `NPS ${calculatedData.nps}" / DN ${calculatedData.DN} mm`]);
-    sheet.addRow(["Internal Diameter", unitSystem === "ip" ? `${(calculatedData.innerDiameterMm / 25.4).toFixed(3)} in` : `${calculatedData.innerDiameterMm.toFixed(1)} mm`]);
-    sheet.addRow(["Fluid Velocity", unitSystem === "ip" ? `${calculatedData.velocityFps.toFixed(2)} fps` : `${calculatedData.velocity.toFixed(3)} m/s`]);
-    sheet.addRow(["Actual Pressure Drop", unitSystem === "ip" ? `${calculatedData.pressureDropFt100ft.toFixed(2)} ft/100ft` : `${calculatedData.pressureDropPaM.toFixed(1)} Pa/m`]);
-    sheet.addRow(["Reynolds Number", Math.round(calculatedData.reynoldsNumber).toLocaleString()]);
-    sheet.addRow(["Flow Regime", calculatedData.regime]);
-
-    const sigRow = (sheet as any).rowCount ? (sheet as any).rowCount + 2 : 20;
-    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "chw-pipe-sizer");
-    const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_pipe_sizer_report.xlsx`);
+  const handleExportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ["CHW Pipe Sizing Report"],
+      ["Generated on: " + new Date().toLocaleDateString(), `Unit System: ${unitSystem.toUpperCase()}`],
+      [],
+      ["1. Design Inputs"],
+      ["Design Flow Rate", calculatedData.flowDisplay],
+      ["Fluid Type", sizingParams.fluidType.toUpperCase()],
+      ["Operating Temperature", calculatedData.tempDisplay],
+      ["Target Head Loss", calculatedData.targetDpDisplay],
+      [],
+      ["2. Recommended Pipe Selection"],
+      ["Recommended Pipe Size", `${calculatedData.chosen?.nps}" NPS (${calculatedData.chosen?.idMm} mm ID)`],
+      ["Flow Velocity", ip ? `${calculatedData.chosen?.vFps.toFixed(2)} fps` : `${calculatedData.chosen?.v.toFixed(2)} m/s`],
+      ["Actual Pressure Drop", ip ? `${calculatedData.chosen?.dpFt.toFixed(2)} psi/100ft` : `${calculatedData.chosen?.dp.toFixed(1)} Pa/m`],
+      ["Reynolds Number", calculatedData.chosen?.Re.toFixed(0)],
+      ["Darcy Friction Factor (f)", calculatedData.chosen?.f.toFixed(4)],
+      [],
+      ["3. Full Pipe Sizing Schedule"],
+      ["NPS", "ID (mm)", "Velocity", "Pressure Drop", "Reynolds", "Status"],
+      ...calculatedData.allPipes.map(p => [
+        `${p.nps}"`,
+        p.idMm,
+        ip ? `${p.vFps.toFixed(2)} fps` : `${p.v.toFixed(2)} m/s`,
+        ip ? `${p.dpFt.toFixed(2)} psi/100ft` : `${p.dp.toFixed(1)} Pa/m`,
+        p.Re.toFixed(0),
+        p.isCompliant ? "COMPLIANT" : "EXCEEDS TARGET"
+      ])
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, "CHW Pipe Sizer");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "CHW_Pipe_Sizing_Report.xlsx", "Excel Document", ["xlsx"]);
+    toast.success("Excel report exported successfully");
   };
 
   const handlePrintPDF = async () => {
-    const jsPDFModule = await import('jspdf');
-    const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-    const autoTableModule = await import('jspdf-autotable');
-    const autoTable = autoTableModule.default || autoTableModule;
+    try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default || autoTableModule;
 
-    const doc = new jsPDF("p", "pt", "a4");
+      const doc = new jsPDF("p", "pt", "a4");
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.text("CHW PIPE SIZING REPORT", 40, 50);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text("CHILLED WATER PIPE SIZING REPORT", 40, 50);
 
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${projectInfo.date} | Calculation Code: ${projectInfo.calcNumber} | Standard: ASHRAE`, 40, 68);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100);
+      doc.text(`Generated on: ${projectInfo.date} | Calculation Ref: ${projectInfo.calcNumber} | Unit: ${unitSystem.toUpperCase()}`, 40, 68);
 
-    doc.setDrawColor(200);
-    doc.line(40, 75, 550, 75);
+      doc.setDrawColor(200);
+      doc.line(40, 75, 550, 75);
 
-    // Project details
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(0);
-    doc.text("1. Project Details", 40, 95);
+      const tableData = [
+        ["Design Flow Rate", calculatedData.flowDisplay, "Fluid Type", sizingParams.fluidType.toUpperCase()],
+        ["Operating Temperature", calculatedData.tempDisplay, "Target Head Loss", calculatedData.targetDpDisplay],
+        ["Recommended Size", `${calculatedData.chosen?.nps}" NPS (${calculatedData.chosen?.idMm} mm ID)`, "Flow Velocity", ip ? `${calculatedData.chosen?.vFps.toFixed(2)} fps` : `${calculatedData.chosen?.v.toFixed(2)} m/s`],
+        ["Actual Drop", ip ? `${calculatedData.chosen?.dpFt.toFixed(2)} psi/100ft` : `${calculatedData.chosen?.dp.toFixed(1)} Pa/m`, "Reynolds (Re)", calculatedData.chosen?.Re.toFixed(0)],
+      ];
 
-    const projectData = [
-      ["Project Name", projectInfo.projectName, "Project Number", projectInfo.projectNumber],
-      ["Consultant", projectInfo.consultant, "Client", projectInfo.client],
-      ["Revision", projectInfo.revision, "Calculation Ref", projectInfo.calcNumber],
-    ];
+      autoTable(doc, {
+        startY: 90,
+        head: [],
+        body: tableData,
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 4 },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 130 },
+          1: { cellWidth: 120 },
+          2: { fontStyle: "bold", cellWidth: 130 },
+          3: { cellWidth: 120 },
+        },
+      });
 
-    autoTable(doc, {
-      startY: 105,
-      head: [],
-      body: projectData,
-      theme: "plain",
-      styles: { fontSize: 9.5, cellPadding: 4 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 90 },
-        1: { cellWidth: 170 },
-        2: { fontStyle: "bold", cellWidth: 90 },
-        3: { cellWidth: 170 },
-      },
-    });
-
-    // Sizing Parameters
-    doc.setFont("helvetica", "bold");
-    doc.text("2. Design & Fluid Parameters", 40, (doc as any).lastAutoTable.finalY + 25);
-
-    const fluidTypeName = sizingParams.fluidType === "chw" ? "Chilled Water" : sizingParams.fluidType === "cw" ? "Condenser Water" : sizingParams.fluidType === "g25" ? "25% Glycol" : "40% Glycol";
-    const paramData = [
-      ["Fluid Type Sized", fluidTypeName, "Fluid Flow Rate", `${sizingParams.flowRate} ${unitSystem === "ip" ? "GPM" : "L/s"}`],
-      ["Operating Temp", `${sizingParams.temperature} ${unitSystem === "ip" ? "°F" : "°C"}`, "Material Roughness", `${(sizingParams.materialRoughness * 1000).toFixed(4)} mm`],
-      ["Target Pressure Drop Limit", `${sizingParams.targetDp} ${unitSystem === "ip" ? "ft w.g./100ft" : "Pa/m"}`, "Calculated Density", `${calculatedData.rho.toFixed(1)} kg/m³`],
-    ];
-
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 35,
-      head: [],
-      body: paramData,
-      theme: "striped",
-      styles: { fontSize: 9, cellPadding: 4 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 130 },
-        1: { cellWidth: 120 },
-        2: { fontStyle: "bold", cellWidth: 130 },
-        3: { cellWidth: 120 },
-      },
-    });
-
-    // Sizing Results
-    doc.setFont("helvetica", "bold");
-    doc.text("3. Pipe Sizing Summary", 40, (doc as any).lastAutoTable.finalY + 25);
-
-    const summaryData = [
-      ["Recommended Pipe Size", `NPS ${calculatedData.nps}" / DN ${calculatedData.DN} mm`],
-      ["Inner Diameter (Actual)", unitSystem === "ip" ? `${(calculatedData.innerDiameterMm / 25.4).toFixed(3)} in` : `${calculatedData.innerDiameterMm.toFixed(1)} mm`],
-      ["Fluid Velocity Sized", unitSystem === "ip" ? `${calculatedData.velocityFps.toFixed(2)} fps` : `${calculatedData.velocity.toFixed(3)} m/s`],
-      ["Calculated Friction Loss", unitSystem === "ip" ? `${calculatedData.pressureDropFt100ft.toFixed(2)} ft/100ft` : `${calculatedData.pressureDropPaM.toFixed(1)} Pa/m`],
-      ["Reynolds Number", `${Math.round(calculatedData.reynoldsNumber).toLocaleString()}`],
-      ["Friction Factor (Colebrook)", `${calculatedData.frictionFactor.toFixed(5)}`],
-      ["Flow Regime Class", `${calculatedData.regime}`],
-    ];
-
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 35,
-      head: [],
-      body: summaryData,
-      theme: "striped",
-      styles: { fontSize: 9.5, cellPadding: 4 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 220 },
-        1: { cellWidth: 280 },
-      },
-    });
-
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "chw-pipe-sizer");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), `${projectInfo.projectName.replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), "CHW_Pipe_Sizing_Report.pdf", "PDF Document", ["pdf"]);
+      toast.success("PDF report generated successfully");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to generate PDF report");
+    }
   };
 
-  const renderSvgChart = () => {
-    const ip = unitSystem === "ip";
-    const vel = ip ? calculatedData.velocityFps : calculatedData.velocity;
-    const vMax = ip ? 8.0 : 2.4;
-    const flow = Number(sizingParams.flowRate);
-    const u = ip ? "fps" : "m/s";
-    const flowU = ip ? "GPM" : "L/s";
-
-    const bars = [
-      { label: 'Velocity', value: vel, color: vel > vMax ? '#0A7BC7' : '#d17914', unit: ' ' + u },
-      { label: 'Max Allow', value: vMax, color: '#64748B', unit: ' ' + u },
-      { label: 'Flow Rate', value: flow, color: '#06456F', unit: ' ' + flowU }
-    ];
-
-    const W = 540;
-    const H = 160;
-    const PL = 42;
-    const PR = 16;
-    const PT = 32;
-    const PB = 44;
-    const CW = W - PL - PR;
-    const CH = H - PT - PB;
-    
-    const maxV = Math.max(...bars.map(b => Math.abs(b.value || 0))) * 1.18 || 1;
-    const bw = CW / bars.length;
-    const gap = bw * 0.28;
-    const bw2 = bw - gap;
-    
-    const sx = (i: number) => PL + i * bw + gap / 2;
-    const sy = (v: number) => PT + CH - (Math.max(0, v) / maxV) * CH;
-
-    const ticks = [0.25, 0.5, 0.75, 1.0];
+  const renderInputBox = (
+    id: string,
+    fieldKey: keyof typeof sizingParams,
+    label: string,
+    value: any,
+    defaultVal: any,
+    placeholder: string,
+    min?: number,
+    step: string = "any"
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `field-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
 
     return (
-      <svg viewBox={`0 0 ${W} ${H}`} xmlns="http://www.w3.org/2000/svg" className="w-full h-auto block overflow-visible font-sans">
-        <text x={PL} y="18" fontSize="9.5" fontWeight="700" fill="var(--muted)" letterSpacing="0.5">PIPE VELOCITY & SIZING</text>
-        
-        {/* Gridlines */}
-        {ticks.map(t => {
-          const v = maxV * t;
-          const y = sy(v);
-          const lbl = v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(v < 10 ? 1 : 0);
-          return (
-            <g key={t}>
-              <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="var(--border)" strokeWidth="0.5" strokeDasharray="3,3" />
-              <text x={PL - 5} y={y + 3.5} textAnchor="end" fontSize="8.5" fill="var(--muted)" className="font-mono">{lbl}</text>
-            </g>
-          );
-        })}
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`field-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <label className="font-semibold text-foreground flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <span>{label}</span>
+                {hasComments && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenComment(id, label);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                    title={`${itemComments.length} comment(s)/task(s) assigned`}
+                  >
+                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                    <span>{itemComments.length}</span>
+                  </button>
+                )}
+              </span>
+              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
+            </label>
+            <input
+              id={id}
+              type="number"
+              min={min}
+              step={step}
+              value={value}
+              onChange={(e) => {
+                const val = e.target.value === "" ? "" : Number(e.target.value);
+                saveParams({ ...sizingParams, [fieldKey]: val }, unitSystem, projectInfo);
+              }}
+              placeholder={placeholder}
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50"
+            />
+          </div>
+        </ContextMenuTrigger>
 
-        {/* Axes */}
-        <line x1={PL} y1={PT} x2={PL} y2={PT + CH} stroke="var(--border)" strokeWidth="1" />
-        <line x1={PL} y1={PT + CH} x2={W - PR} y2={PT + CH} stroke="var(--border)" strokeWidth="1" />
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, value)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
 
-        {/* Bars */}
-        {bars.map((b, i) => {
-          const h = Math.max(3, (Math.abs(b.value || 0) / maxV) * CH);
-          const x = sx(i);
-          const y = sy(Math.abs(b.value || 0));
-          const valStr = typeof b.value === 'number' 
-            ? (Math.abs(b.value) >= 1000 
-               ? (b.value / 1000).toFixed(1) + 'k' 
-               : b.value.toFixed(b.value < 10 ? 2 : 1))
-            : '-';
-          
-          const words = b.label.split(' ');
-          const lx = x + bw2 / 2;
+          <ContextMenuItem
+            onClick={() => handlePasteValue(label, fieldKey)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Clipboard className="size-3.5 text-muted-foreground" />
+            <span>Paste Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+          </ContextMenuItem>
 
-          return (
-            <g key={i}>
-              <rect x={x} y={y} width={bw2} height={h} fill={b.color} rx="3" opacity="0.88" />
-              <text x={lx} y={y - 5} textAnchor="middle" fontSize="9" fill={b.color} fontWeight="700" className="font-mono">
-                {valStr}{b.unit}
-              </text>
-              {words.length > 1 ? (
-                <>
-                  <text x={lx} y={PT + CH + 16} textAnchor="middle" fontSize="8.5" fill="var(--muted)">{words[0]}</text>
-                  <text x={lx} y={PT + CH + 27} textAnchor="middle" fontSize="8.5" fill="var(--muted)">{words.slice(1).join(' ')}</text>
-                </>
-              ) : (
-                <text x={lx} y={PT + CH + 16} textAnchor="middle" fontSize="8.5" fill="var(--muted)">{b.label}</text>
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleResetValue(label, fieldKey, defaultVal)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <RotateCcw className="size-3.5 text-muted-foreground" />
+            <span>Reset to Default ({defaultVal !== "" ? defaultVal : "Blank"})</span>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => handleClearValue(label, fieldKey)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-amber-600 dark:text-amber-400"
+          >
+            <Trash2 className="size-3.5" />
+            <span>Clear Field</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  const renderResultRow = (
+    id: string,
+    label: string,
+    valueFormatted: string,
+    isHighlight: boolean = false,
+    highlightClass: string = "text-foreground",
+    colSpanTwo: boolean = false
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `res-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`res-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/40 dark:hover:bg-slate-800/30 px-2 rounded-lg transition cursor-context-menu group ${
+              colSpanTwo ? "col-span-2" : ""
+            } ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+              <span>{label}</span>
+              {hasComments && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenComment(id, label);
+                  }}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                  title={`${itemComments.length} comment(s)/task(s) assigned`}
+                >
+                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                  <span>{itemComments.length}</span>
+                </button>
               )}
-            </g>
-          );
-        })}
-      </svg>
+            </span>
+            <strong className={`font-bold font-mono ${highlightClass}`}>{valueFormatted}</strong>
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, valueFormatted)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value ({valueFormatted})</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => {
+              navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
+              toast.success(`Copied full line: "${label}: ${valueFormatted}"`);
+            }}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            <span>Copy Full Line</span>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   };
 
@@ -530,624 +771,558 @@ function ChwPipeSizerPage() {
     <AppShell title="CHW Pipe Sizer" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print px-6">
-            <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; CHW PIPE SIZER</span>
-              <div className="flex items-center gap-3 mt-0.5">
-                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Pipe Sizer - CHW / CW</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">ASHRAE / SMACNA - Velocity &amp; Pressure Drop Method</span>
+          
+          {/* Header Section */}
+          <div className="flex flex-col gap-1 select-none">
+            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; HYDRONIC &gt; CHW PIPE SIZER</span>
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">CHW Pipe Sizer</h1>
+                <CalculationReviewBar projectId={project?.id} calculatorPath="/chw-pipe-sizer" calculatorTitle="CHW Pipe Sizer" />
+                {commentsList.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons & Unit Toggle */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    onClick={() => handleUnitSystemChange("ip")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      unitSystem === "ip"
+                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Imperial (IP)
+                  </button>
+                  <button
+                    onClick={() => handleUnitSystemChange("si")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      unitSystem === "si"
+                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Metric (SI)
+                  </button>
                 </div>
-                <CalculationReviewBar calculatorPath="/chw-pipe-sizer" calculatorTitle="CHW Pipe Sizer" />
+
+                <TBtn onClick={handleExportExcel} className="h-8 text-xs font-semibold">
+                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
+                </TBtn>
+                <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
+                  <Printer className="size-3.5 text-blue-600" /> PDF Report
+                </TBtn>
+                <TBtn onClick={() => setShowSaveModal(true)} className="h-8 text-xs font-semibold">
+                  <Save className="size-3.5 text-amber-600" /> Save Preset
+                </TBtn>
+                {saves.length > 0 && (
+                  <TBtn onClick={() => setShowLoadModal(true)} className="h-8 text-xs font-semibold">
+                    <FolderOpen className="size-3.5 text-indigo-600" /> Load ({saves.length})
+                  </TBtn>
+                )}
               </div>
-              </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Size chilled water or condenser water pipes. Iterates through Sch 40 sizes to find the smallest meeting target ΔP. Glycol viscosity correction included.
-              </p>
             </div>
+            <p className="text-[13px] text-muted-foreground mt-0.5">
+              Size chilled water and condenser water piping based on design flowrate, fluid properties, and target friction head loss.
+            </p>
           </div>
 
-          {/* White card container for Tabs & Data Grid */}
-          <div className="mx-6 mb-6 bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
-            {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60">
-              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  onClick={() => setActiveTab("calculator")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "calculator"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Sizing Calculator
-                </button>
-                <button
-                  onClick={() => setActiveTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "report"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Printable Report
-                </button>
-              </div>
-
-              {/* Sizing Unit system toggle */}
-              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  type="button"
-                  onClick={() => handleUnitSystemChange("ip")}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    unitSystem === "ip"
-                      ? "bg-background text-primary shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Imperial (IP)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUnitSystemChange("si")}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    unitSystem === "si"
-                      ? "bg-background text-primary shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Metric (SI)
-                </button>
-              </div>
-            </div>
-
-            {/* Active Tab View */}
-            <div className="flex-1 min-h-0 animate-fade-in flex flex-col">
-              {activeTab === "calculator" ? (
-                <div className="flex-1 min-h-0 flex flex-col relative">
-                  
-                  {/* Top Actions Block matching Ventilation */}
-                  <div className="relative flex items-center justify-between gap-4 px-6 h-12 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">File Actions:</span>
-                      <TBtn onClick={handleExportJSON} className="h-8.5 text-xs"><Upload className="size-3.5" /> Export JSON</TBtn>
-                      <label className="flex items-center gap-1.5 h-8.5 px-3 border border-border/80 hover:bg-surface-2 rounded-lg text-xs cursor-pointer font-semibold text-foreground select-none transition-all">
-                        <Download className="size-3.5" /> Import JSON
-                        <input type="file" onChange={handleImportJSON} accept=".json" className="hidden" />
-                      </label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <TBtn onClick={() => setShowFormulaPanel(!showFormulaPanel)} className="h-8.5 text-xs">
-                        <HelpCircle className="size-3.5 text-primary" /> Formula Reference
-                      </TBtn>
-                      <TBtn onClick={handlePrintPDF} primary className="h-8.5 text-xs"><Printer className="size-3.5" /> Generate PDF Report</TBtn>
-                    </div>
-                  </div>
-
-                  {/* Scrollable calculator content */}
-                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 dark:bg-slate-950/20 flex flex-col gap-6">
-                    
-                    {/* Expandable Formula Reference */}
-                    {showFormulaPanel && (
-                      <div className="bg-white/90 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm animate-slide-in flex flex-col gap-5">
-                        {/* Features List */}
-                        <div>
-                          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white mb-2.5 flex items-center gap-1.5">
-                            <span className="w-1.5 h-3.5 bg-primary rounded-sm"></span>
-                            Features: CHW Pipe Sizer Calculator
-                          </h3>
-                          <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1.5 text-xs text-muted-foreground list-disc list-inside">
-                            <li><strong>All Keyboard shortcuts</strong>: Core navigation & hotkeys.</li>
-                            <li><strong>Velocity or Pressure Drop Method</strong>: Sizing based on maximum velocity or maximum friction head loss rate.</li>
-                            <li><strong>Glycol Mixture Correction</strong>: Dynamically adjusts density & viscosity for glycol mixtures (0% to 50%).</li>
-                            <li><strong>Interactive Pipe Schedule Table</strong>: Add, remove, and size pipes dynamically; customize recommended and selected nominal pipe sizes.</li>
-                            <li><strong>Reynolds Number & Colebrook Friction Solver</strong>: Calculates regime type and iteratively solves Colebrook-White friction factors.</li>
-                            <li><strong>SI / IP Dual Unit System</strong>: Dynamic Metric and Imperial unit conversion.</li>
-                          </ul>
-                        </div>
-
-                        <div className="border-t border-border/40 pt-4">
-                          <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white mb-3 flex items-center gap-1.5">
-                            <HelpCircle className="size-4 text-primary" /> CHW Pipe Sizer Formulas Reference
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-sans">
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Darcy-Weisbach Equation:</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">hf = f × (L/D) × (v²/2g)</code>
-                              <span className="text-[10px] text-muted-foreground">Friction loss head in meters of water column.</span>
-                            </div>
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Colebrook Friction Factor:</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">1/√f = -2log(ε/3.7D + 2.51/Re√f)</code>
-                              <span className="text-[10px] text-muted-foreground">Solved iteratively using Colebrook-White algorithm.</span>
-                            </div>
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Reynolds Number:</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">Re = ρ × v × D / μ</code>
-                              <span className="text-[10px] text-muted-foreground">Differentiates Laminar, Transitional, and Turbulent flow.</span>
-                            </div>
-                            <div className="border border-border/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-800/10">
-                              <span className="font-semibold block mb-1">Fluid Properties:</span>
-                              <code className="text-primary block font-bold mb-1 font-mono text-[11px]">Density (ρ) & Viscosity (μ)</code>
-                              <span className="text-[10px] text-muted-foreground">Calculated dynamically based on temperature and glycol%.</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Split layout: inputs vs parameters */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                      
-                      {/* Left Column - Inputs (spans 5 columns) */}
-                      <div className="lg:col-span-5 flex flex-col gap-6">
-                        
-
-                        {/* Inputs Card */}
-                        <div 
-                          onDoubleClick={() => setEditModalOpen(true)}
-                          className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative group/card cursor-pointer select-none"
-                          title="Double-click to open full parameter editor modal"
-                        >
-                          <div className="flex items-center justify-between pb-2.5 border-b border-border/60">
-                            <div className="flex items-center gap-2">
-                              <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Inputs</h3>
-                            </div>
-                            <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full opacity-80 group-hover/card:opacity-100 transition-opacity">
-                              Double-click to Edit
-                            </span>
-                          </div>
-
-                          {inputError && (
-                            <div className="bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 rounded-xl p-3 text-xs flex gap-2 items-center">
-                              <AlertTriangle className="size-4 shrink-0 text-red-600" />
-                              <span>{inputError}</span>
-                            </div>
-                          )}
-
-                          <div className="flex flex-col gap-3.5 text-xs font-sans">
-                            {/* Flow Rate */}
-                            <div className="flex flex-col gap-1.5">
-                              <div className="flex justify-between items-center">
-                                <label className="text-xs font-semibold text-foreground">Flow Rate</label>
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-muted-foreground rounded uppercase font-mono">
-                                  {unitSystem === "ip" ? "GPM" : "L/s"}
-                                </span>
-                              </div>
-                              <input
-                                type="number"
-                                step="any"
-                                value={sizingParams.flowRate}
-                                onChange={(e) => {
-                                  const val = e.target.value === "" ? "" : Number(e.target.value);
-                                  saveParams({ ...sizingParams, flowRate: val }, unitSystem, projectInfo);
-                                }}
-                                placeholder={unitSystem === "ip" ? "80" : "5.0"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-
-                            {/* Fluid Type */}
-                            <div className="flex flex-col gap-1.5">
-                              <label className="text-xs font-semibold text-foreground flex justify-between items-center">
-                                <span>Fluid Type</span>
-                              </label>
-                              <select
-                                value={sizingParams.fluidType}
-                                onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
-                              >
-                                <option value="chw">Chilled Water</option>
-                                <option value="cw">Condenser Water</option>
-                                <option value="g25">25% Glycol</option>
-                                <option value="g40">40% Glycol</option>
-                              </select>
-                            </div>
-
-                            {/* Fluid Temperature */}
-                            <div className="flex flex-col gap-1.5">
-                              <div className="flex justify-between items-center">
-                                <label className="text-xs font-semibold text-foreground">Fluid Temperature</label>
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-muted-foreground rounded uppercase font-mono">
-                                  {unitSystem === "ip" ? "°F" : "°C"}
-                                </span>
-                              </div>
-                              <input
-                                type="number"
-                                step="any"
-                                value={sizingParams.temperature}
-                                onChange={(e) => {
-                                  const val = e.target.value === "" ? "" : Number(e.target.value);
-                                  saveParams({ ...sizingParams, temperature: val }, unitSystem, projectInfo);
-                                }}
-                                placeholder={unitSystem === "ip" ? "44" : "6.7"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-
-                            {/* Pipe Material */}
-                            <div className="flex flex-col gap-1.5">
-                              <label className="text-xs font-semibold text-foreground">Pipe Material</label>
-                              <select
-                                value={sizingParams.materialRoughness}
-                                onChange={(e) => saveParams({ ...sizingParams, materialRoughness: Number(e.target.value) }, unitSystem, projectInfo)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7]"
-                              >
-                                <option value="0.000046">Carbon Steel</option>
-                                <option value="0.0000015">Copper</option>
-                                <option value="0.000150">Galvanized Steel</option>
-                              </select>
-                              <span className="text-[10.5px] text-muted-foreground mt-0.5 block">
-                                Roughness: {(sizingParams.materialRoughness * 1000).toFixed(4)} mm
-                              </span>
-                            </div>
-
-                            {/* Target DP */}
-                            <div className="flex flex-col gap-1.5">
-                              <div className="flex justify-between items-center">
-                                <label className="text-xs font-semibold text-foreground">Target ΔP</label>
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-muted-foreground rounded uppercase font-mono">
-                                  {unitSystem === "ip" ? "ft w.g./100ft" : "Pa/m"}
-                                </span>
-                              </div>
-                              <input
-                                type="number"
-                                step="any"
-                                value={sizingParams.targetDp}
-                                onChange={(e) => {
-                                  const val = e.target.value === "" ? "" : Number(e.target.value);
-                                  saveParams({ ...sizingParams, targetDp: val }, unitSystem, projectInfo);
-                                }}
-                                placeholder={unitSystem === "ip" ? "4.0" : "40"}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold focus:border-[#0A7BC7] placeholder:text-muted-foreground/45 placeholder:font-normal"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Size Pipe Button */}
-                        <button
-                          type="button"
-                          onClick={handleSizePipe}
-                          className="w-full bg-[#0A7BC7] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer text-xs"
-                        >
-                          ⚡ Size Pipe
-                        </button>
-                      </div>
-
-                      {/* Right Column - Results (spans 7 columns) */}
-                      <div className="lg:col-span-7 flex flex-col gap-6">
-                        {!hasCalculated ? (
-                          <div className="bg-card border border-border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[300px] text-center shadow-xs">
-                            <div className="size-12 rounded-full bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center text-muted-foreground text-xl mb-4 border border-border/40 select-none">
-                              ❄️
-                            </div>
-                            <h4 className="text-xs font-bold text-foreground mb-1 uppercase tracking-wider">Ready for Sizing</h4>
-                            <p className="text-[11.5px] text-muted-foreground max-w-xs leading-normal">
-                              Fill in the design inputs on the left and click <strong>Size Pipe</strong> to compute optimal pipe sizes and view velocity profiles.
-                            </p>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Warnings Display */}
-                            {(calculatedData.velocityFps < 2 || calculatedData.velocityFps > 8) && (
-                              <div className="flex flex-col gap-3">
-                                {calculatedData.velocityFps < 2 && (
-                                  <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] items-start">
-                                    <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
-                                    <div>
-                                      <strong className="font-bold">Velocity Alert</strong>
-                                      <p className="mt-0.5 text-muted-foreground leading-normal">
-                                        Velocity {calculatedData.velocityFps.toFixed(2)} fps - Below 2 fps. Air pocket/sedimentation risk.
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-                                {calculatedData.velocityFps > 8 && (
-                                  <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex gap-2.5 text-[11.5px] items-start">
-                                    <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
-                                    <div>
-                                      <strong className="font-bold">Velocity Alert</strong>
-                                      <p className="mt-0.5 text-muted-foreground leading-normal">
-                                        Velocity {calculatedData.velocityFps.toFixed(2)} fps - Exceeds 8 fps. Erosion risk at fittings.
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Pipe Selection Card */}
-                            <div 
-                              onDoubleClick={() => setEditModalOpen(true)}
-                              className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative group/pipe cursor-pointer select-none"
-                              title="Double-click to open full parameter editor modal"
-                            >
-                              <div className="flex items-center justify-between pb-2.5 border-b border-border/60">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pipe Selection</h3>
-                                </div>
-                                <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full opacity-80 group-hover/pipe:opacity-100 transition-opacity">
-                                  Double-click to Edit
-                                </span>
-                              </div>
-
-                              <div className="flex flex-col gap-3 font-sans text-xs">
-                                <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                                  <span className="font-semibold text-muted-foreground">Selected Pipe Size</span>
-                                  <strong className="font-bold text-[#0A7BC7] text-[13px] font-mono">
-                                    NPS {calculatedData.nps}" / DN {calculatedData.DN} mm
-                                  </strong>
-                                </div>
-                                <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                                  <span className="font-semibold text-muted-foreground">Internal Diameter</span>
-                                  <strong className="font-bold text-foreground font-mono">
-                                    {unitSystem === "ip" 
-                                      ? `${(calculatedData.innerDiameterMm / 25.4).toFixed(3)} in` 
-                                      : `${calculatedData.innerDiameterMm.toFixed(1)} mm`}
-                                  </strong>
-                                </div>
-                                <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                                  <span className="font-semibold text-muted-foreground">Velocity</span>
-                                  <strong className="font-bold text-[#0A7BC7] font-mono">
-                                    {unitSystem === "ip" 
-                                      ? `${calculatedData.velocityFps.toFixed(2)} fps` 
-                                      : `${calculatedData.velocity.toFixed(3)} m/s`}
-                                  </strong>
-                                </div>
-                                <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                                  <span className="font-semibold text-muted-foreground">Pressure Drop</span>
-                                  <strong className="font-bold text-foreground font-mono">
-                                    {unitSystem === "ip" 
-                                      ? `${calculatedData.pressureDropFt100ft.toFixed(2)} ft/100ft` 
-                                      : `${calculatedData.pressureDropPaM.toFixed(1)} Pa/m`}
-                                  </strong>
-                                </div>
-                                <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                                  <span className="font-semibold text-muted-foreground">Reynolds Number</span>
-                                  <strong className="font-bold text-foreground font-mono">
-                                    {Math.round(calculatedData.reynoldsNumber).toLocaleString()}
-                                  </strong>
-                                </div>
-                                <div className="flex justify-between items-center py-1.5">
-                                  <span className="font-semibold text-muted-foreground">Flow Regime</span>
-                                  <strong className="font-bold text-foreground font-mono">
-                                    {calculatedData.regime}
-                                  </strong>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Chart Card */}
-                            <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] p-5 flex flex-col gap-4 relative">
-                              <div className="w-full relative select-none">
-                                {renderSvgChart()}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-
-                    </div>
-                  </div>
+          {/* Sizing Grid Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            {/* Inputs Column (5 cols) */}
+            <div className="lg:col-span-5 flex flex-col gap-6">
+              
+              {/* Card 1: Flow & Fluid Parameters */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Flow & Fluid Parameters</h3>
                 </div>
-              ) : (
-                /* Printable Report tab view */
-                <div className="flex-1 flex flex-col min-h-0">
-                  {/* Fixed Toolbar at the top */}
-                  <div className="relative flex items-center justify-end gap-3 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
-                    <button
-                      onClick={handlePrintPDF}
-                      className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox(
+                    "chw-pipe-flow",
+                    "flowRate",
+                    `Design Flow Rate (${ip ? "GPM" : "L/s"})`,
+                    sizingParams.flowRate,
+                    ip ? 80 : 5.0,
+                    ip ? "80" : "5.0",
+                    0
+                  )}
+
+                  <div className="flex flex-col gap-1.5 p-2 rounded-xl">
+                    <label className="font-semibold text-foreground">Fluid Type</label>
+                    <select
+                      value={sizingParams.fluidType}
+                      onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem, projectInfo)}
+                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none"
                     >
-                      <FileText className="size-3.5" /> Export PDF
-                    </button>
-                  </div>
-                  
-                  {/* Scrollable Report Content */}
-                  <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30 dark:bg-slate-950/20 font-sans print:p-0">
-
-                  {/* Results Dashboard Grid */}
-                  <div className="no-print max-w-4xl mx-auto w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    
-                    <div className="bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/20 dark:to-orange-900/10 border border-blue-100/60 dark:border-orange-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-[#0A7BC7]/10 text-[#06456F] rounded-full p-2">
-                        <Sparkles className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold text-[#06456F] dark:text-sky-400 uppercase tracking-widest block mb-1">Recommended size</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">NPS {calculatedData.nps}"</strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block">Inner Diameter: {calculatedData.innerDiameterMm.toFixed(1)} mm (DN {calculatedData.DN})</span>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-950/20 dark:to-pink-900/10 border border-pink-200/60 dark:border-pink-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-pink-500/10 text-pink-600 rounded-full p-2">
-                        <Gauge className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold text-pink-600 dark:text-pink-400 uppercase tracking-widest block mb-1">Fluid Velocity</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">
-                        {unitSystem === "ip" ? `${calculatedData.velocityFps.toFixed(2)} fps` : `${calculatedData.velocity.toFixed(3)} m/s`}
-                      </strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block">Flow Type: {sizingParams.fluidType === "chw" ? "Chilled Water" : "Condenser Water"}</span>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 border border-emerald-200/60 dark:border-emerald-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-emerald-500/10 text-emerald-600 rounded-full p-2">
-                        <CheckCircle2 className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-1">Pressure Drop</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">
-                        {unitSystem === "ip" ? `${calculatedData.pressureDropFt100ft.toFixed(2)} ft/100ft` : `${calculatedData.pressureDropPaM.toFixed(1)} Pa/m`}
-                      </strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block">Target limit: {sizingParams.targetDp} {unitSystem === "ip" ? "ft/100ft" : "Pa/m"}</span>
-                    </div>
-
-                    <div className={`bg-gradient-to-br border rounded-2xl p-5 shadow-xs relative overflow-hidden ${
-                      calculatedData.velocityFps > 8 
-                        ? "from-rose-50 to-rose-100/50 dark:from-rose-950/20 dark:to-rose-900/10 border-rose-200/60 dark:border-rose-800/50" 
-                        : calculatedData.velocityFps < 2 
-                          ? "from-amber-50 to-amber-100/50 dark:from-amber-950/20 dark:to-amber-900/10 border-amber-200/60 dark:border-amber-800/50"
-                          : "from-teal-50 to-teal-100/50 dark:from-teal-950/20 dark:to-teal-900/10 border-teal-200/60 dark:border-teal-800/50"
-                    }`}>
-                      <div className="absolute right-4 top-4 text-muted-foreground rounded-full p-2">
-                        <AlertTriangle className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold uppercase tracking-widest block mb-1">Flow Velocity Status</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">
-                        {calculatedData.velocityFps > 8 ? "High" : calculatedData.velocityFps < 2 ? "Low" : "Optimal"}
-                      </strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block">
-                        {calculatedData.velocityFps > 8 ? "Erosion & noise hazard" : calculatedData.velocityFps < 2 ? "Air pocket & settling hazard" : "Sizing parameters in range"}
-                      </span>
-                    </div>
-
+                      <option value="chw">Chilled Water (CHW - Pure)</option>
+                      <option value="cw">Condenser Water (CW)</option>
+                      <option value="g25">25% Ethylene/Propylene Glycol</option>
+                      <option value="g40">40% Ethylene/Propylene Glycol</option>
+                    </select>
                   </div>
 
-
-                  <div className="border border-slate-300 dark:border-slate-800 rounded-xl p-8 max-w-4xl mx-auto shadow-sm print:border-none print:shadow-none print:p-0 bg-white">
-                    
-                    {/* Report Header */}
-                    <div className="border-b-2 border-slate-800 pb-5 mb-6 flex justify-between items-start">
-                      <div>
-                        <h1 className="text-xl font-extrabold text-slate-900 uppercase tracking-wider">CHW PIPE SIZING REPORT</h1>
-                        <p className="text-[12px] text-muted-foreground font-mono mt-1">Chilled Water Pipe Sizing compliant with ASHRAE / Colebrook equation</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[13px] font-bold text-[#0A7BC7] font-mono block">MEP CALCULATION SUITE</span>
-                        <span className="text-[11px] text-muted-foreground block mt-0.5">Date: {projectInfo.date}</span>
-                      </div>
-                    </div>
-
-                    {/* 1. Project Info */}
-                    <div className="mb-6">
-                      <h3 className="font-bold text-[13px] text-slate-900 border-b border-slate-200 pb-1 mb-3">1. Project Details</h3>
-                      <div className="grid grid-cols-2 gap-4 text-xs">
-                        <div>
-                          <span className="text-muted-foreground block">Project Name:</span>
-                          <span className="font-semibold text-slate-900">{projectInfo.projectName}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Project Number:</span>
-                          <span className="font-semibold text-slate-900">{projectInfo.projectNumber}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Consultant / Engineer:</span>
-                          <span className="font-semibold text-slate-900">{projectInfo.consultant}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Client Name:</span>
-                          <span className="font-semibold text-slate-900">{projectInfo.client}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-muted-foreground block">Calculation Notes:</span>
-                          <span className="italic text-muted-foreground block mt-0.5">{projectInfo.notes}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 2. Fluid Parameters */}
-                    <div className="mb-6">
-                      <h3 className="font-bold text-[13px] text-slate-900 border-b border-slate-200 pb-1 mb-3">2. Fluid Sizing Parameters</h3>
-                      <div className="grid grid-cols-3 gap-y-3.5 gap-x-4 text-xs">
-                        <div>
-                          <span className="text-muted-foreground block">Fluid Type:</span>
-                          <strong className="font-mono text-slate-900 font-bold">
-                            {sizingParams.fluidType === "chw" ? "Chilled Water" : sizingParams.fluidType === "cw" ? "Condenser Water" : sizingParams.fluidType === "g25" ? "25% Glycol" : "40% Glycol"}
-                          </strong>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Operating Flow Rate:</span>
-                          <strong className="font-mono text-slate-900 font-bold">{sizingParams.flowRate} {unitSystem === "ip" ? "GPM" : "L/s"}</strong>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Operating Temperature:</span>
-                          <strong className="font-mono text-slate-900 font-bold">{sizingParams.temperature} {unitSystem === "ip" ? "°F" : "°C"}</strong>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Material Roughness:</span>
-                          <strong className="font-mono text-slate-900 font-bold">{(sizingParams.materialRoughness * 1000).toFixed(4)} mm</strong>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Target Friction Loss Limit:</span>
-                          <strong className="font-mono text-slate-900 font-bold">{sizingParams.targetDp} {unitSystem === "ip" ? "ft w.g./100ft" : "Pa/m"}</strong>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground block">Calculated Density:</span>
-                          <strong className="font-mono text-slate-900 font-bold">{calculatedData.rho.toFixed(1)} kg/m³</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 3. Sizing results */}
-                    <div className="mb-6">
-                      <h3 className="font-bold text-[13px] text-slate-900 border-b border-slate-200 pb-1 mb-3">3. Sizing Summary Results</h3>
-                      <div className="border border-slate-200 rounded-lg p-4 flex flex-col gap-3 bg-slate-50 text-xs">
-                        
-                        <div className="grid grid-cols-2 gap-4 pb-2 border-b border-slate-200">
-                          <div>
-                            <span className="text-muted-foreground">Recommended Diameter:</span>
-                            <strong className="block text-[13px] font-mono mt-0.5 text-[#0A7BC7]">NPS {calculatedData.nps}" / DN {calculatedData.DN} mm</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Actual Inner Diameter:</span>
-                            <strong className="block text-[13px] font-mono mt-0.5 text-slate-900">
-                              {unitSystem === "ip" 
-                                ? `${(calculatedData.innerDiameterMm / 25.4).toFixed(3)} in` 
-                                : `${calculatedData.innerDiameterMm.toFixed(1)} mm`}
-                            </strong>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-4 pt-1">
-                          <div>
-                            <span className="text-muted-foreground">Fluid Velocity:</span>
-                            <strong className="block font-mono mt-0.5 text-slate-900">
-                              {unitSystem === "ip" 
-                                ? `${calculatedData.velocityFps.toFixed(2)} fps` 
-                                : `${calculatedData.velocity.toFixed(3)} m/s`}
-                            </strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Actual Friction Loss:</span>
-                            <strong className="block text-[13px] text-[#06456F] font-mono mt-0.5">
-                              {unitSystem === "ip" 
-                                ? `${calculatedData.pressureDropFt100ft.toFixed(2)} ft/100ft` 
-                                : `${calculatedData.pressureDropPaM.toFixed(1)} Pa/m`}
-                            </strong>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Friction Factor (f):</span>
-                            <strong className="block font-mono mt-0.5 text-slate-900">{calculatedData.frictionFactor.toFixed(5)}</strong>
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-
-                    {/* Engineering sign off footer */}
-                    <div className="mt-12 pt-6 border-t border-slate-200 grid grid-cols-2 gap-8 text-[11px] text-muted-foreground">
-                      <div>
-                        <p className="font-semibold uppercase tracking-wider text-slate-800 mb-6 font-bold">Prepared By:</p>
-                        <div className="border-b border-slate-300 w-48 mb-1"></div>
-                        <p>Consulting HVAC Engineer</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold uppercase tracking-wider text-slate-800 mb-6 font-bold">Reviewed & Approved By:</p>
-                        <div className="border-b border-slate-300 w-48 ml-auto mb-1"></div>
-                        <p>Lead MEP Principal Engineer</p>
-                      </div>
-                    </div>
-
-                  </div>
+                  {renderInputBox(
+                    "chw-pipe-temp",
+                    "temperature",
+                    `Fluid Operating Temperature (${ip ? "°F" : "°C"})`,
+                    sizingParams.temperature,
+                    ip ? 44 : 6.7,
+                    ip ? "44" : "6.7"
+                  )}
                 </div>
               </div>
-            )}
+
+              {/* Card 2: Piping Sizing Criteria */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Piping Sizing Criteria</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox(
+                    "chw-pipe-target-dp",
+                    "targetDp",
+                    `Target Head Loss Gradient (${ip ? "psi/100ft" : "Pa/m"})`,
+                    sizingParams.targetDp,
+                    ip ? 4.0 : 40,
+                    ip ? "4.0" : "40",
+                    0,
+                    "0.1"
+                  )}
+
+                  {renderInputBox(
+                    "chw-pipe-roughness",
+                    "materialRoughness",
+                    "Pipe Absolute Roughness ε (meters)",
+                    sizingParams.materialRoughness,
+                    0.000046,
+                    "0.000046",
+                    0,
+                    "0.000001"
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Results Column (7 cols) */}
+            <div className="lg:col-span-7 flex flex-col gap-5">
+              
+              {/* Card 1: Recommended Selection */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Recommended Pipe Selection</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  {renderResultRow("res-rec-nps", "Recommended Size", `${calculatedData.chosen?.nps}" NPS (${calculatedData.chosen?.idMm} mm ID)`, true, "text-[#0A7BC7] text-[14px]")}
+                  {renderResultRow("res-rec-vel", "Fluid Velocity", ip ? `${calculatedData.chosen?.vFps.toFixed(2)} fps` : `${calculatedData.chosen?.v.toFixed(2)} m/s`, true, "text-[#0A7BC7]")}
+                  {renderResultRow("res-rec-dp", "Actual Head Loss Drop", ip ? `${calculatedData.chosen?.dpFt.toFixed(2)} psi/100ft` : `${calculatedData.chosen?.dp.toFixed(1)} Pa/m`, true, "text-[#0A7BC7]")}
+                  {renderResultRow("res-rec-re", "Reynolds Number (Re)", `${calculatedData.chosen?.Re.toFixed(0)} (${calculatedData.chosen?.Re > 4000 ? "Turbulent" : "Laminar"})`)}
+                  {renderResultRow("res-rec-f", "Darcy Friction Factor (f)", calculatedData.chosen?.f.toFixed(4))}
+                  {renderResultRow("res-rec-dens", "Fluid Density (ρ)", `${calculatedData.rho.toFixed(1)} kg/m³`)}
+                </div>
+              </div>
+
+              {/* Card 2: Full Schedule Table */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs overflow-hidden">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Piping Sizing Schedule</h3>
+                </div>
+
+                <div className="overflow-x-auto border border-border/60 rounded-xl">
+                  <table className="w-full text-[11px] font-sans text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-900 font-bold text-foreground border-b border-border/60">
+                        <th className="p-2 text-center">NPS</th>
+                        <th className="p-2 text-center">ID (mm)</th>
+                        <th className="p-2 text-right">Velocity</th>
+                        <th className="p-2 text-right">Head Loss</th>
+                        <th className="p-2 text-right">Reynolds</th>
+                        <th className="p-2 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40 font-mono">
+                      {calculatedData.allPipes.map((p) => {
+                        const isChosen = calculatedData.chosen?.nps === p.nps;
+                        return (
+                          <tr key={p.nps} className={`hover:bg-slate-50 dark:hover:bg-slate-900/50 ${isChosen ? "bg-primary/10 font-bold" : ""}`}>
+                            <td className="p-2 text-center font-bold font-sans">{p.nps}"</td>
+                            <td className="p-2 text-center">{p.idMm}</td>
+                            <td className="p-2 text-right">{ip ? `${p.vFps.toFixed(2)} fps` : `${p.v.toFixed(2)} m/s`}</td>
+                            <td className="p-2 text-right">{ip ? `${p.dpFt.toFixed(2)} psi/100ft` : `${p.dp.toFixed(1)} Pa/m`}</td>
+                            <td className="p-2 text-right">{p.Re.toFixed(0)}</td>
+                            <td className="p-2 text-center">
+                              {p.isCompliant ? (
+                                <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-1.5 py-0.5 rounded text-[10px]">
+                                  {isChosen ? "✓ SELECTED" : "✓ PASS"}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground/60 text-[10px]">HIGH DROP</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Card 3: Detailed Calculations Steps Accordion */}
+              <div className="bg-card border border-border rounded-2xl shadow-xs overflow-hidden">
+                <button
+                  onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
+                  className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
+                  </span>
+                  {showDetailedCalcs ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                </button>
+                {showDetailedCalcs && (
+                  <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[400px] overflow-y-auto">
+                    
+                    {/* Step 1 */}
+                    {(() => {
+                      const stepId = "step-1-fluid-properties";
+                      const stepLabel = "Step 1: Fluid Density & Dynamic Viscosity";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">1</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">ρ = f(T_c) × Glycol_Factor, μ = f(T_c) × Glycol_Visc</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">T = {calculatedData.tC.toFixed(2)} °C | Type = {sizingParams.fluidType.toUpperCase()}</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">ρ = {calculatedData.rho.toFixed(2)} kg/m³, μ = {calculatedData.mu.toExponential(3)} Pa·s</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 1 Properties", `ρ=${calculatedData.rho.toFixed(2)} kg/m³`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 1 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
+
+                    {/* Step 2 */}
+                    {(() => {
+                      const stepId = "step-2-velocity";
+                      const stepLabel = "Step 2: Internal Cross-Section Area & Velocity";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">2</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">A = π × D² ÷ 4, v = Q ÷ A</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">D = {calculatedData.chosen?.D.toFixed(4)} m, Q = {calculatedData.Q.toExponential(3)} m³/s</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">
+                                  v = {calculatedData.chosen?.v.toFixed(2)} m/s ({calculatedData.chosen?.vFps.toFixed(2)} fps)
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 2 Velocity", `${calculatedData.chosen?.v.toFixed(2)} m/s`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 2 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
+
+                    {/* Step 3 */}
+                    {(() => {
+                      const stepId = "step-3-reynolds-friction";
+                      const stepLabel = "Step 3: Reynolds Number & Colebrook Friction Factor";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">3</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">Re = (ρ × v × D) ÷ μ, 1/√f = -2 log10( (ε/D)/3.7 + 2.51/(Re√f) )</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">
+                                  Re = {calculatedData.chosen?.Re.toFixed(0)}, f = {calculatedData.chosen?.f.toFixed(4)}
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 3 Friction", `f=${calculatedData.chosen?.f.toFixed(4)}`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 3 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
+
+                    {/* Step 4 */}
+                    {(() => {
+                      const stepId = "step-4-dp-gradient";
+                      const stepLabel = "Step 4: Darcy-Weisbach Pressure Drop Gradient";
+                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start pb-1 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">4</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                  {stepComments.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenComment(stepId, stepLabel);
+                                      }}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                    >
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{stepComments.length}</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="font-mono text-primary my-1">ΔP/L = (f × ρ × v²) ÷ (2 × D)</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">
+                                  ΔP/L = {calculatedData.chosen?.dp.toFixed(1)} Pa/m ({calculatedData.chosen?.dpFt.toFixed(2)} psi/100ft)
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem onClick={() => handleCopyValue("Step 4 Drop", `${calculatedData.chosen?.dp.toFixed(1)} Pa/m`)}>
+                              <Copy className="size-3.5 text-muted-foreground mr-2" />
+                              <span>Copy Step 4 Result</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
+                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
+
+                  </div>
+                )}
+              </div>
+
+            </div>
+
           </div>
+
         </div>
       </div>
+
+      {/* Save Preset Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
+            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
+              <Save className="size-4 text-primary" /> Save Calculation Preset
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Save current CHW pipe sizing inputs to preset library.
+            </p>
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder="e.g. Primary Chiller Loop 4-inch"
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:border-primary outline-none"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleSaveCurrent()}
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCurrent}
+                disabled={!saveName.trim()}
+                className="px-4 py-2 text-xs font-bold bg-[#0A7BC7] hover:bg-[#0863A0] text-white rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                Save Preset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Preset Modal */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
+            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
+              <FolderOpen className="size-4 text-primary" /> Saved CHW Pipe Presets
+            </h3>
+            <div className="max-h-60 overflow-y-auto flex flex-col gap-2">
+              {saves.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => handleLoadSave(s.id)}
+                  className="flex items-center justify-between p-3 rounded-xl border border-border/60 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-bold text-xs text-foreground">{s.name}</span>
+                    <span className="text-[10px] text-muted-foreground">Saved {new Date(s.savedAt).toLocaleDateString()} | Unit: {s.unitSystem?.toUpperCase() || "IP"}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteSave(s.id, e)}
+                    className="p-1.5 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                    title="Delete preset"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowLoadModal(false)}
+                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comment Assignment Modal */}
+      <AssignCommentModal
+        isOpen={commentModalOpen}
+        onClose={() => setCommentModalOpen(false)}
+        targetItem={commentTargetItem}
+        comments={commentsList}
+        onSave={handleSaveComment}
+      />
+
+      {/* Edit Modal */}
       {editModalOpen && (
         <EditChwPipeModal
           params={sizingParams}
@@ -1156,12 +1331,10 @@ function ChwPipeSizerPage() {
           onSave={(updated) => {
             saveParams(updated, unitSystem, projectInfo);
             setEditModalOpen(false);
-            setHasCalculated(true);
           }}
           calculatedData={calculatedData}
         />
       )}
-    </div>
-  </AppShell>
+    </AppShell>
   );
 }

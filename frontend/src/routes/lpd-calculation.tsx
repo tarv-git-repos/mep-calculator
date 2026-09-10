@@ -463,7 +463,7 @@ function LPDCalculationPage() {
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
         {/* Breadcrumbs & Page Header */}
-        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-4 z-10">
+        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg z-10">
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; LPD CALCULATION</span>
             <div className="flex items-center gap-3 mt-0.5">

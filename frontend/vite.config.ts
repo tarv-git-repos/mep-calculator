@@ -128,7 +128,7 @@ export default defineConfig({
   nitro: {
     preset: 'node-server',
     clean: false,
-    prerender: { routes: ['/'] },
+    prerender: { crawlLinks: false, routes: [] },
     output: {
       dir: path.resolve(__dirname, 'dist-nitro-2'),
       serverDir: path.resolve(__dirname, 'dist-nitro-2/server'),

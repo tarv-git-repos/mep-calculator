@@ -468,7 +468,7 @@ function FreshAirCoolingLoadPage() {
           calculatorTitle="Fresh Air Cooling Load"
         />
 
-        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-4 overflow-y-auto h-full px-6 pb-8">
+        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-4 overflow-y-auto h-full">
           {/* Header & Tabs */}
           <div className="flex flex-wrap items-center justify-between gap-3 select-none pb-2 border-b border-border/50">
             <div className="flex flex-col gap-0.5">

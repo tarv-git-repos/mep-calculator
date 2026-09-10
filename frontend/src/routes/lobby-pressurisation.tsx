@@ -266,7 +266,7 @@ function LobbyPressurisationPage() {
   return (
     <AppShell title="Lobby Pressurisation" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full px-6 pb-6">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           <div className="flex flex-col gap-1 select-none">
             <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; LOBBY PRESSURISATION</span>
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">

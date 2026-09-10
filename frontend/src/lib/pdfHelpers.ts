@@ -221,7 +221,8 @@ export function addPdfSignatureBlock(
   startY: number,
   creatorOrDetails: any,
   projectId?: string,
-  calculatorPath?: string
+  calculatorPath?: string,
+  marginOptions?: { left?: number; right?: number }
 ): number {
   let details: any;
   if (creatorOrDetails && typeof creatorOrDetails === "object" && "originatedName" in creatorOrDetails) {
@@ -243,10 +244,20 @@ export function addPdfSignatureBlock(
     approverDate = ""
   } = details;
 
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const leftMargin = marginOptions?.left ?? (pageWidth > 500 ? 40 : 14);
+  const rightMargin = marginOptions?.right ?? (pageWidth > 500 ? 40 : 14);
+  const availableWidth = pageWidth - leftMargin - rightMargin;
+
+  const col0Width = Math.max(65, Math.floor(availableWidth * 0.16));
+  const remainingWidth = availableWidth - col0Width;
+  const colSigWidth = Math.floor(remainingWidth / 3);
+  const lastColWidth = remainingWidth - (colSigWidth * 2);
+
   const head = [["", "Originated by", "Reviewed by", "Approved by"]];
   const body = [
-    ["Name:", originatedName, reviewerName, approverName],
-    ["Date:", originatedDate, reviewerDate, approverDate],
+    ["Name:", originatedName || "-", reviewerName || "-", approverName || "-"],
+    ["Date:", originatedDate || "-", reviewerDate || "-", approverDate || "-"],
   ];
 
   const callTable = (pdfDoc: any, options: any) => {
@@ -260,7 +271,7 @@ export function addPdfSignatureBlock(
   };
 
   callTable(doc, {
-    startY: startY + 10,
+    startY: startY + 15,
     head: head,
     body: body,
     theme: "grid",
@@ -270,25 +281,29 @@ export function addPdfSignatureBlock(
       fontStyle: "bold",
       halign: "center",
       valign: "middle",
+      fontSize: 9,
     },
     bodyStyles: {
       halign: "center",
       valign: "middle",
+      textColor: [20, 20, 20],
+      fontSize: 8.5,
     },
     columnStyles: {
-      0: { fontStyle: "bold", halign: "right", cellWidth: 30 },
-      1: { cellWidth: 50 },
-      2: { cellWidth: 50 },
-      3: { cellWidth: 50 },
+      0: { fontStyle: "bold", halign: "right", cellWidth: col0Width },
+      1: { cellWidth: colSigWidth },
+      2: { cellWidth: colSigWidth },
+      3: { cellWidth: lastColWidth },
     },
     styles: {
-      fontSize: 10,
-      cellPadding: 3,
+      fontSize: 8.5,
+      cellPadding: 4,
+      overflow: "linebreak",
     },
-    margin: { left: 14 }
+    margin: { left: leftMargin, right: rightMargin }
   });
 
-  return (doc as any).lastAutoTable.finalY;
+  return (doc as any).lastAutoTable?.finalY || (startY + 70);
 }
 
 export interface PdfHeaderOptions {

@@ -28,7 +28,10 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'basement-smoke-calc',
   'basement-smoke',
   'lobby-pressurisation',
-  'staircase-pressurization'
+  'staircase-pressurization',
+  'psychrometric',
+  'psychrometric-calculator',
+  'psychrometric-calc'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -69,7 +72,7 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     return features[routeKey] === false;
   }
 
-  // Keep Cable Tray Sizing, Water Demand, Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density, Condensate Drain & Smoke Extract Calculators unlocked for everyone by default
+  // Keep Cable Tray Sizing, Water Demand, Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density, Condensate Drain, Smoke Extract & Psychrometric Calculators unlocked for everyone by default
   if (
     routeKey === 'cable-tray-sizing' ||
     routeKey === 'cable-tray' ||
@@ -94,7 +97,10 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'basement-smoke-calc' ||
     routeKey === 'basement-smoke' ||
     routeKey === 'lobby-pressurisation' ||
-    routeKey === 'staircase-pressurization'
+    routeKey === 'staircase-pressurization' ||
+    routeKey === 'psychrometric' ||
+    routeKey === 'psychrometric-calc' ||
+    routeKey === 'psychrometric-calculator'
   ) {
     return false;
   }
