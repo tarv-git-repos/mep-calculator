@@ -97,7 +97,7 @@ export function DashboardPage() {
 
   return (
     <AppShell title="Dashboard" subtitle="Active metrics summary">
-      <div className="p-6 md:p-8 overflow-y-auto h-full bg-slate-50/30 dark:bg-zinc-950/20">
+      <div className="pt-4 pb-6 overflow-y-auto h-full">
         <div className="w-full flex flex-col gap-6">
 
           {/* Quick stats grid */}

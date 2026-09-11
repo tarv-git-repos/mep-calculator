@@ -3146,7 +3146,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative custom-scrollbar">
           {!shouldHideSubHeader && (
-            <div className="shrink-0 flex items-center justify-between px-6 py-3.5 bg-surface-1/90 backdrop-blur-md border-b border-border select-none z-10">
+            <div className={`shrink-0 flex items-center justify-between py-3.5 bg-surface-1/90 backdrop-blur-md border-b border-border select-none z-10 ${
+              sidebarOpen ? "pl-0 pr-6" : "px-6"
+            }`}>
               <div>
                 <div className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase flex items-center gap-1.5 mb-1">
                   {breadcrumb}
