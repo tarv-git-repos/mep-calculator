@@ -16,6 +16,8 @@ const webMemoryCache = new Map<string, Uint8Array>();
 const webConvertedCache = new Map<string, { frag: string; json: string }>();
 const inFlightConversions = new Map<string, Promise<{ frag: string; json: string }>>();
 import { useViewerStore } from './store/viewer-store';
+import { workspaceStore } from '@/lib/workspace-store';
+import { getProjectConvertedBim, saveProjectConvertedBim } from '@/lib/projectIfcStorage';
 
 let activeWorker: Worker | null = null;
 
@@ -32,8 +34,43 @@ export function cancelActiveIfcProcessing() {
 async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: string }> {
   const cacheKey = `${file.name}_${file.size}_${file.lastModified}`;
   if (webConvertedCache.has(cacheKey)) {
-    console.log(`⚡ Instant load: Using cached converted 3D geometry for "${file.name}"`);
+    console.log(`⚡ Instant load: Using in-memory cached 3D geometry for "${file.name}"`);
     return webConvertedCache.get(cacheKey)!;
+  }
+
+  // 1. FAST PATH: Check persistent IndexedDB cache before launching heavy Web Worker
+  const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
+  try {
+    const cachedBim = await getProjectConvertedBim(activeProjId, {
+      name: file.name,
+      size: file.size,
+      lastModified: file.lastModified
+    });
+
+    if (cachedBim && cachedBim.fragBytes && cachedBim.fragBytes.byteLength > 0 && cachedBim.jsonStr) {
+      console.log(`⚡ Instant load: Retrieved persistent 3D geometry cache from IndexedDB for "${file.name}" (${(cachedBim.fragBytes.byteLength / (1024 * 1024)).toFixed(2)} MB)`);
+      try {
+        useViewerStore.getState().setLoadingText('⚡ Instant load: Loading cached 3D geometry...');
+      } catch {}
+
+      const fragId = `web-cache-${cacheKey}.frag`;
+      const jsonId = `web-cache-${cacheKey}.json`;
+      const jsonBytes = new TextEncoder().encode(cachedBim.jsonStr);
+
+      if (webMemoryCache.size > 12) {
+        webMemoryCache.clear();
+        webConvertedCache.clear();
+      }
+
+      webMemoryCache.set(fragId, cachedBim.fragBytes);
+      webMemoryCache.set(jsonId, jsonBytes);
+
+      const result = { frag: fragId, json: jsonId };
+      webConvertedCache.set(cacheKey, result);
+      return result;
+    }
+  } catch (dbErr) {
+    console.warn("Persistent BIM cache lookup warning:", dbErr);
   }
 
   if (inFlightConversions.has(cacheKey)) {
@@ -83,6 +120,15 @@ async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: st
 
             const result = { frag: fragId, json: jsonId };
             webConvertedCache.set(cacheKey, result);
+
+            // Persist converted BIM geometry to IndexedDB in background so all future reloads take < 1s!
+            saveProjectConvertedBim(activeProjId, {
+              fileName: file.name,
+              fileSize: file.size,
+              fileModified: file.lastModified || Date.now(),
+              fragBytes,
+              jsonStr
+            }).catch(err => console.warn("Failed to persist converted BIM to IndexedDB:", err));
 
             activeWorker = null;
             worker.terminate();

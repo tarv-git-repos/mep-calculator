@@ -138,6 +138,17 @@ function cleanStaleLicenseSessions(orgId) {
   return Array.from(sessionsMap.values());
 }
 
+const calculatorLocks = new Map(); // cleanModule -> { moduleName, email, name, sessionId, joinedAt, lastPing }
+
+function cleanStaleCalculatorLocks() {
+  const now = Date.now();
+  for (const [modKey, lock] of calculatorLocks.entries()) {
+    if (now - (lock.lastPing || 0) > 9000) { // 9 second TTL
+      calculatorLocks.delete(modKey);
+    }
+  }
+}
+
 function isAuthorizedAdmin(u) {
   if (!u) return false;
   const email = String(u.email || '').toLowerCase().trim();
@@ -3326,6 +3337,90 @@ const server = http.createServer(async (req, res) => {
       activeMap.delete(userId);
     }
     return sendJSON(res, 200, { success: true });
+  }
+
+  // -------------------------------------------------------------
+  // DISTRIBUTED CALCULATOR CONCURRENCY LOCKS
+  // -------------------------------------------------------------
+  if (req.method === 'POST' && url === '/api/calculator/lock/heartbeat') {
+    const { moduleName, email, name, sessionId } = await getRequestBody(req);
+    if (!moduleName || !sessionId) {
+      return sendJSON(res, 200, { success: false, allowed: true });
+    }
+    const cleanMod = String(moduleName).toLowerCase().trim().replace(/\/$/, "");
+    cleanStaleCalculatorLocks();
+
+    const now = Date.now();
+    const currentLock = calculatorLocks.get(cleanMod);
+
+    const userEmailClean = email ? String(email).toLowerCase().trim() : '';
+    const lockEmailClean = currentLock && currentLock.email ? String(currentLock.email).toLowerCase().trim() : '';
+    const isSameUser = currentLock && (
+      currentLock.sessionId === sessionId ||
+      (userEmailClean && lockEmailClean && userEmailClean === lockEmailClean)
+    );
+
+    // If no active lock, or already held by this same user/session:
+    if (!currentLock || isSameUser) {
+      const lockObj = {
+        moduleName: cleanMod,
+        email: email || (currentLock ? currentLock.email : 'Unknown'),
+        name: name || (currentLock ? currentLock.name : 'Engineer'),
+        sessionId,
+        joinedAt: currentLock ? currentLock.joinedAt : now,
+        lastPing: now,
+      };
+      calculatorLocks.set(cleanMod, lockObj);
+      return sendJSON(res, 200, {
+        success: true,
+        allowed: true,
+        owner: lockObj,
+      });
+    }
+
+    // Locked by another session/desktop!
+    return sendJSON(res, 200, {
+      success: true,
+      allowed: false,
+      owner: {
+        moduleName: cleanMod,
+        email: currentLock.email,
+        name: currentLock.name || currentLock.email,
+        sessionId: currentLock.sessionId,
+        joinedAt: currentLock.joinedAt,
+      },
+    });
+  }
+
+  if (req.method === 'POST' && url === '/api/calculator/lock/release') {
+    const { moduleName, sessionId } = await getRequestBody(req);
+    if (moduleName) {
+      const cleanMod = String(moduleName).toLowerCase().trim().replace(/\/$/, "");
+      const currentLock = calculatorLocks.get(cleanMod);
+      if (currentLock && (!sessionId || currentLock.sessionId === sessionId)) {
+        calculatorLocks.delete(cleanMod);
+      }
+    }
+    return sendJSON(res, 200, { success: true });
+  }
+
+  if (req.method === 'GET' && url.startsWith('/api/calculator/lock/status')) {
+    cleanStaleCalculatorLocks();
+    const queryMod = new URL(req.url, `http://${req.headers.host}`).searchParams.get('moduleName');
+    if (queryMod) {
+      const cleanMod = String(queryMod).toLowerCase().trim().replace(/\/$/, "");
+      const lock = calculatorLocks.get(cleanMod);
+      return sendJSON(res, 200, {
+        success: true,
+        isLocked: !!lock,
+        owner: lock || null,
+      });
+    }
+    const allLocks = {};
+    for (const [k, v] of calculatorLocks.entries()) {
+      allLocks[k] = v;
+    }
+    return sendJSON(res, 200, { success: true, locks: allLocks });
   }
 
   if (req.method === 'GET' && url.startsWith('/api/admin/organizations/active-sessions')) {

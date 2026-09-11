@@ -124,6 +124,8 @@ export const api = {
       try { orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
       let expiryOverrides: Record<string, string | null> = {};
       try { expiryOverrides = JSON.parse(localStorage.getItem('mep_user_expiry_overrides') || '{}'); } catch(e) {}
+      let authorityOverrides: Record<string, string> = {};
+      try { authorityOverrides = JSON.parse(localStorage.getItem('mep_user_authority_overrides') || '{}'); } catch(e) {}
 
       if (cachedStr) {
         const cachedUsers = JSON.parse(cachedStr);
@@ -161,6 +163,15 @@ export const api = {
                       : (u.features?.subscription_expires || null)));
           }
 
+          const overrideAuth = authorityOverrides[String(u.email || '').toLowerCase()] !== undefined
+            ? authorityOverrides[String(u.email || '').toLowerCase()]
+            : authorityOverrides[String(u.id || '').toLowerCase()];
+
+          let finalAuthority = overrideAuth;
+          if (finalAuthority === undefined) {
+            finalAuthority = u.approvalAuthority || c?.approvalAuthority || u.features?.approvalAuthority || c?.features?.approvalAuthority;
+          }
+
           const finalPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || c?.plan || c?.subscription_status || c?.features?.plan || (finalOrgId ? 'ENTERPRISE' : 'PRO');
 
           return {
@@ -169,6 +180,7 @@ export const api = {
             organization_id: finalOrgId,
             role: finalRole,
             designation: finalDesignation,
+            ...(finalAuthority !== undefined ? { approvalAuthority: finalAuthority } : {}),
             plan: finalPlan,
             subscription_status: finalPlan,
             subscription_expires: finalExpires,
@@ -180,7 +192,8 @@ export const api = {
               organization_id: finalOrgId,
               role: finalRole,
               designation: finalDesignation,
-              subscription_expires: finalExpires
+              subscription_expires: finalExpires,
+              ...(finalAuthority !== undefined ? { approvalAuthority: finalAuthority } : {})
             }
           };
         });
@@ -313,6 +326,15 @@ export const api = {
         localStorage.setItem('mep_user_expiry_overrides', JSON.stringify(expiryMap));
       }
 
+      let authorityMap: Record<string, string> = {};
+      try { authorityMap = JSON.parse(localStorage.getItem('mep_user_authority_overrides') || '{}'); } catch(e) {}
+      const reqAuth = updates.approvalAuthority || updates.features?.approvalAuthority;
+      if (reqAuth !== undefined) {
+        authorityMap[targetLower] = reqAuth;
+        if (updateEmailLower) authorityMap[updateEmailLower] = reqAuth;
+        localStorage.setItem('mep_user_authority_overrides', JSON.stringify(authorityMap));
+      }
+
       users = users.map((u: any) => {
         const uId = String(u.id || '').toLowerCase().trim();
         const uEmail = String(u.email || '').toLowerCase().trim();
@@ -322,6 +344,7 @@ export const api = {
           const updatedRole = updates.role || u.role || u.features?.role;
           const updatedDesignation = updates.designation !== undefined ? updates.designation : (u.designation || u.features?.designation || updatedRole || '');
           const updatedExpires = updates.subscription_expires !== undefined ? updates.subscription_expires : (u.subscription_expires || u.features?.subscription_expires || null);
+          const updatedAuthority = updates.approvalAuthority !== undefined ? updates.approvalAuthority : (updates.features?.approvalAuthority !== undefined ? updates.features.approvalAuthority : (u.approvalAuthority || u.features?.approvalAuthority));
           const updatedPlan = updates.plan || updates.subscription_status || u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status;
           return {
             ...u,
@@ -333,6 +356,7 @@ export const api = {
             ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
             ...(updatedRole ? { role: updatedRole } : {}),
             ...(updatedDesignation ? { designation: updatedDesignation } : {}),
+            ...(updatedAuthority ? { approvalAuthority: updatedAuthority } : {}),
             features: {
               ...(u.features || {}),
               ...(updates.features || {}),
@@ -342,7 +366,8 @@ export const api = {
               subscription_expires: updatedExpires,
               ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
               ...(updatedRole ? { role: updatedRole } : {}),
-              ...(updatedDesignation ? { designation: updatedDesignation } : {})
+              ...(updatedDesignation ? { designation: updatedDesignation } : {}),
+              ...(updatedAuthority ? { approvalAuthority: updatedAuthority } : {})
             }
           };
         }
@@ -367,6 +392,7 @@ export const api = {
                 ...m,
                 ...(updates.role ? { role: updates.role } : {}),
                 ...(updates.designation !== undefined ? { designation: updates.designation } : {}),
+                ...(updates.approvalAuthority !== undefined ? { approvalAuthority: updates.approvalAuthority } : {}),
                 ...(updates.name ? { name: updates.name } : {})
               };
             }
@@ -992,6 +1018,34 @@ export const api = {
       return data.success ? (data.notifications || []) : [];
     } catch(e) {
       return [];
+    }
+  },
+
+  async heartbeatCalculatorLock(payload: { moduleName: string; email?: string; name?: string; sessionId: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/calculator/lock/heartbeat`, payload, { timeout: 4000 });
+      return data;
+    } catch(e) {
+      return { success: false, allowed: true };
+    }
+  },
+
+  async releaseCalculatorLock(payload: { moduleName: string; sessionId?: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/calculator/lock/release`, payload, { timeout: 3000 });
+      return data;
+    } catch(e) {
+      return { success: false };
+    }
+  },
+
+  async getCalculatorLockStatus(moduleName: string) {
+    try {
+      const clean = encodeURIComponent(moduleName);
+      const { data } = await axios.get(`${getBackendUrl()}/api/calculator/lock/status?moduleName=${clean}`, { timeout: 3000 });
+      return data;
+    } catch(e) {
+      return { success: false };
     }
   }
 };

@@ -31,7 +31,15 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'staircase-pressurization',
   'psychrometric',
   'psychrometric-calculator',
-  'psychrometric-calc'
+  'psychrometric-calc',
+  'sanity-check-tool',
+  'sanity-check',
+  'diffuser-selector',
+  'diffuser',
+  'diffuser-selection',
+  'duct-sizer',
+  'duct-sizing',
+  'ductsizer'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -100,7 +108,15 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'staircase-pressurization' ||
     routeKey === 'psychrometric' ||
     routeKey === 'psychrometric-calc' ||
-    routeKey === 'psychrometric-calculator'
+    routeKey === 'psychrometric-calculator' ||
+    routeKey === 'sanity-check-tool' ||
+    routeKey === 'sanity-check' ||
+    routeKey === 'diffuser-selector' ||
+    routeKey === 'diffuser' ||
+    routeKey === 'diffuser-selection' ||
+    routeKey === 'duct-sizer' ||
+    routeKey === 'duct-sizing' ||
+    routeKey === 'ductsizer'
   ) {
     return false;
   }

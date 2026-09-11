@@ -1911,26 +1911,25 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const initCollab = async () => {
       try {
         const { data } = await supabase.auth.getSession();
-        const userEmail = data?.session?.user?.email || userData?.email || profile?.email || "engineer@mepcalc.com";
-        const userName = userData?.name || profile?.name || (userEmail.includes('@') ? userEmail.split('@')[0] : userEmail) || "Engineer";
+        const userEmail = data?.session?.user?.email || userData?.email || profile?.email || "unknown";
+        const userName = userData?.name || profile?.name || userEmail;
         setMyEmail(userEmail);
-        if (project?.id) {
-          joinProject(project.id, userEmail, userName);
-        }
+        const projRoom = project?.id || "default_mep_project";
+        joinProject(projRoom, userEmail, userName);
       } catch (err) {
-        const fallbackEmail = userData?.email || profile?.email || "engineer@mepcalc.com";
-        const fallbackName = userData?.name || profile?.name || "Engineer";
+        const fallbackEmail = userData?.email || profile?.email || "unknown";
+        const fallbackName = userData?.name || profile?.name || fallbackEmail;
         setMyEmail(fallbackEmail);
-        if (project?.id) {
-          joinProject(project.id, fallbackEmail, fallbackName);
-        }
+        const projRoom = project?.id || "default_mep_project";
+        joinProject(projRoom, fallbackEmail, fallbackName);
       }
     };
     initCollab();
+
     return () => {
       leaveProject();
     };
-  }, [project?.id, userData?.name, userData?.email, profile?.name, profile?.email]);
+  }, [project?.id, userData?.name, profile?.name, userData?.email, profile?.email, joinProject, leaveProject]);
 
 
 
@@ -2018,13 +2017,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }, [pathname, isCalculatorRoute, navigate, userData?.privacyPolicyAccepted]);
 
-  const lockOwnerObj = useMemo(() => {
-    if (!isCalculatorRoute) return null;
-    return getLockOwner(pathname);
-  }, [isCalculatorRoute, pathname, activeUsers, getLockOwner]);
-
-  const isLockedByOther = Boolean(isCalculatorRoute && lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
+  const lockOwnerObj = getLockOwner(pathname);
+  const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
+
+
 
   // Restore inputs on project/route change
   useEffect(() => {
@@ -2182,6 +2179,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
   }, [project?.id, pathname, isReadOnly, isLockedByOther]);
 
+  const getReadOnlyMessage = useCallback(() => {
+    if (isLockedByOther) {
+      return `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Editing is locked.`;
+    }
+    if (isViewerRole) {
+      return "🛡️ READ-ONLY MODE: Viewer role accounts cannot edit calculations.";
+    }
+    return "🛡️ READ-ONLY MODE: Workspace is locked. Modifications are disabled.";
+  }, [isLockedByOther, lockOwnerName, isViewerRole]);
+
   // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
   useEffect(() => {
     const isNotificationsPage = pathname === '/notifications';
@@ -2234,16 +2241,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return isTab;
     };
 
-    const getReadOnlyMessage = () => {
-      if (isLockedByOther) {
-        return `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Editing is locked.`;
-      }
-      if (isViewerRole) {
-        return "🛡️ READ-ONLY MODE: Viewer role accounts cannot edit calculations.";
-      }
-      return "🛡️ READ-ONLY MODE: Workspace is locked. Modifications are disabled.";
-    };
-
     const handleReadOnlyContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target) return;
@@ -2254,20 +2251,28 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
     };
 
-    const handleReadOnlyClick = (e: MouseEvent) => {
+    const handleReadOnlyClick = (e: Event) => {
       const target = e.target as HTMLElement;
       if (!target) return;
 
       if (isAllowedInteractive(target)) return;
 
-      const isEditableInput = target.closest("input, select, textarea, [contenteditable='true']");
-      const isMutationBtn = target.closest("button, [role='button']");
+      e.preventDefault();
+      e.stopPropagation();
+      toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
+    };
 
-      if (isEditableInput || isMutationBtn) {
+    const handleReadOnlyFocus = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+      if (isAllowedInteractive(target)) return;
+
+      const isEditable = target.closest("input, select, textarea, [contenteditable='true']");
+      if (isEditable) {
+        (isEditable as HTMLElement).blur();
         e.preventDefault();
         e.stopPropagation();
         toast.info(getReadOnlyMessage(), { id: "readonly-notice" });
-        return;
       }
     };
 
@@ -2323,6 +2328,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
     if (isEffectiveReadOnly) {
       document.addEventListener("mousedown", handleReadOnlyClick, true);
+      document.addEventListener("pointerdown", handleReadOnlyClick, true);
+      document.addEventListener("focusin", handleReadOnlyFocus, true);
       document.addEventListener("keydown", handleReadOnlyKeyDown, true);
       document.addEventListener("change", handleReadOnlyChange, true);
       document.addEventListener("contextmenu", handleReadOnlyContextMenu, true);
@@ -2330,11 +2337,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     
     return () => {
       document.removeEventListener("mousedown", handleReadOnlyClick, true);
+      document.removeEventListener("pointerdown", handleReadOnlyClick, true);
+      document.removeEventListener("focusin", handleReadOnlyFocus, true);
       document.removeEventListener("keydown", handleReadOnlyKeyDown, true);
       document.removeEventListener("change", handleReadOnlyChange, true);
       document.removeEventListener("contextmenu", handleReadOnlyContextMenu, true);
     };
-  }, [isReadOnly, isLockedByOther, isViewerRole]);
+  }, [isReadOnly, isLockedByOther, isViewerRole, getReadOnlyMessage]);
 
   // Security Guard: Prevent Inspect Element & DevTools Shortcuts in Production Desktop App
   useEffect(() => {
@@ -2681,21 +2690,25 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
             {/* Right side: Actions & Profile */}
             <div className="flex items-center gap-1.5 shrink-0">
-              {/* Concurrency Lock & Read-Only Status Indicator (Non-clickable visual badge) */}
+              {/* Concurrency Lock & Read-Only Status Indicator (Interactive & Blinking) */}
               {isLockedByOther ? (
-                <div
-                  className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 shadow-xs select-none animate-pulse cursor-help"
-                  title={`READ-ONLY MODE: Currently being edited by ${lockOwnerName}`}
+                <button
+                  type="button"
+                  onClick={() => toast.info(getReadOnlyMessage(), { id: "readonly-notice" })}
+                  className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 shadow-xs select-none animate-pulse cursor-pointer hover:scale-105 active:scale-95 transition-transform"
+                  title={`READ-ONLY MODE: Currently being edited by ${lockOwnerName}. Click for details.`}
                 >
-                  <ShieldAlert className="size-5 text-red-600 dark:text-red-400" />
-                </div>
+                  <ShieldAlert className="size-5 text-red-600 dark:text-red-400 animate-pulse" />
+                </button>
               ) : isReadOnly || isViewerRole ? (
-                <div
-                  className="size-10 rounded-full flex items-center justify-center bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs select-none cursor-help"
-                  title={isViewerRole ? "READ-ONLY MODE: Viewer Role Active" : "READ-ONLY MODE Active"}
+                <button
+                  type="button"
+                  onClick={() => toast.info(getReadOnlyMessage(), { id: "readonly-notice" })}
+                  className="size-10 rounded-full flex items-center justify-center bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs select-none animate-pulse cursor-pointer hover:scale-105 active:scale-95 transition-transform"
+                  title={isViewerRole ? "READ-ONLY MODE: Viewer Role Active. Click for details." : "READ-ONLY MODE Active. Click for details."}
                 >
-                  <ShieldAlert className="size-5 text-amber-600 dark:text-amber-400" />
-                </div>
+                  <ShieldAlert className="size-5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                </button>
               ) : (
                 <div
                   className="size-10 rounded-full flex items-center justify-center bg-surface-2 dark:bg-white/5 text-muted-foreground border border-border dark:border-[#262626] shadow-xs select-none cursor-default"

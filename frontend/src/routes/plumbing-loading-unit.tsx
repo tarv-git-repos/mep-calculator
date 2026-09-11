@@ -775,6 +775,7 @@ function LoadingUnitPage() {
           }
           if (data.weightOverrides) setWeightOverrides(data.weightOverrides);
           if (data.calcMeta) setCalcMeta(data.calcMeta);
+          if (data.luColWidths) setLuColWidths(data.luColWidths);
           if (Array.isArray(data.floorSections)) setFloorSections(data.floorSections);
           if (Array.isArray(data.iopSpaces) && data.iopSpaces.length > 0) {
             setIopSpaces(data.iopSpaces);
@@ -846,12 +847,13 @@ function LoadingUnitPage() {
         weightOverrides,
         calcMeta,
         iopSpaces,
-        floorSections
+        floorSections,
+        luColWidths
       };
       localStorage.setItem(`mep_loading_unit_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(true);
     }
-  }, [project?.id, loadedProjectId, unitSystem, standardPreset, selectedCategory, weightOverrides, calcMeta, iopSpaces, floorSections]);
+  }, [project?.id, loadedProjectId, unitSystem, standardPreset, selectedCategory, weightOverrides, calcMeta, iopSpaces, floorSections, luColWidths]);
 
   // Version History Restore Listener
   useEffect(() => {
@@ -1049,6 +1051,55 @@ function LoadingUnitPage() {
     return () => window.removeEventListener("click", handleClick);
   }, []);
 
+  // Load state from localStorage on project change
+  useEffect(() => {
+    if (!project?.id) return;
+    try {
+      const stored = localStorage.getItem(`mep_loading_unit_calc_${project.id}`);
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (data.unitSystem) setUnitSystem(data.unitSystem);
+        if (data.standardPreset) setStandardPreset(data.standardPreset);
+        if (data.selectedCategory) setSelectedCategory(data.selectedCategory);
+        if (data.weightOverrides) setWeightOverrides(data.weightOverrides);
+        if (data.iopSpaces) setIopSpaces(data.iopSpaces);
+        if (data.floorSections) setFloorSections(data.floorSections);
+        if (data.luColWidths) setLuColWidths(data.luColWidths);
+      }
+      setTimeout(() => dirtyStore.set(false), 50);
+    } catch (e) {
+      console.error("Failed to load loading unit calculation", e);
+    }
+    setLoadedProjectId(project.id);
+  }, [project?.id]);
+
+  // Auto-save state to localStorage on state change
+  useEffect(() => {
+    if (project?.id && loadedProjectId === project.id) {
+      const dataToSave = {
+        unitSystem,
+        standardPreset,
+        selectedCategory,
+        weightOverrides,
+        iopSpaces,
+        floorSections,
+        luColWidths,
+      };
+      localStorage.setItem(`mep_loading_unit_calc_${project.id}`, JSON.stringify(dataToSave));
+      dirtyStore.set(true);
+    }
+  }, [
+    project?.id,
+    loadedProjectId,
+    unitSystem,
+    standardPreset,
+    selectedCategory,
+    weightOverrides,
+    iopSpaces,
+    floorSections,
+    luColWidths,
+  ]);
+
   const handleSaveCurrent = () => {
     try {
       if (project?.id) {
@@ -1058,7 +1109,8 @@ function LoadingUnitPage() {
           selectedCategory,
           weightOverrides,
           iopSpaces,
-          floorSections
+          floorSections,
+          luColWidths,
         };
         localStorage.setItem(`mep_loading_unit_calc_${project.id}`, JSON.stringify(dataToSave));
         dirtyStore.set(false);
@@ -1265,7 +1317,7 @@ function LoadingUnitPage() {
       qty: 1,
       floorQty: 1,
       std: selectedCategory || "med",
-      fixtures: { wc: 1, basin: 1 }
+      fixtures: {}
     };
     setIopSpaces(prev => [...prev, newSpace]);
     setShowFlaggedOnly(false);
@@ -2290,9 +2342,6 @@ function LoadingUnitPage() {
               <div className="flex flex-col gap-1 max-w-2xl">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; LOADING UNIT CALCULATOR</span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                    <Sparkles className="size-3" /> Dubai Building Code Ready
-                  </span>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
@@ -2338,352 +2387,337 @@ function LoadingUnitPage() {
                 </button>
               </div>
             </div>
-
-            {/* Standard & Unit System Selector Header */}
-            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center bg-slate-100 dark:bg-slate-900/60 p-2.5 sm:p-3 border border-border rounded-2xl gap-3 shadow-xs">
-              <div className="flex items-center gap-3 w-full md:w-auto min-w-0 flex-wrap">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Standard Preset:</span>
-                  <select
-                    value={standardPreset}
-                    onChange={(e) => {
-                      const newPreset = e.target.value as StandardPreset;
-                      setStandardPreset(newPreset);
-                      setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
-                      setWeightOverrides({});
-                    }}
-                    className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[280px]"
-                  >
-                    <optgroup label="Regional UAE">
-                      <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10×√LU)</option>
-                      <option value="abudhabi">Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
-                    </optgroup>
-                    <optgroup label="British Standards & CIPHE">
-                      <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
-                      <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
-                      <option value="bs_8558">BS 8558 Water Supply</option>
-                      <option value="iop_low">IoP / CIPHE Low Demand</option>
-                      <option value="iop_med">IoP / CIPHE Medium Demand</option>
-                      <option value="iop_high">IoP / CIPHE High Demand</option>
-                    </optgroup>
-                    <optgroup label="German DIN 1988-300">
-                      <option value="din_res">DIN 1988-300 Residential (Equation)</option>
-                      <option value="din_hosp">DIN 1988-300 Hospital (Equation)</option>
-                      <option value="din_hotel">DIN 1988-300 Hotel (Equation)</option>
-                      <option value="din_school">DIN 1988-300 School (Equation)</option>
-                      <option value="din_office">DIN 1988-300 Office (Equation)</option>
-                      <option value="din_assisted">DIN 1988-300 Assisted Living (Equation)</option>
-                      <option value="din_nursing">DIN 1988-300 Nursing Home (Equation)</option>
-                    </optgroup>
-                    <optgroup label="International Codes (US)">
-                      <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
-                      <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
-                      <option value="upc">UPC (Uniform Plumbing Code)</option>
-                    </optgroup>
-                    <optgroup label="Australia & Other">
-                      <option value="as_nzs_3500">AS/NZS 3500 (Australia / New Zealand)</option>
-                      <option value="barrie">Barrie's Book Method</option>
-                    </optgroup>
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-foreground shrink-0 uppercase tracking-wide">Demand Category:</span>
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => {
-                      setSelectedCategory(e.target.value);
-                      setWeightOverrides({});
-                    }}
-                    className="bg-white dark:bg-slate-950 border border-border text-foreground text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-[#0A7BC7] cursor-pointer min-w-[210px]"
-                  >
-                    {STANDARD_CATEGORIES[standardPreset].map(cat => (
-                      <option key={cat.id} value={cat.id}>{cat.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Spaces Tab View */}
           {activeTab === "spaces" && (
-            <div className="flex-1 min-h-0 flex flex-col gap-2.5 overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
               {/* Workspace Header Toolbar Strip */}
-          <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border border-border bg-card rounded-2xl shrink-0 select-none gap-2 shadow-xs">
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                <input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter spaces..."
-                  className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
-                />
-              </div>
-
-              {/* Filters Icon Popover */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                      activeFiltersCount > 0
-                        ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                        : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                    }`}
-                  >
-                    <Filter className="size-3.5 shrink-0" />
-                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                      Filter
-                    </span>
-                    {activeFiltersCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                        {activeFiltersCount}
-                      </span>
-                    )}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
-                  <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                    <span className="text-xs font-bold text-foreground">Filter Spaces</span>
-                    {activeFiltersCount > 0 && (
-                      <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
-                        Reset All
-                      </button>
-                    )}
+              <div className="flex flex-wrap items-center justify-between px-3.5 py-2 bg-slate-50/60 dark:bg-slate-900/40 border-b border-border/60 shrink-0 select-none gap-2">
+                {/* Left Controls: Search, Filter, Sort */}
+                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Filter spaces..."
+                      className="h-7 w-44 sm:w-52 pl-8 pr-3 bg-background border border-border/80 focus:border-[#0A7BC7] rounded-full text-[12px] outline-none transition-all"
+                    />
                   </div>
 
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor Section</span>
-                    <select
-                      value={filterFloor}
-                      onChange={(e) => setFilterFloor(e.target.value)}
-                      className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                    >
-                      <option value="all">All Floor Sections</option>
-                      {floorSections.map(fl => (
-                        <option key={fl} value={fl}>{fl}</option>
-                      ))}
-                    </select>
-                  </div>
-                </PopoverContent>
-              </Popover>
-
-              {/* View Icon Popover */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                      sortBy !== "none" || rowDensity === "compact"
-                        ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                        : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                    }`}
-                  >
-                    <SlidersHorizontal className="size-3.5 shrink-0" />
-                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                      View / Sort
-                    </span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
-                  <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
-                    View Options
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
-                    <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                  {/* Filters Icon Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
-                        onClick={() => setRowDensity("default")}
-                        className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                          rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                          activeFiltersCount > 0
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                         }`}
                       >
-                        Default
+                        <Filter className="size-3.5 shrink-0" />
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                          Filter
+                        </span>
+                        {activeFiltersCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                            {activeFiltersCount}
+                          </span>
+                        )}
                       </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-xs font-bold text-foreground">Filter Spaces</span>
+                        {activeFiltersCount > 0 && (
+                          <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
+                            Reset All
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor Section</span>
+                        <select
+                          value={filterFloor}
+                          onChange={(e) => setFilterFloor(e.target.value)}
+                          className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="all">All Floor Sections</option>
+                          {floorSections.map(fl => (
+                            <option key={fl} value={fl}>{fl}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* View / Sort Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <button
-                        onClick={() => setRowDensity("compact")}
-                        className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                          rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                          sortBy !== "none" || rowDensity === "compact"
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                         }`}
                       >
-                        Compact
+                        <SlidersHorizontal className="size-3.5 shrink-0" />
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                          View / Sort
+                        </span>
                       </button>
-                    </div>
-                  </div>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                      <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                        View Options
+                      </div>
 
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as any)}
-                      className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                    >
-                      <option value="none">Original Order</option>
-                      <option value="desc">Description (A-Z)</option>
-                      <option value="lu">Total LU (High to Low)</option>
-                    </select>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
+                        <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                          <button
+                            onClick={() => setRowDensity("default")}
+                            className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                              rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                            }`}
+                          >
+                            Default
+                          </button>
+                          <button
+                            onClick={() => setRowDensity("compact")}
+                            className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
+                              rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                            }`}
+                          >
+                            Compact
+                          </button>
+                        </div>
+                      </div>
 
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
-              <button
-                onClick={handleExportPDF}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
-              >
-                <FileText className="size-3.5" /> Export PDF
-              </button>
-
-              <button
-                onClick={handleAddSpace}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
-              >
-                <Plus className="size-3.5" /> Add Space
-              </button>
-            </div>
-          </div>
-
-          {/* Bulk Action Toolbar Bar (Visible when items selected) */}
-          {!isApprovedLocked && selectedIds.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-[#0A7BC7]/10 border border-[#0A7BC7]/30 text-foreground p-2.5 sm:p-3 rounded-2xl animate-in fade-in duration-150 shadow-xs gap-2">
-              <div className="flex items-center gap-2">
-                <span className="bg-[#0A7BC7] text-white font-extrabold px-2.5 py-0.5 rounded-full text-xs font-mono">
-                  {selectedIds.length} Selected
-                </span>
-                <span className="text-xs font-bold text-[#0A7BC7]">Bulk Actions:</span>
-              </div>
-
-              <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto justify-end">
-                <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border rounded-lg px-2 py-0.5 shadow-2xs">
-                  <span className="text-[11px] font-bold text-muted-foreground">Category:</span>
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        const newCat = e.target.value;
-                        setIopSpaces(iopSpaces.map(s => selectedIds.includes(s.id) ? { ...s, std: newCat } : s));
-                        toast.success(`Updated category for ${selectedIds.length} space(s)`);
-                      }
-                    }}
-                    defaultValue=""
-                    className="bg-transparent text-xs font-bold outline-none cursor-pointer text-foreground"
-                  >
-                    <option value="" disabled>Set Category...</option>
-                    {STANDARD_CATEGORIES[standardPreset].map(cat => (
-                      <option key={cat.id} value={cat.id}>{cat.label}</option>
-                    ))}
-                  </select>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value as any)}
+                          className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                        >
+                          <option value="none">Original Order</option>
+                          <option value="desc">Description (A-Z)</option>
+                          <option value="lu">Total LU (High to Low)</option>
+                        </select>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
-                <button
-                  onClick={handleBulkMoveFloor}
-                  className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                >
-                  🏢 Move Floor
-                </button>
-                <button
-                  onClick={handleBulkEditQty}
-                  className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                >
-                  <Edit3 className="size-3.5" /> Edit Qty
-                </button>
-                <button
-                  onClick={handleBulkDuplicate}
-                  className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                >
-                  <Copy className="size-3.5" /> Duplicate
-                </button>
-                <button
-                  onClick={handleBulkDelete}
-                  className="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs border-0"
-                >
-                  <Trash2 className="size-3.5" /> Delete
-                </button>
-                <button
-                  onClick={() => setSelectedIds([])}
-                  className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer border-0 bg-transparent ml-1"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-            </div>
-          )}
 
-          {/* Full-width Main Fixtures Schedule Card Container (Matching Ventilation UI) */}
-          <div className="bg-card border border-border rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-xs min-w-0 w-full">
-            
-            {/* Header bar with Floor Section Creator */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">📋 Fixture Schedule (Grouped By Floor)</h3>
-                {Object.keys(weightOverrides).length > 0 && (
+                {/* Right Controls: Standard Preset, Demand Category, Actions */}
+                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-start lg:justify-end">
+                  <div className="flex items-center gap-1.5 bg-background border border-border/80 rounded-full px-2.5 py-1">
+                    <span className="text-[11px] font-bold text-muted-foreground shrink-0 uppercase tracking-wide">Standard:</span>
+                    <select
+                      value={standardPreset}
+                      onChange={(e) => {
+                        const newPreset = e.target.value as StandardPreset;
+                        setStandardPreset(newPreset);
+                        setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
+                        setWeightOverrides({});
+                      }}
+                      className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer max-w-[200px] sm:max-w-[250px] truncate"
+                    >
+                      <optgroup label="Regional UAE">
+                        <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10×√LU)</option>
+                        <option value="abudhabi">Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
+                      </optgroup>
+                      <optgroup label="British Standards & CIPHE">
+                        <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
+                        <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
+                        <option value="bs_8558">BS 8558 Water Supply</option>
+                        <option value="iop_low">IoP / CIPHE Low Demand</option>
+                        <option value="iop_med">IoP / CIPHE Medium Demand</option>
+                        <option value="iop_high">IoP / CIPHE High Demand</option>
+                      </optgroup>
+                      <optgroup label="German DIN 1988-300">
+                        <option value="din_res">DIN 1988-300 Residential (Equation)</option>
+                        <option value="din_hosp">DIN 1988-300 Hospital (Equation)</option>
+                        <option value="din_hotel">DIN 1988-300 Hotel (Equation)</option>
+                        <option value="din_school">DIN 1988-300 School (Equation)</option>
+                        <option value="din_office">DIN 1988-300 Office (Equation)</option>
+                        <option value="din_assisted">DIN 1988-300 Assisted Living (Equation)</option>
+                        <option value="din_nursing">DIN 1988-300 Nursing Home (Equation)</option>
+                      </optgroup>
+                      <optgroup label="International Codes (US)">
+                        <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
+                        <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
+                        <option value="upc">UPC (Uniform Plumbing Code)</option>
+                      </optgroup>
+                      <optgroup label="Australia & Other">
+                        <option value="as_nzs_3500">AS/NZS 3500 (Australia / New Zealand)</option>
+                        <option value="barrie">Barrie's Book Method</option>
+                      </optgroup>
+                    </select>
+                  </div>
+
+                  {STANDARD_CATEGORIES[standardPreset] && STANDARD_CATEGORIES[standardPreset].length > 1 && (
+                    <div className="flex items-center gap-1.5 bg-background border border-border/80 rounded-full px-2.5 py-1">
+                      <span className="text-[11px] font-bold text-muted-foreground shrink-0 uppercase tracking-wide">Category:</span>
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => {
+                          setSelectedCategory(e.target.value);
+                          setWeightOverrides({});
+                        }}
+                        className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
+                      >
+                        {STANDARD_CATEGORIES[standardPreset].map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {Object.keys(weightOverrides).length > 0 && (
+                    <button
+                      onClick={handleResetWeightsToDefault}
+                      className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1 rounded-full transition-all cursor-pointer"
+                      title="Reset custom weights to standard defaults"
+                    >
+                      ↺ Reset Weights
+                    </button>
+                  )}
+
                   <button
-                    onClick={handleResetWeightsToDefault}
-                    className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-full transition-all cursor-pointer"
-                    title="Reset custom weights to standard defaults"
+                    onClick={handleExportPDF}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
                   >
-                    ↺ Reset Weights
+                    <FileText className="size-3.5" /> Export PDF
                   </button>
-                )}
+
+                  <button
+                    onClick={handleAddNewFloorSection}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <Plus className="size-3.5" /> Add Floor Section
+                  </button>
+
+                  <button
+                    onClick={handleAddSpace}
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+                  >
+                    <Plus className="size-3.5" /> Add Space
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
-                <button
-                  onClick={handleAddNewFloorSection}
-                  className="flex items-center gap-1 bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                >
-                  <Plus className="size-3.5" /> Add Floor Section
-                </button>
-                <button type="button" onClick={() => setIopSpaces([])} className="text-red-500 hover:text-red-700 text-xs font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1 rounded transition-colors cursor-pointer border-0 bg-transparent">🗑 Clear All</button>
-              </div>
-            </div>
+              {/* Bulk Action Toolbar Bar (Visible when items selected) */}
+              {!isApprovedLocked && selectedIds.length > 0 && (
+                <div className="mx-3 mt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-[#0A7BC7]/10 border border-[#0A7BC7]/30 text-foreground p-2.5 rounded-xl animate-in fade-in duration-150 shadow-xs gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-[#0A7BC7] text-white font-extrabold px-2.5 py-0.5 rounded-full text-xs font-mono">
+                      {selectedIds.length} Selected
+                    </span>
+                    <span className="text-xs font-bold text-[#0A7BC7]">Bulk Actions:</span>
+                  </div>
 
-            {/* Table with Resizable Columns (Steady header & scrollable space rows) */}
-            <div className="flex-1 min-h-[200px] max-h-[calc(100vh-420px)] overflow-x-auto overflow-y-auto border border-border rounded-xl w-full custom-scrollbar pb-6">
-              <table className="w-full min-w-full border-collapse text-[11.5px] font-sans select-none">
-                <thead className="bg-slate-100 dark:bg-slate-900 sticky top-0 z-20 border-b border-border text-muted-foreground select-none">
-                  <tr className="text-left text-[10.5px] font-bold uppercase tracking-wider">
-                    <th style={{ width: luColWidths.select, minWidth: luColWidths.select }} rowSpan={2} className="p-2 text-center relative group">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                        className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
-                      />
-                      <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                    </th>
-                    <th style={{ minWidth: luColWidths.desc }} rowSpan={2} className="p-2 text-left relative group">
-                      Description
-                      <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                    </th>
-                    {LU_FIXTURES_META.map(f => (
-                      <th key={f.id} style={{ width: luColWidths[f.id] || 60, minWidth: luColWidths[f.id] || 60 }} className="p-2 text-center relative group">
-                        {f.short}
-                        <div onMouseDown={(e) => handleResizeMouseDown(f.id, e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                  <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto justify-end">
+                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border rounded-lg px-2 py-0.5 shadow-2xs">
+                      <span className="text-[11px] font-bold text-muted-foreground">Category:</span>
+                      <select
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            const newCat = e.target.value;
+                            setIopSpaces(iopSpaces.map(s => selectedIds.includes(s.id) ? { ...s, std: newCat } : s));
+                            toast.success(`Updated category for ${selectedIds.length} space(s)`);
+                          }
+                        }}
+                        defaultValue=""
+                        className="bg-transparent text-xs font-bold outline-none cursor-pointer text-foreground"
+                      >
+                        <option value="" disabled>Set Category...</option>
+                        {STANDARD_CATEGORIES[standardPreset].map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={handleBulkMoveFloor}
+                      className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    >
+                      🏢 Move Floor
+                    </button>
+                    <button
+                      onClick={handleBulkEditQty}
+                      className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    >
+                      <Edit3 className="size-3.5" /> Edit Qty
+                    </button>
+                    <button
+                      onClick={handleBulkDuplicate}
+                      className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    >
+                      <Copy className="size-3.5" /> Duplicate
+                    </button>
+                    <button
+                      onClick={handleBulkDelete}
+                      className="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs border-0"
+                    >
+                      <Trash2 className="size-3.5" /> Delete
+                    </button>
+                    <button
+                      onClick={() => setSelectedIds([])}
+                      className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer border-0 bg-transparent ml-1"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto w-full custom-scrollbar">
+                <table className="w-full min-w-full border-collapse text-[11.5px] font-sans select-none">
+                  <thead className="bg-slate-50 dark:bg-slate-900/60 sticky top-0 z-20 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
+                    <tr className="text-left text-[11px] font-bold uppercase tracking-wider">
+                      <th style={{ width: luColWidths.select, minWidth: luColWidths.select }} rowSpan={2} className="p-2 text-center relative group">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={(e) => handleToggleSelectAll(e.target.checked)}
+                          className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
+                        />
+                        <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                       </th>
-                    ))}
-                    <th style={{ width: luColWidths.unitLu, minWidth: luColWidths.unitLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Unit value per 1 space">
-                      {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}
-                      <div onMouseDown={(e) => handleResizeMouseDown("unitLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                    </th>
-                    <th style={{ width: luColWidths.spaceQty, minWidth: luColWidths.spaceQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Quantity of spaces per typical floor">
-                      Space Qty
-                      <div onMouseDown={(e) => handleResizeMouseDown("spaceQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                    </th>
-                    <th style={{ width: luColWidths.floorsQty, minWidth: luColWidths.floorsQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Number of typical floors">
-                      No. of Floors
-                      <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                    </th>
-                    <th style={{ width: luColWidths.totalLu, minWidth: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
-                      {standardPreset === "dubai" || standardPreset === "iop_bs" ? "TOTAL LU" : "TOTAL WSFU"}
-                      <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                    </th>
-                    <th style={{ width: luColWidths.actions, minWidth: luColWidths.actions }} rowSpan={2} className="p-2 text-center font-bold">
-                      Actions
-                    </th>
-                  </tr>
-                      <tr className="bg-slate-50 dark:bg-slate-900 border-b border-border">
+                      <th style={{ minWidth: luColWidths.desc }} rowSpan={2} className="p-2 text-left relative group">
+                        Description
+                        <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                      </th>
+                      {LU_FIXTURES_META.map(f => (
+                        <th key={f.id} style={{ width: luColWidths[f.id] || 60, minWidth: luColWidths[f.id] || 60 }} className="p-2 text-center relative group">
+                          {f.short}
+                          <div onMouseDown={(e) => handleResizeMouseDown(f.id, e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                        </th>
+                      ))}
+                      <th style={{ width: luColWidths.unitLu, minWidth: luColWidths.unitLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Unit value per 1 space">
+                        {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}
+                        <div onMouseDown={(e) => handleResizeMouseDown("unitLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                      </th>
+                      <th style={{ width: luColWidths.spaceQty, minWidth: luColWidths.spaceQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Quantity of spaces per typical floor">
+                        Space Qty
+                        <div onMouseDown={(e) => handleResizeMouseDown("spaceQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                      </th>
+                      <th style={{ width: luColWidths.floorsQty, minWidth: luColWidths.floorsQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Number of typical floors">
+                        No. of Floors
+                        <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                      </th>
+                      <th style={{ width: luColWidths.totalLu, minWidth: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
+                        {standardPreset === "dubai" || standardPreset === "iop_bs" ? "TOTAL LU" : "TOTAL WSFU"}
+                        <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                      </th>
+                      <th style={{ width: luColWidths.actions, minWidth: luColWidths.actions }} rowSpan={2} className="p-2 text-center font-bold">
+                        Actions
+                      </th>
+                    </tr>
+                    <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80">
                         {LU_FIXTURES_META.map(f => (
                           <th key={f.id} className="p-1 px-0.5 text-center font-bold">
                             <input
@@ -2732,7 +2766,7 @@ function LoadingUnitPage() {
                       <tbody key={floor} className="border-b border-border/80">
                         
                         {/* Floor Section Header (Matching Ventilation UI) */}
-                        <tr className="bg-slate-100/80 dark:bg-slate-900/60 border-y border-border/70 text-foreground font-bold text-[12px] group select-none">
+                        <tr className="bg-slate-50/90 dark:bg-slate-900/70 border-y border-border/70 text-foreground font-bold text-[12px] group select-none">
                           <td colSpan={LU_FIXTURES_META.length + 7} className="py-2 px-3 text-left">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
@@ -2761,40 +2795,10 @@ function LoadingUnitPage() {
                           </td>
                         </tr>
 
-                        {/* Interactive adding row inside this floor section */}
-                        <tr className="bg-blue-50/40 dark:bg-slate-900/40 border-b border-border/70 border-dashed">
-                          <td className="p-2 text-center font-extrabold text-[#0A7BC7] text-[15px]">+</td>
-                          <td className="p-1.5">
-                            <input type="text" placeholder={`Add space to ${floor}`} value={activeFloor === floor ? newDesc : ""} onChange={e => { setActiveFloor(floor); setNewDesc(e.target.value); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md px-2 py-1 outline-none focus:border-[#0A7BC7]" />
-                          </td>
-                          {LU_FIXTURES_META.map(f => (
-                            <td key={f.id} className="p-1">
-                              <input type="number" min="0" placeholder="-" value={activeFloor === floor ? (newFixtures[f.id] || "") : ""} onChange={e => { setActiveFloor(floor); setNewFixtures({ ...newFixtures, [f.id]: e.target.value !== "" ? Number(e.target.value) : 0 }); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md py-1 text-center outline-none" />
-                            </td>
-                          ))}
-                          <td className="p-1 text-center text-muted-foreground font-mono">—</td>
-                          <td className="p-1.5 text-center">
-                            {showSpaceQty ? (
-                              <input type="number" min="1" value={activeFloor === floor ? newQty : 1} onChange={e => { setActiveFloor(floor); setNewQty(Number(e.target.value)); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md py-1 text-center font-bold outline-none text-amber-600 dark:text-amber-400" title="Space Qty per floor" />
-                            ) : (
-                              <span className="text-muted-foreground font-mono text-[11px]">—</span>
-                            )}
-                          </td>
-                          <td className="p-1.5 text-center">
-                            {showFloorsCol ? (
-                              <input type="number" min="1" value={activeFloor === floor ? newFloorQty : 1} onChange={e => { setActiveFloor(floor); setNewFloorQty(Number(e.target.value)); }} className="w-full bg-white dark:bg-slate-950 border border-border rounded-md py-1 text-center font-bold outline-none text-sky-600 dark:text-sky-400" title="No. of typical floors" />
-                            ) : (
-                              <span className="text-muted-foreground font-mono text-[11px]">—</span>
-                            )}
-                          </td>
-                          <td className="p-2 text-center">
-                            <button onClick={() => handleAddSpaceToFloor(floor)} className="bg-[#0A7BC7] hover:bg-[#06456F] text-white px-3 py-1 rounded font-bold transition-all cursor-pointer border-0 text-xs">Add</button>
-                          </td>
-                          <td className="p-1 text-center"></td>
-                        </tr>
+
 
                         {/* Existing spaces on this floor */}
-                        {floorsGrouped[floor].map((s) => {
+                        {floorsGrouped[floor].map((s, spaceIdx) => {
                           const isSelected = selectedIds.includes(s.id);
                           const isEditing = editingSpace?.space.id === s.id;
                           const isModalOpen = editingSpace !== null;
@@ -2808,49 +2812,50 @@ function LoadingUnitPage() {
                                 setEditingSpace({ space: s, floor });
                               }}
                               onContextMenu={(e) => handleContextMenu(e, s.id)}
-                              className={`transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-6 text-[11px]" : ""} ${
+                              className={`group transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-6 text-[11px]" : "h-9 text-xs"} ${
                                 isEditing
                                   ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                                   : isModalOpen
                                   ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
                                   : isSelected
-                                  ? "bg-blue-500/10 dark:bg-blue-950/30 font-semibold"
+                                  ? "bg-[#0A7BC7]/15 dark:bg-[#0A7BC7]/25 border-l-2 border-l-[#0A7BC7] font-semibold"
                                   : "hover:bg-slate-50/50 dark:hover:bg-slate-900/30"
                               }`}
                             >
                               <td className="p-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
-                                  className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
-                                />
-                              </td>
-                              <td className="p-1.5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                <div className="flex items-center gap-1.5 w-full">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
+                                    className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded shrink-0"
+                                  />
+                                  <span className="text-[11px] font-mono text-muted-foreground min-w-[14px] text-left font-bold shrink-0">{spaceIdx + 1}</span>
                                   {Array.isArray(s.comments) && s.comments.length > 0 && (
                                     <button 
                                       type="button"
-                                      title={`${s.comments.length} comment(s)/task(s) assigned to space "${s.desc}"`} 
-                                      className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                      title={`${s.comments.length} comment(s)/task(s) assigned`} 
+                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-500/20 transition cursor-pointer shrink-0"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
                                         setAssignCommentOpen(true);
                                       }}
                                     >
-                                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                      <span className="text-[10px] font-bold">{s.comments.length}</span>
+                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                      <span>{s.comments.length}</span>
                                     </button>
                                   )}
-                                  <input 
-                                    type="text" 
-                                    value={s.desc} 
-                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
-                                    onChange={e => handleSpaceDescChange(s.id, e.target.value)} 
-                                    className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-bold text-foreground" 
-                                  />
                                 </div>
+                              </td>
+                              <td className="p-1.5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
+                                <input 
+                                  type="text" 
+                                  value={s.desc} 
+                                  onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
+                                  onChange={e => handleSpaceDescChange(s.id, e.target.value)} 
+                                  className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-bold text-foreground" 
+                                />
                               </td>
                               {LU_FIXTURES_META.map(f => (
                                 <td key={f.id} className="p-1" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
@@ -2922,25 +2927,41 @@ function LoadingUnitPage() {
                                       : s.flagged ? "Unflag space" : "Flag space";
 
                                     return (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
-                                          const newFlagged = !s.flagged;
-                                          setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
-                                        }}
-                                        className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer group flex items-center justify-center"
-                                        title={tooltipTitle}
-                                      >
-                                        <Flag 
-                                          className={`size-3.5 transition-all duration-200 ${
-                                            isFlagActive 
-                                              ? "fill-red-500 text-red-500 scale-110" 
-                                              : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-                                          }`} 
-                                        />
-                                      </button>
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                            const newFlagged = !s.flagged;
+                                            setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
+                                          }}
+                                          className={`p-1 rounded hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-all cursor-pointer flex items-center justify-center ${
+                                            isFlagActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                          }`}
+                                          title={tooltipTitle}
+                                        >
+                                          <Flag 
+                                            className={`size-3.5 transition-all duration-200 ${
+                                              isFlagActive 
+                                                ? "fill-red-500 text-red-500 scale-110" 
+                                                : "text-slate-400 hover:text-red-500"
+                                            }`} 
+                                          />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIopSpaces(prev => prev.filter(item => item.id !== s.id));
+                                            toast.success(`Deleted "${s.desc || 'Space'}"`);
+                                          }}
+                                          className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                                          title="Delete space"
+                                        >
+                                          <Trash2 className="size-3.5" />
+                                        </button>
+                                      </>
                                     );
                                   })()}
                                 </div>
@@ -2959,44 +2980,32 @@ function LoadingUnitPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Table Summary Footer Strip (Directly at bottom of Outer Card) */}
+                <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border-t border-border text-xs font-sans text-muted-foreground select-none shrink-0 gap-3">
+                  <div className="flex items-center gap-2">
+                    <span>Showing <strong className="text-foreground font-bold">{iopSpaces.length}</strong> of <strong className="text-foreground font-bold">{iopSpaces.length}</strong> spaces</span>
+                  </div>
+                  <div className="flex items-center gap-5 font-medium flex-wrap">
+                    <div>
+                      Total {unitLabel}: <strong className="text-[#0A7BC7] font-extrabold">{calculations.totalLU.toFixed(1)}</strong>
+                    </div>
+                    <div>
+                      Design Flow: <strong className="text-[#0A7BC7] font-extrabold">{calculations.displayFlow}</strong>
+                    </div>
+                    <div>
+                      Recommended Pipe Size: <strong className="text-foreground font-bold">{calculations.pipeSizing.sizeMM} mm (DN{calculations.pipeSizing.sizeMM})</strong>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Sizing & Report Tab View */}
           {activeTab === "report" && (
             <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5 custom-scrollbar pr-1 animate-in fade-in-50 duration-200">
               
-              {/* Report Header Export Triggers */}
-              <div className="flex flex-wrap items-center justify-between gap-3 bg-card border border-border p-4 rounded-2xl shadow-xs">
-                <div className="flex flex-col gap-0.5">
-                  <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-                    <Calculator className="size-4 text-[#0A7BC7]" />
-                    Building Water Demand Sizing Report
-                  </h2>
-                  <p className="text-xs text-muted-foreground">
-                    Comprehensive demand calculations, pipe sizing, and submittal report summaries.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={handleExportExcel}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
-                  >
-                    <Download className="size-3.5" />
-                    Excel Submittal (.xlsx)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExportPDF}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#0A7BC7] hover:bg-[#06456F] text-white shadow-xs transition-all cursor-pointer"
-                  >
-                    <FileText className="size-3.5" />
-                    PDF Report (.pdf)
-                  </button>
-                </div>
-              </div>
+
 
               {/* Sizing Results & Recommended Pipe Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">

@@ -29,6 +29,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPumpModal } from "@/components/workspace/EditChwPumpModal";
 import { exportChwPumpHeadExcel } from "@/lib/exportChwPumpHeadExcel";
+import { exportChwPumpHeadPDF } from "@/lib/exportChwPumpHeadPDF";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 // Water Specific Heat Capacity lookup table (kJ/kg·K)
@@ -652,179 +653,22 @@ function ChwPumpHeadPage() {
   };
 
   const handlePrintPDF = async () => {
-    try {
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-      const autoTableModule = await import('jspdf-autotable');
-      const autoTable = autoTableModule.default || autoTableModule;
-
-      const doc = new jsPDF("p", "pt", "a4");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.text("PUMP HEAD CALCULATION REPORT", 40, 44);
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(90);
-      doc.text(`Generated on: ${projectInfo.date || new Date().toLocaleDateString("en-GB")} | Calculation Ref: ${projectInfo.calcNumber || "TRV-CHW-PUMP-01"} | Unit System: ${unitSystem.toUpperCase()}`, 40, 58);
-
-      doc.setDrawColor(210);
-      doc.setLineWidth(0.75);
-      doc.line(40, 66, 555, 66);
-
-      const tableMargin = { left: 40, right: 40 };
-
-      // 1. Project Details Table
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(0);
-      doc.text("1. Project Details", 40, 82);
-
-      const projectData = [
-        ["Project Name", projectInfo.projectName || project?.name || "-", "Project Number", projectInfo.projectNumber || project?.code || "-"],
-        ["Consultant", projectInfo.consultant || "-", "Client", projectInfo.client || project?.client || "-"],
-        ["Revision", projectInfo.revision || "Rev 0", "Calculation Ref", projectInfo.calcNumber || "TRV-CHW-PUMP-01"],
-      ];
-
-      autoTable(doc, {
-        startY: 88,
-        head: [],
-        body: projectData,
-        theme: "grid",
-        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
-        margin: tableMargin,
-        columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
-          1: { cellWidth: 157 },
-          2: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
-          3: { cellWidth: 158 },
-        },
-      });
-
-      // 2. Design Sizing Parameters Table
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.text("2. Design Sizing Parameters", 40, (doc as any).lastAutoTable.finalY + 14);
-
-      const paramHead = [["Parameter", "Design Value", "Parameter", "Design Value"]];
-      const paramData = [
-        ["Design Flow Rate", `${calculatedData.flowRateDisplay.toFixed(2)} ${calculatedData.flowUnit}`, "Vertical Pipe Length", `${calculatedData.vertLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["Horizontal Pipe Length", `${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, "Design Friction Factor", `${sizingParams.frictionFactor || (unitSystem === "ip" ? 1.77 : 0.4)} ${unitSystem === "ip" ? "psi/100ft" : "bar/100m"}`],
-        ["Static Elevation Head", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Residual Pressure at Outlet", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`],
-        ["Suction Pressure (Available)", `${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Safety Margin applied", `${calculatedData.sfPercent}%`],
-      ];
-
-      autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 20,
-        head: paramHead,
-        body: paramData,
-        theme: "grid",
-        headStyles: {
-          fillColor: [220, 230, 242],
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-          fontSize: 8.5,
-        },
-        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
-        margin: tableMargin,
-        columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 135, fillColor: [248, 250, 252] },
-          1: { cellWidth: 122, halign: "center" },
-          2: { fontStyle: "bold", cellWidth: 135, fillColor: [248, 250, 252] },
-          3: { cellWidth: 123, halign: "center" },
-        },
-      });
-
-      // 3. Friction & Equivalent Length Breakdown Table
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.text("3. Friction and Equivalent Length Breakdown", 40, (doc as any).lastAutoTable.finalY + 14);
-
-      const ffVal = sizingParams.frictionFactor || (unitSystem === "ip" ? 1.77 : 0.4);
-      const breakdownHead = [["Item", "Piping Element / Friction Component", "Equivalent Length / Basis", "Design Value"]];
-      const breakdownData = [
-        ["1", "Straight Pipe Run (Vertical + Horizontal)", `${calculatedData.vertLengthDisplay.toFixed(1)} + ${calculatedData.horizLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`, `${(calculatedData.vertLengthDisplay + calculatedData.horizLengthDisplay).toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["2", "Elbows, Bends & Reducers Allowance (+30%)", "30% of Straight Pipe Sum", `${calculatedData.elbowsLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["3", "Valves & Accessories Allowance (+30%)", "30% of Straight Pipe Sum", `${calculatedData.valvesLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["4", "Total Design Equivalent Length (Leff)", "Sum with +5% Engineering Safety Factor", `${calculatedData.equivLengthDisplay.toFixed(1)} ${calculatedData.lengthUnit}`],
-        ["5", "Major + Minor Piping Friction Loss", `ΔH = Leff × (${ffVal} / 100)`, `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`],
-      ];
-
-      autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 20,
-        head: breakdownHead,
-        body: breakdownData,
-        theme: "grid",
-        headStyles: {
-          fillColor: [220, 230, 242],
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-          fontSize: 8.5,
-        },
-        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
-        margin: tableMargin,
-        columnStyles: {
-          0: { fontStyle: "bold", halign: "center", cellWidth: 35 },
-          1: { fontStyle: "bold", cellWidth: 215 },
-          2: { cellWidth: 155, halign: "left" },
-          3: { fontStyle: "bold", cellWidth: 110, halign: "center" },
-        },
-      });
-
-      // 4. Head & Motor Selection Sizing Results Table
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.text("4. Head & Motor Selection Sizing Results", 40, (doc as any).lastAutoTable.finalY + 14);
-
-      const resultsHead = [["Item", "Hydronic & Electrical Output Parameter", "Calculated Sizing Value", "Design Status"]];
-      const resultsData = [
-        ["1", "Piping Friction Loss Head", `${calculatedData.frictionLossDisplay.toFixed(3)} ${calculatedData.headUnit}`, "Included in TDH"],
-        ["2", "Static Elevation Head Lift", `${calculatedData.staticHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Included in TDH"],
-        ["3", "Residual Pressure Required at Terminal", `${calculatedData.outletHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Included in TDH"],
-        ["4", "Suction Pressure Deducted", `-${calculatedData.suctionHeadDisplay.toFixed(2)} ${calculatedData.headUnit}`, "Suction Credit"],
-        ["5", "Total Dynamic Head (TDH)", `${calculatedData.pumpHeadCalcDisplay.toFixed(3)} ${calculatedData.headUnit}`, "Calculated Duty Point"],
-        ["6", "Selected Operating Pump Head", `${calculatedData.selectedHeadDisplay.toFixed(3)} ${calculatedData.headUnit}`, "Selected Duty Head"],
-        ["7", "Pump & Motor Efficiencies", `Pump: ${calculatedData.effPumpVal}% | Motor: ${calculatedData.effMotorVal}%`, "Design Baseline"],
-        ["8", "Estimated Motor Power Required", `${calculatedData.motorPowerKw.toFixed(2)} kW (${calculatedData.motorPowerHp.toFixed(2)} HP)`, "Recommended Motor"],
-      ];
-
-      autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 20,
-        head: resultsHead,
-        body: resultsData,
-        theme: "grid",
-        headStyles: {
-          fillColor: [220, 230, 242],
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-          fontSize: 8.5,
-        },
-        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
-        margin: tableMargin,
-        columnStyles: {
-          0: { fontStyle: "bold", halign: "center", cellWidth: 35 },
-          1: { fontStyle: "bold", cellWidth: 215 },
-          2: { fontStyle: "bold", cellWidth: 145, halign: "center" },
-          3: { cellWidth: 120, halign: "center" },
-        },
-      });
-
-      const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "/chw-pump-head", tableMargin);
-      const pdfBuffer = doc.output("arraybuffer");
-      downloadFile(new Uint8Array(pdfBuffer), `${(projectInfo.projectName || "CHW_Pump_Head").replace(/\s+/g, "_")}_report.pdf`, "PDF Document", ["pdf"]);
-      toast.success("PDF report generated successfully");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to generate PDF report");
-    }
+    await exportChwPumpHeadPDF({
+      unitSystem,
+      sizingParams,
+      calculatedData,
+      projectInfo: {
+        calcNumber: projectInfo.calcNumber || project?.calcNo || "CEC-MED-P539-202",
+        projectNumber: projectInfo.projectNumber || project?.code || "6767",
+        projectName: projectInfo.projectName || project?.name || "Dubai Mall",
+        client: projectInfo.client || project?.client || "6765",
+        endUser: projectInfo.endUser || project?.location || "hmbvm",
+        date: projectInfo.date || new Date().toLocaleDateString("en-GB"),
+      },
+      meta: {
+        userName: currentUserName,
+      },
+    });
   };
 
   // Helper component to render an input field wrapped with Context Menu and Comment Indicator

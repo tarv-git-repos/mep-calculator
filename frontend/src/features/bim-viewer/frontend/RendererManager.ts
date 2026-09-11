@@ -103,8 +103,29 @@ export class RendererManager {
         setTimeout(purgeWatermarks, 1000);
         setTimeout(purgeWatermarks, 3000);
 
+        (window as any)._resumeBimViewerRendering = () => {
+            if (this._isDisposed) return;
+            if (this.world?.renderer) {
+                this.world.renderer.enabled = true;
+                try {
+                    this.world.renderer.resize();
+                    this.world.camera?.updateAspect();
+                    if (this.viewport?.clientWidth && this.viewport?.clientHeight) {
+                        this.css2DRenderer?.setSize(this.viewport.clientWidth, this.viewport.clientHeight);
+                    }
+                } catch (e) {}
+            }
+        };
+
+        (window as any)._pauseBimViewerRendering = () => {
+            if (this.world?.renderer) {
+                this.world.renderer.enabled = false;
+            }
+        };
+
         this.resizeObserver = new ResizeObserver(() => { 
             if (this._isDisposed) return;
+            if (this.world?.renderer && !this.world.renderer.enabled) return;
             try {
                 this.world.renderer?.resize(); 
                 this.world.camera?.updateAspect(); 
@@ -116,9 +137,30 @@ export class RendererManager {
         this.resizeObserver.observe(this.viewport);
     }
 
+    public pause() {
+        if (this.world?.renderer) {
+            this.world.renderer.enabled = false;
+        }
+    }
+
+    public resume() {
+        if (this.world?.renderer) {
+            this.world.renderer.enabled = true;
+            try {
+                this.world.renderer.resize();
+                this.world.camera?.updateAspect();
+                if (this.viewport.clientWidth && this.viewport.clientHeight) {
+                    this.css2DRenderer.setSize(this.viewport.clientWidth, this.viewport.clientHeight);
+                }
+            } catch (e) {}
+        }
+    }
+
     public dispose() {
         this._isDisposed = true;
         try {
+            delete (window as any)._resumeBimViewerRendering;
+            delete (window as any)._pauseBimViewerRendering;
             if (this.resizeObserver) {
                 this.resizeObserver.disconnect();
             }
@@ -128,9 +170,6 @@ export class RendererManager {
             if (this.world?.renderer?.three) {
                 const renderer = this.world.renderer.three;
                 renderer.dispose();
-                if (typeof renderer.forceContextLoss === 'function') {
-                    renderer.forceContextLoss();
-                }
             }
             if (this.world?.renderer) {
                 this.world.renderer.dispose();

@@ -177,6 +177,24 @@ function BasementSmokeCalcPage() {
   const [showUnitConfirmModal, setShowUnitConfirmModal] = useState<boolean>(false);
   const [pendingUnitTarget, setPendingUnitTarget] = useState<"si" | "ip" | null>(null);
 
+  // Bulk Edit state (Ventilation style)
+  const [bulkEditOpen, setBulkEditOpen] = useState<boolean>(false);
+  const [bulkEditTargetIds, setBulkEditTargetIds] = useState<string[]>([]);
+  const [bulkEditValues, setBulkEditValues] = useState({
+    basementLevel: "",
+    zoneName: "",
+    area: "",
+    effArea: "",
+    height: "",
+  });
+  const [bulkEditFields, setBulkEditFields] = useState({
+    basementLevel: false,
+    zoneName: false,
+    area: false,
+    effArea: false,
+    height: false,
+  });
+
   // Selection & Keyboard Shortcuts state
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [clipboard, setClipboard] = useState<BasementFloor[]>([]);
@@ -530,6 +548,88 @@ function BasementSmokeCalcPage() {
     setHistory(prev => [...prev.slice(-25), floors]);
     setRedoStack([]);
     setFloors(newFloors);
+  };
+
+  // Bulk edit handlers (Ventilation style)
+  const handleOpenBulkEdit = (targetIds?: string[]) => {
+    const idsToEdit = targetIds && targetIds.length > 0
+      ? targetIds
+      : Array.from(selectedRowIds);
+
+    if (idsToEdit.length === 0) {
+      toast.info("Please select at least one space/floor to bulk edit.");
+      return;
+    }
+
+    setBulkEditTargetIds(idsToEdit);
+    setBulkEditValues({
+      basementLevel: "",
+      zoneName: "",
+      area: "",
+      effArea: "",
+      height: "",
+    });
+    setBulkEditFields({
+      basementLevel: false,
+      zoneName: false,
+      area: false,
+      effArea: false,
+      height: false,
+    });
+    setBulkEditOpen(true);
+  };
+
+  const handleApplyBulkEdit = () => {
+    const hasAnyFieldChecked = Object.values(bulkEditFields).some(Boolean);
+    if (!hasAnyFieldChecked) {
+      toast.error("Please check at least one parameter box to apply bulk updates.");
+      return;
+    }
+
+    const updatedFloors = floors.map((f) => {
+      if (bulkEditTargetIds.includes(f.id)) {
+        const nextFloor = { ...f };
+        if (bulkEditFields.basementLevel) {
+          const newLevel = bulkEditValues.basementLevel.trim();
+          if (newLevel) nextFloor.basementLevel = newLevel;
+        }
+        if (bulkEditFields.zoneName) {
+          const newZone = bulkEditValues.zoneName.trim();
+          if (newZone) nextFloor.zoneName = newZone;
+        }
+        if (bulkEditFields.basementLevel || bulkEditFields.zoneName) {
+          nextFloor.name = `${nextFloor.basementLevel} - ${nextFloor.zoneName}`;
+        }
+        if (bulkEditFields.area) {
+          const newArea = parseFloat(bulkEditValues.area);
+          if (!isNaN(newArea) && newArea > 0) {
+            nextFloor.area = newArea;
+            if (!bulkEditFields.effArea) {
+              nextFloor.effArea = Math.round(newArea * 0.85);
+            }
+          }
+        }
+        if (bulkEditFields.effArea) {
+          const newEff = parseFloat(bulkEditValues.effArea);
+          if (!isNaN(newEff) && newEff >= 0) {
+            nextFloor.effArea = newEff;
+          }
+        }
+        if (bulkEditFields.height) {
+          const newH = parseFloat(bulkEditValues.height);
+          if (!isNaN(newH) && newH > 0) {
+            nextFloor.height = newH;
+          }
+        }
+        return nextFloor;
+      }
+      return f;
+    });
+
+    updateFloorsWithHistory(updatedFloors);
+    toast.success(`Successfully updated ${bulkEditTargetIds.length} space(s)!`);
+    setBulkEditOpen(false);
+    setSelectedRowIds(new Set());
   };
 
   const handleUndo = () => {
@@ -1762,6 +1862,13 @@ function BasementSmokeCalcPage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <button
+                          onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds))}
+                          className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                          title="Bulk Edit selected spaces"
+                        >
+                          <Edit3 className="size-3" /> Bulk Edit ({selectedRowIds.size})
+                        </button>
+                        <button
                           onClick={() => {
                             const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
                             setClipboard(selectedItems);
@@ -1905,6 +2012,14 @@ function BasementSmokeCalcPage() {
                                 </ContextMenuItem>
                                 <ContextMenuSeparator className="h-px bg-border my-1" />
                                 <ContextMenuItem
+                                  onClick={() => handleOpenBulkEdit(grp.rows.map(r => r.id))}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                >
+                                  <Edit3 className="size-3.5 text-primary" />
+                                  <span>Bulk Edit All {grp.rows.length} Spaces in {grp.basementLevel}</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
                                   onClick={() => handleOpenEditLevelModal(grp)}
                                   className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
                                 >
@@ -2040,6 +2155,14 @@ function BasementSmokeCalcPage() {
                                   >
                                     <MessageSquare className="size-3.5 text-blue-600" />
                                     <span>Add Comment / Task to {r.name}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator className="h-px bg-border my-1" />
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds.has(r.id) && selectedRowIds.size > 0 ? selectedRowIds : new Set([r.id])))}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                  >
+                                    <Edit3 className="size-3.5 text-primary" />
+                                    <span>Bulk Edit ({selectedRowIds.has(r.id) && selectedRowIds.size > 1 ? selectedRowIds.size : 1} space{selectedRowIds.has(r.id) && selectedRowIds.size > 1 ? "s" : ""})</span>
                                   </ContextMenuItem>
                                   <ContextMenuSeparator className="h-px bg-border my-1" />
                                   <ContextMenuItem
@@ -2716,8 +2839,8 @@ function BasementSmokeCalcPage() {
         if (!fireConfigFS) return null;
         return (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-            <div className={`bg-card border border-border rounded-2xl w-full p-6 flex flex-col justify-between shadow-2xl h-[640px] max-h-[90vh] overflow-hidden ${
-              showModalCalcPreview ? "max-w-5xl" : "max-w-lg"
+            <div className={`bg-card border border-border rounded-2xl w-full p-6 flex flex-col justify-between shadow-2xl h-[640px] max-h-[90vh] overflow-hidden transition-[max-width] duration-300 ease-in-out ${
+              showModalCalcPreview ? "max-w-5xl" : "max-w-xl"
             }`}>
               {/* Header */}
               <div className="flex justify-between items-center pb-3 border-b border-border/60 shrink-0">
@@ -2742,7 +2865,7 @@ function BasementSmokeCalcPage() {
                     onClick={() => setShowModalCalcPreview(!showModalCalcPreview)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer shadow-xs ${
                       showModalCalcPreview
-                        ? "bg-[#0A7BC7] text-white border border-[#0A7BC7]"
+                        ? "bg-primary text-primary-foreground border border-primary shadow-sm"
                         : "bg-background border border-border text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
@@ -2759,9 +2882,9 @@ function BasementSmokeCalcPage() {
               </div>
 
               {/* Main Body Layout */}
-              <div className={`w-full flex-1 min-h-0 my-2 ${showModalCalcPreview ? "grid grid-cols-2 gap-6 items-start" : "flex flex-col"}`}>
+              <div className="w-full flex-1 min-h-0 my-2 flex overflow-hidden">
                 {/* Left Side: Parameters & Zone ACH Configurator */}
-                <div className="flex flex-col gap-4 min-w-0 h-full overflow-y-auto pr-1">
+                <div className="flex-1 min-w-0 flex flex-col gap-4 overflow-y-auto pr-2">
                   {/* Live Flow Summary Pills */}
                   <div className="grid grid-cols-2 gap-3 select-none shrink-0">
                     <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex justify-between items-center shadow-xs">
@@ -2834,8 +2957,10 @@ function BasementSmokeCalcPage() {
                 </div>
 
                 {/* Right Side: Side-by-Side Live Calculations Preview Panel */}
-                {showModalCalcPreview && (
-                  <div className="flex flex-col gap-4 min-w-0 h-full overflow-y-auto border-l border-border/70 pl-6">
+                <div className={`shrink-0 bg-transparent overflow-hidden transition-[width,opacity] duration-300 ease-in-out flex flex-col ${
+                  showModalCalcPreview ? "w-[420px] opacity-100 pl-6 border-l border-border/70" : "w-0 opacity-0 pl-0 border-l-transparent"
+                }`}>
+                  <div className="w-[396px] flex flex-col gap-4 h-full overflow-y-auto pr-1">
                     <div className="flex items-center justify-between shrink-0">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground font-sans">Calculations Preview</span>
                       <span className="text-[10px] font-mono text-muted-foreground font-bold">
@@ -2852,7 +2977,7 @@ function BasementSmokeCalcPage() {
                         </div>
                         <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border/60 rounded-lg p-2 font-mono text-[11px] text-muted-foreground">
                           Total System Normal Airflow: {fireConfigFS.normalScenarioSum.toLocaleString()} {ip ? "CFM" : "L/s"}
-                          {(fireConfigFS.fanQty || 1) > 1 && ` (${fireConfigFS.fanQty} Fans @ ${Math.ceil(fireConfigFS.lowCap / (fireConfigFS.fanQty || 1)).toLocaleString()} ${ip ? "CFM" : "L/s"} each)`}
+                          {(fireConfigFS.fanQty || 1) > 1 && ` (${fireConfigFS.fanQty} Fans @ ${Math.ceil(fireConfigFS.lowCap / (fireConfigFS.fanQty || 1)).toLocaleString()} {ip ? "CFM" : "L/s"} each)`}
                         </div>
                       </div>
 
@@ -2864,7 +2989,7 @@ function BasementSmokeCalcPage() {
                         </div>
                         <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border/60 rounded-lg p-2 font-mono text-[11px] text-muted-foreground">
                           Total System Fire Airflow: 10 ACH Max ({fireConfigFS.flow10Max.toLocaleString()} {ip ? "CFM" : "L/s"})
-                          {(fireConfigFS.fanQty || 1) > 1 && ` (${fireConfigFS.fanQty} Fans @ ${Math.ceil(fireConfigFS.highCap / (fireConfigFS.fanQty || 1)).toLocaleString()} ${ip ? "CFM" : "L/s"} each)`}
+                          {(fireConfigFS.fanQty || 1) > 1 && ` (${fireConfigFS.fanQty} Fans @ ${Math.ceil(fireConfigFS.highCap / (fireConfigFS.fanQty || 1)).toLocaleString()} {ip ? "CFM" : "L/s"} each)`}
                         </div>
                       </div>
 
@@ -2906,7 +3031,7 @@ function BasementSmokeCalcPage() {
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Footer */}
@@ -3180,6 +3305,153 @@ function BasementSmokeCalcPage() {
           onSave={handleSaveComment}
           existingComments={commentsList.filter(c => c.spaceId === commentTargetItem.id || c.targetId === commentTargetItem.id || c.itemId === commentTargetItem.id)}
         />
+      )}
+
+      {/* Bulk Edit Modal (Ventilation style) */}
+      {bulkEditOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-lg animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit3 className="size-4 text-primary" />
+                <h3 className="font-semibold text-[14px]">Bulk Edit {bulkEditTargetIds.length} Spaces</h3>
+              </div>
+              <button onClick={() => setBulkEditOpen(false)} className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-4 text-xs">
+              <div className="bg-primary/5 border border-primary/10 rounded-md p-2.5 text-muted-foreground flex items-start gap-2 leading-normal">
+                <Info className="size-4 text-primary shrink-0 mt-0.5" />
+                <div>
+                  Check the box next to any parameter to enable and update it across all selected spaces. Unchecked parameters will remain unchanged.
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bs-bulk-update-level"
+                      checked={bulkEditFields.basementLevel}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, basementLevel: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    />
+                    <label htmlFor="bs-bulk-update-level" className="text-muted-foreground font-medium cursor-pointer">Basement Level</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. B1, B2"
+                    value={bulkEditValues.basementLevel}
+                    disabled={!bulkEditFields.basementLevel}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, basementLevel: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bs-bulk-update-zone"
+                      checked={bulkEditFields.zoneName}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, zoneName: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    />
+                    <label htmlFor="bs-bulk-update-zone" className="text-muted-foreground font-medium cursor-pointer">Zone Name</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. Zone 1, Zone 2"
+                    value={bulkEditValues.zoneName}
+                    disabled={!bulkEditFields.zoneName}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, zoneName: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bs-bulk-update-area"
+                      checked={bulkEditFields.area}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, area: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    />
+                    <label htmlFor="bs-bulk-update-area" className="text-muted-foreground font-medium cursor-pointer">Gross Area ({ip ? "ft²" : "m²"})</label>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 500"
+                    value={bulkEditValues.area}
+                    disabled={!bulkEditFields.area}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, area: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all font-mono"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bs-bulk-update-effarea"
+                      checked={bulkEditFields.effArea}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, effArea: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    />
+                    <label htmlFor="bs-bulk-update-effarea" className="text-muted-foreground font-medium cursor-pointer">Eff. Area ({ip ? "ft²" : "m²"})</label>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 425"
+                    value={bulkEditValues.effArea}
+                    disabled={!bulkEditFields.effArea}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, effArea: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all font-mono"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bs-bulk-update-height"
+                      checked={bulkEditFields.height}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, height: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    />
+                    <label htmlFor="bs-bulk-update-height" className="text-muted-foreground font-medium cursor-pointer">Height ({ip ? "ft" : "m"})</label>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 3.0"
+                    value={bulkEditValues.height}
+                    disabled={!bulkEditFields.height}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, height: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button onClick={() => setBulkEditOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
+                Cancel
+              </button>
+              <button
+                onClick={handleApplyBulkEdit}
+                className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 shadow-sm"
+              >
+                Apply Bulk Edit
+              </button>
+            </footer>
+          </div>
+        </div>
       )}
     </AppShell>
   );

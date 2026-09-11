@@ -8,7 +8,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Download, FileSpreadsheet, FileText, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag, ChevronRight, ChevronLeft, ChevronUp, ChevronDown, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditGeneratorRowModal } from "@/components/workspace/EditGeneratorRowModal";
@@ -242,6 +242,7 @@ function GeneratorSizingPage() {
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<"equipment" | "report">("equipment");
+  const [isPanelOpen, setIsPanelOpen] = useState<boolean>(true);
 
   const DEFAULT_GEN_COL_WIDTHS: Record<string, number> = {
     select: 36,
@@ -1491,6 +1492,29 @@ function GeneratorSizingPage() {
                   />
 
                   <button
+                    type="button"
+                    onClick={() => setIsPanelOpen((prev) => !prev)}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border transition-all cursor-pointer shadow-2xs ${
+                      isPanelOpen
+                        ? "border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
+                        : "border-primary/50 bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
+                    title={isPanelOpen ? "Collapse Parameters & Results Panel" : "Expand Parameters & Results Panel"}
+                  >
+                    {isPanelOpen ? (
+                      <>
+                        <PanelRightClose className="size-3.5" />
+                        <span className="hidden sm:inline">Hide Results</span>
+                      </>
+                    ) : (
+                      <>
+                        <PanelRightOpen className="size-3.5" />
+                        <span>Show Results</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
                     onClick={exportPdf}
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
                   >
@@ -1509,7 +1533,7 @@ function GeneratorSizingPage() {
               <div className="flex flex-col xl:flex-row flex-1 min-h-0 overflow-y-auto xl:overflow-hidden">
                 {/* Left Side: Table */}
                 <div className="flex flex-col flex-1 min-w-0 min-h-0 border-b xl:border-b-0 xl:border-r border-white/40 dark:border-white/10 overflow-y-auto bg-transparent">
-                  <div className="p-3 md:p-5 flex-1 w-full overflow-x-auto min-w-0">
+                  <div className="p-4 flex-1 w-full overflow-x-auto min-w-0">
                     <div className="w-full min-w-max border border-border/60 rounded-xl overflow-hidden shadow-2xs bg-card">
                       <table id="generator-grid" className="w-full text-[12.5px] border-collapse">
                         <thead className="bg-muted/40 dark:bg-surface-2/60 sticky top-0 z-10 font-semibold text-muted-foreground select-none text-[10.5px] uppercase tracking-wider border-b border-border/60">
@@ -1668,8 +1692,7 @@ function GeneratorSizingPage() {
                                       }}
                                     >
                                       <td style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="p-0">
-                                        <div className="flex items-center justify-center gap-1.5 h-9 px-1">
-                                          <GripVertical className="size-3.5 text-muted-foreground/50 cursor-grab active:cursor-grabbing hover:text-foreground" />
+                                        <div className="flex items-center justify-center h-9 px-1">
                                           <input
                                             type="checkbox"
                                             className="cursor-pointer"
@@ -1995,325 +2018,290 @@ function GeneratorSizingPage() {
                 </div>
 
                 {/* Right Side: Results & Config */}
-                <div className="flex flex-col w-full xl:w-[320px] shrink-0 border-t xl:border-t-0 xl:border-l border-white/40 dark:border-white/10 bg-transparent overflow-y-auto p-4 gap-4">
-                  <div className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-4 shrink-0">
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 border-b border-white/40 dark:border-white/10 pb-2">
-                      Sizing Parameters
-                    </h4>
-                    <div className="space-y-3 text-[13px]">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">Power Factor (Lag)</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="w-20 px-2 py-1 border border-border bg-surface-2 text-foreground rounded outline-none text-right [appearance:textfield] focus:ring-1 focus:ring-primary focus:border-primary"
-                          value={pf}
-                          onChange={(e) => setPf(parseFloat(e.target.value) || 0.8)}
-                        />
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">Loading Factor</span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          className="w-20 px-2 py-1 border border-border bg-surface-2 text-foreground rounded outline-none text-right [appearance:textfield] focus:ring-1 focus:ring-primary focus:border-primary"
-                          value={lf}
-                          onChange={(e) => setLf(parseFloat(e.target.value) || 0.9)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div data-ignore-persist="true" className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex flex-col justify-between overflow-hidden shrink-0">
-                    <div className="px-4 py-3 border-b border-white/40 dark:border-white/10 flex items-center justify-between bg-primary/10">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1 h-4 bg-primary rounded-full" />
-                        <h4 className="font-bold text-[12px] text-primary uppercase tracking-wide">
-                          Generator Result
+                {isPanelOpen && (
+                  <div className="flex flex-col w-full xl:w-[320px] shrink-0 border-t xl:border-t-0 xl:border-l border-white/40 dark:border-white/10 bg-transparent overflow-y-auto p-4 gap-4 transition-all duration-300 animate-in fade-in slide-in-from-right-4">
+                    <div className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-4 shrink-0">
+                      <div className="flex items-center justify-between border-b border-white/40 dark:border-white/10 pb-2 mb-3">
+                        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Sizing Parameters
                         </h4>
-                      </div>
-                      {Object.keys(manualOverrides).length > 0 && (
-                        <button 
-                          onClick={clearOverrides}
-                          className="text-[10px] bg-white/50 hover:bg-white dark:bg-black/20 dark:hover:bg-black/40 text-primary px-2 py-0.5 rounded font-bold uppercase transition-colors shadow-sm"
+                        <button
+                          type="button"
+                          onClick={() => setIsPanelOpen(false)}
+                          className="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
+                          title="Collapse Panel"
                         >
-                          Clear Overrides
+                          <ChevronRight className="size-3.5 hidden xl:block" />
+                          <ChevronUp className="size-3.5 xl:hidden" />
                         </button>
-                      )}
+                      </div>
+                      <div className="space-y-3 text-[13px]">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium">Power Factor (Lag)</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="w-20 px-2 py-1 border border-border bg-surface-2 text-foreground rounded outline-none text-right [appearance:textfield] focus:ring-1 focus:ring-primary focus:border-primary"
+                            value={pf}
+                            onChange={(e) => setPf(parseFloat(e.target.value) || 0.8)}
+                          />
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium">Loading Factor</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="w-20 px-2 py-1 border border-border bg-surface-2 text-foreground rounded outline-none text-right [appearance:textfield] focus:ring-1 focus:ring-primary focus:border-primary"
+                            value={lf}
+                            onChange={(e) => setLf(parseFloat(e.target.value) || 0.9)}
+                          />
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="p-4 space-y-3">
-                      {/* Header Row */}
-                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 pb-2 border-b border-surface-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Parameter
-                        </span>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground text-right">
-                          ACL Base
-                        </span>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground text-right">
-                          Emerg. Base
-                        </span>
+                    <div data-ignore-persist="true" className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex flex-col justify-between overflow-hidden shrink-0">
+                      <div className="px-4 py-3 border-b border-white/40 dark:border-white/10 flex items-center justify-between bg-primary/10">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-4 bg-primary rounded-full" />
+                          <h4 className="font-bold text-[12px] text-primary uppercase tracking-wide">
+                            Generator Result
+                          </h4>
+                        </div>
+                        {Object.keys(manualOverrides).length > 0 && (
+                          <button 
+                            onClick={clearOverrides}
+                            className="text-[10px] bg-white/50 hover:bg-white dark:bg-black/20 dark:hover:bg-black/40 text-primary px-2 py-0.5 rounded font-bold uppercase transition-colors shadow-sm"
+                          >
+                            Clear Overrides
+                          </button>
+                        )}
                       </div>
 
-                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
-                        <span 
-                          className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
-                          title="Total Actual Connected Load"
-                        >
-                          Total ACL ({unitSystem === "ip" ? "HP" : "kW"})
-                        </span>
-                        <div className="text-right">
-                          <input
-                            type="number"
-                            className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                            value={
-                              manualOverrides["acl"] !== undefined
-                                ? manualOverrides["acl"]
-                                : calc.totalAcl.toFixed(2)
-                            }
-                            onChange={(e) => setOverride("acl", e.target.value)}
-                            onBlur={(e) => {
-                              if (e.target.value === "") {
-                                const copy = { ...manualOverrides };
-                                delete copy["acl"];
-                                setManualOverrides(copy);
-                              }
-                            }}
-                          />
+                      <div className="p-4 space-y-3">
+                        {/* Header Row */}
+                        <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 pb-2 border-b border-surface-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                            Parameter
+                          </span>
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground text-right">
+                            ACL Base
+                          </span>
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground text-right">
+                            Emerg. Base
+                          </span>
                         </div>
-                        <div className="text-right">
-                          <input
-                            type="number"
-                            className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                            value={
-                              manualOverrides["em"] !== undefined
-                                ? manualOverrides["em"]
-                                : calc.totalEmergency.toFixed(2)
-                            }
-                            onChange={(e) => setOverride("em", e.target.value)}
-                            onBlur={(e) => {
-                              if (e.target.value === "") {
-                                const copy = { ...manualOverrides };
-                                delete copy["em"];
-                                setManualOverrides(copy);
-                              }
-                            }}
-                          />
-                        </div>
-                      </div>
 
-                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
-                        <span 
-                          className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
-                          title="Demand Load = Actual Connected Load / Power Factor"
-                        >
-                          Demand Load (kVA)
-                        </span>
-                        <div className="text-right">
-                          <input
-                            type="number"
-                            className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                            value={
-                              manualOverrides["demandAcl"] !== undefined
-                                ? manualOverrides["demandAcl"]
-                                : calc.demandLoadAcl.toFixed(2)
-                            }
-                            onChange={(e) => setOverride("demandAcl", e.target.value)}
-                            onBlur={(e) => {
-                              if (e.target.value === "") {
-                                const copy = { ...manualOverrides };
-                                delete copy["demandAcl"];
-                                setManualOverrides(copy);
+                        <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
+                          <span 
+                            className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
+                            title="Total Actual Connected Load"
+                          >
+                            Total ACL ({unitSystem === "ip" ? "HP" : "kW"})
+                          </span>
+                          <div className="text-right">
+                            <input
+                              type="number"
+                              className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
+                              value={
+                                manualOverrides["acl"] !== undefined
+                                  ? manualOverrides["acl"]
+                                  : calc.totalAcl.toFixed(2)
                               }
-                            }}
-                          />
-                        </div>
-                        <div className="text-right">
-                          <input
-                            type="number"
-                            className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                            value={
-                              manualOverrides["demandEm"] !== undefined
-                                ? manualOverrides["demandEm"]
-                                : calc.demandLoadEm.toFixed(2)
-                            }
-                            onChange={(e) => setOverride("demandEm", e.target.value)}
-                            onBlur={(e) => {
-                              if (e.target.value === "") {
-                                const copy = { ...manualOverrides };
-                                delete copy["demandEm"];
-                                setManualOverrides(copy);
+                              onChange={(e) => setOverride("acl", e.target.value)}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  const copy = { ...manualOverrides };
+                                  delete copy["acl"];
+                                  setManualOverrides(copy);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="text-right">
+                            <input
+                              type="number"
+                              className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
+                              value={
+                                manualOverrides["em"] !== undefined
+                                  ? manualOverrides["em"]
+                                  : calc.totalEmergency.toFixed(2)
                               }
-                            }}
-                          />
+                              onChange={(e) => setOverride("em", e.target.value)}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  const copy = { ...manualOverrides };
+                                  delete copy["em"];
+                                  setManualOverrides(copy);
+                                }
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
-                        <span 
-                          className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
-                          title="Calculated size for DG set (Demand Load / Loading Factor)"
-                        >
-                          Calc. DG Size (kVA)
-                        </span>
-                        <div className="text-right">
-                          <input
-                            type="number"
-                            className="w-full text-right text-[13px] font-bold text-primary bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                            value={
-                              manualOverrides["calcAcl"] !== undefined
-                                ? manualOverrides["calcAcl"]
-                                : calc.calcSizeAcl.toFixed(2)
-                            }
-                            onChange={(e) => setOverride("calcAcl", e.target.value)}
-                            onBlur={(e) => {
-                              if (e.target.value === "") {
-                                const copy = { ...manualOverrides };
-                                delete copy["calcAcl"];
-                                setManualOverrides(copy);
+                        <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
+                          <span 
+                            className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
+                            title="Demand Load = Actual Connected Load / Power Factor"
+                          >
+                            Demand Load (kVA)
+                          </span>
+                          <div className="text-right">
+                            <input
+                              type="number"
+                              className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
+                              value={
+                                manualOverrides["demandAcl"] !== undefined
+                                  ? manualOverrides["demandAcl"]
+                                  : calc.demandLoadAcl.toFixed(2)
                               }
-                            }}
-                          />
-                        </div>
-                        <div className="text-right">
-                          <input
-                            type="number"
-                            className="w-full text-right text-[13px] font-bold text-primary bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                            value={
-                              manualOverrides["calcEm"] !== undefined
-                                ? manualOverrides["calcEm"]
-                                : calc.calcSizeEm.toFixed(2)
-                            }
-                            onChange={(e) => setOverride("calcEm", e.target.value)}
-                            onBlur={(e) => {
-                              if (e.target.value === "") {
-                                const copy = { ...manualOverrides };
-                                delete copy["calcEm"];
-                                setManualOverrides(copy);
+                              onChange={(e) => setOverride("demandAcl", e.target.value)}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  const copy = { ...manualOverrides };
+                                  delete copy["demandAcl"];
+                                  setManualOverrides(copy);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="text-right">
+                            <input
+                              type="number"
+                              className="w-full text-right text-[13px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
+                              value={
+                                manualOverrides["demandEm"] !== undefined
+                                  ? manualOverrides["demandEm"]
+                                  : calc.demandLoadEm.toFixed(2)
                               }
-                            }}
-                          />
+                              onChange={(e) => setOverride("demandEm", e.target.value)}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  const copy = { ...manualOverrides };
+                                  delete copy["demandEm"];
+                                  setManualOverrides(copy);
+                                }
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="pt-3 border-t border-surface-2 space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        <div className="grid grid-cols-[1fr_75px_75px] sm:grid-cols-[1fr_80px_80px] gap-2 sm:gap-4 items-center pb-2 border-b border-surface-2">
+                          <span 
+                            className="text-[12.5px] font-medium text-muted-foreground border-b border-dotted border-muted-foreground/50 cursor-help inline-block w-fit"
+                            title="Calculated size for DG set (Demand Load / Loading Factor)"
+                          >
+                            Calc. DG Size (kVA)
+                          </span>
+                          <div className="text-right">
+                            <input
+                              type="number"
+                              className="w-full text-right text-[13px] font-bold text-primary bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
+                              value={
+                                manualOverrides["calcAcl"] !== undefined
+                                  ? manualOverrides["calcAcl"]
+                                  : calc.calcSizeAcl.toFixed(2)
+                              }
+                              onChange={(e) => setOverride("calcAcl", e.target.value)}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  const copy = { ...manualOverrides };
+                                  delete copy["calcAcl"];
+                                  setManualOverrides(copy);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="text-right">
+                            <input
+                              type="number"
+                              className="w-full text-right text-[13px] font-bold text-primary bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
+                              value={
+                                manualOverrides["calcEm"] !== undefined
+                                  ? manualOverrides["calcEm"]
+                                  : calc.calcSizeEm.toFixed(2)
+                              }
+                              onChange={(e) => setOverride("calcEm", e.target.value)}
+                              onBlur={(e) => {
+                                if (e.target.value === "") {
+                                  const copy = { ...manualOverrides };
+                                  delete copy["calcEm"];
+                                  setManualOverrides(copy);
+                                }
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-surface-2 space-y-3">
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                                 Selected DG Set Size
                               </span>
-                              {userSelectedSize === null && (
-                                <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-bold uppercase">
-                                  Auto
+                              {userSelectedSize !== null && (
+                                <span className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-bold uppercase">
+                                  Manual
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="flex items-center gap-2">
                               <Select
-                                value={userSelectedSize !== null ? userSelectedSize.toString() : "auto"}
-                                onValueChange={(val) => {
-                                  if (val === "auto") {
-                                    setUserSelectedSize(null);
-                                  } else {
-                                    setUserSelectedSize(Number(val));
-                                  }
-                                }}
+                                value={String(calc.selectedSize)}
+                                onValueChange={(val) => setUserSelectedSize(Number(val))}
                               >
-                                <SelectTrigger className="text-[22px] h-auto font-bold tracking-tight text-primary bg-transparent outline-none border border-border rounded px-3 py-1 cursor-pointer hover:bg-surface-2 transition-colors focus:ring-2 focus:ring-primary/20 shadow-sm min-w-[160px]">
-                                  <SelectValue>
-                                    {`${calc.selectedSize} kVA`}
-                                  </SelectValue>
+                                <SelectTrigger className="w-full h-9 bg-background border-border text-foreground font-extrabold text-[15px] shadow-sm">
+                                  <SelectValue />
                                 </SelectTrigger>
-                                <SelectContent className="max-h-[300px]">
-                                  <SelectItem value="auto" className="text-[14px] font-semibold text-primary">
-                                    ΓÜí Auto ({calc.autoSize} kVA)
-                                  </SelectItem>
-                                  {STANDARD_SIZES.map((size) => (
-                                    <SelectItem key={size} value={size.toString()} className="text-[14px]">
-                                      {size} kVA
+                                <SelectContent className="bg-popover text-popover-foreground border-border max-h-60">
+                                  {STANDARD_SIZES.map((sz) => (
+                                    <SelectItem key={sz} value={String(sz)} className="font-semibold text-xs cursor-pointer">
+                                      {sz} kVA {sz === calc.autoSize ? "(Recommended)" : ""}
                                     </SelectItem>
                                   ))}
-                                  {!STANDARD_SIZES.includes(calc.autoSize) && calc.autoSize > 5000 && (
-                                    <SelectItem value={calc.autoSize.toString()} className="text-[14px]">
+                                  {!STANDARD_SIZES.includes(calc.autoSize) && (
+                                    <SelectItem value={String(calc.autoSize)} className="font-semibold text-xs cursor-pointer">
                                       {calc.autoSize} kVA (Calculated)
                                     </SelectItem>
                                   )}
                                 </SelectContent>
                               </Select>
-                              {userSelectedSize !== null && (
-                                <button
-                                  onClick={() => setUserSelectedSize(null)}
-                                  className="text-[11px] bg-primary/10 hover:bg-primary/20 text-primary px-2.5 py-1.5 rounded font-semibold transition-colors shadow-sm whitespace-nowrap"
-                                  title="Reset to Auto Sizing based on total calculated kVA"
-                                >
-                                  Reset to Auto
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="text-right">
-                            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground block mb-1">
-                              Max Starting Current
-                            </span>
-                            <div className="flex items-center justify-end gap-1">
-                              <input
-                                type="number"
-                                className="w-28 text-right text-[14px] font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none [appearance:textfield]"
-                                value={
-                                  manualOverrides["maxStart"] !== undefined
-                                    ? manualOverrides["maxStart"]
-                                    : calc.maxStartCur.toFixed(2)
-                                }
-                                onChange={(e) => setOverride("maxStart", e.target.value)}
-                                onBlur={(e) => {
-                                  if (e.target.value === "") {
-                                    const copy = { ...manualOverrides };
-                                    delete copy["maxStart"];
-                                    setManualOverrides(copy);
-                                  }
-                                }}
-                              />
-                              <span className="text-[13px] font-bold text-foreground">A</span>
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-4 text-[12.5px] shrink-0">
-                    <h4 className="font-semibold text-muted-foreground mb-3 pb-2 border-b border-white/40 dark:border-white/10">
-                      Motor Analysis
-                    </h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Max Starting Current</span>
-                        <span className="font-medium font-mono">
-                          {calc.maxStartCur.toFixed(2)} A
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Largest Motor Size</span>
-                        <span className="font-medium font-mono">
-                          {calc.largestMotorKw > 0
-                            ? unitSystem === "ip"
-                              ? (calc.largestMotorKw / 0.746).toFixed(2) + " HP"
-                              : calc.largestMotorKw.toFixed(2) + " kW"
-                            : "-"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Largest Motor Starter</span>
-                        <span className="font-medium">
-                          {calc.largestMotorKw > 0 ? calc.largestMotorStarter : "-"}
-                        </span>
+                    <div className="bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/50 dark:border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-4 text-[12.5px] shrink-0">
+                      <h4 className="font-semibold text-muted-foreground mb-3 pb-2 border-b border-white/40 dark:border-white/10">
+                        Motor Analysis
+                      </h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Max Starting Current</span>
+                          <span className="font-medium font-mono">
+                            {calc.maxStartCur.toFixed(2)} A
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Largest Motor Size</span>
+                          <span className="font-medium font-mono">
+                            {calc.largestMotorKw > 0
+                              ? unitSystem === "ip"
+                                ? (calc.largestMotorKw / 0.746).toFixed(2) + " HP"
+                                : calc.largestMotorKw.toFixed(2) + " kW"
+                              : "-"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Largest Motor Starter</span>
+                          <span className="font-medium">
+                            {calc.largestMotorKw > 0 ? calc.largestMotorStarter : "-"}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           )}

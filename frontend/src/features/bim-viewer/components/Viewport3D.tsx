@@ -1627,6 +1627,10 @@ export function Viewport3D() {
                     }
                     (window as any)._currentLoadedFile = null;
                     (window as any).__BIM_VIEWER_SPACES__ = null;
+                    try {
+                        localStorage.removeItem('mep_active_bim_spaces');
+                        if (activeProjId) localStorage.removeItem(`mep_active_bim_spaces_${activeProjId}`);
+                    } catch {}
                     await cleanupCurrentSceneAndModel();
                     store().setIsLoaded(false);
                     store().setIsLoading(false);

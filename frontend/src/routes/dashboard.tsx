@@ -97,8 +97,8 @@ export function DashboardPage() {
 
   return (
     <AppShell title="Dashboard" subtitle="Active metrics summary">
-      <div className="p-6 overflow-y-auto h-full bg-slate-50/30 dark:bg-zinc-950/20">
-        <div className="max-w-5xl mx-auto flex flex-col gap-6">
+      <div className="p-6 md:p-8 overflow-y-auto h-full bg-slate-50/30 dark:bg-zinc-950/20">
+        <div className="w-full flex flex-col gap-6">
 
           {/* Quick stats grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-5">
@@ -204,7 +204,7 @@ export function DashboardPage() {
                 </div>
                 <div className="flex flex-col gap-2 overflow-y-auto max-h-[360px] pr-1.5 custom-scrollbar">
                   <Link
-                    to="/"
+                    to="/ventilation"
                     className="flex items-center justify-between px-3.5 py-2.5 rounded-xl hover:bg-surface-2 dark:hover:bg-zinc-800/40 transition-all border border-transparent hover:border-border/60 text-[12.5px] text-foreground font-semibold group"
                   >
                     <span>Ventilation Module</span>

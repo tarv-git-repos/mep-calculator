@@ -710,38 +710,37 @@ export function CalculationReviewBar({
         </button>
       )}
 
-      {/* 2. ROLE-BASED ACTION CONTROLS */}
+      {/* 2. ACTION CONTROLS */}
       
-      {/* A. DISCIPLINE COORDINATOR (Approve / Reject / Unlock only) */}
-      {userRole === "Discipline Coordinator" && (
+      {/* UNLOCK BUTTON: Always visible and accessible whenever calculation is Approved & Locked */}
+      {isApproved && (
+        <button
+          onClick={() => setShowUnlockModal(true)}
+          className="px-3 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+          title="Unlock calculation to allow engineers to make edits"
+        >
+          <Unlock className="size-3.5 text-amber-600 dark:text-amber-400" />
+          <span>Unlock</span>
+        </button>
+      )}
+
+      {/* A. DISCIPLINE COORDINATOR (Approve / Reject when not approved) */}
+      {userRole === "Discipline Coordinator" && !isApproved && (
         <div className="inline-flex items-center gap-1.5 shrink-0">
-          {isApproved ? (
-            <button
-              onClick={() => setShowUnlockModal(true)}
-              className="px-3 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-              title="Unlock calculation to allow engineers to make edits"
-            >
-              <Unlock className="size-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Unlock</span>
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={() => setShowApproveModal(true)}
-                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <CheckCircle2 className="size-3.5" />
-                <span>Approve</span>
-              </button>
-              <button
-                onClick={() => setShowRejectModal(true)}
-                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <XCircle className="size-3.5" />
-                <span>Reject</span>
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => setShowApproveModal(true)}
+            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <CheckCircle2 className="size-3.5" />
+            <span>Approve</span>
+          </button>
+          <button
+            onClick={() => setShowRejectModal(true)}
+            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+          >
+            <XCircle className="size-3.5" />
+            <span>Reject</span>
+          </button>
         </div>
       )}
 
@@ -1001,7 +1000,19 @@ export function CalculationReviewBar({
               )}
             </div>
 
-            <div className="flex items-center justify-end mt-5">
+            <div className="flex items-center justify-end gap-2 mt-5">
+              {isApproved && (
+                <button
+                  onClick={() => {
+                    setShowDetailsModal(false);
+                    setShowUnlockModal(true);
+                  }}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <Unlock className="size-3.5" />
+                  <span>Unlock Calculation</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowDetailsModal(false)}
                 className="px-4 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-sm transition cursor-pointer"

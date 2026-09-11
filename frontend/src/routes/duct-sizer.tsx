@@ -1,11 +1,20 @@
 import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { useAuth } from "@/contexts/AuthContext";
+import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import { AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle, Lock } from "lucide-react";
+import {
+  AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle, Lock,
+  Save, FolderOpen, MessageSquare, Trash2
+} from "lucide-react";
 import * as XLSX from "xlsx";
+import { useWorkspace } from "@/lib/workspace-store";
+import { toast } from "sonner";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/duct-sizer")({
@@ -37,8 +46,26 @@ function colebrook(Re: number, relR: number): number {
 
 type DuctShape = "round" | "rect";
 
+interface SavedCalculation {
+  id: string;
+  type: string;
+  name: string;
+  savedAt: string;
+  values: {
+    airflow: number | "";
+    targetFr: number | "";
+    ductShape: DuctShape;
+    aspectRatio: number;
+  };
+  unitSystem: "si" | "ip";
+}
+
 function DuctSizerPage() {
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
+  const { project, forceSaveToCloud } = useWorkspace();
   const isApproved = useCalculationLock("/duct-sizer");
+
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
   const [airflow, setAirflow] = useState<number | "">("");
   const [targetFr, setTargetFr] = useState<number | "">(""); // in w.g./100ft (IP) or Pa/m (SI)
@@ -47,7 +74,114 @@ function DuctSizerPage() {
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
   const [showFormulaPanel, setShowFormulaPanel] = useState<boolean>(false);
 
+  // Comments
+  const [commentsList, setCommentsList] = useState<any[]>([]);
+  const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+
+  // Presets
+  const [saves, setSaves] = useState<SavedCalculation[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+  const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
+  const [saveName, setSaveName] = useState<string>("");
+
   const ip = unitSystem === "ip";
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("mep_duct_sizer_saves");
+      if (stored) {
+        setSaves(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error("Failed to load custom saves", e);
+    }
+  }, []);
+
+  const saveToLocalStorage = (newSaves: SavedCalculation[]) => {
+    setSaves(newSaves);
+    localStorage.setItem("mep_duct_sizer_saves", JSON.stringify(newSaves));
+  };
+
+  const handleSaveCurrent = () => {
+    if (!saveName.trim()) return;
+    const newSave: SavedCalculation = {
+      id: "duct_save_" + Date.now(),
+      type: "duct-sizer",
+      name: saveName.trim(),
+      savedAt: new Date().toISOString(),
+      values: { airflow, targetFr, ductShape, aspectRatio },
+      unitSystem
+    };
+    const updated = [newSave, ...saves];
+    saveToLocalStorage(updated);
+    setSaveName("");
+    setShowSaveModal(false);
+    toast.success(`Preset "${newSave.name}" saved`);
+    if (typeof forceSaveToCloud === "function") {
+      forceSaveToCloud();
+    }
+  };
+
+  const handleLoadSave = (id: string) => {
+    const target = saves.find(s => s.id === id);
+    if (!target) return;
+    setAirflow(target.values.airflow);
+    setTargetFr(target.values.targetFr);
+    setDuctShape(target.values.ductShape || "round");
+    setAspectRatio(target.values.aspectRatio || 1.5);
+    if (target.unitSystem) setUnitSystem(target.unitSystem);
+    setHasCalculated(true);
+    setShowLoadModal(false);
+    toast.success(`Loaded preset "${target.name}"`);
+  };
+
+  const handleDeleteSave = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = saves.filter(s => s.id !== id);
+    saveToLocalStorage(updated);
+    toast.success("Preset deleted");
+  };
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (commentData: any) => {
+    const newComment = {
+      id: `cmt_${Date.now()}`,
+      text: commentData.text,
+      authorName: currentUserName,
+      authorRole: profile?.role || "Engineer",
+      timestamp: new Date().toISOString(),
+      assignedUsers: commentData.assignedUsers || [],
+      itemId: commentTargetItem?.id,
+      spaceId: commentTargetItem?.id,
+      targetId: commentTargetItem?.id,
+      targetName: commentTargetItem?.name,
+      calculatorTitle: "Duct Sizer",
+      calculatorPath: "/duct-sizer",
+      projectId: project?.id || "default",
+      projectName: project?.name || "Duct Sizing Study",
+    };
+    const updated = [newComment, ...commentsList];
+    setCommentsList(updated);
+    toast.success(`Comment / task assigned on "${commentTargetItem?.name || "parameter"}"`);
+    setCommentModalOpen(false);
+
+    notifyCommentAssigned({
+      comment: newComment,
+      targetId: commentTargetItem?.id || "duct-sizer",
+      targetName: commentTargetItem?.name || "Duct Sizer",
+      targetType: "equipment",
+      calculatorTitle: "Duct Sizer",
+      calculatorPath: "/duct-sizer",
+      project,
+      currentUserName,
+      currentUserId: userData?.id || profile?.id
+    }).catch(console.error);
+  };
 
   const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
     if (targetUnit === unitSystem) return;
@@ -174,20 +308,121 @@ function DuctSizerPage() {
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
     const data = [
-      ["Duct Sizing Report"],
+      ["DUCT SIZING REPORT (SMACNA / EQUAL FRICTION METHOD)"],
+      ["Project Name", project?.name || "MEP Air Distribution Study"],
+      ["Unit System", unitSystem.toUpperCase()],
+      ["Generated On", new Date().toLocaleDateString("en-GB")],
       [],
-      ["Duct Shape", ductShape === "round" ? "Round" : "Rectangular"],
-      ["Recommended Size", calculatedData.sizeDisplay],
-      ["Air Velocity", ip ? `${calculatedData.velocityFpm.toFixed(0)} FPM` : `${calculatedData.velocity.toFixed(2)} m/s`],
-      ["Actual Friction Rate", ip ? `${(calculatedData.frictionRate / 8.16828).toFixed(4)} in/100ft` : `${calculatedData.frictionRate.toFixed(3)} Pa/m`],
-      ["Reynolds Number", Math.round(calculatedData.reynolds).toLocaleString()],
-      ["Friction Factor (f)", calculatedData.f.toFixed(5)],
-      ["Flow Regime", calculatedData.regime],
+      ["Parameter", "Value", "Unit"],
+      ["Design Airflow", airflow !== "" ? airflow : (ip ? 2500 : 1180), ip ? "CFM" : "L/s"],
+      ["Target Friction Rate", targetFr !== "" ? targetFr : (ip ? 0.08 : 0.65), ip ? "in w.g./100ft" : "Pa/m"],
+      ["Duct Shape", ductShape === "round" ? "Round" : "Rectangular", "-"],
+      ...(ductShape === "rect" ? [["Aspect Ratio (W:H)", `${aspectRatio.toFixed(1)}:1`, "-"]] : []),
+      [],
+      ["Result Parameter", "Calculated Value", "Unit"],
+      ["Recommended Size", calculatedData.sizeDisplay, "-"],
+      ...(ductShape === "rect" ? [["Equivalent Diameter", calculatedData.deqDisplay || "-", "-"]] : []),
+      ["Air Velocity", ip ? `${calculatedData.velocityFpm.toFixed(0)}` : `${calculatedData.velocity.toFixed(2)}`, ip ? "FPM" : "m/s"],
+      ["Actual Friction Rate", ip ? `${(calculatedData.frictionRate / 8.16828).toFixed(4)}` : `${calculatedData.frictionRate.toFixed(3)}`, ip ? "in w.g./100ft" : "Pa/m"],
+      ["Reynolds Number (Re)", Math.round(calculatedData.reynolds).toLocaleString(), "-"],
+      ["Friction Factor (f)", calculatedData.f.toFixed(5), "-"],
+      ["Flow Regime", calculatedData.regime, "-"],
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, "Duct Sizer");
     const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    downloadFile(new Uint8Array(xlsxBuffer), "Duct_Sizing.xlsx", "Excel Document", ["xlsx"]);
+    downloadFile(new Uint8Array(xlsxBuffer), "Duct_Sizing_Report.xlsx", "Excel Document", ["xlsx"]);
+    toast.success("Excel report exported successfully");
+  };
+
+  const handlePrintPDF = async () => {
+    try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default || autoTableModule;
+
+      const doc = new jsPDF("p", "pt", "a4");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("DUCT SIZING & EQUAL FRICTION CALCULATION REPORT", 40, 44);
+
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(90);
+      doc.text(`Generated on: ${new Date().toLocaleDateString("en-GB")} | Standard: SMACNA / ASHRAE Fundamentals | Unit: ${unitSystem.toUpperCase()}`, 40, 58);
+
+      doc.setDrawColor(210);
+      doc.setLineWidth(0.75);
+      doc.line(40, 555, 555, 555);
+
+      const tableMargin = { left: 40, right: 40 };
+
+      // 1. Project Details
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(0);
+      doc.text("1. Project Details", 40, 82);
+
+      const projectData = [
+        ["Project Name", project?.name || "MEP Air Distribution Study", "Project Number", project?.code || "P000"],
+        ["Client", project?.client || "-", "Revision", "Rev 0"],
+      ];
+
+      autoTable(doc, {
+        startY: 88,
+        head: [],
+        body: projectData,
+        theme: "grid",
+        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
+        margin: tableMargin,
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
+          1: { cellWidth: 157 },
+          2: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
+          3: { cellWidth: 158 },
+        },
+      });
+
+      // 2. Design Parameters & Sizing Results
+      const nextY = (doc as any).lastAutoTable.finalY + 16;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("2. Duct Sizing & Aerodynamic Results", 40, nextY);
+
+      const sizingData = [
+        ["Design Airflow (Q)", `${airflow !== "" ? airflow : (ip ? 2500 : 1180)} ${ip ? "CFM" : "L/s"}`, "Duct Shape", ductShape === "round" ? "Round Spiral" : `Rectangular (AR ${aspectRatio.toFixed(1)}:1)`],
+        ["Target Friction Rate", `${targetFr !== "" ? targetFr : (ip ? 0.08 : 0.65)} ${ip ? "in w.g./100ft" : "Pa/m"}`, "Recommended Size", calculatedData.sizeDisplay],
+        ["Air Velocity", `${ip ? calculatedData.velocityFpm.toFixed(0) + " FPM" : calculatedData.velocity.toFixed(2) + " m/s"}`, "Actual Friction Rate", `${ip ? (calculatedData.frictionRate / 8.16828).toFixed(4) + " in/100ft" : calculatedData.frictionRate.toFixed(3) + " Pa/m"}`],
+        ["Reynolds Number (Re)", Math.round(calculatedData.reynolds).toLocaleString(), "Friction Factor (f)", calculatedData.f.toFixed(5)],
+        ["Flow Regime", calculatedData.regime, "Equivalent Diameter", calculatedData.deqDisplay || calculatedData.sizeDisplay]
+      ];
+
+      autoTable(doc, {
+        startY: nextY + 6,
+        head: [],
+        body: sizingData,
+        theme: "striped",
+        styles: { fontSize: 8.5, cellPadding: 4 },
+        margin: tableMargin,
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 125, fillColor: [248, 250, 252] },
+          1: { cellWidth: 132 },
+          2: { fontStyle: "bold", cellWidth: 125, fillColor: [248, 250, 252] },
+          3: { cellWidth: 133 },
+        },
+      });
+
+      addPdfSignatureBlock(doc, (doc as any).lastAutoTable.finalY + 20);
+
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), "Duct_Sizing_Report.pdf", "PDF Document", ["pdf"]);
+      toast.success("PDF report generated successfully");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to generate PDF report");
+    }
   };
 
   const renderChart = () => {
@@ -237,13 +472,49 @@ function DuctSizerPage() {
   return (
     <AppShell title="Duct Sizer" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full pb-20">
+          
+          {/* Header Section */}
           <div className="flex flex-col gap-1 select-none">
-            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; DUCT SIZER</span>
-            <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Duct Sizer + Friction Loss</h1>
-              <CalculationReviewBar calculatorPath="/duct-sizer" calculatorTitle="Duct Sizer" />
+            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; AIR DISTRIBUTION &gt; DUCT SIZER</span>
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Duct Sizer</h1>
+                <CalculationReviewBar projectId={project?.id} calculatorPath="/duct-sizer" calculatorTitle="Duct Sizer" />
+                {commentsList.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  </div>
+                )}
               </div>
+
+              {/* Action Buttons & Unit Toggle */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  disabled={isApproved}
+                  inputDescriptions="Airflow, Target Friction Rate"
+                  conversionExample={unitSystem === "si" ? "Convert 1180 L/s → 2,500 CFM, 0.65 Pa/m → 0.08 in.wg/100ft" : "Convert 2500 CFM → 1,180 L/s, 0.08 in.wg/100ft → 0.65 Pa/m"}
+                />
+
+                <TBtn onClick={handleExportExcel} className="h-8 text-xs font-semibold">
+                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
+                </TBtn>
+                <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
+                  <Printer className="size-3.5 text-blue-600" /> PDF Report
+                </TBtn>
+                <TBtn onClick={() => setShowSaveModal(true)} className="h-8 text-xs font-semibold">
+                  <Save className="size-3.5 text-amber-600" /> Save Preset
+                </TBtn>
+                {saves.length > 0 && (
+                  <TBtn onClick={() => setShowLoadModal(true)} className="h-8 text-xs font-semibold">
+                    <FolderOpen className="size-3.5 text-indigo-600" /> Load ({saves.length})
+                  </TBtn>
+                )}
+              </div>
+            </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
               Size round or rectangular ducts for a target friction rate using the Equal Friction Method (SMACNA).
             </p>
@@ -253,18 +524,9 @@ function DuctSizerPage() {
             {/* Left inputs */}
             <div className="lg:col-span-5 flex flex-col gap-5">
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Sizing Parameters</h3>
-                  </div>
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    disabled={isApproved}
-                    inputDescriptions="Airflow, Target Friction Rate"
-                    conversionExample={unitSystem === "si" ? "Convert 1180 L/s → 2,500 CFM, 0.65 Pa/m → 0.08 in.wg/100ft" : "Convert 2500 CFM → 1,180 L/s, 0.08 in.wg/100ft → 0.65 Pa/m"}
-                  />
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Sizing Parameters</h3>
                 </div>
 
                 <div className="flex flex-col gap-3.5 text-xs">
@@ -425,6 +687,97 @@ function DuctSizerPage() {
           </div>
         </div>
       </div>
+
+      {/* Save Preset Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
+            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
+              <Save className="size-4 text-primary" /> Save Duct Sizing Preset
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Save current airflow, target friction rate, shape, and aspect ratio as a reusable template.
+            </p>
+            <input
+              type="text"
+              placeholder="e.g., Main Supply Header 2500 CFM"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              className="w-full bg-background border border-border rounded-xl px-3.5 py-2 text-xs outline-none focus:border-primary"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleSaveCurrent()}
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCurrent}
+                disabled={!saveName.trim()}
+                className="px-4 py-2 text-xs font-bold bg-[#0A7BC7] hover:bg-[#0863A0] text-white rounded-xl transition cursor-pointer disabled:opacity-50"
+              >
+                Save Preset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Preset Modal */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
+            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
+              <FolderOpen className="size-4 text-primary" /> Saved Duct Sizing Presets
+            </h3>
+            <div className="max-h-60 overflow-y-auto flex flex-col gap-2">
+              {saves.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => handleLoadSave(s.id)}
+                  className="flex items-center justify-between p-3 rounded-xl border border-border/60 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-bold text-xs text-foreground">{s.name}</span>
+                    <span className="text-[10px] text-muted-foreground">Saved {new Date(s.savedAt).toLocaleDateString()} | Shape: {s.values.ductShape?.toUpperCase() || "ROUND"} | Unit: {s.unitSystem?.toUpperCase() || "IP"}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteSave(s.id, e)}
+                    className="p-1.5 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                    title="Delete preset"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowLoadModal(false)}
+                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comment Assignment Modal */}
+      <AssignCommentModal
+        isOpen={commentModalOpen}
+        onClose={() => setCommentModalOpen(false)}
+        targetItem={commentTargetItem}
+        comments={commentsList}
+        onSave={handleSaveComment}
+      />
     </AppShell>
   );
 }

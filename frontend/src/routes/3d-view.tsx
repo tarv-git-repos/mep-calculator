@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
-import BimViewerApp from "@/features/bim-viewer/App";
+import { useEffect, useRef } from "react";
+import { attachPersistentBimViewer, detachAndParkPersistentBimViewer } from "@/features/bim-viewer/bimViewerPersistentHost";
+import { workspaceStore } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/3d-view")({
   head: () => ({
@@ -13,11 +15,22 @@ export const Route = createFileRoute("/3d-view")({
 });
 
 function Platform3DPage() {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const activeProjectId = workspaceStore((s) => s.activeProjectId);
+
+  useEffect(() => {
+    if (mountRef.current) {
+      attachPersistentBimViewer(mountRef.current, activeProjectId);
+    }
+
+    return () => {
+      detachAndParkPersistentBimViewer();
+    };
+  }, [activeProjectId]);
+
   return (
     <AppShell title="3D Studio" subtitle="Interactive IFC BIM Model & Spatial Studio">
-      <div className="h-full w-full overflow-hidden bg-[#242426]">
-        <BimViewerApp />
-      </div>
+      <div ref={mountRef} className="h-full w-full overflow-hidden bg-[#242426]" />
     </AppShell>
   );
 }

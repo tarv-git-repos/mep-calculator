@@ -90,11 +90,124 @@ export async function getProjectIfcFile(projectId?: string | null): Promise<File
 }
 
 export async function deleteProjectIfcFile(projectId: string): Promise<void> {
-  if (!projectId) return;
+  const targetId = resolveProjectId(projectId);
+  if (!targetId) return;
   try {
     const db = await openDb();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
-    store.delete(projectId);
+    store.delete(targetId);
+    store.delete(`${targetId}__converted_bim`);
+    await new Promise((res, rej) => {
+      tx.oncomplete = res;
+      tx.onerror = rej;
+    });
+    console.log(`Purged IFC file and converted BIM cache for project: "${targetId}".`);
   } catch (e) {}
+}
+
+export interface ConvertedBimRecord {
+  fileName: string;
+  fileSize: number;
+  fileModified: number;
+  fragBuffer: ArrayBuffer;
+  jsonStr: string;
+  savedAt: number;
+}
+
+export async function saveProjectConvertedBim(
+  projectId: string | null | undefined,
+  data: {
+    fileName: string;
+    fileSize: number;
+    fileModified: number;
+    fragBytes: Uint8Array;
+    jsonStr: string;
+  }
+): Promise<void> {
+  const targetId = resolveProjectId(projectId);
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+
+    const fragBuffer = data.fragBytes.buffer.slice(
+      data.fragBytes.byteOffset,
+      data.fragBytes.byteOffset + data.fragBytes.byteLength
+    );
+
+    const record: ConvertedBimRecord = {
+      fileName: data.fileName,
+      fileSize: data.fileSize,
+      fileModified: data.fileModified,
+      fragBuffer,
+      jsonStr: data.jsonStr,
+      savedAt: Date.now(),
+    };
+
+    if (targetId) {
+      store.put(record, `${targetId}__converted_bim`);
+    }
+
+    const fileKey = `file_${data.fileName}_${data.fileSize}`;
+    store.put(record, fileKey);
+
+    await new Promise((res, rej) => {
+      tx.oncomplete = res;
+      tx.onerror = rej;
+    });
+    console.log(`💾 Persisted pre-converted 3D BIM geometry to IndexedDB (${(fragBuffer.byteLength / (1024 * 1024)).toFixed(2)} MB).`);
+  } catch (err) {
+    console.warn("Failed to persist converted BIM geometry to IndexedDB:", err);
+  }
+}
+
+export async function getProjectConvertedBim(
+  projectId?: string | null,
+  fileRef?: { name: string; size: number; lastModified?: number } | null
+): Promise<{ fragBytes: Uint8Array; jsonStr: string; fileName: string } | null> {
+  const targetId = resolveProjectId(projectId);
+  try {
+    const db = await openDb();
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+
+    let record: ConvertedBimRecord | null = null;
+
+    if (targetId) {
+      const req = store.get(`${targetId}__converted_bim`);
+      record = await new Promise<any>((res, rej) => {
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+    }
+
+    if ((!record || (fileRef && (record.fileName !== fileRef.name || record.fileSize !== fileRef.size))) && fileRef) {
+      const fileKey = `file_${fileRef.name}_${fileRef.size}`;
+      const req = store.get(fileKey);
+      record = await new Promise<any>((res, rej) => {
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+    }
+
+    if (record && record.fragBuffer && record.jsonStr) {
+      if (fileRef) {
+        const nameMatches = record.fileName === fileRef.name;
+        const sizeMatches = record.fileSize === fileRef.size;
+        if (!nameMatches || !sizeMatches) {
+          return null;
+        }
+      }
+
+      return {
+        fragBytes: new Uint8Array(record.fragBuffer),
+        jsonStr: record.jsonStr,
+        fileName: record.fileName,
+      };
+    }
+  } catch (err) {
+    console.warn("Failed to retrieve converted BIM geometry from IndexedDB:", err);
+  }
+  return null;
 }

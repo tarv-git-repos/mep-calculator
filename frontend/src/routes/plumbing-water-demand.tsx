@@ -156,7 +156,103 @@ function detectAshraeOccupancy(desc: string): AutoDetectResult | null {
     }
   }
 
-  // Residential Studio / BHK
+  // Healthcare / Medical / Clinic / Lab
+  if (textToScan.includes("day clinic") || textToScan.includes("practitioner") || textToScan.includes("polyclinic")) {
+    return { people: qty * 5, cat: "Day clinic (per medical practitioner) incl. visitors", autoDetected: true };
+  }
+  if (
+    textToScan.includes("hospital") ||
+    textToScan.includes("clinic") ||
+    textToScan.includes("patient room") ||
+    textToScan.includes("bed") ||
+    textToScan.includes("ward") ||
+    textToScan.includes("medical")
+  ) {
+    return { people: qty * 2, cat: "Medical (per bed)", autoDetected: true };
+  }
+  if (textToScan.includes("lab") || textToScan.includes("laboratory") || textToScan.includes("diagnostic")) {
+    return { people: qty * 15, cat: "Laboratory", autoDetected: true };
+  }
+
+  // Education
+  if (
+    textToScan.includes("classroom") ||
+    textToScan.includes("class room") ||
+    textToScan.includes("school") ||
+    textToScan.includes("university") ||
+    textToScan.includes("college") ||
+    textToScan.includes("institute") ||
+    textToScan.includes("lecture")
+  ) {
+    return { people: qty * 30, cat: "Schools / university", autoDetected: true };
+  }
+  if (
+    textToScan.includes("nursery") ||
+    textToScan.includes("child care") ||
+    textToScan.includes("daycare") ||
+    textToScan.includes("creche") ||
+    textToScan.includes("kindergarten") ||
+    textToScan.includes("kg")
+  ) {
+    return { people: qty * 20, cat: "Nursery / child care centre", autoDetected: true };
+  }
+
+  // Hospitality & Dining
+  if (
+    textToScan.includes("hotel room") ||
+    textToScan.includes("hotel guest") ||
+    textToScan.includes("guest room") ||
+    textToScan.includes("hotel") ||
+    textToScan.includes("resort")
+  ) {
+    return { people: qty * 2, cat: "Hotels (per guest)", autoDetected: true };
+  }
+  if (textToScan.includes("hotel staff") || textToScan.includes("hotel employee") || textToScan.includes("staff quarter")) {
+    return { people: qty * 10, cat: "Hotels (per employee)", autoDetected: true };
+  }
+  if (
+    textToScan.includes("restaurant") ||
+    textToScan.includes("dining") ||
+    textToScan.includes("cafeteria") ||
+    textToScan.includes("cafe") ||
+    textToScan.includes("food court") ||
+    textToScan.includes("bistro") ||
+    textToScan.includes("eatery")
+  ) {
+    return { people: qty * 40, cat: "Restaurant (per meal)", autoDetected: true };
+  }
+  if (textToScan.includes("visitor") || textToScan.includes("lobby") || textToScan.includes("reception") || textToScan.includes("waiting")) {
+    return { people: qty * 20, cat: "Visitors", autoDetected: true };
+  }
+
+  // Industrial & Workshops
+  if (textToScan.includes("manufacturing") || textToScan.includes("factory") || textToScan.includes("production") || textToScan.includes("mill")) {
+    return { people: qty * 15, cat: "Manufacturing / mineral", autoDetected: true };
+  }
+  if (
+    textToScan.includes("workshop") ||
+    textToScan.includes("warehouse") ||
+    textToScan.includes("depot") ||
+    textToScan.includes("plant room") ||
+    textToScan.includes("substation") ||
+    textToScan.includes("mechanical room") ||
+    textToScan.includes("pump room") ||
+    textToScan.includes("industrial")
+  ) {
+    return { people: qty * 10, cat: "Industrial (workshops / machinery / warehouse)", autoDetected: true };
+  }
+
+  // Security / Guardhouse
+  if (textToScan.includes("guard") || textToScan.includes("guardhouse") || textToScan.includes("security") || textToScan.includes("gatehouse")) {
+    return { people: qty * 2, cat: "Guardhouse", autoDetected: true };
+  }
+
+  // Mosque & Public
+  if (textToScan.includes("mosque") || textToScan.includes("prayer room") || textToScan.includes("masjid") || textToScan.includes("musalla")) {
+    return { people: qty * 50, cat: "Mosques", autoDetected: true };
+  }
+
+  // Residential Studio / BHK / Villas
   if (textToScan.includes("studio")) {
     return { people: qty * 2, cat: "Residential buildings (flat)", autoDetected: true };
   }
@@ -174,27 +270,15 @@ function detectAshraeOccupancy(desc: string): AutoDetectResult | null {
     }
   }
 
-  const directBhk = clean.match(/(\d+)\s*(?:bhk|bed|bedroom|br)\b/i);
-  if (directBhk && directBhk[1]) {
-    const bedrooms = parseInt(directBhk[1], 10);
-    if (!isNaN(bedrooms) && bedrooms > 0) {
-      return {
-        people: bedrooms * 2,
-        cat: clean.includes("villa") ? "Villas" : "Residential buildings (flat)",
-        autoDetected: true,
-      };
-    }
-  }
-
-  if (textToScan.includes("villa") || textToScan.includes("townhouse")) {
+  if (textToScan.includes("villa") || textToScan.includes("townhouse") || textToScan.includes("duplex")) {
     return { people: qty * 6, cat: "Villas", autoDetected: true };
   }
 
-  if (textToScan.includes("flat") || textToScan.includes("apartment") || textToScan.includes("residential")) {
+  if (textToScan.includes("flat") || textToScan.includes("apartment") || textToScan.includes("residential") || textToScan.includes("residence")) {
     return { people: qty * 4, cat: "Residential buildings (flat)", autoDetected: true };
   }
 
-  if (textToScan.includes("labour") || textToScan.includes("labor") || textToScan.includes("worker")) {
+  if (textToScan.includes("labour") || textToScan.includes("labor") || textToScan.includes("worker") || textToScan.includes("camp")) {
     return { people: qty * 20, cat: "Labour accommodation", autoDetected: true };
   }
 
@@ -212,7 +296,7 @@ function detectAshraeOccupancy(desc: string): AutoDetectResult | null {
   }
 
   // Offices & Commercial
-  if (textToScan.includes("office") || textToScan.includes("workstation") || textToScan.includes("desk")) {
+  if (textToScan.includes("office") || textToScan.includes("workstation") || textToScan.includes("desk") || textToScan.includes("cubicle")) {
     return { people: qty * 10, cat: "Offices", autoDetected: true };
   }
   if (textToScan.includes("headquarter") || textToScan.includes("hq")) {
@@ -223,49 +307,20 @@ function detectAshraeOccupancy(desc: string): AutoDetectResult | null {
   }
 
   // Retail & Leisure
-  if (textToScan.includes("shop") || textToScan.includes("retail") || textToScan.includes("store")) {
+  if (textToScan.includes("shop") || textToScan.includes("retail") || textToScan.includes("store") || textToScan.includes("boutique") || textToScan.includes("supermarket")) {
     return { people: qty * 8, cat: "Shops", autoDetected: true };
   }
   if (textToScan.includes("plaza") || textToScan.includes("mall") || textToScan.includes("town center")) {
     return { people: qty * 100, cat: "Local plaza / retail / town center", autoDetected: true };
   }
-  if (textToScan.includes("club") || textToScan.includes("recreation")) {
+  if (textToScan.includes("club") || textToScan.includes("recreation") || textToScan.includes("gym") || textToScan.includes("fitness")) {
     return { people: qty * 30, cat: "Club house / recreation", autoDetected: true };
   }
-  if (textToScan.includes("theater") || textToScan.includes("theatre") || textToScan.includes("cinema")) {
+  if (textToScan.includes("theater") || textToScan.includes("theatre") || textToScan.includes("cinema") || textToScan.includes("auditorium")) {
     return { people: qty * 50, cat: "Theatre", autoDetected: true };
   }
-
-  // Hospitality
-  if (textToScan.includes("hotel room") || textToScan.includes("hotel guest") || textToScan.includes("guest room")) {
-    return { people: qty * 2, cat: "Hotels (per guest)", autoDetected: true };
-  }
-  if (textToScan.includes("hotel staff") || textToScan.includes("hotel employee")) {
-    return { people: qty * 10, cat: "Hotels (per employee)", autoDetected: true };
-  }
-  if (textToScan.includes("restaurant") || textToScan.includes("dining") || textToScan.includes("cafeteria") || textToScan.includes("cafe")) {
-    return { people: qty * 40, cat: "Restaurant (per meal)", autoDetected: true };
-  }
-
-  // Education
-  if (textToScan.includes("classroom") || textToScan.includes("class room") || textToScan.includes("school") || textToScan.includes("university")) {
-    return { people: qty * 30, cat: "Schools / university", autoDetected: true };
-  }
-  if (textToScan.includes("nursery") || textToScan.includes("child care") || textToScan.includes("creche")) {
-    return { people: qty * 20, cat: "Nursery / child care centre", autoDetected: true };
-  }
-
-  // Healthcare
-  if (textToScan.includes("hospital") || textToScan.includes("clinic") || textToScan.includes("patient room") || textToScan.includes("bed")) {
-    return { people: qty * 2, cat: "Medical (per bed)", autoDetected: true };
-  }
-  if (textToScan.includes("lab") || textToScan.includes("laboratory")) {
-    return { people: qty * 15, cat: "Laboratory", autoDetected: true };
-  }
-
-  // Mosque & Public
-  if (textToScan.includes("mosque") || textToScan.includes("prayer room")) {
-    return { people: qty * 50, cat: "Mosques", autoDetected: true };
+  if (textToScan.includes("event") || textToScan.includes("exhibition") || textToScan.includes("banquet") || textToScan.includes("function hall")) {
+    return { people: qty * 50, cat: "Events", autoDetected: true };
   }
 
   return null;
@@ -1992,6 +2047,31 @@ function WaterDemandPage() {
                                           className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded"
                                         />
                                         <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
+                                        {r.flagged && (
+                                          <span title="Flagged for review" className="inline-flex">
+                                            <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                          </span>
+                                        )}
+                                        {r.comments && r.comments.length > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setCommentTarget({
+                                                targetId: String(r.id),
+                                                targetName: r.name,
+                                                targetType: "Domestic Water Load",
+                                                rowId: r.id,
+                                                isIrrigation: false,
+                                                existingComments: r.comments || [],
+                                              })
+                                            }
+                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-500/20 transition cursor-pointer"
+                                            title={`${r.comments.length} comment(s) — Click to view`}
+                                          >
+                                            <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                            <span>{r.comments.length}</span>
+                                          </button>
+                                        )}
                                       </div>
                                     </td>
                                     <td style={{ width: colWidths.name, minWidth: colWidths.name }} className="py-1.5 px-3" onClick={(e) => e.stopPropagation()}>
@@ -2062,29 +2142,6 @@ function WaterDemandPage() {
                                     </td>
                                     <td style={{ width: colWidths.actions, minWidth: colWidths.actions }} className="py-1.5 px-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
                                       <div className="flex items-center justify-center gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setCommentTarget({
-                                              targetId: String(r.id),
-                                              targetName: r.name,
-                                              targetType: "Domestic Water Load",
-                                              rowId: r.id,
-                                              isIrrigation: false,
-                                              existingComments: r.comments || [],
-                                            })
-                                          }
-                                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors relative cursor-pointer"
-                                          title="Add comment & assign task to user"
-                                        >
-                                          <MessageSquare className="size-3.5" />
-                                          {r.comments && r.comments.length > 0 && (
-                                            <span className="absolute -top-1 -right-1 size-3.5 bg-blue-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center">
-                                              {r.comments.length}
-                                            </span>
-                                          )}
-                                        </button>
-
                                         <button
                                           type="button"
                                           onClick={() => handleToggleWdFlag(r.id)}
@@ -2314,12 +2371,12 @@ function WaterDemandPage() {
                                           : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
                                       }`}
                                     >
-                                      <td style={{ width: colWidths.select, minWidth: colWidths.select }} className="py-1.5 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                      <td style={{ width: colWidths.irr_select, minWidth: colWidths.irr_select }} className="py-1.5 px-2 text-center" onClick={(e) => e.stopPropagation()}>
                                         <div className="flex items-center justify-center gap-1.5">
                                           <input
                                             type="checkbox"
-                                            checked={selectedWdRows.has(r.id)}
-                                            onChange={() => toggleWdRowSelection(r.id, false, true)}
+                                            checked={selectedIrrRows.has(r.id)}
+                                            onChange={() => toggleIrrRowSelection(r.id, false, true)}
                                             className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded"
                                           />
                                           <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
@@ -3910,11 +3967,9 @@ function WaterDemandPage() {
                     const val = e.target.value;
                     setNewWdName(val);
                     const detected = detectAshraeOccupancy(val);
-                    if (detected) {
+                    if (detected && detected.cat && WD_TYPE_MAP[detected.cat] !== undefined) {
                       setNewWdPeople(detected.people);
-                      if (detected.cat) {
-                        setNewWdCat(detected.cat);
-                      }
+                      setNewWdCat(detected.cat);
                       setNewWdAutoDetected(true);
                     } else {
                       setNewWdAutoDetected(false);
@@ -3978,6 +4033,25 @@ function WaterDemandPage() {
                     <option value="Theatre">Theatre — 50 LPD</option>
                     <option value="Events">Events — 50 LPD</option>
                     <option value="Guardhouse">Guardhouse — 75 LPD</option>
+                  </optgroup>
+                  <optgroup label="Hospitality & Dining">
+                    <option value="Hotels (per guest)">Hotels (per guest) — 300 LPD</option>
+                    <option value="Hotels (per employee)">Hotels (per employee) — 80 LPD</option>
+                    <option value="Restaurant (per meal)">Restaurant (per meal) — 15 LPD</option>
+                    <option value="Visitors">Visitors — 40 LPD</option>
+                  </optgroup>
+                  <optgroup label="Education">
+                    <option value="Schools / university">Schools / university — 60 LPD</option>
+                    <option value="Nursery / child care centre">Nursery / child care centre — 70 LPD</option>
+                  </optgroup>
+                  <optgroup label="Healthcare & Medical">
+                    <option value="Medical (per bed)">Medical (per bed) — 450 LPD</option>
+                    <option value="Day clinic (per medical practitioner) incl. visitors">Day clinic (per practitioner) — 450 LPD</option>
+                    <option value="Laboratory">Laboratory — 80 LPD</option>
+                  </optgroup>
+                  <optgroup label="Industrial & Workshops">
+                    <option value="Industrial (workshops / machinery / warehouse)">Industrial (workshops / warehouse) — 80 LPD</option>
+                    <option value="Manufacturing / mineral">Manufacturing / mineral — 80 LPD</option>
                   </optgroup>
                   <optgroup label="Public & Assembly">
                     <option value="Mosques">Mosques — 60 LPD</option>

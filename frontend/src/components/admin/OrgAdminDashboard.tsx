@@ -269,15 +269,31 @@ export function OrgAdminDashboard() {
       return
     }
     toast.info(`Updating role for ${user.email} to ${newRole}...`)
-    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole as Role, designation: newRole } : u));
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole as Role } : u));
     const res = await api.adminToggleRole(user.id, newRole)
-    await api.adminUpdateProfile(user.id, { role: newRole, designation: newRole });
+    await api.adminUpdateProfile(user.id, { role: newRole });
     if (res && res.success) {
       toast.success(`Role for ${user.name || user.email} updated to ${newRole}`)
       fetchUsers()
     } else {
       toast.error(res.message || "Failed to update role")
     }
+  }
+
+  const handleChangeApprovalAuthority = async (user: Profile, newAuthority: 'APPROVE_REJECT' | 'REVIEW' | 'NONE') => {
+    toast.info(`Updating review rights for ${user.name || user.email}...`)
+    setUsers(prev => prev.map(u => u.id === user.id ? { 
+      ...u, 
+      approvalAuthority: newAuthority,
+      features: { ...(u.features || {}), approvalAuthority: newAuthority }
+    } : u));
+    const res = await api.adminUpdateProfile(user.id, { 
+      email: user.email,
+      approvalAuthority: newAuthority,
+      features: { ...(user.features || {}), approvalAuthority: newAuthority }
+    });
+    toast.success(`Review rights updated for ${user.name || user.email}`)
+    fetchUsers()
   }
 
   const ROLE_ORDER: Record<string, number> = {
@@ -807,32 +823,6 @@ export function OrgAdminDashboard() {
                 </button>
               </div>
 
-              {/* Role Counters Summary - Clean Slate Styling */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                {[
-                  { key: 'Design Engineer', label: 'Design Engineers' },
-                  { key: 'BIM Modeler', label: 'BIM Modelers' },
-                  { key: 'Team Leader', label: 'Team Leaders' },
-                  { key: 'Viewer', label: 'Viewers' },
-                  { key: 'Client', label: 'Clients' }
-                ].map(item => (
-                  <div 
-                    key={item.key}
-                    onClick={() => setSelectedRoleFilter(item.key)}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-                      selectedRoleFilter === item.key 
-                        ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-transparent shadow-xs' 
-                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    <div className="text-[11px] font-bold uppercase tracking-wider opacity-75">{item.label}</div>
-                    <div className="text-xl font-extrabold mt-0.5">
-                      {users.filter(u => u.role === item.key || (item.key === 'Design Engineer' && (u.role === 'ENGINEER' || u.role === 'USER'))).length}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
               {/* Filter & Sort Controls */}
               <div className="p-4 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -880,6 +870,7 @@ export function OrgAdminDashboard() {
                       <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800">
                         <tr>
                           <th className="px-6 py-4 font-bold">Team Member</th>
+                          <th className="px-6 py-4 font-bold">Calculation Review Rights</th>
                           <th className="px-6 py-4 font-bold">Assigned Platform Role</th>
                           <th className="px-6 py-4 font-bold">Account Status</th>
                           <th className="px-6 py-4 font-bold text-right">Actions</th>
@@ -911,15 +902,33 @@ export function OrgAdminDashboard() {
                                   <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
                                     {u.role === 'ORG_ADMIN' && <Crown size={14} className="text-amber-500 shrink-0" title="Org Admin" />}
                                     <span>{u.name || u.email}</span>
-                                    {(u.designation || u.features?.designation) && (
-                                      <span className="text-[10px] px-2 py-0.5 rounded font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shrink-0">
-                                        {u.designation || u.features?.designation}
-                                      </span>
-                                    )}
                                   </div>
                                   <div className="text-slate-500 text-xs mt-0.5">{u.email}</div>
                                 </div>
                               </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <select
+                                value={
+                                  u.approvalAuthority || (u.features as any)?.approvalAuthority || (
+                                    (u.role === 'ORG_ADMIN' || u.role === 'SUPER_ADMIN' || u.role === 'Discipline Coordinator' || u.role === 'Team Leader')
+                                      ? 'APPROVE_REJECT'
+                                      : (u.role === 'Sr. Design Engineer' ? 'REVIEW' : 'NONE')
+                                  )
+                                }
+                                onChange={(e) => handleChangeApprovalAuthority(u, e.target.value as 'APPROVE_REJECT' | 'REVIEW' | 'NONE')}
+                                className={`text-xs px-2.5 py-1.5 rounded-lg border font-bold focus:outline-none focus:ring-1 focus:ring-slate-400 cursor-pointer shadow-2xs ${
+                                  (u.approvalAuthority || (u.features as any)?.approvalAuthority) === 'APPROVE_REJECT' || (!u.approvalAuthority && (u.role === 'ORG_ADMIN' || u.role === 'SUPER_ADMIN' || u.role === 'Discipline Coordinator' || u.role === 'Team Leader'))
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                    : (u.approvalAuthority || (u.features as any)?.approvalAuthority) === 'REVIEW' || (!u.approvalAuthority && u.role === 'Sr. Design Engineer')
+                                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                                    : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                                }`}
+                              >
+                                <option value="APPROVE_REJECT">Approve / Reject & Review</option>
+                                <option value="REVIEW">Reviewal Only</option>
+                                <option value="NONE">No Reviewal Rights</option>
+                              </select>
                             </td>
                             <td className="px-6 py-4">
                               {u.id === currentUserProfile?.id ? (

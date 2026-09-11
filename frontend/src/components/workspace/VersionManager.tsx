@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { History, Save, FolderOpen, Plus, List, AlertCircle } from 'lucide-react';
 import { 
   DropdownMenu, 
@@ -6,7 +6,8 @@ import {
   DropdownMenuContent, 
   DropdownMenuItem, 
   DropdownMenuSeparator,
-  DropdownMenuLabel 
+  DropdownMenuLabel,
+  DropdownMenuShortcut
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { readTextFile, exists, mkdir, readDir } from '@tauri-apps/plugin-fs';
@@ -535,6 +536,41 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
     }
   };
 
+  // Keyboard Shortcut Listener for Quick Version Management
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isInputFocused = ["INPUT", "TEXTAREA", "SELECT"].includes((document.activeElement?.tagName || "").toUpperCase());
+      if (isInputFocused) return;
+
+      // Ctrl+Shift+S or Cmd+Shift+S (Save as New Version)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "S" || e.key === "s")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSaveAsVersion();
+        return;
+      }
+
+      // Ctrl+Shift+H or Cmd+Shift+H (Open Version History)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "H" || e.key === "h")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleOpenHistory();
+        return;
+      }
+
+      // Ctrl+Shift+O or Cmd+Shift+O (Load Past Version File)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "O" || e.key === "o")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleLoadVersion();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [projectName, calculatorName, historyList, activeVersionName]);
+
   return (
     <div className="flex items-center gap-2">
       {/* Version Dropdown */}
@@ -545,21 +581,33 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
             <span className="font-semibold text-foreground dark:text-white">{activeVersionName}</span>
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56 z-50">
-          <DropdownMenuLabel>Revision Manager</DropdownMenuLabel>
+        <DropdownMenuContent align="end" className="w-64 z-50">
+          <DropdownMenuLabel className="flex items-center justify-between">
+            <span>Revision Manager</span>
+            <span className="text-[10px] font-mono text-muted-foreground/70 font-normal">Global Shortcuts</span>
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleSaveAsVersion} className="gap-2 cursor-pointer">
-            <Plus className="w-4 h-4 text-blue-500" />
-            <span>Save as New Version...</span>
+          <DropdownMenuItem onClick={handleSaveAsVersion} className="gap-2 cursor-pointer flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-blue-500" />
+              <span>Save as New Version...</span>
+            </div>
+            <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleLoadVersion} className="gap-2 cursor-pointer">
-            <FolderOpen className="w-4 h-4 text-emerald-500" />
-            <span>Load Past Version (File)...</span>
+          <DropdownMenuItem onClick={handleLoadVersion} className="gap-2 cursor-pointer flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-emerald-500" />
+              <span>Load Past Version (File)...</span>
+            </div>
+            <DropdownMenuShortcut>Ctrl+Shift+O</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleOpenHistory} className="gap-2 cursor-pointer">
-            <List className="w-4 h-4 text-purple-500" />
-            <span>History</span>
+          <DropdownMenuItem onClick={handleOpenHistory} className="gap-2 cursor-pointer flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <List className="w-4 h-4 text-purple-500" />
+              <span>History</span>
+            </div>
+            <DropdownMenuShortcut>Ctrl+Shift+H</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
