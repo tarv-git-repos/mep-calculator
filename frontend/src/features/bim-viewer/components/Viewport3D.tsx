@@ -312,8 +312,29 @@ export function Viewport3D() {
             } catch {}
         };
 
+        let isModelLoadingInProgress = false;
+        let activeModelSignature = '';
+
         (window as any).loadIfcFile = async (file: File, isPreload: boolean = false) => {
             if (!file?.name.toLowerCase().endsWith('.ifc')) return;
+            const fileSignature = `${file.name}_${file.size}`;
+
+            if (isModelLoadingInProgress) {
+                console.log(`⏳ Model loading already in progress for "${file.name}". Skipping duplicate call.`);
+                return;
+            }
+
+            if (currentModel && activeModelSignature === fileSignature) {
+                console.log(`⚡ Model "${file.name}" is already loaded in 3D viewport. Instant return.`);
+                store().setIsLoaded(true);
+                store().setIsLoading(false);
+                ui.overlay.style.display = 'none';
+                ui.toolbar.style.display = 'flex';
+                return;
+            }
+
+            isModelLoadingInProgress = true;
+            activeModelSignature = fileSignature;
 
             (window as any)._currentLoadedFile = file;
             const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
@@ -419,15 +440,15 @@ export function Viewport3D() {
                     .filter((e: any) => e.type === 'IFCSPACE' && !isIgnoredSpace(e))
                     .map((e: any) => e.expressId);
                 const spaceLocalIds = await model.getLocalIdsFromItemIds(spaceExpressIds);
-                for (const id of spaceLocalIds) allSpatialLocalIds.add(id);
-
                 const expressIdToLocalId = new Map<number, number>();
-                await Promise.all(spaceExpressIds.map(async (id) => {
-                    const localIds = await model.getLocalIdsFromItemIds([id]);
-                    if (localIds && localIds.length > 0) {
-                        expressIdToLocalId.set(id, localIds[0]);
+                for (let i = 0; i < spaceExpressIds.length; i++) {
+                    const expId = spaceExpressIds[i];
+                    const locId = spaceLocalIds[i];
+                    if (locId !== undefined) {
+                        expressIdToLocalId.set(expId, locId);
+                        allSpatialLocalIds.add(locId);
                     }
-                }));
+                }
 
                 const spaceMap = { [model.modelId]: allSpatialLocalIds };
 
@@ -1554,8 +1575,11 @@ export function Viewport3D() {
                 store().setIsLoaded(true);
                 store().setIsLoading(false);
             } catch (err) { 
+                console.error("loadIfcFile error:", err);
                 store().setLoadingText('Error: ' + err);
                 store().setIsLoading(false);
+            } finally {
+                isModelLoadingInProgress = false;
             }
         };
 
@@ -1642,19 +1666,29 @@ export function Viewport3D() {
         setIsReady(true);
 
         // Preload saved project IFC file if present for active project
+        let isPreloadTriggered = false;
         const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
-        getProjectIfcFile(activeProjId).then((savedFile) => {
-            if (savedFile && (window as any).loadIfcFile) {
-                console.log(`Preloading saved project IFC file: "${savedFile.name}" for project "${activeProjId}"...`);
-                (window as any).loadIfcFile(savedFile, true);
-            } else {
-                console.log(`No saved IFC file found for project "${activeProjId}". Displaying clean upload state.`);
-                (window as any)._currentLoadedFile = null;
-                (window as any).__BIM_VIEWER_SPACES__ = null;
-                store().setIsLoaded(false);
-                store().setIsLoading(false);
-            }
-        });
+        if (activeProjId && !isPreloadTriggered) {
+            isPreloadTriggered = true;
+            getProjectIfcFile(activeProjId).then((savedFile) => {
+                if (savedFile && (window as any).loadIfcFile) {
+                    if (currentModel && activeModelSignature === `${savedFile.name}_${savedFile.size}`) {
+                        console.log(`⚡ Model "${savedFile.name}" already active for project "${activeProjId}". Skipping duplicate preload.`);
+                        store().setIsLoaded(true);
+                        store().setIsLoading(false);
+                        return;
+                    }
+                    console.log(`Preloading saved project IFC file: "${savedFile.name}" for project "${activeProjId}"...`);
+                    (window as any).loadIfcFile(savedFile, true);
+                } else {
+                    console.log(`No saved IFC file found for project "${activeProjId}". Displaying clean upload state.`);
+                    (window as any)._currentLoadedFile = null;
+                    (window as any).__BIM_VIEWER_SPACES__ = null;
+                    store().setIsLoaded(false);
+                    store().setIsLoading(false);
+                }
+            });
+        }
 
         return () => {
             isInitialized.current = false;
@@ -1666,8 +1700,7 @@ export function Viewport3D() {
             window.removeEventListener('keydown', handleWalkKeyDown);
             window.removeEventListener('keyup', handleWalkKeyUp);
             if (rendererManagerRef.current) {
-                rendererManagerRef.current.dispose();
-                rendererManagerRef.current = null;
+                rendererManagerRef.current.pause();
             }
         };
     }, []);
