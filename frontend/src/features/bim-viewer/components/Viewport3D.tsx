@@ -11,6 +11,7 @@ import { DropOverlay } from './DropOverlay';
 import { workspaceStore } from '@/lib/workspace-store';
 import { saveProjectIfcFile, getProjectIfcFile, deleteProjectIfcFile } from '@/lib/projectIfcStorage';
 import { isMepValidSpaceName, sortSpacesByFloorAndName } from '@/lib/bimViewerSpaceExtractor';
+import { api as backendApi } from '@/services/api';
 
 import { ensureApiBridge } from '../tauri-bridge';
 
@@ -389,6 +390,22 @@ export function Viewport3D() {
                 ]);
                 const fragBytes = new Uint8Array(rawFrag.buffer ?? rawFrag);
                 const jsonData = JSON.parse(new TextDecoder().decode(new Uint8Array(rawJson.buffer ?? rawJson)));
+
+                try {
+                    const extractedName = jsonData?.project?.name || jsonData?.project?.longName;
+                    if (extractedName && extractedName !== 'Project' && extractedName !== 'Default Project') {
+                        const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "");
+                        if (activeProjId) {
+                            await backendApi.updateProjectDetails(activeProjId, { name: extractedName });
+                            const state = workspaceStore.getState();
+                            if (state.project) state.project.name = extractedName;
+                            const pInArr = state.projects.find(p => p.id === activeProjId);
+                            if (pInArr) pInArr.name = extractedName;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Failed to sync project name from IFC", e);
+                }
 
                 if (fragBytes.byteLength === 0) {
                     console.error("❌ CRITICAL: .frag file is EMPTY! The IFC conversion produced no output.");

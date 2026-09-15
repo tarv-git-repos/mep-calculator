@@ -113,7 +113,7 @@ interface FanSystem {
 }
 
 function BasementSmokeCalcPage() {
-  const { project, forceSaveToCloud, isInitializing } = useWorkspace();
+  const { project, forceSaveToCloud, isInitializing, updateProject } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
@@ -263,7 +263,7 @@ function BasementSmokeCalcPage() {
         if (!wdata.comments) wdata.comments = {};
         wdata.comments[storageKey] = newComments;
         api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
-        useWorkspace.getState().updateProject({ ...project, workspace_data: wdata });
+        updateProject({ ...project, workspace_data: wdata });
         if (typeof forceSaveToCloud === "function") forceSaveToCloud();
       }
     } catch (e) {

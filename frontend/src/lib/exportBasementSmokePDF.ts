@@ -118,7 +118,7 @@ export const exportBasementSmokePDF = async (
     // Header Title
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("SMOKE Ventilation Report", 14, 14);
+    doc.text("Smoke Ventilation Report", 14, 14);
 
     // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
     doc.setFontSize(9);
