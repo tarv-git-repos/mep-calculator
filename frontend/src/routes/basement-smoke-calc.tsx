@@ -113,7 +113,7 @@ interface FanSystem {
 }
 
 function BasementSmokeCalcPage() {
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project, forceSaveToCloud, isInitializing } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
@@ -751,11 +751,15 @@ function BasementSmokeCalcPage() {
 
   const ip = unitSystem === "ip";
 
+  const isInitialMountRef = useRef(true);
+
   // Load from local storage and workspace_data
   useEffect(() => {
+    if (isInitializing && !project?.id) return; // Wait until workspace is fully initialized
+
     setIsLoaded(false);
     try {
-      const pId = project?.id || "default";
+      const pId = project?.id || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : null) || "default";
       let loadedFloors: BasementFloor[] | null = null;
       let loadedFans: FanSystem[] | null = null;
       let loadedTotalFans: number | null = null;
@@ -778,9 +782,9 @@ function BasementSmokeCalcPage() {
         }
       }
 
-      // 2. Fallback to localStorage
+      // 2. Fallback to localStorage (only use global if pId is 'default')
       if (!loadedUnitSystem) {
-        const savedUnitSystem = (pId && localStorage.getItem(`bs_unit_system_${pId}`)) || localStorage.getItem("bs_unit_system") as "si" | "ip" | null;
+        const savedUnitSystem = (pId && pId !== "default" ? localStorage.getItem(`bs_unit_system_${pId}`) : null) || localStorage.getItem("bs_unit_system") as "si" | "ip" | null;
         if (savedUnitSystem && (savedUnitSystem === "si" || savedUnitSystem === "ip")) {
           loadedUnitSystem = savedUnitSystem;
         }
@@ -788,7 +792,7 @@ function BasementSmokeCalcPage() {
       if (loadedUnitSystem) setUnitSystem(loadedUnitSystem);
 
       if (!loadedFloors) {
-        const savedRows = (pId && localStorage.getItem(`bs_rows_${pId}`)) || localStorage.getItem("bs_rows");
+        const savedRows = (pId && pId !== "default" ? localStorage.getItem(`bs_rows_${pId}`) : null) || (pId === "default" ? localStorage.getItem("bs_rows") : null);
         if (savedRows) {
           const parsed: any[] = JSON.parse(savedRows);
           loadedFloors = parsed.map((f, idx) => {
@@ -818,7 +822,7 @@ function BasementSmokeCalcPage() {
       }
 
       if (!loadedFans) {
-        const savedFans = (pId && localStorage.getItem(`bs_fan_systems_${pId}`)) || localStorage.getItem("bs_fan_systems");
+        const savedFans = (pId && pId !== "default" ? localStorage.getItem(`bs_fan_systems_${pId}`) : null) || (pId === "default" ? localStorage.getItem("bs_fan_systems") : null);
         if (savedFans) {
           loadedFans = JSON.parse(savedFans);
         }
@@ -843,7 +847,7 @@ function BasementSmokeCalcPage() {
       }
 
       if (loadedTotalFans === null) {
-        const savedTotalFans = (pId && localStorage.getItem(`bs_total_fans_${pId}`)) || localStorage.getItem("bs_total_fans");
+        const savedTotalFans = (pId && pId !== "default" ? localStorage.getItem(`bs_total_fans_${pId}`) : null) || (pId === "default" ? localStorage.getItem("bs_total_fans") : null);
         if (savedTotalFans) loadedTotalFans = Number(savedTotalFans);
       }
       if (loadedTotalFans !== null && !isNaN(loadedTotalFans)) {
@@ -864,13 +868,13 @@ function BasementSmokeCalcPage() {
     } finally {
       setIsLoaded(true);
     }
-  }, [project?.id]);
+  }, [project?.id, isInitializing]);
 
   // Save to local storage & workspace data on changes (only after initial load is complete)
   useEffect(() => {
     if (!isLoaded) return;
     try {
-      const pId = project?.id || "default";
+      const pId = project?.id || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : null) || "default";
 
       // 1. Save to Local Storage
       const strRows = JSON.stringify(floors);
@@ -889,9 +893,14 @@ function BasementSmokeCalcPage() {
       localStorage.setItem("bs_unit_system", unitSystem);
       if (pId) localStorage.setItem(`bs_unit_system_${pId}`, unitSystem);
 
-      dirtyStore.set(true);
+      if (isInitialMountRef.current) {
+        isInitialMountRef.current = false;
+        dirtyStore.set(false);
+      } else {
+        dirtyStore.set(true);
+      }
 
-      // 2. Sync to project workspace_data & cloud backend
+      // 2. Update local workspace_data reference (will be pushed to cloud on manual save)
       if (project?.id) {
         let wdata = project.workspace_data || {};
         if (typeof wdata === 'string') {
@@ -905,16 +914,25 @@ function BasementSmokeCalcPage() {
           showGlobalFanSizing,
           updatedAt: new Date().toISOString()
         };
-        api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
-        useWorkspace.getState().updateProject({ ...project, workspace_data: wdata });
-        if (typeof forceSaveToCloud === "function") {
-          forceSaveToCloud();
-        }
+        // Mutate project object locally
+        project.workspace_data = wdata;
       }
     } catch (e) {
       console.error("Failed to save basement smoke calc state", e);
     }
   }, [floors, fanSystems, totalFans, unitSystem, showGlobalFanSizing, project?.id, isLoaded]);
+
+  useEffect(() => {
+    const handleTriggerSave = () => {
+      dirtyStore.set(false);
+      if (typeof forceSaveToCloud === "function") {
+        forceSaveToCloud(true);
+      }
+      toast.success("Basement smoke calculations saved successfully.");
+    };
+    window.addEventListener("mep-trigger-save", handleTriggerSave);
+    return () => window.removeEventListener("mep-trigger-save", handleTriggerSave);
+  }, [forceSaveToCloud]);
 
   const handleUnitSystemClick = (targetUnit: "si" | "ip") => {
     if (targetUnit === unitSystem) return;
@@ -1335,10 +1353,17 @@ function BasementSmokeCalcPage() {
   };
 
   const handleDuplicateFanSystem = (targetFs: FanSystem) => {
+    let newName = `${targetFs.name} (Copy)`;
+    let counter = 1;
+    while (fanSystems.some(fs => fs.name.toLowerCase() === newName.toLowerCase())) {
+      counter++;
+      newName = `${targetFs.name} (Copy ${counter})`;
+    }
+
     const newFs: FanSystem = {
       ...targetFs,
       id: `fs-${Date.now()}`,
-      name: `${targetFs.name} (Copy)`,
+      name: newName,
       collapsed: false
     };
     setFanSystems([...fanSystems, newFs]);
@@ -1367,10 +1392,21 @@ function BasementSmokeCalcPage() {
   };
 
   const handleSaveFanSystem = () => {
-    if (!modalFSName.trim()) {
+    const trimmedName = modalFSName.trim();
+    if (!trimmedName) {
       setModalError("Please enter a Fan System Name.");
       return;
     }
+
+    const isDuplicate = fanSystems.some(fs => 
+      fs.name.toLowerCase() === trimmedName.toLowerCase() && fs.id !== modalFSId
+    );
+
+    if (isDuplicate) {
+      setModalError("A Fan System with this name already exists. Please use a unique name.");
+      return;
+    }
+
     if (modalSelectedFloorIds.length === 0) {
       setModalError("Please select at least one floor to serve.");
       return;
@@ -1451,14 +1487,14 @@ function BasementSmokeCalcPage() {
       let calcNormalCap = normalScenarioSum;
       let calcFireCap = fireConditionTotalFlow;
 
-      // Scaling for makeup fan (85%)
+      // Scaling for makeup fan (80%)
       if (fs.fanType === "Makeup") {
-        flow3 = Math.round(flow3 * 0.85);
-        normalScenarioSum = Math.round(normalScenarioSum * 0.85);
-        flow10Max = Math.round(flow10Max * 0.85);
-        fireConditionTotalFlow = Math.round(fireConditionTotalFlow * 0.85);
-        calcNormalCap = Math.round(normalScenarioSum * 0.85);
-        calcFireCap = Math.round(fireConditionTotalFlow * 0.85);
+        flow3 = Math.round(flow3 * 0.80);
+        normalScenarioSum = Math.round(normalScenarioSum * 0.80);
+        flow10Max = Math.round(flow10Max * 0.80);
+        fireConditionTotalFlow = Math.round(fireConditionTotalFlow * 0.80);
+        calcNormalCap = normalScenarioSum;
+        calcFireCap = fireConditionTotalFlow;
       }
 
       // Custom user capacity overrides (if entered)

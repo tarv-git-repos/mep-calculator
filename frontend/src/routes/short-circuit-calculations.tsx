@@ -1,9 +1,10 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
+import { toast } from "sonner";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -11,8 +12,9 @@ import { TBtn } from "@/components/workspace/Button";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
   Plus, Trash2, Download, Upload, X, AlertTriangle, CheckCircle2,
-  Gauge, FileText, Printer, FileSpreadsheet, Copy, RefreshCw
+  FileText, Printer, FileSpreadsheet, Copy, RefreshCw, Filter, ArrowUpDown, Search
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -27,6 +29,7 @@ import {
 } from "@/components/ui/context-menu";
 import { useHistory, useSelection, useClipboard, useShortcuts } from "@/core/gridEngine";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/short-circuit-calculations")({
   head: () => ({
@@ -47,6 +50,17 @@ interface CableRow {
   voltage: number; // V
   material: "Copper" | "Aluminium";
   remarks: string;
+}
+
+interface RowDetail {
+  id: string;
+  segmentR: number;
+  segmentX: number;
+  segmentZ: number;
+  runningSumR: number;
+  runningSumX: number;
+  runningSumZ: number;
+  isc: number;
 }
 
 interface InlineInputProps {
@@ -105,6 +119,22 @@ function ShortCircuitCalculationsPage() {
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("schedule");
 
+  // Unit System state
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
+    if (newSystem === unitSystem) return;
+    setUnitSystem(newSystem);
+    if (shouldConvert) {
+      setRows(rows.map(r => ({
+        ...r,
+        length: newSystem === "ip"
+          ? Number(((r.length || 0) * 3.28084).toFixed(1))
+          : Number(((r.length || 0) / 3.28084).toFixed(1))
+      })));
+    }
+  };
+
   // Sizing Constants / Source parameters
   const [sourceFaultLevel, setSourceFaultLevel] = useState<number>(25); // kA
   const [nominalVoltage, setNominalVoltage] = useState<number>(400); // V
@@ -143,8 +173,10 @@ function ShortCircuitCalculationsPage() {
     let currentSumR = rSource;
     let currentSumX = xSource;
 
-    const rowDetails = rows.map((r) => {
-      const L = r.length || 0;
+    const rowDetails: RowDetail[] = rows.map((r) => {
+      const L_input = r.length || 0;
+      // Convert feet to meters if in IP mode for standard IEC 60909 calculation formulas
+      const L = unitSystem === "ip" ? L_input * 0.3048 : L_input;
       const N = r.runs || 1;
       const A = r.size || 1.5;
       const V = r.voltage || 400;
@@ -164,7 +196,7 @@ function ShortCircuitCalculationsPage() {
 
       const segmentZ = Math.sqrt(Math.pow(segmentR, 2) + Math.pow(segmentX, 2));
 
-      totalCableLength += L;
+      totalCableLength += L_input;
       totalR += segmentR;
       totalX += segmentX;
 
@@ -200,9 +232,10 @@ function ShortCircuitCalculationsPage() {
       totalX,
       totalZ,
       finalIsc,
-      rowDetails
+      rowDetails,
+      rowDetailsMap: new Map<string, RowDetail>(rowDetails.map((d): [string, RowDetail] => [d.id, d]))
     };
-  }, [rows, sourceFaultLevel, nominalVoltage, sourceXrRatio]);
+  }, [rows, sourceFaultLevel, nominalVoltage, sourceXrRatio, unitSystem]);
 
   // Validation Rules
   const validations = useMemo(() => {
@@ -279,6 +312,80 @@ function ShortCircuitCalculationsPage() {
 
     return logs;
   }, [rows, sourceFaultLevel, nominalVoltage, sourceXrRatio, calculatedData]);
+
+  // Search & Filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterMaterial, setFilterMaterial] = useState<"all" | "Copper" | "Aluminium">("all");
+  const [filterSize, setFilterSize] = useState<string>("all");
+  const [filterVoltage, setFilterVoltage] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<"none" | "description" | "length-desc" | "length-asc" | "size-desc" | "isc-desc">("none");
+
+  const activeFiltersCount = (filterMaterial !== "all" ? 1 : 0) + 
+                             (filterSize !== "all" ? 1 : 0) + 
+                             (filterVoltage !== "all" ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setFilterMaterial("all");
+    setFilterSize("all");
+    setFilterVoltage("all");
+  };
+
+  const uniqueSizes = useMemo(() => {
+    const set = new Set<number>();
+    rows.forEach(r => { if (r.size) set.add(r.size); });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [rows]);
+
+  const uniqueVoltages = useMemo(() => {
+    const set = new Set<number>();
+    rows.forEach(r => { if (r.voltage) set.add(r.voltage); });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    let result = rows;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(r => 
+        (r.description && r.description.toLowerCase().includes(q)) ||
+        (r.material && r.material.toLowerCase().includes(q)) ||
+        (r.remarks && r.remarks.toLowerCase().includes(q)) ||
+        String(r.size).includes(q) ||
+        String(r.length).includes(q) ||
+        String(r.voltage).includes(q)
+      );
+    }
+
+    if (filterMaterial !== "all") {
+      result = result.filter(r => r.material === filterMaterial);
+    }
+
+    if (filterSize !== "all") {
+      result = result.filter(r => String(r.size) === filterSize);
+    }
+
+    if (filterVoltage !== "all") {
+      result = result.filter(r => String(r.voltage) === filterVoltage);
+    }
+
+    if (sortBy !== "none") {
+      result = [...result].sort((a, b) => {
+        if (sortBy === "description") return (a.description || "").localeCompare(b.description || "");
+        if (sortBy === "length-desc") return (b.length || 0) - (a.length || 0);
+        if (sortBy === "length-asc") return (a.length || 0) - (b.length || 0);
+        if (sortBy === "size-desc") return (b.size || 0) - (a.size || 0);
+        if (sortBy === "isc-desc") {
+          const iscA = calculatedData.rowDetailsMap?.get(a.id)?.isc || 0;
+          const iscB = calculatedData.rowDetailsMap?.get(b.id)?.isc || 0;
+          return iscB - iscA;
+        }
+        return 0;
+      });
+    }
+
+    return result;
+  }, [rows, searchQuery, filterMaterial, filterSize, filterVoltage, sortBy, calculatedData]);
 
   // CRUD Sizing actions
   const handleAddRow = () => {
@@ -446,92 +553,213 @@ function ShortCircuitCalculationsPage() {
   };
 
   // PDF Exporter
-  const handleExportPDF = () => {
-    const doc = new jsPDF("p", "mm", "a4");
+  const handleExportPDF = async () => {
+    try {
+      const doc = new jsPDF("p", "mm", "a4");
 
-    // Header strip
-    doc.setFillColor(15, 23, 42); // slate-900
-    doc.rect(0, 0, 210, 25, "F");
+      const callAutoTable = (pdfDoc: any, options: any) => {
+        if (typeof autoTable === "function") {
+          autoTable(pdfDoc, options);
+        } else if (typeof (autoTable as any)?.default === "function") {
+          (autoTable as any).default(pdfDoc, options);
+        } else if (typeof pdfDoc.autoTable === "function") {
+          pdfDoc.autoTable(options);
+        }
+      };
 
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.text("SHORT CIRCUIT CURRENT SIZING REPORT", 14, 11);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 18);
+      // 1. Company Standard Metadata Header Box
+      addPdfHeader(doc, "Short Circuit Calculation Report", {
+        calcNo: (project as any)?.calcNo || "TRV-CAL-101-R01",
+        projectNo: project?.code || (project as any)?.projectNo || "P000",
+        projectName: project?.name || (project as any)?.projectName || "",
+        client: (project as any)?.client || "",
+        endUser: (project as any)?.endUser || (project as any)?.location || "",
+        date: new Date().toLocaleDateString("en-GB"),
+      });
 
-    // Sizing factors
-    doc.setTextColor(15, 23, 42);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.5);
-    doc.text("DESIGN CRITERIA", 14, 34);
+      // 2. Design Criteria Parameters
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "bold");
+      doc.text("Design Criteria:", 14, 40.5);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Source Fault Level: ${sourceFaultLevel} kA   |   Nominal Voltage: ${nominalVoltage} V   |   Source X/R: ${sourceXrRatio}`, 38, 40.5);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.text(`Source Fault Level: ${sourceFaultLevel} kA | Nominal Voltage: ${nominalVoltage} V | Source X/R: ${sourceXrRatio}`, 14, 40);
+      // Colors
+      const primaryFill = [217, 217, 217] as [number, number, number]; // Gray for standard headers
+      const blueFill = [218, 233, 248] as [number, number, number]; // Light blue for fault current column
 
-    // Table Header & Rows
-    doc.setFont("helvetica", "bold");
-    doc.text("CABLE RUN PARAMETERS & CALCULATED FAULT LEVEL", 14, 52);
-
-    const headers = [["Sr.", "Description", "Length", "Runs", "Size", "Material", "R (mΩ)", "Z (mΩ)", "Running ΣZ", "Isc (kA)"]];
-    const data = rows.map((r, idx) => {
-      const d = calculatedData.rowDetails[idx] || { segmentR: 0, segmentZ: 0, runningSumZ: 0, isc: 0 };
-      return [
-        idx + 1,
-        r.description,
-        `${r.length} m`,
-        r.runs,
-        `${r.size} mm²`,
-        r.material,
-        (d.segmentR * 1000).toFixed(2),
-        (d.segmentZ * 1000).toFixed(2),
-        (d.runningSumZ * 1000).toFixed(2),
-        d.isc.toFixed(3)
+      // 3. Grid Table
+      const headers = [
+        [
+          { content: "Sr.\nNo.", rowSpan: 2, styles: { fillColor: primaryFill } },
+          { content: "Cable Run Parameters", colSpan: 5, styles: { fillColor: primaryFill } },
+          { content: "Impedance Parameters", colSpan: 3, styles: { fillColor: primaryFill } },
+          { content: "Short Circuit Level", colSpan: 2, styles: { fillColor: blueFill } }
+        ],
+        [
+          { content: "Description" },
+          { content: `Length\n(${unitSystem === "ip" ? "ft" : "m"})` },
+          { content: "Runs" },
+          { content: "Size\n(mm²)" },
+          { content: "Material" },
+          { content: "Resistance\nR (mΩ)" },
+          { content: "Reactance\nX (mΩ)" },
+          { content: "Impedance\nZ (mΩ)" },
+          { content: "Running\nΣZ (mΩ)" },
+          { content: "Fault Current\nIsc (kA)", styles: { fillColor: blueFill } }
+        ]
       ];
-    });
 
-    autoTable(doc, {
-      startY: 56,
-      head: headers,
-      body: data,
-      theme: "striped",
-      headStyles: { fillColor: [51, 65, 85], fontSize: 8 },
-      styles: { fontSize: 8 },
-    });
+      const data: any[] = rows.map((r, idx) => {
+        const d = calculatedData.rowDetails[idx] || { segmentR: 0, segmentX: 0, segmentZ: 0, runningSumZ: 0, isc: 0 };
+        return [
+          idx + 1,
+          r.description || `Cable Feeder ${idx + 1}`,
+          `${r.length || 0} ${unitSystem === "ip" ? "ft" : "m"}`,
+          r.runs || 1,
+          `${r.size || 0} mm²`,
+          r.material || "Copper",
+          (d.segmentR * 1000).toFixed(2),
+          (d.segmentX * 1000).toFixed(2),
+          (d.segmentZ * 1000).toFixed(2),
+          (d.runningSumZ * 1000).toFixed(2),
+          d.isc.toFixed(3)
+        ];
+      });
 
-    let nextY = (doc as any).lastAutoTable.finalY + 10;
+      // Total / Summary Row at the bottom of data grid
+      const grandTotalRow = [
+        { content: "TOTAL", colSpan: 2, styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill } },
+        { content: `${calculatedData.totalCableLength.toFixed(1)} ${unitSystem === "ip" ? "ft" : "m"}`, styles: { fontStyle: "bold", halign: "center" } },
+        { content: "-", styles: { halign: "center" } },
+        { content: "-", styles: { halign: "center" } },
+        { content: "-", styles: { halign: "center" } },
+        { content: (calculatedData.totalR * 1000).toFixed(2), styles: { fontStyle: "bold", halign: "right" } },
+        { content: (calculatedData.totalX * 1000).toFixed(2), styles: { fontStyle: "bold", halign: "right" } },
+        { content: (calculatedData.totalZ * 1000).toFixed(2), styles: { fontStyle: "bold", halign: "right" } },
+        { content: (calculatedData.totalZ * 1000).toFixed(2), styles: { fontStyle: "bold", halign: "right" } },
+        { content: calculatedData.finalIsc.toFixed(3), styles: { fontStyle: "bold", halign: "right", fillColor: blueFill } }
+      ];
+      (grandTotalRow as any)._isGrandTotal = true;
+      data.push(grandTotalRow);
 
-    // Sizing Summary
-    doc.setFont("helvetica", "bold");
-    doc.text("CALCULATION RESULTS SUMMARY", 14, nextY);
-    nextY += 4;
+      callAutoTable(doc, {
+        startY: 44,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        styles: {
+          fontSize: 7,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
+          minCellHeight: 6
+        },
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: 0,
+          fontStyle: "bold",
+          cellPadding: { top: 2, bottom: 2, left: 0.5, right: 0.5 }
+        },
+        columnStyles: {
+          0: { cellWidth: 9, halign: "center" },
+          1: { cellWidth: 31, halign: "left" },
+          2: { cellWidth: 13, halign: "center" },
+          3: { cellWidth: 9, halign: "center" },
+          4: { cellWidth: 13, halign: "center" },
+          5: { cellWidth: 15, halign: "center" },
+          6: { cellWidth: 18, halign: "right" },
+          7: { cellWidth: 18, halign: "right" },
+          8: { cellWidth: 18, halign: "right" },
+          9: { cellWidth: 18, halign: "right" },
+          10: { cellWidth: 20, halign: "right", fillColor: [240, 247, 252] }
+        },
+        head: headers,
+        body: data,
+        didParseCell: function(data: any) {
+          const rawRow = data.row.raw;
+          if (data.section === "body") {
+            const isTotalRow = rawRow && rawRow._isGrandTotal;
+            if (isTotalRow) {
+              data.cell.styles.fontStyle = "bold";
+            } else if (data.column.index === 10) {
+              data.cell.styles.fillColor = [242, 248, 253];
+            }
+          }
+        }
+      });
 
-    const summaryData = [
-      ["Total Cable Length", `${calculatedData.totalCableLength.toFixed(1)} m`],
-      ["Total Resistance", `${calculatedData.totalR.toFixed(5)} Ω`],
-      ["Total Reactance", `${calculatedData.totalX.toFixed(5)} Ω`],
-      ["Total Impedance", `${calculatedData.totalZ.toFixed(5)} Ω`],
-      ["Final Sized Short Circuit Current", `${calculatedData.finalIsc.toFixed(3)} kVA`],
-    ];
+      // 4. Standard Signature Approval Block
+      const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
+      const {
+        originatedName,
+        originatedDate,
+        reviewerName,
+        reviewerDate,
+        approverName,
+        approverDate
+      } = getSignatureBlockDetails(project?.id || "default", "/short-circuit-calculations", currentUserName || "");
 
-    autoTable(doc, {
-      startY: nextY,
-      body: summaryData,
-      theme: "plain",
-      styles: { fontSize: 8.5 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 80 },
-        1: { cellWidth: 50 },
-      }
-    });
+      callAutoTable(doc, {
+        startY: finalY + 8,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        styles: {
+          fontSize: 8,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
+        },
+        headStyles: {
+          fillColor: [255, 230, 204],
+          textColor: 0,
+          fontStyle: "bold"
+        },
+        head: [
+          [
+            { content: "" },
+            { content: "Originated by" },
+            { content: "Reviewed by" },
+            { content: "Approved by" }
+          ]
+        ],
+        body: [
+          [
+            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedName, styles: { halign: "center" } },
+            { content: reviewerName, styles: { halign: "center" } },
+            { content: approverName, styles: { halign: "center" } }
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate, styles: { halign: "center" } },
+            { content: reviewerDate, styles: { halign: "center" } },
+            { content: approverDate, styles: { halign: "center" } }
+          ]
+        ],
+        columnStyles: {
+          0: { cellWidth: 32 },
+          1: { cellWidth: 50 },
+          2: { cellWidth: 50 },
+          3: { cellWidth: 50 }
+        }
+      });
 
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "short-circuit-calculations");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), "Short_Circuit_Report.pdf", "PDF Document", ["pdf"]);
+      const pdfBuffer = doc.output("arraybuffer");
+      await downloadFile(
+        new Uint8Array(pdfBuffer),
+        `Short_Circuit_Report_${project?.code || "P000"}.pdf`,
+        "PDF Document",
+        ["pdf"]
+      );
+      toast.success("Short circuit calculation PDF exported successfully!");
+    } catch (error: any) {
+      console.error("handleExportPDF error:", error);
+      toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    }
   };
 
   // DataGrid columns setup
@@ -561,7 +789,7 @@ function ShortCircuitCalculationsPage() {
     },
     {
       key: "length",
-      header: "Cable Length (m)",
+      header: unitSystem === "ip" ? "Cable Length (ft)" : "Cable Length (m)",
       width: 120,
       align: "center",
       editable: true,
@@ -645,9 +873,8 @@ function ShortCircuitCalculationsPage() {
       width: 130,
       align: "right",
       render: (r) => {
-        const idx = rows.findIndex((row) => row.id === r.id);
-        const details = calculatedData.rowDetails[idx] || { segmentR: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{details.segmentR.toFixed(5)}</span>;
+        const details = calculatedData.rowDetailsMap?.get(r.id) || { segmentR: 0 };
+        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.segmentR || 0).toFixed(5)}</span>;
       }
     },
     {
@@ -656,9 +883,8 @@ function ShortCircuitCalculationsPage() {
       width: 130,
       align: "right",
       render: (r) => {
-        const idx = rows.findIndex((row) => row.id === r.id);
-        const details = calculatedData.rowDetails[idx] || { segmentZ: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{details.segmentZ.toFixed(5)}</span>;
+        const details = calculatedData.rowDetailsMap?.get(r.id) || { segmentZ: 0 };
+        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.segmentZ || 0).toFixed(5)}</span>;
       }
     },
     {
@@ -667,9 +893,8 @@ function ShortCircuitCalculationsPage() {
       width: 120,
       align: "right",
       render: (r) => {
-        const idx = rows.findIndex((row) => row.id === r.id);
-        const details = calculatedData.rowDetails[idx] || { runningSumR: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{details.runningSumR.toFixed(5)}</span>;
+        const details = calculatedData.rowDetailsMap?.get(r.id) || { runningSumR: 0 };
+        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.runningSumR || 0).toFixed(5)}</span>;
       }
     },
     {
@@ -678,9 +903,8 @@ function ShortCircuitCalculationsPage() {
       width: 120,
       align: "right",
       render: (r) => {
-        const idx = rows.findIndex((row) => row.id === r.id);
-        const details = calculatedData.rowDetails[idx] || { runningSumX: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{details.runningSumX.toFixed(5)}</span>;
+        const details = calculatedData.rowDetailsMap?.get(r.id) || { runningSumX: 0 };
+        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.runningSumX || 0).toFixed(5)}</span>;
       }
     },
     {
@@ -689,9 +913,8 @@ function ShortCircuitCalculationsPage() {
       width: 180,
       align: "right",
       render: (r) => {
-        const idx = rows.findIndex((row) => row.id === r.id);
-        const details = calculatedData.rowDetails[idx] || { isc: 0 };
-        return <span className="font-mono font-bold text-foreground text-[12.5px]">{details.isc.toFixed(3)}</span>;
+        const details = calculatedData.rowDetailsMap?.get(r.id) || { isc: 0 };
+        return <span className="font-mono font-bold text-foreground text-[12.5px]">{(details.isc || 0).toFixed(3)}</span>;
       }
     },
     {
@@ -707,7 +930,7 @@ function ShortCircuitCalculationsPage() {
         />
       )
     }
-  ], [rows, calculatedData, selected]);
+  ], [rows, calculatedData, selected, unitSystem]);
 
   // Context Menu Renderer
   const renderRowContextMenu = (row: CableRow) => {
@@ -873,53 +1096,206 @@ function ShortCircuitCalculationsPage() {
                       : "opacity-0 -translate-x-4 pointer-events-none"
                   }`}
                 >
-                  {/* Constants and File Upload Header Row */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 bg-slate-50/50 dark:bg-slate-900/50 border-b border-border/80 select-none shrink-0">
-                    
-                    {/* Sizing Constants inputs */}
-                    <div className="flex flex-wrap items-center gap-6 text-xs font-semibold">
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Source Fault Level:</span>
-                        <div className="flex items-center">
-                          <input
-                            type="number"
-                            value={sourceFaultLevel}
-                            onChange={(e) => setSourceFaultLevel(Number(e.target.value))}
-                            className="w-16 bg-background border border-border rounded-l px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none border-r-0"
-                          />
-                          <span className="bg-slate-100 dark:bg-slate-800 border border-border border-l-0 rounded-r px-2 py-1 font-bold text-slate-500 font-mono text-xs">kA</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Nominal Voltage:</span>
-                        <div className="flex items-center">
-                          <input
-                            type="number"
-                            value={nominalVoltage}
-                            onChange={(e) => setNominalVoltage(Number(e.target.value))}
-                            className="w-16 bg-background border border-border rounded-l px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none border-r-0"
-                          />
-                          <span className="bg-slate-100 dark:bg-slate-800 border border-border border-l-0 rounded-r px-2 py-1 font-bold text-slate-500 font-mono text-xs">V</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Source X/R Ratio:</span>
+                  {/* Sizing Constants inputs bar */}
+                  <div className="flex flex-wrap items-center gap-6 px-4 py-2.5 bg-slate-50/70 dark:bg-slate-900/50 border-b border-border/80 text-xs font-semibold select-none shrink-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Source Fault Level:</span>
+                      <div className="flex items-center">
                         <input
                           type="number"
-                          value={sourceXrRatio}
-                          onChange={(e) => setSourceXrRatio(Number(e.target.value))}
-                          className="w-16 bg-background border border-border rounded px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none"
+                          value={sourceFaultLevel}
+                          onChange={(e) => setSourceFaultLevel(Number(e.target.value))}
+                          className="w-16 bg-background border border-border rounded-l px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none border-r-0"
                         />
+                        <span className="bg-slate-100 dark:bg-slate-800 border border-border border-l-0 rounded-r px-2 py-1 font-bold text-slate-500 font-mono text-xs">kA</span>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Nominal Voltage:</span>
+                      <div className="flex items-center">
+                        <input
+                          type="number"
+                          value={nominalVoltage}
+                          onChange={(e) => setNominalVoltage(Number(e.target.value))}
+                          className="w-16 bg-background border border-border rounded-l px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none border-r-0"
+                        />
+                        <span className="bg-slate-100 dark:bg-slate-800 border border-border border-l-0 rounded-r px-2 py-1 font-bold text-slate-500 font-mono text-xs">V</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Source X/R Ratio:</span>
+                      <input
+                        type="number"
+                        value={sourceXrRatio}
+                        onChange={(e) => setSourceXrRatio(Number(e.target.value))}
+                        className="w-16 bg-background border border-border rounded px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none"
+                      />
+                    </div>
+                  </div>
 
-                    {/* Actions button group */}
+                  {/* Standard Toolbar matching Ventilation & Preliminary Cooling Load */}
+                  <div className="relative flex items-center justify-between px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap select-none no-print gap-2">
+                    {/* Left: Search, Filter, Sort */}
                     <div className="flex items-center gap-1.5">
-                      <TBtn onClick={handleReset}><RefreshCw className="size-3.5" /> Reset</TBtn>
+                      <input
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Filter cables..."
+                        className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
+                      />
+
+                      {/* Filter Popover */}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                              activeFiltersCount > 0
+                                ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                                : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                            }`}
+                          >
+                            <Filter className="size-3.5 shrink-0" />
+                            <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                              Filter
+                            </span>
+                            {activeFiltersCount > 0 && (
+                              <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                                {activeFiltersCount}
+                              </span>
+                            )}
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                            <span className="text-[12px] font-semibold text-foreground">Filters</span>
+                            {activeFiltersCount > 0 && (
+                              <button
+                                onClick={handleResetFilters}
+                                className="text-[10px] text-primary hover:underline font-semibold"
+                              >
+                                Clear All
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Material Filter */}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Material</span>
+                            <select
+                              value={filterMaterial}
+                              onChange={(e) => setFilterMaterial(e.target.value as any)}
+                              className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                            >
+                              <option value="all">All Materials</option>
+                              <option value="Copper">Copper</option>
+                              <option value="Aluminium">Aluminium</option>
+                            </select>
+                          </div>
+
+                          {/* Cable Size Filter */}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Cable Size</span>
+                            <select
+                              value={filterSize}
+                              onChange={(e) => setFilterSize(e.target.value)}
+                              className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                            >
+                              <option value="all">All Sizes</option>
+                              {uniqueSizes.map((s) => (
+                                <option key={s} value={String(s)}>{s} mm²</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Voltage Filter */}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Voltage</span>
+                            <select
+                              value={filterVoltage}
+                              onChange={(e) => setFilterVoltage(e.target.value)}
+                              className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                            >
+                              <option value="all">All Voltages</option>
+                              {uniqueVoltages.map((v) => (
+                                <option key={v} value={String(v)}>{v} V</option>
+                              ))}
+                            </select>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+
+                      {/* Sort Popover */}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                              sortBy !== "none"
+                                ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                                : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                            }`}
+                          >
+                            <ArrowUpDown className="size-3.5 shrink-0" />
+                            <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                              Sort
+                            </span>
+                            {sortBy !== "none" && (
+                              <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                                ✓
+                              </span>
+                            )}
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                            <span className="text-[12px] font-semibold text-foreground">Sort Options</span>
+                            {sortBy !== "none" && (
+                              <button
+                                onClick={() => setSortBy("none")}
+                                className="text-[10px] text-primary hover:underline font-semibold"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Order By</span>
+                            <select
+                              value={sortBy}
+                              onChange={(e) => setSortBy(e.target.value as any)}
+                              className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                            >
+                              <option value="none">Default (Run Sequence)</option>
+                              <option value="description">Description (A-Z)</option>
+                              <option value="length-desc">Length (Longest First)</option>
+                              <option value="length-asc">Length (Shortest First)</option>
+                              <option value="size-desc">Cable Size (Largest First)</option>
+                              <option value="isc-desc">Fault Current (Highest First)</option>
+                            </select>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+
+                    {/* Right: Actions */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <UnitToggle
+                        unitSystem={unitSystem}
+                        onChange={handleUnitToggle}
+                        inputDescriptions="Cable Length, Conductor Properties"
+                        conversionExample={
+                          unitSystem === "si"
+                            ? "Convert 30 m → 98.4 ft"
+                            : "Convert 98.4 ft → 30 m"
+                        }
+                      />
                       <ImportExcelBtn
                         columnMapping={{
                           "Description": "description",
                           "Cable Length (m)": "length",
+                          "Length (m)": "length",
+                          "Cable Length (ft)": "length",
+                          "Length (ft)": "length",
                           "Length": "length",
                           "Number of Parallel Runs": "runs",
                           "Runs": "runs",
@@ -933,21 +1309,15 @@ function ShortCircuitCalculationsPage() {
                         }}
                         onImport={handleImportExcelRows}
                       />
+                      <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export PDF</TBtn>
                       <TBtn primary onClick={handleAddRow}><Plus className="size-3.5" /> Add Row</TBtn>
-                      <TBtn
-                        primary
-                        onClick={() => setTab("report")}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-all duration-200 transform hover:scale-102 active:scale-98"
-                      >
-                        <Gauge className="size-3.5" /> Calculate
-                      </TBtn>
                     </div>
                   </div>
 
                   {/* Virtualized data grid */}
                   <div className="flex-1 min-h-[350px]">
                     <DataGrid
-                      rows={rows}
+                      rows={filteredRows}
                       columns={columns}
                       selected={selected}
                       onToggle={handleToggle}

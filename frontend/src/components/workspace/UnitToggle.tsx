@@ -11,6 +11,7 @@ export interface UnitToggleProps {
   siDescription?: string;
   inputDescriptions?: string;
   conversionExample?: string;
+  disabled?: boolean;
 }
 
 export function UnitToggle({
@@ -23,17 +24,20 @@ export function UnitToggle({
   siDescription = "Metric (SI)",
   inputDescriptions,
   conversionExample,
+  disabled = false,
 }: UnitToggleProps) {
   const [showModal, setShowModal] = useState(false);
   const [pendingTarget, setPendingTarget] = useState<"si" | "ip" | null>(null);
 
   const handleClick = (target: "si" | "ip") => {
+    if (disabled) return;
     if (target === unitSystem) return;
     setPendingTarget(target);
     setShowModal(true);
   };
 
   const handleConfirm = (shouldConvert: boolean) => {
+    if (disabled) return;
     if (pendingTarget) {
       onChange(pendingTarget, shouldConvert);
     }
@@ -50,12 +54,17 @@ export function UnitToggle({
     <>
       {/* Unit System Toggle Pill */}
       <div
-        className={`inline-flex w-fit items-center shrink-0 bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 text-xs font-semibold select-none ${className}`}
+        className={`inline-flex w-fit items-center shrink-0 bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 text-xs font-semibold select-none ${
+          disabled ? "opacity-60 cursor-not-allowed" : ""
+        } ${className}`}
       >
         <button
           type="button"
+          disabled={disabled}
           onClick={() => handleClick("ip")}
-          className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
+          className={`px-3 py-0.5 rounded-full transition font-bold ${
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
+          } ${
             unitSystem === "ip"
               ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
               : "text-muted-foreground hover:text-foreground"
@@ -65,8 +74,11 @@ export function UnitToggle({
         </button>
         <button
           type="button"
+          disabled={disabled}
           onClick={() => handleClick("si")}
-          className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
+          className={`px-3 py-0.5 rounded-full transition font-bold ${
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
+          } ${
             unitSystem === "si"
               ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
               : "text-muted-foreground hover:text-foreground"

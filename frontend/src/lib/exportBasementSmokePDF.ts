@@ -166,63 +166,68 @@ export const exportBasementSmokePDF = async (
     const blueFill = [218, 233, 248] as [number, number, number];
     const blueBodyFill = [242, 248, 253] as [number, number, number];
 
-    // Section 1: Fans Smoke & Normal Ventilation Schedule
+    // Section 1: Smoke ventilation calculation
     let currentY = 42;
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
-    doc.text("1. Fans Smoke & Normal Ventilation Schedule", 14, currentY);
+    doc.text("1. Smoke ventilation calculation", 14, currentY);
     currentY += 3;
 
-    const fanScheduleRows: any[] = fanSystems.map((fs) => {
-      const servedStr = fs.servedFloors.length > 0
-        ? fs.servedFloors.map((f) => f.zoneName ? `${f.basementLevel} - ${f.zoneName}` : f.name).join("\n")
-        : "None";
+    const fanScheduleRows: any[] = [];
 
-      const totalGrossArea = fs.servedFloors.reduce((sum, f) => sum + (f.area || 0), 0);
-      const totalEffArea = fs.servedFloors.reduce((sum, f) => sum + (f.effArea || 0), 0);
-      const uniqueHeights = Array.from(new Set(fs.servedFloors.map((f) => f.height).filter((h) => typeof h === "number" && !isNaN(h))));
-      const heightStr = uniqueHeights.length > 0
-        ? uniqueHeights.map((h) => `${h} ${heightUnit}`).join(", ")
-        : "-";
+    fanSystems.forEach((fs) => {
+      const numZones = fs.servedFloors.length;
+      const roundedLowCap = Math.round((fs.lowCap || 0) / 10) * 10;
+      const roundedHighCap = Math.round((fs.highCap || 0) / 10) * 10;
+      const governingFlow = Math.max(roundedLowCap, roundedHighCap);
 
-      const max6Floor = fs.servedFloors.length > 0
-        ? fs.servedFloors.reduce((max, r) => (r.flow6ach || 0) > (max.flow6ach || 0) ? r : max, fs.servedFloors[0])
-        : null;
-      const effectiveMax6Id = fs.max6FloorId || (max6Floor ? max6Floor.id : "");
+      if (numZones === 0) {
+        fanScheduleRows.push([
+          fs.name,
+          fs.fanType || "Extract",
+          "None",
+          "0",
+          "0",
+          "-",
+          `${roundedLowCap.toLocaleString()}`,
+          `${roundedHighCap.toLocaleString()}`,
+          `${governingFlow.toLocaleString()}`
+        ]);
+      } else {
+        fs.servedFloors.forEach((f, idx) => {
+          const row: any[] = [];
+          if (idx === 0) {
+            row.push({ content: fs.name, rowSpan: numZones });
+            row.push({ content: fs.fanType || "Extract", rowSpan: numZones });
+          }
+          
+          row.push(f.zoneName ? `${f.basementLevel} - ${f.zoneName}` : f.name);
+          row.push(`${(f.area || 0).toLocaleString()}`);
+          row.push(`${(f.effArea || 0).toLocaleString()}`);
+          row.push(f.height !== undefined && f.height !== null ? `${f.height}` : "-");
 
-      const modes = fs.servedFloors.map((sf) => {
-        if (fs.zoneAchModes && fs.zoneAchModes[sf.id] !== undefined) {
-          return fs.zoneAchModes[sf.id];
-        }
-        return sf.id === effectiveMax6Id ? 6 : 3;
-      });
-      const achSeqStr = modes.length > 0 ? ` (${modes.join(" - ")})` : "";
+          if (idx === 0) {
+            row.push({ content: `${roundedLowCap.toLocaleString()}`, rowSpan: numZones });
+            row.push({ content: `${roundedHighCap.toLocaleString()}`, rowSpan: numZones });
+            row.push({ content: `${governingFlow.toLocaleString()}`, rowSpan: numZones });
+          }
 
-      const governingFlow = Math.max(fs.lowCap || 0, fs.highCap || 0);
-
-      return [
-        fs.name,
-        servedStr,
-        `${totalGrossArea.toLocaleString()} ${areaUnit}`,
-        `${totalEffArea.toLocaleString()} ${areaUnit}`,
-        heightStr,
-        `${(fs.lowCap || 0).toLocaleString()}${achSeqStr}`,
-        `${(fs.highCap || 0).toLocaleString()}`,
-        `${governingFlow.toLocaleString()}`
-      ];
+          fanScheduleRows.push(row);
+        });
+      }
     });
 
     if (fanSystems.length > 1) {
       const totalAllGrossArea = fanSystems.reduce((sum, fs) => sum + fs.servedFloors.reduce((s, f) => s + (f.area || 0), 0), 0);
       const totalAllEffArea = fanSystems.reduce((sum, fs) => sum + fs.servedFloors.reduce((s, f) => s + (f.effArea || 0), 0), 0);
-      const totalAllLow = fanSystems.reduce((sum, fs) => sum + (fs.lowCap || 0), 0);
-      const totalAllHigh = fanSystems.reduce((sum, fs) => sum + (fs.highCap || 0), 0);
-      const totalAllSelected = fanSystems.reduce((sum, fs) => sum + Math.max(fs.lowCap || 0, fs.highCap || 0), 0);
+      const totalAllLow = fanSystems.reduce((sum, fs) => sum + (Math.round((fs.lowCap || 0) / 10) * 10), 0);
+      const totalAllHigh = fanSystems.reduce((sum, fs) => sum + (Math.round((fs.highCap || 0) / 10) * 10), 0);
+      const totalAllSelected = fanSystems.reduce((sum, fs) => sum + Math.max(Math.round((fs.lowCap || 0) / 10) * 10, Math.round((fs.highCap || 0) / 10) * 10), 0);
       const totalRow = [
-        "Total",
+        { content: "Total", colSpan: 2 },
         `All Served Zones (${fanSystems.length} Fans)`,
-        `${totalAllGrossArea.toLocaleString()} ${areaUnit}`,
-        `${totalAllEffArea.toLocaleString()} ${areaUnit}`,
+        `${totalAllGrossArea.toLocaleString()}`,
+        `${totalAllEffArea.toLocaleString()}`,
         "-",
         `${totalAllLow.toLocaleString()}`,
         `${totalAllHigh.toLocaleString()}`,
@@ -232,7 +237,7 @@ export const exportBasementSmokePDF = async (
       fanScheduleRows.push(totalRow);
     } else if (fanSystems.length === 0) {
       fanScheduleRows.push([
-        { content: "No fans configured", colSpan: 8, styles: { halign: "center", fontStyle: "italic" } }
+        { content: "No fans configured", colSpan: 9, styles: { halign: "center", fontStyle: "italic" } }
       ]);
     }
 
@@ -256,25 +261,27 @@ export const exportBasementSmokePDF = async (
         cellPadding: { top: 2, bottom: 2, left: 0.5, right: 0.5 }
       },
       columnStyles: {
-        0: { halign: "left", cellWidth: 32 },
-        1: { halign: "left", cellWidth: 40 },
-        2: { cellWidth: 17 },
-        3: { cellWidth: 17 },
-        4: { cellWidth: 13 },
-        5: { cellWidth: 21, fillColor: [240, 247, 252] },
-        6: { cellWidth: 21, fillColor: [240, 247, 252] },
-        7: { cellWidth: 21, fillColor: [240, 247, 252] }
+        0: { halign: "center", cellWidth: 31 }, // Fan System Name
+        1: { halign: "center", cellWidth: 15 }, // System Type
+        2: { halign: "center", cellWidth: 32 }, // Level and Zone
+        3: { cellWidth: 16 }, // Gross Area
+        4: { cellWidth: 16 }, // Eff. Area
+        5: { cellWidth: 12 }, // Height
+        6: { cellWidth: 20, fillColor: [240, 247, 252] }, // Normal Mode
+        7: { cellWidth: 20, fillColor: [240, 247, 252] }, // Fire Mode
+        8: { cellWidth: 20, fillColor: [240, 247, 252] } // Selected Flow
       },
       head: [
         [
-          { content: "Fans", styles: { halign: "left" } },
-          { content: "Level and Zone", styles: { halign: "left" } },
+          { content: "Fan System Name", styles: { halign: "center" } },
+          { content: "System Type", styles: { halign: "center" } },
+          { content: "Level and Zone", styles: { halign: "center" } },
           { content: `Gross Area\n(${areaUnit})` },
           { content: `Eff. Area\n(${areaUnit})` },
           { content: `Height\n(${heightUnit})` },
           { content: `Normal Mode\n(${flowUnit})`, styles: { fillColor: blueFill } },
           { content: `Fire Mode\n(${flowUnit})`, styles: { fillColor: blueFill } },
-          { content: `Selected Flow Rate\n(${flowUnit})`, styles: { fillColor: blueFill } }
+          { content: `Selected Flow\n(${flowUnit})`, styles: { fillColor: blueFill } }
         ]
       ],
       body: fanScheduleRows,
@@ -284,12 +291,12 @@ export const exportBasementSmokePDF = async (
           const isTotal = rawRow && rawRow._isTotal;
           if (isTotal) {
             data.cell.styles.fontStyle = "bold";
-            if (data.column.index === 5 || data.column.index === 6 || data.column.index === 7) {
+            if (data.column.index >= 6) {
               data.cell.styles.fillColor = primaryFill;
             }
-          } else if (data.column.index === 5 || data.column.index === 6 || data.column.index === 7) {
+          } else if (data.column.index >= 6) {
             data.cell.styles.fillColor = blueBodyFill;
-            if (data.column.index === 7) {
+            if (data.column.index === 8) {
               data.cell.styles.fontStyle = "bold";
             }
           }
@@ -305,35 +312,37 @@ export const exportBasementSmokePDF = async (
       finalY = 18;
     }
 
-    // Section 2: Fan Systems & Ductwork Head Loss Sizing
+    // Section 2: Smoke Fan Schedule
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
-    doc.text("2. Fan Systems & Ductwork Head Loss Sizing", 14, finalY);
+    doc.text("2. Smoke Fan Schedule", 14, finalY);
     finalY += 3;
 
     const fanRows: any[] = fanSystems.map((fs) => {
       const totalFans = (fs as any).fanQty || 1;
       const fanLocation = (fs as any).location || "-";
-      const governingFlow = Math.max(fs.lowCap || 0, fs.highCap || 0);
-      const perFanFlow = (fs as any).perFanCap || Math.ceil(governingFlow / Math.max(1, totalFans));
+      const roundedLowCap = Math.round((fs.lowCap || 0) / 10) * 10;
+      const roundedHighCap = Math.round((fs.highCap || 0) / 10) * 10;
+      const governingFlow = Math.max(roundedLowCap, roundedHighCap);
+      const rawPerFan = (fs as any).perFanCap || Math.ceil(governingFlow / Math.max(1, totalFans));
+      const perFanFlow = Math.round(rawPerFan / 10) * 10;
       const ductAccessoriesDrop = (fs.louver || 0) + (fs.grille || 0) + (fs.sa || 0);
 
       return [
         fs.name,
-        fs.fanType,
         totalFans.toString(),
         fanLocation,
-        `${fs.length} ${ip ? "ft" : "m"}`,
-        `${fs.frictionLoss.toFixed(1)} Pa`,
-        `${ductAccessoriesDrop.toFixed(1)} Pa`,
-        `${fs.totalStatic} Pa`,
-        `${perFanFlow.toLocaleString()} ${flowUnit}`
+        `${fs.length}`,
+        `${fs.frictionLoss.toFixed(1)}`,
+        `${ductAccessoriesDrop.toFixed(1)}`,
+        `${fs.totalStatic}`,
+        `${perFanFlow.toLocaleString()}`
       ];
     });
 
     if (fanSystems.length === 0) {
       fanRows.push([
-        { content: "No fan systems configured", colSpan: 9, styles: { halign: "center", fontStyle: "italic" } }
+        { content: "No fan systems configured", colSpan: 8, styles: { halign: "center", fontStyle: "italic" } }
       ]);
     }
 
@@ -357,25 +366,23 @@ export const exportBasementSmokePDF = async (
         cellPadding: { top: 2, bottom: 2, left: 0.4, right: 0.4 }
       },
       columnStyles: {
-        0: { halign: "left", cellWidth: 34 },
-        1: { cellWidth: 18 },
-        2: { cellWidth: 16 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: 16 },
-        5: { cellWidth: 18 },
-        6: { cellWidth: 22 },
-        7: { cellWidth: 20, fillColor: [240, 247, 252] },
-        8: { cellWidth: 20, fillColor: [240, 247, 252] }
+        0: { halign: "center", cellWidth: 34 },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 27 },
+        3: { cellWidth: 21 },
+        4: { cellWidth: 21 },
+        5: { cellWidth: 21 },
+        6: { cellWidth: 21, fillColor: [240, 247, 252] },
+        7: { cellWidth: 21, fillColor: [240, 247, 252] }
       },
       head: [
         [
-          { content: "Fan System Name", styles: { halign: "left" } },
-          { content: "System Type" },
+          { content: "Fan System Name", styles: { halign: "center" } },
           { content: "Total No.\nof Fans" },
-          { content: "Location\nof Fan" },
+          { content: "Location\nof fan(s)" },
           { content: `Duct Len\n(${ip ? "ft" : "m"})` },
           { content: "Friction Loss\n(Pa)" },
-          { content: "Duct Accessories\nDrop (Pa)" },
+          { content: "Duct Accessories Drop\n(Pa)" },
           { content: "Total Static\n(Pa)", styles: { fillColor: blueFill } },
           { content: `Flow Rate per Fan\n(${flowUnit})`, styles: { fillColor: blueFill } }
         ]
@@ -383,7 +390,7 @@ export const exportBasementSmokePDF = async (
       body: fanRows,
       didParseCell: function (data: any) {
         if (data.section === "body") {
-          if (data.column.index === 7 || data.column.index === 8) {
+          if (data.column.index === 6 || data.column.index === 7) {
             data.cell.styles.fillColor = blueBodyFill;
             data.cell.styles.fontStyle = "bold";
           }

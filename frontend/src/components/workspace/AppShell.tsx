@@ -164,7 +164,8 @@ const EXCLUDED_PERSIST_PATHS = [
   "/plumbing-pressure-vessel",
   "/plumbing-storm-water",
   "/plumbing-sprinkler-density",
-  "/psychrometric"
+  "/psychrometric",
+  "/plumbing-fm200"
 ];
 
 const NON_VERSION_PATHS = [
@@ -322,6 +323,10 @@ const triggerSave = () => {
   const pathname = window.location.pathname;
   const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
   logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
+
+  // Broadcast mep-trigger-save to all active calculator routes
+  window.dispatchEvent(new CustomEvent("mep-trigger-save"));
+  dirtyStore.set(false);
 
   const buttons = Array.from(document.querySelectorAll('button'));
   const saveBtn = buttons.find(btn => {
@@ -2728,6 +2733,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   savePageInputs(project.id, pathname);
                   triggerSave();
                   forceSaveToCloud();
+                  dirtyStore.set(false);
                   const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
                   logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
                   toast.success("Calculations synced to cloud successfully!");
@@ -3253,7 +3259,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             )}
           </div>
         </div>
-        {effectiveIntelOpen && (
+        {effectiveIntelOpen && !onIntelClick && (
           <UniversalIntelligenceDrawer
             title={title}
             pathname={pathname}

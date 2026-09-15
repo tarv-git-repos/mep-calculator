@@ -653,37 +653,8 @@ export function calculateVentilation(
     g.pressure = Math.round(finalFA - finalEA);
     g.pressureType = g.pressure > 50 ? "positive" : g.pressure < -50 ? "negative" : "neutral";
     g.equipment = Array.from(finalEquipSet);
-
-    // Auto Red-Flag Rules for Zones:
-    // 1) Zone has only 1 space (or 0 spaces)
-    // 2) Zone has 0 positive spaces
-    const autoFlagReasons: string[] = [];
-
-    if (zoneSpaces.length === 1) {
-      autoFlagReasons.push("Zone has only 1 space in it (zones must contain at least 2 spaces)");
-    } else if (zoneSpaces.length === 0) {
-      autoFlagReasons.push("Zone has 0 spaces in it");
-    }
-
-    const positiveSpacesCount = zoneSpaces.filter((z) => z.pressure === "Positive" || z.pressure === "1").length;
-    if (positiveSpacesCount === 0) {
-      autoFlagReasons.push("Zone has 0 positive spaces in it (a zone must contain at least 1 positive-pressure space)");
-    }
-
-    if (finalFA === 0 && finalEA === 0 && zoneSpaces.length > 0) {
-      autoFlagReasons.push("Zone has 0 fresh air and 0 extract air");
-    }
-
-    if (autoFlagReasons.length > 0) {
-      if (!g.manualUnflagged) {
-        g.flagged = true;
-        g.flaggedReason = autoFlagReasons.join(". ");
-      }
-    } else {
-      g.manualUnflagged = false;
-      if (g.flaggedReason) {
-        g.flaggedReason = undefined;
-      }
+    if (g.flaggedReason) {
+      g.flaggedReason = undefined;
     }
   });
 

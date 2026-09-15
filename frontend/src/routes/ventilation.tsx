@@ -378,7 +378,10 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
         }
       }}
       onClick={(e) => {
-        if (isEffectiveDisabled) e.stopPropagation();
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
@@ -2979,16 +2982,6 @@ function SpacesView() {
           
           <div className="ml-auto flex items-center gap-1">
             <TBtn 
-    disabled={isEffectiveReadOnly} 
-    onClick={() => {
-      if (isEffectiveReadOnly) {
-        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
-        return;
-      }
-      setSourceModalOpen(true);
-    }}
-  ><Download className="size-3.5" /> Import</TBtn>
-            <TBtn 
               disabled={isEffectiveReadOnly}
               onClick={() => {
                 if (isEffectiveReadOnly) {
@@ -2999,6 +2992,34 @@ function SpacesView() {
               }}
             >
               <Sparkles className="size-3.5 text-primary" /> Auto-Zone
+            </TBtn>
+            <TBtn 
+              disabled={isEffectiveReadOnly} 
+              onClick={() => {
+                if (isEffectiveReadOnly) {
+                  toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+                  return;
+                }
+                setSourceModalOpen(true);
+              }}
+            >
+              <Download className="size-3.5" /> Import
+            </TBtn>
+            <TBtn
+              onClick={async () => {
+                if (spaces.length === 0) {
+                  toast.info("No spaces to export.");
+                  return;
+                }
+                try {
+                  await exportVentilationPDF(spaces);
+                  toast.success("PDF report exported successfully!");
+                } catch (err: any) {
+                  toast.error(err?.message || "Failed to export PDF report.");
+                }
+              }}
+            >
+              <FileText className="size-3.5" /> Export
             </TBtn>
             <TBtn 
               primary 
@@ -4643,7 +4664,7 @@ function ZonesView() {
     });
 
     const updatedSpaces = spaces.map(s => {
-      if (s.zone === zoneId || s.zone === zone.name) {
+      if (s.zone === zoneId || s.zone === zone.name || (s.zone && s.zone.toLowerCase() === zone.name.toLowerCase())) {
         return { ...s, zone: newName };
       }
       return s;
@@ -4874,9 +4895,10 @@ function ZonesView() {
     {
       key: "name",
       header: "Zone Name",
-      width: 180,
+      width: 240,
+      editable: true,
       render: (z) => (
-        <div className="flex items-center gap-1.5 font-sans font-medium">
+        <div className="flex items-center gap-1.5 font-sans font-medium w-full">
           {Array.isArray(z.comments) && z.comments.length > 0 && (
             <button
               type="button"
@@ -4899,19 +4921,19 @@ function ZonesView() {
               setSelectedZones(new Set([z.id]));
             }}
             title={openId === z.id ? "Collapse detailed spaces list" : "Expand detailed spaces list"}
-            className="p-0.5 rounded hover:bg-surface-3 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+            className="p-0.5 rounded hover:bg-surface-3 text-muted-foreground hover:text-foreground cursor-pointer transition-colors shrink-0"
           >
             <ChevronDown className={`size-3.5 transition-transform duration-200 ${openId === z.id ? "rotate-180" : ""}`} />
           </button>
-          <span>{z.name}</span>
-          {z.flagged && z.flaggedReason && (
-            <span
-              className="ml-1 p-0.5 text-red-500 hover:text-red-600 cursor-help"
-              title={`Flagged Reason: ${z.flaggedReason}`}
-            >
-              <AlertTriangle className="size-3.5 text-red-500 inline shrink-0" />
-            </span>
-          )}
+          <InlineInput
+            disabled={isEffectiveReadOnly}
+            value={z.name}
+            onCommit={(val) => {
+              renameZoneById(z.id, val);
+            }}
+            className="font-medium text-[13.5px] flex-1 min-w-0"
+            placeholder="Zone Name..."
+          />
         </div>
       ),
     },

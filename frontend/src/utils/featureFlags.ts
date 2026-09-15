@@ -39,7 +39,15 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'diffuser-selection',
   'duct-sizer',
   'duct-sizing',
-  'ductsizer'
+  'ductsizer',
+  'plumbing-fm200',
+  'fm200',
+  'fm-200',
+  'plumbing-fm-200',
+  'plumbing-fire-water-demand',
+  'fire-water-demand',
+  'firewaterdemand',
+  'plumbing-fire-water'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -116,7 +124,15 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'diffuser-selection' ||
     routeKey === 'duct-sizer' ||
     routeKey === 'duct-sizing' ||
-    routeKey === 'ductsizer'
+    routeKey === 'ductsizer' ||
+    routeKey === 'plumbing-fm200' ||
+    routeKey === 'fm200' ||
+    routeKey === 'fm-200' ||
+    routeKey === 'plumbing-fm-200' ||
+    routeKey === 'plumbing-fire-water-demand' ||
+    routeKey === 'fire-water-demand' ||
+    routeKey === 'firewaterdemand' ||
+    routeKey === 'plumbing-fire-water'
   ) {
     return false;
   }

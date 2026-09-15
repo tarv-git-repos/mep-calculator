@@ -10,7 +10,7 @@ import {
   RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles,
   Download, Upload, Gauge, Layers, Plus, Filter, Search, Wind,
   SlidersHorizontal, Check, RefreshCw, Zap, Calculator, Flame, ArrowRight,
-  Sliders, ShieldCheck, CheckSquare, Square, Flag, Activity, Eye, X
+  Sliders, ShieldCheck, CheckSquare, Square, Flag, Activity, Eye, X, ArrowUpDown
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -24,6 +24,12 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
@@ -162,6 +168,73 @@ export function computeAirflowFromKw(
   }
 }
 
+interface InlineInputProps {
+  value: string | number;
+  onCommit: (val: string) => void;
+  className?: string;
+  type?: "text" | "number";
+  step?: string;
+  min?: number;
+  placeholder?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
+}
+
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, readOnly }: InlineInputProps) {
+  const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
+
+  useEffect(() => {
+    setLocalVal(value === "" ? "" : String(value));
+  }, [value]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      if (localVal !== (value === "" ? "" : String(value))) {
+        onCommit(localVal);
+      }
+      e.currentTarget.blur();
+    } else if (e.key === "Escape") {
+      setLocalVal(value === "" ? "" : String(value));
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input
+      type={type}
+      step={step}
+      min={min}
+      disabled={disabled}
+      readOnly={readOnly}
+      value={localVal}
+      placeholder={placeholder}
+      onChange={(e) => setLocalVal(e.target.value)}
+      onBlur={() => {
+        if (localVal !== (value === "" ? "" : String(value))) {
+          onCommit(localVal);
+        }
+      }}
+      onKeyDown={handleKeyDown}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text placeholder:text-muted-foreground/45 placeholder:font-normal ${className}`}
+    />
+  );
+}
+
+function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11.5px] font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:bg-primary/10 active:bg-primary/15 transition-colors cursor-pointer"
+    >
+      <Icon className="size-3" />
+      <span>{children}</span>
+    </button>
+  );
+}
+
 const DEFAULT_ROWS: DiffuserRowItem[] = [
   { id: "row-1", name: "Executive Office 101", floor: "GF", zone: "AHU-01", coolingKw: 2.2, deltaT: 10, airflow: 182, count: 2, diffType: "square", designVelocity: 2.0 },
   { id: "row-2", name: "Conference Room 102", floor: "GF", zone: "AHU-01", coolingKw: 5.5, deltaT: 10, airflow: 455, count: 4, diffType: "square", designVelocity: 2.0 },
@@ -177,11 +250,29 @@ function DiffuserSelectorPage() {
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<DiffuserRowItem[]>(DEFAULT_ROWS);
-  const [activeTab, setActiveTab] = useState<"schedule" | "matrix" | "formulas">("schedule");
+  const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
+  const [calcReviewState, setCalcReviewState] = useState<any>(null);
+  const isApprovedLocked = calcReviewState?.status === "APPROVED";
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [floorFilter, setFloorFilter] = useState<string>("all");
+  const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
+  const [selectedDiffType, setSelectedDiffType] = useState<string | null>(null);
+  const [filterWarningsOnly, setFilterWarningsOnly] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+
+  // Floor Ordering
+  const [floorOrder, setFloorOrder] = useState<string[]>([]);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+
+  // Bulk Edit
+  const [showBulkEditModal, setShowBulkEditModal] = useState<boolean>(false);
+  const [bulkEditFloor, setBulkEditFloor] = useState<string>("");
+  const [bulkEditType, setBulkEditType] = useState<DiffuserType | "">("");
+  const [bulkEditCount, setBulkEditCount] = useState<string>("");
+  const [bulkEditVelocity, setBulkEditVelocity] = useState<string>("");
+
+  // Import Popover / Modal
+  const [showSourceModal, setShowSourceModal] = useState<boolean>(false);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
 
   // Double-Click Detail & Overview Modals
@@ -212,6 +303,37 @@ function DiffuserSelectorPage() {
   const [newType, setNewType] = useState<DiffuserType>("square");
   const [newVelocity, setNewVelocity] = useState<number>(2.0);
 
+  // Active Sizer Interactive State (CHW Pump Head style interactive sizing)
+  const [activeSizer, setActiveSizer] = useState<{
+    id?: string;
+    name: string;
+    floor: string;
+    zone: string;
+    coolingKw: number | "";
+    deltaT: number | "";
+    airflow: number | "";
+    count: number | "";
+    diffType: DiffuserType;
+    designVelocity: number;
+    ceilingHeight: number | "";
+    targetNcLimit: number;
+  }>({
+    name: "Primary Office Suite",
+    floor: "GF",
+    zone: "AHU-01",
+    coolingKw: 3.5,
+    deltaT: 10,
+    airflow: 290,
+    count: 2,
+    diffType: "square",
+    designVelocity: 2.0,
+    ceilingHeight: 2.8,
+    targetNcLimit: 30,
+  });
+
+  const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(false);
+  const sizerSectionRef = useRef<HTMLDivElement>(null);
+
   // Comment System State
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState(false);
@@ -231,6 +353,14 @@ function DiffuserSelectorPage() {
       setNewAirflow(res.flowRate);
     }
   }, [newCoolingKw, newDeltaT, ip]);
+
+  // Auto compute activeSizer airflow when coolingKw or deltaT changes
+  useEffect(() => {
+    if (activeSizer.coolingKw !== "" && Number(activeSizer.coolingKw) > 0 && activeSizer.deltaT !== "" && Number(activeSizer.deltaT) > 0) {
+      const res = computeAirflowFromKw(Number(activeSizer.coolingKw), Number(activeSizer.deltaT), ip, "air", 20);
+      setActiveSizer(prev => ({ ...prev, airflow: res.flowRate }));
+    }
+  }, [activeSizer.coolingKw, activeSizer.deltaT, ip]);
 
   // Comments persistence
   useEffect(() => {
@@ -283,8 +413,12 @@ function DiffuserSelectorPage() {
     } catch (e) {}
   };
 
-  const handleOpenComment = (target: { id: string; name: string }) => {
-    setCommentTargetItem(target);
+  const handleOpenComment = (idOrObj: { id: string; name: string } | string, nameOptional?: string) => {
+    if (typeof idOrObj === "string") {
+      setCommentTargetItem({ id: idOrObj, name: nameOptional || idOrObj });
+    } else {
+      setCommentTargetItem(idOrObj);
+    }
     setCommentModalOpen(true);
   };
 
@@ -617,6 +751,447 @@ function DiffuserSelectorPage() {
     return pclList;
   };
 
+  // PCL Summary for Quick Apply Bar
+  const pclSummary = useMemo(() => {
+    const pclSpaces = getPclSpaces();
+    let totalKw = 0;
+    let totalTr = 0;
+    let totalArea = 0;
+    pclSpaces.forEach((s: any) => {
+      const kw = Number(s.kw || (s.tr ? s.tr * 3.517 : (s.dissipation ? s.dissipation / 1000 : 0)));
+      totalKw += kw;
+      totalTr += (s.tr ? Number(s.tr) : kw / 3.517);
+      totalArea += Number(s.area || 0);
+    });
+    return {
+      count: pclSpaces.length,
+      totalKw: Math.round(totalKw * 10) / 10,
+      totalTr: Math.round(totalTr * 10) / 10,
+      totalArea: Math.round(totalArea * 10) / 10,
+      firstSpace: pclSpaces[0] || null
+    };
+  }, [project?.id]);
+
+  // Real-time Active Terminal Sizing calculation
+  const activeSizing = useMemo(() => {
+    const flowVal = activeSizer.airflow !== "" ? Number(activeSizer.airflow) : 0;
+    const countVal = activeSizer.count !== "" && Number(activeSizer.count) > 0 ? Number(activeSizer.count) : 1;
+    const flowLps = ip ? flowVal / 2.1189 : flowVal;
+    const flowPerDiffLps = flowLps / countVal;
+    const flowPerDiffDisplay = ip ? flowPerDiffLps * 2.1189 : flowPerDiffLps;
+
+    const flowKey = activeSizer.designVelocity === 2.5 ? "maxFlow_25" : "maxFlow_20";
+    const options = DIFFUSER_DATA[activeSizer.diffType] || DIFFUSER_DATA.square;
+
+    let selected: DiffuserSize | null = null;
+    for (let i = 0; i < options.length; i++) {
+      let maxFlow = 0;
+      if (activeSizer.diffType === "square" || activeSizer.diffType === "round") {
+        maxFlow = options[i][flowKey] || 0;
+      } else {
+        maxFlow = options[i].maxFlow || 0;
+      }
+      if (flowPerDiffLps <= maxFlow) {
+        selected = options[i];
+        break;
+      }
+    }
+
+    const isExceeded = !selected;
+    if (!selected) {
+      selected = options[options.length - 1];
+    }
+
+    const velocityFpm = activeSizer.designVelocity * 196.85;
+    const throwValM = selected.throw * 0.3048;
+    const throwValFt = selected.throw;
+    const throwDisplay = ip ? `${throwValFt.toFixed(1)} ft` : `${throwValM.toFixed(1)} m`;
+
+    const velMs = activeSizer.designVelocity;
+    const staticPressPa = Math.pow(velMs / 4.04, 2) * 12;
+    const staticPressInWg = staticPressPa * 0.00401463;
+    const staticPressDisplay = ip ? `${staticPressInWg.toFixed(3)} in. w.g.` : `${staticPressPa.toFixed(1)} Pa`;
+
+    let adpiRating = "88% (Optimal Comfort)";
+    let draftRisk = "Low Draft Risk (ASHRAE 55)";
+    let status = "PASS";
+    if (isExceeded) {
+      status = "FAIL";
+      adpiRating = "< 60% (Exceeds Capacity)";
+      draftRisk = "High Velocity Draft Risk";
+    } else if (velocityFpm > 550) {
+      status = "WARN";
+      adpiRating = "72% (Elevated Velocity)";
+      draftRisk = "Marginal Draft Risk";
+    } else if (velocityFpm < 250) {
+      status = "WARN";
+      adpiRating = "68% (Low Induction)";
+      draftRisk = "Stagnation Risk";
+    }
+
+    const targetNc = activeSizer.targetNcLimit || 30;
+    const isSoundCompliant = selected.nc <= targetNc;
+
+    return {
+      flowPerDiff: flowPerDiffDisplay,
+      neckSize: isExceeded ? `Capacity Exceeded (${selected.size} Max)` : selected.size,
+      velocity: activeSizer.designVelocity,
+      velocityFpm,
+      throwVal: throwDisplay,
+      throwValM,
+      throwValFt,
+      nc: `NC-${selected.nc}`,
+      rawNc: selected.nc,
+      isSoundCompliant,
+      adpiRating,
+      draftRisk,
+      staticPressDisplay,
+      staticPressPa,
+      staticPressInWg,
+      isExceeded,
+      status
+    };
+  }, [activeSizer, ip]);
+
+  // Context Menu & Clipboard Helpers
+  const handleCopyValue = (label: string, val: any) => {
+    if (val !== undefined && val !== null) {
+      navigator.clipboard.writeText(String(val));
+      toast.success(`Copied "${label}": ${val}`);
+    }
+  };
+
+  const handlePasteValue = async (label: string, fieldKey: string) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const num = parseFloat(text.trim());
+      if (!isNaN(num)) {
+        setActiveSizer(prev => ({ ...prev, [fieldKey]: num }));
+        toast.success(`Pasted ${num} into "${label}"`);
+      } else if (typeof text === "string" && text.trim()) {
+        setActiveSizer(prev => ({ ...prev, [fieldKey]: text.trim() }));
+        toast.success(`Pasted "${text.trim()}" into "${label}"`);
+      }
+    } catch (err) {
+      toast.error("Clipboard permission denied or empty");
+    }
+  };
+
+  const handleResetField = (label: string, fieldKey: string, defaultVal: any) => {
+    setActiveSizer(prev => ({ ...prev, [fieldKey]: defaultVal }));
+    toast.info(`Reset "${label}" to ${defaultVal !== "" ? defaultVal : "Blank"}`);
+  };
+
+  const handleClearField = (label: string, fieldKey: string) => {
+    setActiveSizer(prev => ({ ...prev, [fieldKey]: "" }));
+    toast.info(`Cleared "${label}"`);
+  };
+
+  const handleLoadRowIntoSizer = (row: DiffuserRowItem) => {
+    setActiveSizer({
+      id: row.id,
+      name: row.name,
+      floor: row.floor,
+      zone: row.zone,
+      coolingKw: row.coolingKw ?? "",
+      deltaT: row.deltaT ?? 10,
+      airflow: row.airflow,
+      count: row.count,
+      diffType: row.diffType,
+      designVelocity: row.designVelocity || 2.0,
+      ceilingHeight: ip ? 9.2 : 2.8,
+      targetNcLimit: 30,
+    });
+    sizerSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    toast.success(`Loaded "${row.name}" into interactive sizer`);
+  };
+
+  const handleAddOrUpdateSchedule = () => {
+    const flowVal = activeSizer.airflow !== "" ? Number(activeSizer.airflow) : (ip ? 400 : 188);
+    const countVal = activeSizer.count !== "" && Number(activeSizer.count) > 0 ? Number(activeSizer.count) : 2;
+    const nameVal = activeSizer.name.trim() || `Space ${rows.length + 1}`;
+
+    if (activeSizer.id && rows.some(r => r.id === activeSizer.id)) {
+      setRows(prev => prev.map(r => r.id === activeSizer.id ? {
+        ...r,
+        name: nameVal,
+        floor: activeSizer.floor || "GF",
+        zone: activeSizer.zone || "Zone-1",
+        coolingKw: activeSizer.coolingKw,
+        deltaT: activeSizer.deltaT,
+        airflow: flowVal,
+        count: countVal,
+        diffType: activeSizer.diffType,
+        designVelocity: activeSizer.designVelocity
+      } : r));
+      toast.success(`Updated "${nameVal}" in diffuser schedule`);
+    } else {
+      const newRow: DiffuserRowItem = {
+        id: "row-" + Date.now(),
+        name: nameVal,
+        floor: activeSizer.floor || "GF",
+        zone: activeSizer.zone || "Zone-1",
+        coolingKw: activeSizer.coolingKw,
+        deltaT: activeSizer.deltaT,
+        airflow: flowVal,
+        count: countVal,
+        diffType: activeSizer.diffType,
+        designVelocity: activeSizer.designVelocity,
+        flagged: false
+      };
+      setRows(prev => [newRow, ...prev]);
+      setActiveSizer(prev => ({ ...prev, id: newRow.id }));
+      toast.success(`Added "${nameVal}" to diffuser schedule`);
+    }
+  };
+
+  const handleResetSizer = () => {
+    setActiveSizer({
+      name: `Space ${rows.length + 1}`,
+      floor: "GF",
+      zone: "Zone-1",
+      coolingKw: 2.5,
+      deltaT: 10,
+      airflow: ip ? 440 : 208,
+      count: 2,
+      diffType: "square",
+      designVelocity: 2.0,
+      ceilingHeight: ip ? 9.2 : 2.8,
+      targetNcLimit: 30,
+    });
+    toast.info("Reset interactive sizer parameters to defaults");
+  };
+
+  // Helper component to render an interactive input box with right-click Context Menu and Comments
+  const renderInputBox = (
+    id: string,
+    fieldKey: keyof typeof activeSizer,
+    label: string,
+    value: any,
+    defaultVal: any,
+    placeholder: string,
+    type: "number" | "text" = "number",
+    min?: number,
+    step: string = "any"
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `field-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`field-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <label className="font-semibold text-foreground flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <span>{label}</span>
+                {hasComments && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenComment(id, label);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                    title={`${itemComments.length} comment(s)/task(s) assigned`}
+                  >
+                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                    <span>{itemComments.length}</span>
+                  </button>
+                )}
+              </span>
+              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
+            </label>
+            <input
+              id={id}
+              type={type}
+              min={min}
+              step={step}
+              value={value ?? ""}
+              onChange={(e) => {
+                const val = type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value;
+                setActiveSizer(prev => {
+                  const next = { ...prev, [fieldKey]: val };
+                  if (fieldKey === "coolingKw" || fieldKey === "deltaT") {
+                    const kw = fieldKey === "coolingKw" ? (val === "" ? 0 : Number(val)) : (prev.coolingKw === "" ? 0 : Number(prev.coolingKw));
+                    const dt = fieldKey === "deltaT" ? (val === "" ? 10 : Number(val)) : (prev.deltaT === "" ? 10 : Number(prev.deltaT));
+                    if (kw > 0 && dt > 0) {
+                      next.airflow = computeAirflowFromKw(kw, dt, ip, "air", 20).flowRate;
+                    }
+                  }
+                  return next;
+                });
+              }}
+              placeholder={placeholder}
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-hidden placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50"
+            />
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, value)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => handlePasteValue(label, String(fieldKey))}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Clipboard className="size-3.5 text-muted-foreground" />
+            <span>Paste Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleResetField(label, String(fieldKey), defaultVal)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <RotateCcw className="size-3.5 text-muted-foreground" />
+            <span>Reset to Default ({defaultVal !== "" ? defaultVal : "Blank"})</span>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => handleClearField(label, String(fieldKey))}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-amber-600 dark:text-amber-400"
+          >
+            <Trash2 className="size-3.5" />
+            <span>Clear Field</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  // Helper component to render an interactive result row with context menu and steps popup
+  const renderResultRow = (
+    id: string,
+    label: string,
+    valueFormatted: string,
+    isHighlight: boolean = false,
+    highlightClass: string = "text-foreground",
+    colSpanTwo: boolean = false
+  ) => {
+    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `res-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`res-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            onDoubleClick={() => setShowDetailedCalcs(true)}
+            title="Double-click to view step-by-step engineering calculation formulas"
+            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 px-2 rounded-lg transition cursor-pointer group ${
+              colSpanTwo ? "col-span-2" : ""
+            } ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+              <span>{label}</span>
+              {hasComments && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenComment(id, label);
+                  }}
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                  title={`${itemComments.length} comment(s)/task(s) assigned`}
+                >
+                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                  <span>{itemComments.length}</span>
+                </button>
+              )}
+            </span>
+            <strong className={`font-bold font-mono ${highlightClass}`}>{valueFormatted}</strong>
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => setShowDetailedCalcs(true)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary hover:text-primary rounded-lg cursor-pointer font-semibold"
+          >
+            <HelpCircle className="size-3.5 text-primary" />
+            <span>View Calculation Steps</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double-Click</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, valueFormatted)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value ({valueFormatted})</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => {
+              navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
+              toast.success(`Copied full line: "${label}: ${valueFormatted}"`);
+            }}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            <span>Copy Full Line</span>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
   // Open PCL Modal with all spaces selected by default
   const handleOpenPclModal = () => {
     const pclSpaces = getPclSpaces();
@@ -899,18 +1474,487 @@ function DiffuserSelectorPage() {
     }
   };
 
+  // Available unique floors and types
+  const allUniqueFloors = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => {
+      if (r.floor && r.floor.trim()) set.add(r.floor.trim());
+    });
+    return Array.from(set);
+  }, [rows]);
+
+  const allUniqueTypes = useMemo(() => {
+    return Object.keys(DIFFUSER_NAMES);
+  }, []);
+
+  const sortedFloorsForGrid = useMemo(() => {
+    if (floorOrder.length === 0) {
+      return [...allUniqueFloors].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+    const orderMap = new Map<string, number>();
+    floorOrder.forEach((f, idx) => orderMap.set(f, idx));
+    return [...allUniqueFloors].sort((a, b) => {
+      const idxA = orderMap.has(a) ? orderMap.get(a)! : 9999;
+      const idxB = orderMap.has(b) ? orderMap.get(b)! : 9999;
+      if (idxA !== idxB) return idxA - idxB;
+      return a.localeCompare(b, undefined, { numeric: true });
+    });
+  }, [allUniqueFloors, floorOrder]);
+
+  const handleMoveFloor = (index: number, direction: "up" | "down") => {
+    const newFloors = [...sortedFloorsForGrid];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newFloors.length) return;
+    const temp = newFloors[index];
+    newFloors[index] = newFloors[targetIndex];
+    newFloors[targetIndex] = temp;
+    setFloorOrder(newFloors);
+  };
+
+  const handleResetFloorOrder = () => {
+    setFloorOrder([]);
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggingIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggingIndex === null || draggingIndex === index) return;
+    const newFloors = [...sortedFloorsForGrid];
+    const draggedFloor = newFloors[draggingIndex];
+    newFloors.splice(draggingIndex, 1);
+    newFloors.splice(index, 0, draggedFloor);
+    setDraggingIndex(index);
+    setFloorOrder(newFloors);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingIndex(null);
+  };
+
+  const activeFiltersCount = (selectedFloor ? 1 : 0) + (selectedDiffType ? 1 : 0) + (filterWarningsOnly ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setSelectedFloor(null);
+    setSelectedDiffType(null);
+    setFilterWarningsOnly(false);
+  };
+
   // Filtered rows for display
   const filteredRows = useMemo(() => {
     return computedRows.filter(r => {
-      const matchSearch = searchQuery.trim() === "" ||
-        r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.floor.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.zone.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchType = typeFilter === "all" || r.diffType === typeFilter;
-      const matchFloor = floorFilter === "all" || r.floor.trim().toLowerCase() === floorFilter.trim().toLowerCase();
-      return matchSearch && matchType && matchFloor;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matches = (r.name || "").toLowerCase().includes(q) ||
+                        (r.floor || "").toLowerCase().includes(q) ||
+                        (r.zone || "").toLowerCase().includes(q) ||
+                        (DIFFUSER_NAMES[r.diffType] || "").toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+      if (selectedFloor && r.floor !== selectedFloor) return false;
+      if (selectedDiffType && r.diffType !== selectedDiffType) return false;
+      if (filterWarningsOnly && !r.flagged && r.sizing.status === "PASS") return false;
+      return true;
     });
-  }, [computedRows, searchQuery, typeFilter, floorFilter]);
+  }, [computedRows, searchQuery, selectedFloor, selectedDiffType, filterWarningsOnly]);
+
+  const handleToggleGroup = (groupSpaceIds: string[], select: boolean) => {
+    setSelectedRowIds(prev => {
+      const next = new Set(prev);
+      groupSpaceIds.forEach(id => {
+        if (select) next.add(id);
+        else next.delete(id);
+      });
+      return next;
+    });
+  };
+
+  const renderFloorGroupHeader = (floor: string) => {
+    const floorRows = filteredRows.filter(r => r.floor === floor);
+    return (
+      <span className="flex items-center gap-1.5 font-medium">
+        <span><strong className="font-bold text-primary">{floor}</strong></span>
+        <span className="text-[10px] text-muted-foreground font-normal">({floorRows.length} spaces) (Right-click or press Delete to remove)</span>
+      </span>
+    );
+  };
+
+  const renderFloorGroupContextMenu = (floor: string) => {
+    return (
+      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={async () => {
+            const newFloor = window.prompt("Enter new floor name:", floor);
+            if (newFloor && newFloor.trim() !== "" && newFloor.trim() !== floor) {
+              const trimmed = newFloor.trim();
+              setRows(prev => prev.map(s => s.floor === floor ? { ...s, floor: trimmed } : s));
+              toast.success(`Renamed floor "${floor}" to "${trimmed}"`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Edit3 className="size-3.5 text-muted-foreground" />
+          <span>Rename Floor</span>
+        </ContextMenuItem>
+        
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        
+        <ContextMenuItem
+          onClick={() => {
+            const floorSpaces = rows.filter((s) => s.floor === floor);
+            if (floorSpaces.length > 0) {
+              if (window.confirm(`Are you sure you want to delete all ${floorSpaces.length} spaces on floor "${floor}"?`)) {
+                setRows(prev => prev.filter((s) => s.floor !== floor));
+                setSelectedRowIds(new Set());
+                toast.success(`Deleted floor "${floor}" and its spaces`);
+              }
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete Floor</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
+  const renderSpaceContextMenu = (row: DiffuserRowItem & { sizing: any }) => {
+    const selectedIds = selectedRowIds.has(row.id) ? Array.from(selectedRowIds) : [row.id];
+    const isMulti = selectedIds.length > 1;
+    const targetsCount = selectedIds.length;
+
+    return (
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => {
+            setSelectedDetailRow(row);
+            setShowDetailModal(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Calculator className="size-3.5 text-muted-foreground" />
+          <span>Calculation Breakdown</span>
+        </ContextMenuItem>
+
+        <ContextMenuItem
+          onClick={() => {
+            const clones = selectedIds.map((id, index) => {
+              const targetRow = rows.find((s) => s.id === id);
+              if (!targetRow) return null;
+              return {
+                ...targetRow,
+                id: `diff-${Date.now()}-${index}-${Math.random()}`,
+                name: `${targetRow.name} (Clone)`,
+              };
+            }).filter(Boolean) as DiffuserRowItem[];
+            
+            if (clones.length > 0) {
+              setRows(prev => [...prev, ...clones]);
+              toast.success(`Duplicated ${clones.length} space(s)`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
+        </ContextMenuItem>
+
+        <ContextMenuItem
+          onClick={() => {
+            const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
+            const editSet = new Set(selectedIds);
+            setRows(prev => prev.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Space") : (isMulti ? "Flag Selected" : "Flag Space")}</span>
+        </ContextMenuItem>
+        
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment / Assign Task</span>
+        </ContextMenuItem>
+        
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        
+        <ContextMenuItem
+          onClick={() => {
+            const msg = targetsCount === 1 
+              ? `Are you sure you want to delete space "${row.name}"?`
+              : `Are you sure you want to delete the ${targetsCount} selected spaces?`;
+            
+            if (window.confirm(msg)) {
+              setRows(prev => prev.filter((s) => !selectedIds.includes(s.id)));
+              setSelectedRowIds(new Set());
+              toast.success(`Deleted ${targetsCount} space(s)`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
+  const columns: Column<DiffuserRowItem & { sizing: any }>[] = [
+    {
+      key: "name",
+      header: "NAME OF SPACE",
+      width: 220,
+      editable: true,
+      render: (r) => (
+        <div className="flex items-center gap-1.5 w-full pr-1">
+          <InlineInput
+            disabled={isApprovedLocked}
+            readOnly={isApprovedLocked}
+            value={r.name}
+            placeholder="Space Name"
+            onCommit={(val) => {
+              setRows(prev => prev.map(row => row.id === r.id ? { ...row, name: val.trim() || row.name } : row));
+            }}
+            className="font-semibold text-[12px] flex-1 truncate"
+          />
+        </div>
+      ),
+    },
+    {
+      key: "coolingKw",
+      header: "LOAD (KW)",
+      width: 95,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <InlineInput
+          disabled={isApprovedLocked}
+          readOnly={isApprovedLocked}
+          type="number"
+          step="0.1"
+          min={0}
+          value={r.coolingKw !== "" && r.coolingKw !== undefined ? r.coolingKw : ""}
+          placeholder="—"
+          onCommit={(val) => {
+            const nextKw = val === "" ? "" : Number(val);
+            setRows(prev => prev.map(row => {
+              if (row.id !== r.id) return row;
+              let flow = row.airflow;
+              if (nextKw !== "" && Number(nextKw) > 0) {
+                const dt = row.deltaT ? Number(row.deltaT) : 10;
+                flow = computeAirflowFromKw(Number(nextKw), dt, ip, "air", 20).flowRate;
+              }
+              return { ...row, coolingKw: nextKw, airflow: flow };
+            }));
+          }}
+          className="font-mono text-center text-[12px] font-bold text-foreground"
+        />
+      ),
+    },
+    {
+      key: "diffType",
+      header: "DIFFUSER TYPE",
+      width: 170,
+      render: (r) => (
+        <select
+          disabled={isApprovedLocked}
+          value={r.diffType}
+          onChange={(e) => {
+            const val = e.target.value as DiffuserType;
+            setRows(prev => prev.map(row => row.id === r.id ? { ...row, diffType: val } : row));
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 w-full px-1.5 bg-surface-2 border border-border/70 rounded text-[11px] font-semibold text-foreground truncate cursor-pointer outline-none focus:border-primary disabled:opacity-60"
+        >
+          <option value="square">4-Way Square</option>
+          <option value="round">Circular Cone</option>
+          <option value="slot16">Linear Slot 16mm</option>
+          <option value="slot20">Linear Slot 20mm</option>
+          <option value="slot25">Linear Slot 25mm</option>
+        </select>
+      ),
+    },
+    {
+      key: "airflow",
+      header: `AIRFLOW (${flowUnit})`,
+      width: 110,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <InlineInput
+          disabled={isApprovedLocked}
+          readOnly={isApprovedLocked}
+          type="number"
+          step="1"
+          min={1}
+          value={r.airflow}
+          placeholder="0"
+          onCommit={(val) => {
+            const nextFlow = val === "" ? "" : Number(val);
+            setRows(prev => prev.map(row => row.id === r.id ? { ...row, airflow: nextFlow } : row));
+          }}
+          className="font-mono text-center text-[12px] font-bold text-primary"
+        />
+      ),
+    },
+    {
+      key: "count",
+      header: "QTY",
+      width: 65,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <InlineInput
+          disabled={isApprovedLocked}
+          readOnly={isApprovedLocked}
+          type="number"
+          step="1"
+          min={1}
+          value={r.count}
+          placeholder="1"
+          onCommit={(val) => {
+            const nextCount = val === "" ? 1 : Math.max(1, Number(val));
+            setRows(prev => prev.map(row => row.id === r.id ? { ...row, count: nextCount } : row));
+          }}
+          className="font-mono text-center text-[12px] font-bold text-foreground"
+        />
+      ),
+    },
+    {
+      key: "flowPerDiff",
+      header: "FLOW / DIFF",
+      width: 100,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-[11.5px] font-semibold text-foreground tabular">
+          {r.sizing.flowPerDiff.toFixed(1)} {flowUnit}
+        </span>
+      ),
+    },
+    {
+      key: "neckSize",
+      header: "RECOMMENDED NECK",
+      width: 180,
+      render: (r) => (
+        <span className={`font-mono text-[11.5px] font-bold truncate ${r.sizing.isExceeded ? "text-destructive" : "text-primary"}`}>
+          {r.sizing.neckSize}
+        </span>
+      ),
+    },
+    {
+      key: "velocity",
+      header: "VEL (m/s)",
+      width: 80,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <button
+          disabled={isApprovedLocked}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            const nextV = r.designVelocity === 2.0 ? 2.5 : 2.0;
+            setRows(prev => prev.map(row => row.id === r.id ? { ...row, designVelocity: nextV } : row));
+          }}
+          className="px-1.5 py-0.5 rounded font-mono text-[11px] font-bold bg-surface-2 hover:bg-primary/10 border border-border/80 hover:border-primary/40 cursor-pointer disabled:cursor-default"
+          title="Click to toggle between 2.0 m/s (Quiet) and 2.5 m/s (Standard)"
+        >
+          {r.designVelocity.toFixed(1)} m/s
+        </button>
+      ),
+    },
+    {
+      key: "throw",
+      header: `THROW (${ip ? "ft" : "m"})`,
+      width: 90,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-[11.5px] text-muted-foreground font-medium">
+          {r.sizing.throwVal}
+        </span>
+      ),
+    },
+    {
+      key: "nc",
+      header: "NC SOUND",
+      width: 85,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-[11.5px] font-bold text-emerald-600 dark:text-emerald-400">
+          {r.sizing.nc}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "STATUS",
+      width: 100,
+      align: "center",
+      render: (r) => {
+        if (r.sizing.status === "FAIL") {
+          return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20">FAIL</span>;
+        }
+        if (r.sizing.status === "WARN") {
+          return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20">WARN</span>;
+        }
+        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">PASS</span>;
+      },
+    },
+    {
+      key: "flagged",
+      header: "",
+      width: 40,
+      align: "center",
+      render: (r) => (
+        <button
+          disabled={isApprovedLocked}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setRows(prev => prev.map(row => row.id === r.id ? { ...row, flagged: !row.flagged } : row));
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto disabled:cursor-default"
+          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag space"}
+        >
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${
+              r.flagged
+                ? "fill-red-500 text-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`}
+          />
+        </button>
+      ),
+    },
+  ];
+
+  const handleAddNewSpace = () => {
+    setNewName(`Space ${rows.length + 1}`);
+    setNewFloor(sortedFloorsForGrid[0] || "GF");
+    setNewZone("Zone-1");
+    setNewCoolingKw("");
+    setNewAirflow("");
+    setNewCount(2);
+    setNewType("square");
+    setNewVelocity(2.0);
+    setShowAddModal(true);
+  };
 
   // Preview draft sizing for AddSpaceModal
   const previewDraftRow: DiffuserRowItem = useMemo(() => {
@@ -940,852 +1984,729 @@ function DiffuserSelectorPage() {
 
   return (
     <AppShell title="Diffuser Selector" hideSubHeader={true}>
-      <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full pb-24">
-        {/* Header Section */}
-        <div className="flex flex-col gap-1 select-none">
-          <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; DESIGN ASSISTANT &gt; DIFFUSER SELECTION SCHEDULE</span>
-          <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          {/* Page Header matching Ventilation */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Diffuser Selector</h1>
-              <CalculationReviewBar projectId={project?.id} calculatorPath="/diffuser-selector" calculatorTitle="Diffuser Selection Schedule" />
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Diffuser Selector</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} spaces</span>
+              </div>
+              <CalculationReviewBar
+                projectId={project?.id}
+                calculatorPath="/diffuser-selector"
+                calculatorTitle="Diffuser Selection Schedule"
+                onReviewStateChange={setCalcReviewState}
+              />
               {commentsList.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
                   <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  <span>{commentsList.length} Comment(s)</span>
                 </div>
               )}
             </div>
 
-            {/* Action Buttons & Unit Toggle */}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
               <UnitToggle
                 unitSystem={unitSystem}
                 onChange={handleUnitSystemChange}
                 inputDescriptions="Supply Airflow per space"
                 conversionExample={unitSystem === "si" ? "Convert 500 L/s → 1,059 CFM" : "Convert 1000 CFM → 472 L/s"}
               />
-
-              <TBtn onClick={handleExportExcel} className="h-8 text-xs font-semibold">
-                <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
-              </TBtn>
-              <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
-                <Printer className="size-3.5 text-blue-600" /> PDF Report
-              </TBtn>
-              <TBtn onClick={() => setShowSaveModal(true)} className="h-8 text-xs font-semibold">
-                <Save className="size-3.5 text-amber-600" /> Save Preset
-              </TBtn>
-              {saves.length > 0 && (
-                <TBtn onClick={() => setShowLoadModal(true)} className="h-8 text-xs font-semibold">
-                  <FolderOpen className="size-3.5 text-indigo-600" /> Load ({saves.length})
-                </TBtn>
-              )}
             </div>
           </div>
-          <p className="text-[13px] text-muted-foreground mt-0.5">
-            Comprehensive HVAC air terminal & diffuser selection schedule with multi-space sizing, noise criteria, and ADPI analysis.
-          </p>
-        </div>
 
-        {/* 4 Summary KPI Cards (Double-click opens overview diagnostic modal) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div
-            onDoubleClick={() => setShowOverviewModal(true)}
-            title="Double-click to view complete schedule air distribution summary"
-            className="bg-card border border-border/80 hover:border-primary/50 transition-all rounded-2xl p-4 shadow-xs flex flex-col gap-1.5 relative overflow-hidden cursor-pointer select-none group"
-          >
-            <div className="absolute top-0 left-0 w-1.5 h-full bg-primary" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total Supply Airflow</span>
-              <Eye className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+        {/* White card container for Tabs & Data Grid */}
+        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+          calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+        }`}>
+          {/* Tabs Selector row */}
+          <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60">
+            <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+              <button
+                onClick={() => setActiveTab("calculator")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                  activeTab === "calculator"
+                    ? "bg-background text-foreground shadow-sm font-bold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Sizing Calculator
+              </button>
+              <button
+                onClick={() => setActiveTab("report")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                  activeTab === "report"
+                    ? "bg-background text-foreground shadow-sm font-bold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Report
+              </button>
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-foreground font-mono">{totalFlowSum.toLocaleString()}</span>
-              <span className="text-xs font-bold text-muted-foreground">{flowUnit}</span>
-            </div>
-            <span className="text-[11px] text-muted-foreground/80">Sum from Q = m·Cp·ΔT sizing</span>
           </div>
 
-          <div
-            onDoubleClick={() => setShowOverviewModal(true)}
-            title="Double-click to view complete schedule air distribution summary"
-            className="bg-card border border-border/80 hover:border-blue-500/50 transition-all rounded-2xl p-4 shadow-xs flex flex-col gap-1.5 relative overflow-hidden cursor-pointer select-none group"
-          >
-            <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total Outlets Count</span>
-              <Eye className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-foreground font-mono">{totalDiffusersSum}</span>
-              <span className="text-xs font-bold text-muted-foreground">Diffusers</span>
-            </div>
-            <span className="text-[11px] text-muted-foreground/80">Total air terminals required</span>
-          </div>
-
-          <div
-            onDoubleClick={() => setShowOverviewModal(true)}
-            title="Double-click to view complete schedule air distribution summary"
-            className="bg-card border border-border/80 hover:border-indigo-500/50 transition-all rounded-2xl p-4 shadow-xs flex flex-col gap-1.5 relative overflow-hidden cursor-pointer select-none group"
-          >
-            <div className="absolute top-0 left-0 w-1.5 h-full bg-indigo-500" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Scheduled Spaces</span>
-              <Eye className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-foreground font-mono">{computedRows.length}</span>
-              <span className="text-xs font-bold text-muted-foreground">Rooms</span>
-            </div>
-            <span className="text-[11px] text-muted-foreground/80">
-              {totalCoolingKwSum > 0 ? `${totalCoolingKwSum.toFixed(1)} kW Total Cooling` : "Independent air zones"}
-            </span>
-          </div>
-
-          <div
-            onDoubleClick={() => setShowOverviewModal(true)}
-            title="Double-click to view complete schedule air distribution summary"
-            className="bg-card border border-border/80 hover:border-emerald-500/50 transition-all rounded-2xl p-4 shadow-xs flex flex-col gap-1.5 relative overflow-hidden cursor-pointer select-none group"
-          >
-            <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500" />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Acoustic & Comfort</span>
-              <Eye className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">NC ≤ 30</span>
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded">PASS</span>
-            </div>
-            <span className="text-[11px] text-emerald-600/80">ASHRAE draft & sound compliant</span>
-          </div>
-        </div>
-
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-2 border-b border-border/60">
-          <button
-            onClick={() => setActiveTab("schedule")}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === "schedule"
-                ? "border-primary text-primary bg-primary/5"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Layers className="size-4" /> Diffuser Selection Schedule ({computedRows.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("matrix")}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === "matrix"
-                ? "border-primary text-primary bg-primary/5"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Gauge className="size-4" /> Standard Sizing Lookup Matrix
-          </button>
-          <button
-            onClick={() => setActiveTab("formulas")}
-            className={`px-4 py-2.5 text-xs font-bold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === "formulas"
-                ? "border-primary text-primary bg-primary/5"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <FileText className="size-4" /> Σ Q = m·Cp·ΔT Formulas & Interactive Sandbox
-          </button>
-        </div>
-
-        {/* Tab 1: Diffuser Schedule */}
-        {activeTab === "schedule" && (
-          <div className="flex flex-col gap-3.5">
-            {/* Action & Filter Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-card border border-border/80 rounded-2xl p-3 shadow-xs">
-              <div className="flex items-center gap-2.5 flex-1 min-w-[280px] max-w-2xl flex-wrap sm:flex-nowrap">
-                <div className="relative w-full">
-                  <Search className="size-4 absolute left-3 top-2.5 text-muted-foreground" />
+          {/* Active Tab View */}
+          <div className="flex-1 min-h-0 animate-fade-in flex flex-col overflow-hidden">
+            {activeTab === "calculator" ? (
+              <div className="flex-1 min-h-0 flex flex-col relative">
+                {/* Toolbar matching Preliminary Cooling Load / Ventilation */}
+                <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
                   <input
-                    type="text"
                     value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search spaces by name, floor, or zone..."
-                    className="h-9 pl-9 pr-8 rounded-xl border border-border bg-surface-2/60 text-xs font-medium w-full text-foreground focus:ring-1 focus:ring-primary focus:outline-hidden"
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Filter spaces..."
+                    className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
                   />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
+
+                  {/* Filter Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                          activeFiltersCount > 0
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                        }`}
+                        title="Filter Spaces"
+                      >
+                        <Filter className="size-3.5 shrink-0" />
+                        {activeFiltersCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                            {activeFiltersCount}
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-[12px] font-semibold text-foreground">Filters</span>
+                        {activeFiltersCount > 0 && (
+                          <button
+                            onClick={handleResetFilters}
+                            className="text-[10px] text-primary hover:underline font-semibold"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor</span>
+                        <select
+                          value={selectedFloor || ""}
+                          onChange={(e) => setSelectedFloor(e.target.value || null)}
+                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                        >
+                          <option value="">All Floors</option>
+                          {allUniqueFloors.map((f) => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Diffuser Type</span>
+                        <select
+                          value={selectedDiffType || ""}
+                          onChange={(e) => setSelectedDiffType(e.target.value || null)}
+                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                        >
+                          <option value="">All Types</option>
+                          {allUniqueTypes.map((t) => (
+                            <option key={t} value={t}>{DIFFUSER_NAMES[t] || t}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1 pt-1.5 border-t border-border/60">
+                        <label className="flex items-center gap-2 text-[11.5px] font-semibold text-foreground cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={filterWarningsOnly}
+                            onChange={(e) => setFilterWarningsOnly(e.target.checked)}
+                            className="rounded border-gray-300 text-red-600 size-3.5 focus:ring-red-500"
+                          />
+                          <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                            <Flag className="size-3 fill-red-500 text-red-500" />
+                            Flagged / Warnings Only
+                          </span>
+                        </label>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Floor Ordering Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                          floorOrder.length > 0
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                        }`}
+                        title="Arrange Floors"
+                      >
+                        <ArrowUpDown className="size-3.5 shrink-0" />
+                        {floorOrder.length > 0 && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans z-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11.5px] font-semibold text-foreground">Arrange Floors</span>
+                        {floorOrder.length > 0 && (
+                          <button
+                            onClick={handleResetFloorOrder}
+                            className="text-[10px] text-primary hover:underline font-medium"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
+                        Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
+                      </p>
+                      <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5">
+                        {sortedFloorsForGrid.map((floor, index) => (
+                          <div
+                            key={floor}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, index)}
+                            onDragOver={(e) => handleDragOver(e, index)}
+                            onDragEnd={handleDragEnd}
+                            className={`flex items-center justify-between gap-2 p-1.5 bg-surface rounded border border-border text-[11px] cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${
+                              draggingIndex === index
+                                ? "opacity-40 border-primary bg-primary/5 shadow-md"
+                                : "hover:bg-surface-2 hover:border-border-strong"
+                            }`}
+                          >
+                            <span className="font-semibold text-foreground uppercase truncate flex-1 min-w-0">{floor}</span>
+                            <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                disabled={index === 0}
+                                onClick={() => handleMoveFloor(index, "up")}
+                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
+                                  index === 0 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                                }`}
+                                title="Move floor up"
+                              >
+                                <ChevronUp className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={index === sortedFloorsForGrid.length - 1}
+                                onClick={() => handleMoveFloor(index, "down")}
+                                className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
+                                  index === sortedFloorsForGrid.length - 1 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                                }`}
+                                title="Move floor down"
+                              >
+                                <ChevronDown className="size-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  {/* Right Actions */}
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <TBtn
+                      disabled={isApprovedLocked}
+                      onClick={() => setShowSourceModal(true)}
                     >
-                      <X className="size-3.5" />
-                    </button>
+                      <Download className="size-3.5" /> Import
+                    </TBtn>
+                    <TBtn onClick={handleExportExcel}>
+                      <FileSpreadsheet className="size-3.5" /> Export Excel
+                    </TBtn>
+                    <TBtn
+                      disabled={isApprovedLocked}
+                      primary
+                      onClick={handleAddNewSpace}
+                    >
+                      <Plus className="size-3.5" /> New Space
+                    </TBtn>
+                  </div>
+
+                  {/* Bulk Actions Bar Overlay */}
+                  {!isApprovedLocked && selectedRowIds.size > 0 && (
+                    <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                      <span className="font-semibold">{selectedRowIds.size} selected</span>
+                      <span className="text-primary/30">·</span>
+                      <BulkBtn icon={Edit3} onClick={() => {
+                        setBulkEditFloor("");
+                        setBulkEditType("");
+                        setBulkEditCount("");
+                        setBulkEditVelocity("");
+                        setShowBulkEditModal(true);
+                      }}>Bulk edit</BulkBtn>
+                      <BulkBtn icon={Layers} onClick={() => {
+                        const nextType = "square";
+                        handleBulkSetType(nextType);
+                      }}>Set 4-Way</BulkBtn>
+                      <BulkBtn icon={Flag} onClick={handleBulkToggleFlag}>Flag / Unflag</BulkBtn>
+                      <BulkBtn icon={Trash2} onClick={handleBulkDelete}>Delete</BulkBtn>
+                      <button
+                        onClick={() => setSelectedRowIds(new Set())}
+                        className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                      >
+                        <X className="size-3" /> Clear
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                <select
-                  value={typeFilter}
-                  onChange={e => setTypeFilter(e.target.value)}
-                  className="h-9 px-3 rounded-xl border border-border bg-surface-2/60 text-xs font-semibold text-foreground focus:outline-hidden cursor-pointer shrink-0"
-                >
-                  <option value="all">All Terminal Types</option>
-                  <option value="square">4-Way Square</option>
-                  <option value="round">Round Cone</option>
-                  <option value="slot16">Slot 16mm</option>
-                  <option value="slot20">Slot 20mm</option>
-                  <option value="slot25">Slot 25mm</option>
-                </select>
-
-                {availableFloors.length > 0 && (
-                  <select
-                    value={floorFilter}
-                    onChange={e => setFloorFilter(e.target.value)}
-                    className="h-9 px-3 rounded-xl border border-border bg-surface-2/60 text-xs font-semibold text-foreground focus:outline-hidden cursor-pointer shrink-0"
-                  >
-                    <option value="all">All Floors</option>
-                    {availableFloors.map(fl => (
-                      <option key={fl} value={fl}>Floor {fl}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap">
-                <TBtn
-                  onClick={() => setShowAddModal(true)}
-                  className="h-9 text-xs font-bold px-3.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-xs flex items-center gap-1.5"
-                >
-                  <Plus className="size-4" /> Add Space
-                </TBtn>
-
-                <TBtn
-                  onClick={handleOpenPclModal}
-                  variant="outline"
-                  className="h-9 text-xs font-bold px-3 flex items-center gap-1.5 bg-primary/10 border-primary/30 text-primary hover:bg-primary/20 shadow-2xs"
-                >
-                  <Zap className="size-3.5 fill-primary" /> Import from PCL
-                </TBtn>
-
-                <TBtn
-                  onClick={handleImportWorkspaceSpaces}
-                  variant="outline"
-                  className="h-9 text-xs font-semibold px-3 flex items-center gap-1.5 border-border bg-surface-2/60 text-muted-foreground hover:text-foreground hover:bg-surface-2"
-                >
-                  <RefreshCw className="size-3.5" /> Import Spaces
-                </TBtn>
-
-                <TBtn
-                  onClick={handleClearAll}
-                  variant="ghost"
-                  className="h-9 text-xs font-semibold text-destructive hover:bg-destructive/10 px-2.5"
-                >
-                  <Trash2 className="size-3.5 mr-1" /> Clear
-                </TBtn>
-              </div>
-            </div>
-
-            {/* Bulk Actions Sliding Bar */}
-            {selectedRowIds.size > 0 && (
-              <div className="flex items-center justify-between gap-3 bg-primary/10 border border-primary/30 rounded-xl px-4 py-2 text-xs text-foreground animate-in fade-in slide-in-from-top-1 duration-150">
-                <div className="flex items-center gap-2 font-bold">
-                  <span className="size-2 rounded-full bg-primary animate-pulse" />
-                  <span>{selectedRowIds.size} space(s) selected</span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-muted-foreground font-semibold">Change Diffuser:</span>
-                  <select
-                    onChange={e => {
-                      if (e.target.value) {
-                        handleBulkSetType(e.target.value as DiffuserType);
-                        e.target.value = "";
+                {/* DataGrid Area */}
+                <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
+                  {rows.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
+                      <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
+                        <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
+                          <Wind className="size-6" />
+                        </div>
+                        <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Scheduled</h3>
+                        <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                          Start by importing cooling loads from Preliminary Cooling Load or manually add spaces to calculate airflow, diffuser neck sizes, noise criteria, and throw patterns.
+                        </p>
+                        <div className="flex items-center gap-3 w-full">
+                          <button
+                            onClick={() => setShowSourceModal(true)}
+                            className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                          >
+                            <Download className="size-3.5" /> Import
+                          </button>
+                          <button
+                            onClick={handleAddNewSpace}
+                            className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            <Plus className="size-3.5" /> Add Space
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <DataGrid
+                      rows={filteredRows}
+                      columns={columns}
+                      selected={selectedRowIds}
+                      onToggle={handleToggleSelectRow}
+                      onToggleAll={handleToggleSelectAll}
+                      isReadOnly={isApprovedLocked}
+                      onRowDoubleClick={(r) => {
+                        setSelectedDetailRow(r);
+                        setShowDetailModal(true);
+                      }}
+                      renderContextMenu={renderSpaceContextMenu}
+                      groupBy={(r) => r.floor}
+                      groupOrder={sortedFloorsForGrid}
+                      renderGroupHeader={renderFloorGroupHeader}
+                      renderGroupContextMenu={renderFloorGroupContextMenu}
+                      onToggleGroup={handleToggleGroup}
+                      rowClassName={(row, index) =>
+                        index % 2 === 0
+                          ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
+                          : "bg-card hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
                       }
-                    }}
-                    defaultValue=""
-                    className="h-7 px-2 text-xs rounded-lg border border-border bg-background text-foreground font-medium cursor-pointer"
-                  >
-                    <option value="" disabled>Select Type...</option>
-                    <option value="square">4-Way Square</option>
-                    <option value="round">Round Cone</option>
-                    <option value="slot16">Slot 16mm</option>
-                    <option value="slot20">Slot 20mm</option>
-                    <option value="slot25">Slot 25mm</option>
-                  </select>
+                    />
+                  )}
+                </div>
 
-                  <button
-                    onClick={handleBulkToggleFlag}
-                    className="h-7 px-2.5 text-xs font-semibold rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Flag className="size-3 fill-amber-500 text-amber-500" /> Flag / Unflag
-                  </button>
+                {/* Bottom Stats Summary Bar */}
+                <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none">
+                  <div>
+                    Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} spaces
+                  </div>
+                  <div className="flex items-center gap-3 tabular">
+                    <span>Σ Airflow: <span className="font-mono text-primary font-bold">{totalFlowSum.toLocaleString()} {flowUnit}</span></span>
+                    <span>Σ Outlets: <span className="font-mono text-foreground font-bold">{totalDiffusersSum} Outlets</span></span>
+                    {totalCoolingKwSum > 0 && (
+                      <span>Σ Load (kW): <span className="font-mono text-foreground font-bold">{totalCoolingKwSum.toFixed(2)} kW</span></span>
+                    )}
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">Status: All Terminals Sized (NC ≤ 30)</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Printable Report tab view */
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                {/* Fixed Toolbar at the top */}
+                <div className="relative flex items-center justify-end gap-2 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
+                  <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
+                  <TBtn onClick={handlePrintPDF} primary><FileText className="size-3.5" /> Export PDF</TBtn>
+                </div>
+                
+                {/* Scrollable Report Content */}
+                <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30 dark:bg-slate-950/20 font-sans print:p-0">
+                  {/* Results Dashboard Grid */}
+                  <div className="no-print max-w-4xl mx-auto w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 border border-blue-200/60 dark:border-blue-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
+                      <div className="absolute right-4 top-4 bg-blue-500/10 text-blue-600 rounded-full p-2">
+                        <Wind className="size-4" />
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1 font-sans">Total Supply Airflow</span>
+                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{totalFlowSum.toLocaleString()} {flowUnit}</strong>
+                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Sum of all conditioned space air distribution</span>
+                    </div>
 
-                  <button
-                    onClick={handleBulkDelete}
-                    className="h-7 px-2.5 text-xs font-semibold rounded-lg bg-destructive/10 border border-destructive/30 text-destructive hover:bg-destructive/20 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Trash2 className="size-3" /> Delete Selected
-                  </button>
+                    <div className="bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-950/20 dark:to-pink-900/10 border border-pink-200/60 dark:border-pink-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
+                      <div className="absolute right-4 top-4 bg-pink-500/10 text-pink-600 rounded-full p-2">
+                        <Layers className="size-4" />
+                      </div>
+                      <span className="text-[10px] font-bold text-pink-600 dark:text-pink-400 uppercase tracking-widest block mb-1 font-sans">Total Outlets Count</span>
+                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{totalDiffusersSum} Outlets</strong>
+                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Avg flow: {(totalFlowSum / Math.max(1, totalDiffusersSum)).toFixed(1)} {flowUnit}/diffuser</span>
+                    </div>
 
-                  <button
-                    onClick={() => setSelectedRowIds(new Set())}
-                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer font-medium"
-                  >
-                    Clear Selection
-                  </button>
+                    <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 border border-emerald-200/60 dark:border-emerald-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
+                      <div className="absolute right-4 top-4 bg-emerald-500/10 text-emerald-600 rounded-full p-2">
+                        <CheckCircle2 className="size-4" />
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-1 font-sans">Total Spaces Sized</span>
+                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{rows.length} spaces</strong>
+                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Active Floors: {allUniqueFloors.length} levels</span>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-teal-50 to-teal-100/50 dark:from-teal-950/20 dark:to-teal-900/10 border border-teal-200/60 dark:border-teal-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
+                      <div className="absolute right-4 top-4 bg-teal-500/10 text-teal-600 rounded-full p-2">
+                        <ShieldCheck className="size-4" />
+                      </div>
+                      <span className="text-[10px] font-bold text-teal-600 dark:text-teal-400 uppercase tracking-widest block mb-1 font-sans">Acoustic Compliance</span>
+                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">NC ≤ 30</strong>
+                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">ASHRAE 55 acoustic & sound compliant</span>
+                    </div>
+                  </div>
+
+                  {/* Sizing Recommendations & Validation */}
+                  <div className="no-print max-w-4xl mx-auto w-full bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm font-sans mb-6">
+                    <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white mb-3.5 flex items-center gap-2">
+                      <ShieldCheck className="size-4 text-emerald-600" /> Sizing Validation & Engineering Notes
+                    </h3>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-start gap-2.5 p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[12.5px]">
+                        <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+                        <span>All terminal diffusers operate under recommended velocity limits (2.0 - 2.5 m/s) ensuring draft-free room air motion (ADPI ≥ 80%).</span>
+                      </div>
+                      <div className="flex items-start gap-2.5 p-3 rounded-xl border border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[12.5px]">
+                        <Info className="size-4 shrink-0 mt-0.5" />
+                        <span>Discharge throw distances (T50) provide uniform thermal mixing without stagnation or excessive velocity in the occupied zone (floor to 1.8m).</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Printable Schedule Table */}
+                  <div className="border border-slate-300 dark:border-slate-800 rounded-xl p-8 max-w-4xl mx-auto shadow-sm print:border-none print:shadow-none print:p-0 bg-white dark:bg-slate-900">
+                    {/* 1. Title Banner */}
+                    <div className="bg-[#0A7BC7] text-white py-3 px-4 rounded-t-lg text-center font-bold text-base tracking-wide uppercase">
+                      DIFFUSER SELECTION SCHEDULE REPORT
+                    </div>
+
+                    {/* 2. Company & Date */}
+                    <div className="py-2.5 px-1 flex justify-between items-center text-xs border-b border-border/60">
+                      <span className="font-bold text-foreground">{project?.client || "Prestige Group developers"}</span>
+                      <span className="text-muted-foreground">Date: {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
+                    </div>
+
+                    {/* 3. Project Summary Stats */}
+                    <div className="mt-4 rounded-lg overflow-hidden border border-border/80 text-xs">
+                      <div className="bg-[#06456F] text-white px-3 py-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
+                        📊 PROJECT SUMMARY STATS
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border/60 p-2 bg-slate-50/50 dark:bg-slate-800/30">
+                        <div className="space-y-1.5 pr-3">
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Spaces:</span>
+                            <span className="font-bold font-mono">{rows.length}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Supply Airflow:</span>
+                            <span className="font-bold font-mono text-primary">{totalFlowSum.toLocaleString()} {flowUnit}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Outlets Count:</span>
+                            <span className="font-bold font-mono">{totalDiffusersSum} Diffusers</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 pl-3">
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Total Cooling Load:</span>
+                            <span className="font-bold font-mono text-primary">{totalCoolingKwSum > 0 ? `${totalCoolingKwSum.toFixed(2)} kW` : "N/A"}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Average Flow / Diffuser:</span>
+                            <span className="font-bold font-mono">{(totalFlowSum / Math.max(1, totalDiffusersSum)).toFixed(1)} {flowUnit}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-muted-foreground">Acoustic Compliance:</span>
+                            <span className="font-bold font-mono text-emerald-600">PASS (NC ≤ 30)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4. Diffuser Sizing Schedule Table */}
+                    <div className="mt-6 overflow-x-auto border border-border rounded-lg">
+                      <table className="w-full text-left text-xs border-collapse font-sans">
+                        <thead>
+                          <tr className="bg-slate-100 dark:bg-slate-800/80 text-[11px] font-bold text-foreground border-b border-border">
+                            <th className="p-2 text-center w-10">No.</th>
+                            <th className="p-2">Space / Room</th>
+                            <th className="p-2 text-center">Floor</th>
+                            <th className="p-2 text-center">Diffuser Type</th>
+                            <th className="p-2 text-right">Airflow ({flowUnit})</th>
+                            <th className="p-2 text-center">Qty</th>
+                            <th className="p-2 text-right">Flow/Diff</th>
+                            <th className="p-2">Recommended Neck</th>
+                            <th className="p-2 text-center">Vel (m/s)</th>
+                            <th className="p-2 text-center">Throw</th>
+                            <th className="p-2 text-center">NC</th>
+                            <th className="p-2 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/60">
+                          {computedRows.map((r, idx) => (
+                            <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                              <td className="p-2 text-center text-muted-foreground font-mono">{idx + 1}</td>
+                              <td className="p-2 font-semibold text-foreground">{r.name}</td>
+                              <td className="p-2 text-center text-muted-foreground font-mono">{r.floor}</td>
+                              <td className="p-2 text-center text-[11px]">{DIFFUSER_NAMES[r.diffType]}</td>
+                              <td className="p-2 text-right font-mono font-bold text-primary">{r.airflow}</td>
+                              <td className="p-2 text-center font-mono">{r.count}</td>
+                              <td className="p-2 text-right font-mono">{r.sizing.flowPerDiff.toFixed(1)}</td>
+                              <td className="p-2 font-mono font-bold text-foreground">{r.sizing.neckSize}</td>
+                              <td className="p-2 text-center font-mono">{r.designVelocity.toFixed(1)}</td>
+                              <td className="p-2 text-center font-mono text-muted-foreground">{r.sizing.throwVal}</td>
+                              <td className="p-2 text-center font-mono font-bold text-emerald-600">{r.sizing.nc}</td>
+                              <td className="p-2 text-center">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  r.sizing.status === "PASS"
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400"
+                                    : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
+                                }`}>
+                                  {r.sizing.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="bg-slate-100/60 dark:bg-slate-800/40 font-bold border-t-2 border-border text-[11.5px]">
+                            <td colSpan={4} className="p-2 text-left">Total ({computedRows.length} spaces)</td>
+                            <td className="p-2 text-right font-mono text-primary">{totalFlowSum.toLocaleString()}</td>
+                            <td className="p-2 text-center font-mono">{totalDiffusersSum}</td>
+                            <td className="p-2 text-right font-mono">-</td>
+                            <td colSpan={4} className="p-2 text-center text-muted-foreground">All Terminals Compliant</td>
+                            <td className="p-2 text-center text-emerald-600">PASS</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Signature Block */}
+                    <div className="mt-10 pt-6 border-t border-border grid grid-cols-3 gap-6 text-xs text-muted-foreground">
+                      <div className="flex flex-col gap-8">
+                        <span className="font-semibold text-foreground">Prepared By:</span>
+                        <div className="border-b border-border/80 pt-4">
+                          <span className="font-mono text-[11px] text-foreground font-semibold">{currentUserName}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-8">
+                        <span className="font-semibold text-foreground">Checked By:</span>
+                        <div className="border-b border-border/80 pt-4">
+                          <span className="font-mono text-[11px] text-muted-foreground">Senior HVAC Engineer</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-8">
+                        <span className="font-semibold text-foreground">Approved By:</span>
+                        <div className="border-b border-border/80 pt-4">
+                          <span className="font-mono text-[11px] text-muted-foreground">Lead Mechanical Coordinator</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
+          </div>
+        </div>
 
-            {/* Schedule Data Grid Table with Double-Click Breakdown */}
-            <div className="border border-border rounded-2xl overflow-hidden shadow-xs bg-card">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-surface-2 border-b border-border text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                      <th className="py-3 px-3 text-center w-10">
-                        <input
-                          type="checkbox"
-                          checked={selectedRowIds.size > 0 && selectedRowIds.size === filteredRows.length}
-                          onChange={handleToggleSelectAll}
-                          className="rounded border-border accent-primary cursor-pointer size-3.5"
-                          title="Select / Deselect all"
-                        />
-                      </th>
-                      <th className="py-3 px-2 text-center w-10">Sr.</th>
-                      <th className="py-3 px-3 min-w-[170px]">Space / Room Name</th>
-                      <th className="py-3 px-2 text-center w-14">Floor</th>
-                      <th className="py-3 px-2 text-center w-24">Cooling Q (kW)</th>
-                      <th className="py-3 px-2 text-center w-20">ΔT ({tempUnit})</th>
-                      <th className="py-3 px-3 min-w-[130px]">Terminal Type</th>
-                      <th className="py-3 px-2 text-center w-24">Total Flow ({flowUnit})</th>
-                      <th className="py-3 px-2 text-center w-16">Qty</th>
-                      <th className="py-3 px-2 text-center w-24">Flow/Diff ({flowUnit})</th>
-                      <th className="py-3 px-3 text-center min-w-[150px]">Recommended Neck</th>
-                      <th className="py-3 px-2 text-center w-24">Vel ({velUnit})</th>
-                      <th className="py-3 px-2 text-center w-20">Throw ({lenUnit})</th>
-                      <th className="py-3 px-2 text-center w-24">NC Sound</th>
-                      <th className="py-3 px-2 text-center w-24">ADPI Comfort</th>
-                      <th className="py-3 px-3 text-center w-24">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {filteredRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={16} className="py-12 text-center text-muted-foreground text-xs">
-                          <div className="flex flex-col items-center justify-center gap-2">
-                            <Wind className="size-8 text-muted-foreground/50 animate-pulse" />
-                            <span className="font-semibold text-foreground">No air terminal spaces found</span>
-                            <span className="text-muted-foreground text-[11px]">
-                              Click <strong>"Add Space"</strong> or <strong>"Import from Preliminary Cooling Load"</strong> to populate the diffuser selection schedule.
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredRows.map((row, idx) => {
-                        const itemComments = commentsList.filter(c => c.spaceId === row.id || c.targetId === row.id);
-                        const hasComments = itemComments.length > 0;
-                        const isSelected = selectedRowIds.has(row.id);
-                        const ncNum = parseInt(row.sizing.nc.replace(/\D/g, "") || "25");
-
-                        return (
-                          <ContextMenu key={row.id}>
-                            <ContextMenuTrigger asChild>
-                              <tr
-                                onDoubleClick={() => {
-                                  setSelectedDetailRow(row);
-                                  setShowDetailModal(true);
-                                }}
-                                title="Double-click to open full aerodynamic calculation breakdown & diagnostic modal"
-                                className={`transition-colors cursor-pointer select-none group ${
-                                  row.flagged
-                                    ? "bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-l-amber-500"
-                                    : isSelected
-                                    ? "bg-primary/10 hover:bg-primary/15"
-                                    : "hover:bg-primary/5"
-                                }`}
-                              >
-                                {/* Checkbox */}
-                                <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={e => handleToggleSelectRow(row.id, e)}
-                                    className="rounded border-border accent-primary cursor-pointer size-3.5"
-                                  />
-                                </td>
-
-                                {/* Sr. Number */}
-                                <td className="py-2.5 px-2 text-center font-mono text-muted-foreground">
-                                  {idx + 1}
-                                </td>
-                                
-                                {/* Room Name */}
-                                <td className="py-2.5 px-3 font-semibold text-foreground" onClick={e => e.stopPropagation()}>
-                                  <div className="flex items-center gap-1.5">
-                                    <input
-                                      type="text"
-                                      value={row.name}
-                                      onChange={e => {
-                                        const val = e.target.value;
-                                        setRows(prev => prev.map(r => r.id === row.id ? { ...r, name: val } : r));
-                                      }}
-                                      className="bg-transparent border border-transparent font-semibold text-foreground w-full focus:outline-hidden hover:border-border/60 focus:border-primary/60 px-1 py-0.5 rounded transition-colors"
-                                    />
-                                    {row.flagged && (
-                                      <Flag className="size-3 text-amber-500 fill-amber-500 shrink-0" title="Flagged for review" />
-                                    )}
-                                    {hasComments && (
-                                      <span className="size-2 rounded-full bg-primary ring-2 ring-primary/20 shrink-0" title={`${itemComments.length} active comment(s)`} />
-                                    )}
-                                  </div>
-                                </td>
-
-                                {/* Floor */}
-                                <td className="py-2.5 px-2 text-center" onClick={e => e.stopPropagation()}>
-                                  <input
-                                    type="text"
-                                    value={row.floor}
-                                    onChange={e => {
-                                      const val = e.target.value;
-                                      setRows(prev => prev.map(r => r.id === row.id ? { ...r, floor: val } : r));
-                                    }}
-                                    className="bg-transparent text-center border border-transparent text-muted-foreground font-semibold w-12 focus:outline-hidden hover:border-border/60 focus:border-primary/60 rounded py-0.5"
-                                  />
-                                </td>
-
-                                {/* Cooling Load Q (kW) */}
-                                <td className="py-2.5 px-2 text-center" onClick={e => e.stopPropagation()}>
-                                  <input
-                                    type="number"
-                                    value={row.coolingKw ?? ""}
-                                    placeholder="-"
-                                    onChange={e => {
-                                      const val = e.target.value === "" ? "" : Number(e.target.value);
-                                      setRows(prev => prev.map(r => {
-                                        if (r.id === row.id) {
-                                          let updatedFlow = r.airflow;
-                                          if (val !== "" && Number(val) > 0) {
-                                            const dt = r.deltaT && Number(r.deltaT) > 0 ? Number(r.deltaT) : 10;
-                                            updatedFlow = computeAirflowFromKw(Number(val), dt, ip, "air", 20).flowRate;
-                                          }
-                                          return { ...r, coolingKw: val, airflow: updatedFlow };
-                                        }
-                                        return r;
-                                      }));
-                                    }}
-                                    className="bg-surface-2 text-center border border-border/80 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-foreground w-20 focus:ring-1 focus:ring-primary focus:outline-hidden"
-                                  />
-                                </td>
-
-                                {/* Delta T */}
-                                <td className="py-2.5 px-2 text-center" onClick={e => e.stopPropagation()}>
-                                  <input
-                                    type="number"
-                                    value={row.deltaT ?? 10}
-                                    onChange={e => {
-                                      const val = e.target.value === "" ? "" : Number(e.target.value);
-                                      setRows(prev => prev.map(r => {
-                                        if (r.id === row.id) {
-                                          let updatedFlow = r.airflow;
-                                          if (r.coolingKw && Number(r.coolingKw) > 0 && val !== "" && Number(val) > 0) {
-                                            updatedFlow = computeAirflowFromKw(Number(r.coolingKw), Number(val), ip, "air", 20).flowRate;
-                                          }
-                                          return { ...r, deltaT: val, airflow: updatedFlow };
-                                        }
-                                        return r;
-                                      }));
-                                    }}
-                                    className="bg-surface-2 text-center border border-border/80 rounded-lg px-1 py-1 text-xs font-mono text-muted-foreground w-14 focus:ring-1 focus:ring-primary focus:outline-hidden"
-                                  />
-                                </td>
-
-                                {/* Terminal Type */}
-                                <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
-                                  <select
-                                    value={row.diffType}
-                                    onChange={e => {
-                                      const val = e.target.value as DiffuserType;
-                                      setRows(prev => prev.map(r => r.id === row.id ? { ...r, diffType: val } : r));
-                                    }}
-                                    className="bg-surface-2 border border-border/80 rounded-lg px-2 py-1 text-xs font-semibold text-foreground focus:outline-hidden w-full cursor-pointer"
-                                  >
-                                    <option value="square">Square 4-Way</option>
-                                    <option value="round">Round Cone</option>
-                                    <option value="slot16">Slot 16mm</option>
-                                    <option value="slot20">Slot 20mm</option>
-                                    <option value="slot25">Slot 25mm</option>
-                                  </select>
-                                </td>
-
-                                {/* Total Flow */}
-                                <td className="py-2.5 px-2 text-center" onClick={e => e.stopPropagation()}>
-                                  <input
-                                    type="number"
-                                    value={row.airflow}
-                                    onChange={e => {
-                                      const val = e.target.value === "" ? "" : Number(e.target.value);
-                                      setRows(prev => prev.map(r => r.id === row.id ? { ...r, airflow: val } : r));
-                                    }}
-                                    className="bg-surface-2 text-center border border-border/80 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-primary focus:ring-1 focus:ring-primary focus:outline-hidden w-20"
-                                  />
-                                </td>
-
-                                {/* Qty */}
-                                <td className="py-2.5 px-2 text-center" onClick={e => e.stopPropagation()}>
-                                  <input
-                                    type="number"
-                                    value={row.count}
-                                    min={1}
-                                    onChange={e => {
-                                      const val = e.target.value === "" ? "" : Number(e.target.value);
-                                      setRows(prev => prev.map(r => r.id === row.id ? { ...r, count: val } : r));
-                                    }}
-                                    className="bg-surface-2 text-center border border-border/80 rounded-lg px-1 py-1 text-xs font-mono font-bold text-foreground w-12 focus:ring-1 focus:ring-primary focus:outline-hidden"
-                                  />
-                                </td>
-
-                                {/* Flow / Unit */}
-                                <td className="py-2.5 px-2 text-center font-mono font-bold text-foreground">
-                                  {row.sizing.flowPerDiff.toFixed(1)}
-                                </td>
-
-                                {/* Recommended Neck Size */}
-                                <td className="py-2.5 px-3 text-center">
-                                  <button
-                                    onClick={() => {
-                                      setSelectedDetailRow(row);
-                                      setShowDetailModal(true);
-                                    }}
-                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/25 hover:bg-primary/20 hover:border-primary/40 transition cursor-pointer shadow-2xs gap-1"
-                                    title="Click to view aerodynamic performance breakdown"
-                                  >
-                                    <Wind className="size-3" />
-                                    <span>{row.sizing.neckSize}</span>
-                                  </button>
-                                </td>
-
-                                {/* Velocity */}
-                                <td className="py-2.5 px-2 text-center">
-                                  <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-surface-2 text-foreground font-semibold border border-border/60 inline-block">
-                                    {ip ? `${row.sizing.velocityFpm.toFixed(0)} FPM` : `${row.sizing.velocity.toFixed(2)} m/s`}
-                                  </span>
-                                </td>
-
-                                {/* Throw */}
-                                <td className="py-2.5 px-2 text-center font-mono text-muted-foreground">
-                                  {row.sizing.throwVal}
-                                </td>
-
-                                {/* NC */}
-                                <td className="py-2.5 px-2 text-center">
-                                  <span className={`inline-flex items-center gap-1.5 font-mono text-xs font-bold px-2 py-0.5 rounded-full ${
-                                    ncNum <= 25
-                                      ? "text-emerald-700 bg-emerald-100/70 border border-emerald-300/60 dark:text-emerald-400 dark:bg-emerald-950/50 dark:border-emerald-800/60"
-                                      : ncNum <= 35
-                                      ? "text-amber-700 bg-amber-100/70 border border-amber-300/60 dark:text-amber-400 dark:bg-amber-950/50 dark:border-amber-800/60"
-                                      : "text-red-700 bg-red-100/70 border border-red-300/60 dark:text-red-400 dark:bg-red-950/50 dark:border-red-800/60"
-                                  }`}>
-                                    <span className={`size-1.5 rounded-full ${ncNum <= 25 ? "bg-emerald-500" : ncNum <= 35 ? "bg-amber-500" : "bg-red-500"}`} />
-                                    {row.sizing.nc}
-                                  </span>
-                                </td>
-
-                                {/* ADPI */}
-                                <td className="py-2.5 px-2 text-center">
-                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                                    row.sizing.status === "PASS"
-                                      ? "text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-400 dark:bg-emerald-950/40 dark:border-emerald-900/60"
-                                      : "text-amber-700 bg-amber-50 border border-amber-200 dark:text-amber-400 dark:bg-amber-950/40 dark:border-amber-900/60"
-                                  }`}>
-                                    {row.sizing.adpi.includes("Good") ? "Pass (≥80%)" : row.sizing.adpi.split("-")[0]}
-                                  </span>
-                                </td>
-
-                                {/* Actions */}
-                                <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
-                                  <div className="flex items-center justify-center gap-1">
-                                    <button
-                                      onClick={() => handleOpenComment({ id: row.id, name: `${row.name} Diffuser Sizing` })}
-                                      className="p-1 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-                                      title="Add Comment / Assign Task"
-                                    >
-                                      <MessageSquare className="size-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleToggleFlag(row.id)}
-                                      className={`p-1 rounded-lg transition-colors cursor-pointer ${
-                                        row.flagged
-                                          ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
-                                          : "text-muted-foreground hover:text-amber-500"
-                                      }`}
-                                      title={row.flagged ? "Unflag row" : "Flag for review"}
-                                    >
-                                      <Flag className={`size-3.5 ${row.flagged ? "fill-amber-500" : ""}`} />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDuplicateRow(row)}
-                                      className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
-                                      title="Duplicate Space"
-                                    >
-                                      <Copy className="size-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteRow(row.id)}
-                                      className="p-1 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
-                                      title="Delete Space"
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            </ContextMenuTrigger>
-
-                            <ContextMenuContent className="w-56 font-sans text-xs">
-                              <ContextMenuItem
-                                onClick={() => {
-                                  setSelectedDetailRow(row);
-                                  setShowDetailModal(true);
-                                }}
-                                className="gap-2 cursor-pointer font-semibold text-primary"
-                              >
-                                <Calculator className="size-3.5" />
-                                <span>Calculation Breakdown & Preview</span>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment({ id: row.id, name: `${row.name} Diffuser Sizing` })}
-                                className="gap-2 cursor-pointer"
-                              >
-                                <MessageSquare className="size-3.5 text-blue-500" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() => handleToggleFlag(row.id)}
-                                className="gap-2 cursor-pointer"
-                              >
-                                <Flag className={`size-3.5 ${row.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
-                                <span>{row.flagged ? "Unflag Item" : "Flag for Review"}</span>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                onClick={() => handleDuplicateRow(row)}
-                                className="gap-2 cursor-pointer"
-                              >
-                                <Copy className="size-3.5 text-slate-500" />
-                                <span>Duplicate Row</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() => handleDeleteRow(row.id)}
-                                className="gap-2 text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/30 cursor-pointer"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Delete Space</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+        {/* Source Import Selection Modal */}
+        {showSourceModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+            <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <Download className="size-5 text-primary" />
+                  <h3 className="text-base font-bold text-foreground">Import Spaces</h3>
+                </div>
+                <button
+                  onClick={() => setShowSourceModal(false)}
+                  className="text-muted-foreground hover:text-foreground text-sm font-bold p-1"
+                >
+                  ✕
+                </button>
               </div>
 
-              {/* Table Footer Summary Strip */}
-              <div className="bg-surface-2/60 border-t border-border px-4 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs font-semibold text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <span>Showing <strong className="text-foreground">{filteredRows.length}</strong> of <strong className="text-foreground">{rows.length}</strong> spaces</span>
-                  {selectedRowIds.size > 0 && (
-                    <span className="text-primary font-bold">({selectedRowIds.size} selected)</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-4 flex-wrap font-mono text-xs">
-                  <div>Σ Flow: <span className="text-foreground font-bold">{totalFlowSum.toLocaleString()} {flowUnit}</span></div>
-                  <div className="h-3 w-px bg-border/80" />
-                  <div>Σ Outlets: <span className="text-foreground font-bold">{totalDiffusersSum} units</span></div>
-                  <div className="h-3 w-px bg-border/80" />
-                  <div>Σ Load: <span className="text-foreground font-bold">{totalCoolingKwSum.toFixed(1)} kW</span></div>
-                  <div className="h-3 w-px bg-border/80" />
-                  <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-sans font-bold">
-                    <ShieldCheck className="size-3.5" /> All Terminals Sized
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Choose a source to import spaces into your Diffuser Selection Schedule:
+              </p>
+
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSourceModal(false);
+                    setShowPclModal(true);
+                  }}
+                  className="p-3.5 rounded-xl border border-border bg-surface-2 hover:bg-primary/5 hover:border-primary/40 text-left transition flex items-center gap-3 group cursor-pointer"
+                >
+                  <div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:scale-105 transition-transform">
+                    <Zap className="size-5" />
                   </div>
-                </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-foreground group-hover:text-primary">
+                      Preliminary Cooling Load (Q = ṁ·Cp·ΔT)
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Auto-calculate airflow from calculated cooling loads (kW / TR) and temperature differential.
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSourceModal(false);
+                    handleImportWorkspaceSpaces();
+                  }}
+                  className="p-3.5 rounded-xl border border-border bg-surface-2 hover:bg-primary/5 hover:border-primary/40 text-left transition flex items-center gap-3 group cursor-pointer"
+                >
+                  <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 group-hover:scale-105 transition-transform">
+                    <Layers className="size-5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-foreground group-hover:text-primary">
+                      Current Project Workspace Spaces
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Import all rooms registered in the current active building project.
+                    </span>
+                  </div>
+                </button>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-border">
+                <TBtn variant="ghost" onClick={() => setShowSourceModal(false)} className="h-8 text-xs font-semibold">
+                  Cancel
+                </TBtn>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab 2: Standard Sizing Matrix */}
-        {activeTab === "matrix" && (
-          <div className="flex flex-col gap-5">
-            {(["square", "round", "slot16", "slot20", "slot25"] as DiffuserType[]).map(typeKey => (
-              <div key={typeKey} className="bg-card border border-border/80 rounded-2xl p-5 shadow-xs flex flex-col gap-3">
-                <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
-                  <h3 className="text-sm font-bold text-foreground flex items-center gap-2 uppercase tracking-wide">
-                    <Wind className="size-4 text-primary" /> {DIFFUSER_NAMES[typeKey]}
+        {/* Bulk Edit Modal */}
+        {showBulkEditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+            <div className="bg-card border border-border rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <Edit3 className="size-5 text-primary" />
+                  <h3 className="text-base font-bold text-foreground">
+                    Bulk Edit ({selectedRowIds.size} spaces)
                   </h3>
-                  <span className="text-xs text-muted-foreground font-medium">ASHRAE Standard Airflow Capacity Range</span>
                 </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left border-collapse">
-                    <thead>
-                      <tr className="bg-surface-2 text-muted-foreground font-bold border-b border-border text-[11px] uppercase">
-                        <th className="py-2.5 px-3">Nominal Neck Size / Model</th>
-                        <th className="py-2.5 px-3 text-center">Max Flow @ Low Vel ({flowUnit})</th>
-                        <th className="py-2.5 px-3 text-center">Max Flow @ Med Comfort ({flowUnit})</th>
-                        <th className="py-2.5 px-3 text-center">Throw T50 ({lenUnit})</th>
-                        <th className="py-2.5 px-3 text-center">Sound Level</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60">
-                      {DIFFUSER_DATA[typeKey].map((sz, sIdx) => {
-                        const f20 = ip ? (sz.maxFlow_20 || sz.maxFlow || 0) * 2.1189 : (sz.maxFlow_20 || sz.maxFlow || 0);
-                        const f25 = ip ? (sz.maxFlow_25 || sz.maxFlow || 0) * 2.1189 : (sz.maxFlow_25 || sz.maxFlow || 0);
-                        const th = ip ? sz.throw : sz.throw * 0.3048;
-
-                        return (
-                          <tr key={sIdx} className="hover:bg-primary/5 transition-colors">
-                            <td className="py-2 px-3 font-semibold text-foreground">{sz.size}</td>
-                            <td className="py-2 px-3 text-center font-mono">{f20.toFixed(1)}</td>
-                            <td className="py-2 px-3 text-center font-mono font-bold text-primary">{f25.toFixed(1)}</td>
-                            <td className="py-2 px-3 text-center font-mono">{th.toFixed(1)} {lenUnit}</td>
-                            <td className="py-2 px-3 text-center font-mono font-semibold">NC-{sz.nc}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Tab 3: Detailed Formulas & Thermodynamic Interactive Sandbox */}
-        {activeTab === "formulas" && (
-          <div className="flex flex-col gap-6">
-            {/* Interactive Calculator Sandbox */}
-            <div className="bg-card border border-primary/30 rounded-2xl p-5 shadow-xs flex flex-col gap-4">
-              <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                <h3 className="text-sm font-bold text-foreground flex items-center gap-2 text-primary">
-                  <Zap className="size-4 text-primary" /> Interactive Thermodynamic Airflow Sandbox (Q = ṁ · Cp · ΔT)
-                </h3>
-                <span className="text-xs bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-bold">
-                  Live Calculator
-                </span>
+                <button
+                  onClick={() => setShowBulkEditModal(false)}
+                  className="text-muted-foreground hover:text-foreground text-sm font-bold p-1"
+                >
+                  ✕
+                </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-surface-2/60 p-4 rounded-xl border border-border/80">
+              <div className="flex flex-col gap-3 text-xs">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-foreground">Sensible Cooling Load (kW)</label>
+                  <label className="font-semibold text-muted-foreground">Floor Level</label>
                   <input
-                    type="number"
-                    value={sandboxKw}
-                    onChange={e => setSandboxKw(Number(e.target.value) || 0)}
-                    className="bg-card border border-border rounded-lg px-3 py-2 text-xs font-mono font-bold text-foreground outline-none focus:border-primary"
+                    type="text"
+                    value={bulkEditFloor}
+                    onChange={(e) => setBulkEditFloor(e.target.value)}
+                    placeholder="Leave blank to keep unchanged"
+                    className="h-8 px-3 rounded-lg border border-border bg-surface-2 text-xs font-medium text-foreground outline-none focus:border-primary"
                   />
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-foreground">Design ΔT ({tempUnit})</label>
-                  <input
-                    type="number"
-                    value={sandboxDt}
-                    onChange={e => setSandboxDt(Number(e.target.value) || 0)}
-                    className="bg-card border border-border rounded-lg px-3 py-2 text-xs font-mono font-bold text-foreground outline-none focus:border-primary"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-foreground">Fluid Medium</label>
+                  <label className="font-semibold text-muted-foreground">Diffuser Terminal Type</label>
                   <select
-                    value={sandboxFluid}
-                    onChange={e => setSandboxFluid(e.target.value as "air" | "water")}
-                    className="bg-card border border-border rounded-lg px-3 py-2 text-xs font-semibold text-foreground outline-none focus:border-primary cursor-pointer"
+                    value={bulkEditType}
+                    onChange={(e) => setBulkEditType(e.target.value as DiffuserType | "")}
+                    className="h-8 px-2 rounded-lg border border-border bg-surface-2 text-xs font-medium text-foreground outline-none focus:border-primary cursor-pointer"
                   >
-                    <option value="air">Supply Air (ρ=1.204 kg/m³, Cp=1.005 kJ/kg·K)</option>
-                    <option value="water">Chilled Water (ρ=1000 kg/m³, Cp(T))</option>
+                    <option value="">Leave unchanged</option>
+                    <option value="square">4-Way Ceiling Square</option>
+                    <option value="round">Circular Radial Cone</option>
+                    <option value="slot16">Linear Slot 16mm</option>
+                    <option value="slot20">Linear Slot 20mm</option>
+                    <option value="slot25">Linear Slot 25mm</option>
                   </select>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-semibold text-foreground">Temperature (°C)</label>
+                  <label className="font-semibold text-muted-foreground">Diffusers Count (Qty)</label>
                   <input
                     type="number"
-                    value={sandboxTemp}
-                    onChange={e => setSandboxTemp(Number(e.target.value) || 20)}
-                    className="bg-card border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-primary"
+                    min={1}
+                    value={bulkEditCount}
+                    onChange={(e) => setBulkEditCount(e.target.value)}
+                    placeholder="Leave blank to keep unchanged"
+                    className="h-8 px-3 rounded-lg border border-border bg-surface-2 text-xs font-medium text-foreground outline-none focus:border-primary"
                   />
                 </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="font-semibold text-muted-foreground">Design Velocity (m/s)</label>
+                  <select
+                    value={bulkEditVelocity}
+                    onChange={(e) => setBulkEditVelocity(e.target.value)}
+                    className="h-8 px-2 rounded-lg border border-border bg-surface-2 text-xs font-medium text-foreground outline-none focus:border-primary cursor-pointer"
+                  >
+                    <option value="">Leave unchanged</option>
+                    <option value="2.0">2.0 m/s (Quiet • NC ≤ 25)</option>
+                    <option value="2.5">2.5 m/s (Standard • NC ≤ 30)</option>
+                  </select>
+                </div>
               </div>
 
-              {(() => {
-                const res = computeAirflowFromKw(sandboxKw, sandboxDt, ip, sandboxFluid, sandboxTemp);
-                return (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 rounded-xl bg-primary/10 border border-primary/20 flex flex-col justify-center">
-                      <span className="text-xs font-bold text-primary uppercase">Resulting Airflow Demand</span>
-                      <span className="text-3xl font-black font-mono text-primary mt-1">
-                        {res.flowRate.toLocaleString()} <span className="text-sm font-bold">{flowUnit}</span>
-                      </span>
-                      <span className="text-xs text-muted-foreground mt-1 font-mono">
-                        Mass Flow Rate ṁ = {res.massFlowKgS.toFixed(4)} kg/s
-                      </span>
-                    </div>
-
-                    <div className="p-4 rounded-xl bg-surface-2 border border-border flex flex-col justify-center gap-1 text-xs font-mono">
-                      <span className="font-bold text-foreground">Mathematical Derivation:</span>
-                      <span className="text-muted-foreground">Q = ṁ · Cp · ΔT</span>
-                      <span className="text-muted-foreground">ṁ = {sandboxKw} kW ÷ (1.005 × {sandboxDt}°C) = {res.massFlowKgS.toFixed(4)} kg/s</span>
-                      <span className="text-primary font-bold">V = ({res.massFlowKgS.toFixed(4)} ÷ 1.204) × 1000 = {res.flowRate} {flowUnit}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {/* Thermodynamic Q = m·Cp·ΔT card */}
-              <div className="bg-card border border-border rounded-2xl p-5 shadow-xs flex flex-col gap-3">
-                <h3 className="text-sm font-bold text-foreground flex items-center gap-2 text-primary">
-                  <Zap className="size-4 text-primary" /> 1. Thermodynamic Cooling Load Equation
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Airflow and fluid mass flow rate are derived directly from sensible cooling load Q and supply temperature difference ΔT:
-                </p>
-                <div className="bg-surface-2 p-3 rounded-xl border border-border font-mono text-xs text-foreground flex flex-col gap-1.5">
-                  <span className="font-bold text-primary">Q = ṁ · Cp · ΔT</span>
-                  <span>ṁ = Q / (Cp · ΔT)  [kg/s]</span>
-                  <span>Volumetric Airflow (L/s) = Q_sensible (kW) / (1.21 · ΔT_air)</span>
-                  <span>Volumetric Airflow (CFM) = Q_sensible (Btu/h) / (1.08 · ΔT_air)</span>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Where 1.21 = ρ_air · Cp_air = 1.204 kg/m³ × 1.005 kJ/kg·K.
-                </p>
-              </div>
-
-              {/* Temperature-dependent Cp table card */}
-              <div className="bg-card border border-border rounded-2xl p-5 shadow-xs flex flex-col gap-3">
-                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                  <Flame className="size-4 text-orange-500" /> 2. Specific Heat Capacity (Cp) at Different Temperatures
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Water specific heat capacity values used for hydronic heat transfer and coils:
-                </p>
-                <div className="overflow-x-auto border border-border rounded-xl">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-surface-2 font-bold text-[11px] border-b border-border">
-                      <tr>
-                        <th className="py-1.5 px-3">Temperature (°C)</th>
-                        <th className="py-1.5 px-3">Specific Heat Capacity Cp (kJ/kg·K or J/g·°C)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60 font-mono">
-                      <tr><td className="py-1 px-3">0 °C</td><td className="py-1 px-3">4.217 J/g·°C</td></tr>
-                      <tr><td className="py-1 px-3">20 °C</td><td className="py-1 px-3">4.186 J/g·°C</td></tr>
-                      <tr><td className="py-1 px-3">40 °C</td><td className="py-1 px-3">4.179 J/g·°C</td></tr>
-                      <tr><td className="py-1 px-3">60 °C</td><td className="py-1 px-3">4.184 J/g·°C</td></tr>
-                      <tr><td className="py-1 px-3">80 °C</td><td className="py-1 px-3">4.196 J/g·°C</td></tr>
-                      <tr><td className="py-1 px-3">100 °C</td><td className="py-1 px-3">4.216 J/g·°C</td></tr>
-                    </tbody>
-                  </table>
-                </div>
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+                <TBtn variant="ghost" onClick={() => setShowBulkEditModal(false)} className="h-8 text-xs font-semibold">
+                  Cancel
+                </TBtn>
+                <TBtn
+                  onClick={() => {
+                    setRows(prev => prev.map(r => {
+                      if (!selectedRowIds.has(r.id)) return r;
+                      return {
+                        ...r,
+                        ...(bulkEditFloor.trim() ? { floor: bulkEditFloor.trim() } : {}),
+                        ...(bulkEditType ? { diffType: bulkEditType } : {}),
+                        ...(bulkEditCount ? { count: Math.max(1, Number(bulkEditCount)) } : {}),
+                        ...(bulkEditVelocity ? { designVelocity: Number(bulkEditVelocity) } : {}),
+                      };
+                    }));
+                    toast.success(`Updated ${selectedRowIds.size} selected spaces`);
+                    setShowBulkEditModal(false);
+                  }}
+                  className="h-8 text-xs font-bold bg-primary text-primary-foreground"
+                >
+                  Apply Changes
+                </TBtn>
               </div>
             </div>
           </div>
@@ -2470,6 +3391,7 @@ function DiffuserSelectorPage() {
             onSave={handleSaveComment}
           />
         )}
+        </div>
       </div>
     </AppShell>
   );

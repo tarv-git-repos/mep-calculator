@@ -1,8 +1,12 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
-export function TBtn({ children, primary, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { primary?: boolean; children: ReactNode }) {
+export const TBtn = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & { primary?: boolean; children: ReactNode }
+>(({ children, primary, ...rest }, ref) => {
   return (
     <button
+      ref={ref}
       type="button"
       {...rest}
       className={`inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border transition-colors cursor-pointer ${
@@ -14,7 +18,8 @@ export function TBtn({ children, primary, ...rest }: ButtonHTMLAttributes<HTMLBu
       {children}
     </button>
   );
-}
+});
+TBtn.displayName = "TBtn";
 
 export function BulkBtn({
   icon: Icon,
