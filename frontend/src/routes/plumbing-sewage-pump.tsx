@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -176,7 +176,25 @@ function SewagePumpPage() {
   const { project, isReadOnly, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-sewage-pump", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole);
+  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
+  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
+
+  // Calculation review state listener
+  useEffect(() => {
+    const handleReviewUpdate = (e: any) => {
+      if (e?.detail) {
+        setCalcReviewState(e.detail);
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("mep-review-state-updated", handleReviewUpdate);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("mep-review-state-updated", handleReviewUpdate);
+      }
+    };
+  }, []);
 
   // Tabs & drawer state
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -873,17 +891,10 @@ function SewagePumpPage() {
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
           
-          {/* Top Review Bar */}
-          <CalculationReviewBar
-            calculatorPath="/plumbing-sewage-pump"
-            calculatorTitle="Sewage Pump Sizing"
-            projectId={project?.id}
-          />
-
-          {/* Header Bar */}
-          <header className="px-6 py-3 border-b border-border/80 bg-card/60 backdrop-blur-xs flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-xl text-primary">
+          {/* Header Bar with Integrated Review & Intelligence Controls */}
+          <header className="px-6 py-3 border-b border-border/80 bg-card/60 backdrop-blur-xs flex items-center justify-between shrink-0 flex-wrap gap-3 select-none">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="p-2 bg-primary/10 rounded-xl text-primary shrink-0">
                 <Droplets className="size-5" />
               </div>
               <div>
@@ -897,6 +908,40 @@ function SewagePumpPage() {
                   Submersible sewage ejector flow rate, total dynamic head (TDH), wet well volume & motor rating
                 </p>
               </div>
+
+              {/* Intelligence Drawer Trigger */}
+              <button
+                type="button"
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle IPC / ASPE Sewage Pump Intelligence & Audit"
+              >
+                <Sparkles className="size-3.5" />
+                <span>Intelligence</span>
+              </button>
+
+              {/* Calculation Review Bar (Review for Sr. Engineer, Approve/Reject for Coordinator) */}
+              <CalculationReviewBar
+                calculatorPath="/plumbing-sewage-pump"
+                calculatorTitle="Sewage Pump Sizing"
+                projectId={project?.id || "default"}
+                onReviewStateChange={setCalcReviewState}
+              />
+
+              {/* Active Tasks / Comments Badge */}
+              {commentsList.length > 0 && (
+                <div 
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
+                  title={`${commentsList.length} active task(s)/comment(s)`}
+                >
+                  <MessageSquare className="size-3.5 fill-blue-500/20" />
+                  <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"}</span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2.5">
@@ -918,21 +963,6 @@ function SewagePumpPage() {
                 <span>Formulas</span>
               </button>
 
-              {/* Intelligence Drawer Trigger */}
-              <button
-                type="button"
-                onClick={() => setIntelOpen(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
-                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
-                title="Toggle IPC / ASPE Sewage Pump Intelligence & Audit"
-              >
-                <Sparkles className="size-3.5" />
-                <span>Intelligence</span>
-              </button>
-
               {/* View Mode Toggle */}
               <div className="flex p-0.5 bg-surface-2 rounded-xl border border-border/80">
                 <button
@@ -940,7 +970,7 @@ function SewagePumpPage() {
                   onClick={() => setTab("solver")}
                   className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                     tab === "solver"
-                      ? "bg-card text-foreground shadow-xs"
+                      ? "bg-card text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -951,7 +981,7 @@ function SewagePumpPage() {
                   onClick={() => setTab("report")}
                   className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                     tab === "report"
-                      ? "bg-card text-foreground shadow-xs"
+                      ? "bg-card text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -960,6 +990,21 @@ function SewagePumpPage() {
               </div>
             </div>
           </header>
+
+          {/* Approved & Locked Status Banner */}
+          {(isApprovedLocked || calcReviewState?.status === "APPROVED") && (
+            <div className="bg-emerald-500/10 border-b border-emerald-500/30 px-6 py-2 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300 font-semibold select-none shrink-0 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+                <span>
+                  Calculation Approved & Verified by {calcReviewState?.approvedBy || "Discipline Coordinator"} — Locked against modification.
+                </span>
+              </div>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                APPROVED & LOCKED
+              </span>
+            </div>
+          )}
 
           {/* Body Section */}
           <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
