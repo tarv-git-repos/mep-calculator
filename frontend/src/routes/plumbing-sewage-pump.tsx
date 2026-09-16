@@ -3,6 +3,7 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { notifyCommentAssigned, dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
@@ -98,54 +99,54 @@ export const SEWAGE_PRESETS: Record<SewagePresetKey, SewagePresetConfig> = {
     key: "restaurant_kitchen",
     label: "Restaurant / Commercial Kitchen",
     category: "IPC / High Solids & Grease",
-    description: "Heavy food service waste drainage requiring vortex solids-handling or grinder pump.",
+    description: "Grease-laden waste & high-temperature kitchen discharge requiring high-torque solids handling.",
     inflow: 65,
     cycle: 5,
     starts: 8,
     lift: 20,
     pipeDia: 3.0,
     pipeLen: 50,
-    fittingsHead: 7.5,
+    fittingsHead: 5.5,
     safetyFactor: 20,
-    basinDia: 36,
+    basinDia: 42,
   },
   high_rise_basement: {
     key: "high_rise_basement",
     label: "High-Rise Deep Basement",
-    category: "ASPE / Multi-Level Deep Lift",
-    description: "Deep subterranean parking & lower plant room sewage lift to municipal sewer invert.",
-    inflow: 100,
-    cycle: 6,
+    category: "ASPE / High Head",
+    description: "Deep subterranean parking levels (B3–B5) requiring high-head discharge to street sewer.",
+    inflow: 75,
+    cycle: 8,
     starts: 6,
-    lift: 45,
+    lift: 55,
     pipeDia: 4.0,
     pipeLen: 120,
-    fittingsHead: 12.0,
-    safetyFactor: 20,
+    fittingsHead: 10.0,
+    safetyFactor: 15,
     basinDia: 48,
   },
   heavy_duty_station: {
     key: "heavy_duty_station",
-    label: "Municipal / Heavy Lift Station",
-    category: "BS EN 12056 / Municipal",
-    description: "Large volume collection basin for campus or industrial sanitary lift station.",
-    inflow: 200,
-    cycle: 8,
-    starts: 5,
-    lift: 60,
+    label: "Heavy-Duty Wet Well Station",
+    category: "Municipal / ASPE Chapter 7",
+    description: "Large commercial complex or hotel central wet well with large non-clog solids-handling pumps.",
+    inflow: 150,
+    cycle: 10,
+    starts: 6,
+    lift: 35,
     pipeDia: 4.0,
-    pipeLen: 200,
-    fittingsHead: 18.0,
+    pipeLen: 150,
+    fittingsHead: 12.0,
     safetyFactor: 20,
     basinDia: 60,
   },
   custom: {
     key: "custom",
-    label: "Custom Engineered",
-    category: "Special Application",
-    description: "Custom user-specified flow, static lift, pipe geometry, and basin dimensions.",
-    inflow: 40,
-    cycle: 5,
+    label: "Custom Configuration",
+    category: "Custom Engineering",
+    description: "Custom user-defined sewage pump hydraulic configuration.",
+    inflow: 50,
+    cycle: 6,
     starts: 6,
     lift: 20,
     pipeDia: 3.0,
@@ -302,27 +303,39 @@ function SewagePumpPage() {
       motorEfficiency,
       pumpCountMode,
       unitSystem,
+      updatedAt: new Date().toISOString(),
     };
-    try {
-      localStorage.setItem(`mep_sewage_pump_params_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    } catch (e) {
-      console.error("Failed to save Sewage Pump params", e);
-    }
+    const pKey = `mep_sewage_pump_params_${project.id}`;
+    localStorage.setItem(pKey, JSON.stringify(dataToSave));
+    localStorage.setItem("mep_sewage_pump_params", JSON.stringify(dataToSave));
   }, [
-    preset, inflow, flowMultiplier, cycle, starts, lift, pipeDia, pipeLen,
-    fittingsHead, safetyFactor, basinDia, pumpEfficiency, motorEfficiency,
-    pumpCountMode, unitSystem, project?.id, loadedProjectId
+    project?.id,
+    loadedProjectId,
+    preset,
+    inflow,
+    flowMultiplier,
+    cycle,
+    starts,
+    lift,
+    pipeDia,
+    pipeLen,
+    fittingsHead,
+    safetyFactor,
+    basinDia,
+    pumpEfficiency,
+    motorEfficiency,
+    pumpCountMode,
+    unitSystem,
   ]);
 
-  // Comments and Task Assignment state
+  // Comments & Task State (matching Preliminary Cooling Load)
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
   const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<any>(null);
 
-  // Load comments
+  // Load comments on project switch
   useEffect(() => {
     const pId = project?.id || "default";
     const storageKey = `mep_calc_comments_${pId}_/plumbing-sewage-pump`;
@@ -350,6 +363,13 @@ function SewagePumpPage() {
       window.dispatchEvent(new CustomEvent("mep_notification_received"));
       window.dispatchEvent(new CustomEvent("mep-notification-added"));
       window.dispatchEvent(new Event("storage"));
+      if ("BroadcastChannel" in window) {
+        try {
+          const bc = new BroadcastChannel("mep_notifications_channel");
+          bc.postMessage({ type: "COMMENTS_UPDATED", calcPath: "/plumbing-sewage-pump", count: newList.length });
+          bc.close();
+        } catch (e) {}
+      }
     }
     try {
       if (typeof forceSaveToCloud === "function") {
@@ -375,9 +395,22 @@ function SewagePumpPage() {
       calculatorPath: "/plumbing-sewage-pump",
       projectId: project?.id || "default",
       projectName: project?.name || "Sanitary Drainage Lift Station",
+      authorName: userData?.name || profile?.name || "System Admin",
+      authorId: profile?.id || userData?.id || "unknown",
     };
     const updated = [commentWithMeta, ...commentsList.filter((c) => c.id !== comment.id)];
     saveComments(updated);
+
+    try {
+      dispatchGlobalCommentNotification(commentWithMeta, {
+        project,
+        currentUserName: userData?.name || profile?.name || "System Admin",
+        currentUserId: profile?.id || userData?.id || "unknown",
+      });
+    } catch (e) {
+      console.error("Failed to dispatch global notification", e);
+    }
+
     setCommentModalOpen(false);
   };
 
@@ -407,6 +440,54 @@ function SewagePumpPage() {
     );
   };
 
+  // Clipboard & Input Helper Actions
+  const handleCopyValue = (label: string, value: any) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(String(value));
+      toast.success(`Copied ${label}: ${value}`);
+    }
+  };
+
+  const handlePasteValue = async (label: string, setter: (val: any) => void) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
+      return;
+    }
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      try {
+        const text = await navigator.clipboard.readText();
+        const num = parseFloat(text);
+        if (!isNaN(num)) {
+          setter(num);
+          toast.success(`Pasted into ${label}: ${num}`);
+        } else if (text) {
+          setter(text);
+          toast.success(`Pasted into ${label}`);
+        }
+      } catch (e) {
+        toast.error("Failed to read clipboard");
+      }
+    }
+  };
+
+  const handleResetValue = (label: string, setter: (val: any) => void, defaultVal: any) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
+      return;
+    }
+    setter(defaultVal);
+    toast.info(`Reset ${label} to default (${defaultVal})`);
+  };
+
+  const handleClearValue = (label: string, setter: (val: any) => void) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
+      return;
+    }
+    setter("");
+    toast.info(`Cleared ${label}`);
+  };
+
   const handleUnitSystemChange = (targetUnit: "si" | "ip") => {
     if (isEffectiveReadOnly) {
       toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
@@ -417,44 +498,59 @@ function SewagePumpPage() {
     toast.success(`Unit system switched to ${targetUnit.toUpperCase()}`);
   };
 
-  // Scroll to targeted comment
+  // Scroll and highlight notification target item (exact parity with Preliminary Cooling Load)
   useEffect(() => {
-    const handleScrollTarget = (targetId?: string) => {
-      if (!targetId) return;
-      const el = document.getElementById(targetId) ||
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanId = (targetId || "").toLowerCase().trim();
+
+      const el = document.getElementById(targetId || "") ||
                  document.getElementById(`field-${targetId}`) ||
-                 document.getElementById(`res-${targetId}`);
-      if (el) {
-        setHighlightedTargetId(targetId);
+                 document.getElementById(`res-${targetId}`) ||
+                 document.getElementById(`card-${targetId}`) ||
+                 document.querySelector(`[data-item-id="${targetId}"]`) ||
+                 document.querySelector(`[data-field-id="${targetId}"]`);
+
+      if (el || cleanId) {
+        setHighlightedTargetId(targetId || cleanId);
+
         if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
         highlightTimeoutRef.current = setTimeout(() => {
           setHighlightedTargetId(null);
           highlightTimeoutRef.current = null;
         }, 4000);
-        setTimeout(() => {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 150);
+
+        if (el) {
+          setTimeout(() => {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 150);
+        }
       }
     };
 
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const targetId = params.get("commentTargetId");
-      if (targetId) {
-        setTimeout(() => handleScrollTarget(targetId), 300);
+      const targetName = params.get("commentTargetName");
+      if (targetId || targetName) {
+        setTimeout(() => {
+          handleScrollTarget(targetId || undefined, targetName || undefined);
+        }, 300);
       }
     }
 
     const handleScrollEvent = (e: Event) => {
       const detail = (e as CustomEvent)?.detail;
-      if (detail?.targetId || detail?.id) {
-        handleScrollTarget(detail.targetId || detail.id);
+      if (detail?.targetId || detail?.id || detail?.targetName) {
+        handleScrollTarget(detail.targetId || detail.id, detail.targetName);
       }
     };
 
     window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep_scroll_to_target", handleScrollEvent);
     return () => {
       window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep_scroll_to_target", handleScrollEvent);
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     };
   }, []);
@@ -520,62 +616,55 @@ function SewagePumpPage() {
     const activeVolM3 = activeVolGal * GAL_TO_M3;
     const activeVolL = activeVolGal * GAL_TO_L;
 
-    // 6. Basin Geometry & Water Depth
-    const basinRadiusFt = (dBasin / 12) / 2;
+    // 6. Sump Basin Geometry
+    const basinRadiusFt = dBasin / 2 / 12;
     const basinAreaSqFt = Math.PI * Math.pow(basinRadiusFt, 2);
-    const activeDepthFt = basinAreaSqFt > 0 ? (activeVolGal / 7.48052) / basinAreaSqFt : 0;
+    const galPerFtDepth = basinAreaSqFt * 7.48052; // 1 cu.ft = 7.48052 gal
+    const activeDepthFt = galPerFtDepth > 0 ? activeVolGal / galPerFtDepth : 0;
     const activeDepthInches = activeDepthFt * 12;
-    const totalBasinDepthInches = activeDepthInches + 24;
 
-    // 7. Power & Motor Sizing
+    const pumpClearanceInches = 12.0; // Under pump low level cutoff
+    const highLevelAlarmInches = 12.0; // Above high level float
+    const totalBasinDepthInches = activeDepthInches + pumpClearanceInches + highLevelAlarmInches;
+
+    // 7. Pump Motor Sizing
     const waterHP = (dutyFlowPerPump * tdh) / 3960;
-    const bhp = effP > 0 ? waterHP / effP : 0;
-    const motorKW = effM > 0 ? (bhp * HP_TO_KW) / effM : 0;
+    const bhp = effP > 0 ? waterHP / effP : waterHP / 0.6;
+    const motorKW = effM > 0 ? (bhp * HP_TO_KW) / effM : bhp * HP_TO_KW;
 
-    let recommendedMotorHP = 0.5;
+    let recommendedMotorHP = STANDARD_MOTOR_HP[0];
     for (const stdHP of STANDARD_MOTOR_HP) {
-      if (stdHP >= bhp * 1.15) {
+      if (stdHP >= bhp) {
         recommendedMotorHP = stdHP;
         break;
       }
       recommendedMotorHP = stdHP;
     }
-    if (bhp * 1.15 > 30.0) {
-      recommendedMotorHP = Math.ceil((bhp * 1.15) / 5) * 5;
-    }
     const recommendedMotorKW = recommendedMotorHP * HP_TO_KW;
 
-    // 8. Compliance Audits
-    const isScouringCompliant = velocityFps >= 2.0;
-    const isMaxVelocityCompliant = velocityFps <= 8.0;
-    const isSolidsPassageCompliant = dPipe >= 2.0;
+    // 8. Checks & Verification
+    const isScouringCompliant = velocityFps >= 2.0; // IPC min 2.0 ft/s
+    const isMaxVelocityCompliant = velocityFps <= 8.0; // Recommended max 8.0 ft/s
+    const isSolidsCompliant = dPipe >= 2.0; // IPC 712.4.2 min 2.0" discharge for raw sewage solids
     const calculatedStartsPerHour = tCycle > 0 ? 60 / tCycle : 0;
-    const isStartsCompliant = calculatedStartsPerHour <= maxStarts;
 
     return {
       qIn,
       mult,
-      tCycle,
-      maxStarts,
-      hStatic,
-      dPipe,
-      lPipe,
-      hFittings,
-      sf,
-      dBasin,
-      effP,
-      effM,
       dutyFlowPerPump,
       totalWorkingFlow,
       velocityFps,
       velocityMs,
       frictionHead,
-      rawHead,
+      hStatic,
+      hFittings,
       tdh,
+      sf,
       activeVolGal,
       activeVolM3,
       activeVolL,
-      basinAreaSqFt,
+      dBasin,
+      dPipe,
       activeDepthInches,
       totalBasinDepthInches,
       waterHP,
@@ -583,415 +672,561 @@ function SewagePumpPage() {
       motorKW,
       recommendedMotorHP,
       recommendedMotorKW,
-      calculatedStartsPerHour,
       isScouringCompliant,
       isMaxVelocityCompliant,
-      isSolidsPassageCompliant,
-      isStartsCompliant,
+      isSolidsCompliant,
+      calculatedStartsPerHour,
+      maxStarts,
     };
   }, [
-    inflow, flowMultiplier, cycle, starts, lift, pipeDia, pipeLen,
-    fittingsHead, safetyFactor, basinDia, pumpEfficiency, motorEfficiency, pumpCountMode
+    inflow,
+    flowMultiplier,
+    cycle,
+    starts,
+    lift,
+    pipeDia,
+    pipeLen,
+    fittingsHead,
+    safetyFactor,
+    basinDia,
+    pumpEfficiency,
+    motorEfficiency,
+    pumpCountMode,
   ]);
 
-  // PDF Export
+  // Export to PDF
   const exportPdf = () => {
-    try {
-      const doc = new jsPDF("portrait", "mm", "a4");
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 14;
-      const contentWidth = pageWidth - margin * 2;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pId = project?.id || "default";
+    const pName = project?.name || "Sanitary Drainage Lift Station";
 
-      const primaryFill: [number, number, number] = [217, 217, 217];
-      const blueFill: [number, number, number] = [218, 233, 248];
+    // Title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(30, 41, 59);
+    doc.text("SEWAGE PUMP SIZING CALCULATION REPORT", 14, 20);
 
-      doc.setFillColor(primaryFill[0], primaryFill[1], primaryFill[2]);
-      doc.rect(margin, margin, contentWidth, 18, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(13);
-      doc.setTextColor(20, 20, 20);
-      doc.text("SEWAGE PUMP & WET WELL SIZING REPORT", margin + 4, margin + 8);
-      doc.setFontSize(8.5);
-      doc.setFont("helvetica", "normal");
-      doc.text("Sanitary Drainage Ejector & Sump Sizing per IPC / ASPE Standards", margin + 4, margin + 14);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Project: ${pName} | Date: ${formatDateStr(new Date())} | Engineer: ${currentUserName}`, 14, 26);
+    doc.text(`Configuration Preset: ${SEWAGE_PRESETS[preset]?.label} (${SEWAGE_PRESETS[preset]?.category})`, 14, 31);
 
+    // Summary Box
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 35, 182, 38, 2, 2, "FD");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text("EXECUTIVE PUMP DESIGN SUMMARY", 18, 42);
+
+    doc.setFontSize(8.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(51, 65, 85);
+    doc.text(`• Pump Duty Flow (Each):`, 18, 48);
+    doc.text(`• Total Dynamic Head (TDH):`, 18, 54);
+    doc.text(`• Wet Well Active Sump Volume:`, 18, 60);
+    doc.text(`• Recommended Motor Power:`, 18, 66);
+
+    doc.setFont("helvetica", "bold");
+    doc.text(
+      isSI
+        ? `${(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s (${(calcResults.dutyFlowPerPump * GPM_TO_LMIN).toFixed(0)} L/min)`
+        : `${calcResults.dutyFlowPerPump.toFixed(1)} GPM`,
+      75,
+      48
+    );
+    doc.text(
+      isSI
+        ? `${(calcResults.tdh * FT_TO_M).toFixed(1)} m w.g. (${(calcResults.tdh * 0.02989).toFixed(2)} bar)`
+        : `${calcResults.tdh.toFixed(1)} ft w.g.`,
+      75,
+      54
+    );
+    doc.text(
+      isSI
+        ? `${calcResults.activeVolM3.toFixed(2)} m³ (${calcResults.activeVolL.toFixed(0)} L)`
+        : `${calcResults.activeVolGal.toFixed(0)} Gal`,
+      75,
+      60
+    );
+    doc.text(
+      isSI
+        ? `${calcResults.recommendedMotorKW.toFixed(2)} kW (${calcResults.recommendedMotorHP} HP)`
+        : `${calcResults.recommendedMotorHP} HP (${calcResults.recommendedMotorKW.toFixed(2)} kW)`,
+      75,
+      66
+    );
+
+    // Hydraulic Data Table
+    const tableData = [
+      ["Peak Sanitary Inflow Rate (Q_in)", isSI ? `${(calcResults.qIn * GPM_TO_LPS).toFixed(2)} L/s` : `${calcResults.qIn} GPM`, "IPC Table 709.1"],
+      ["Pump Duty Flow (Q_pump)", isSI ? `${(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s` : `${calcResults.dutyFlowPerPump.toFixed(1)} GPM`, `${calcResults.mult}x Inflow Peak Multiplier`],
+      ["Pumping Arrangement Mode", pumpCountMode === "1W_1S" ? "1 Duty + 1 Standby (Duplex)" : "2 Duty + 1 Standby (Triplex)", "100% Standby Redundancy"],
+      ["Static Elevation Lift", isSI ? `${(calcResults.hStatic * FT_TO_M).toFixed(1)} m` : `${calcResults.hStatic} ft`, "Basin Invert to Discharge"],
+      ["Discharge Pipe Diameter", isSI ? `${(calcResults.dPipe * IN_TO_MM).toFixed(0)} mm` : `${calcResults.dPipe}" NPS`, "IPC 712.4.2 Solids Clearance (Min 2\")"],
+      ["Discharge Fluid Velocity", isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${calcResults.velocityFps.toFixed(2)} ft/s`, calcResults.isScouringCompliant ? "Self-Scouring Compliant (≥2.0 fps)" : "Below 2.0 fps Warning"],
+      ["Friction Head Loss (H_f)", isSI ? `${(calcResults.frictionHead * FT_TO_M).toFixed(2)} m` : `${calcResults.frictionHead.toFixed(2)} ft`, "Hazen-Williams Equation (C=120)"],
+      ["Fittings & Valve Losses", isSI ? `${(calcResults.hFittings * FT_TO_M).toFixed(2)} m` : `${calcResults.hFittings.toFixed(1)} ft`, "Check & Gate Valves / Bends"],
+      ["Total Dynamic Head (TDH)", isSI ? `${(calcResults.tdh * FT_TO_M).toFixed(1)} m` : `${calcResults.tdh.toFixed(1)} ft`, `Includes +${calcResults.sf}% Safety Margin`],
+      ["Active Storage Volume", isSI ? `${calcResults.activeVolM3.toFixed(2)} m³ (${calcResults.activeVolL.toFixed(0)} L)` : `${calcResults.activeVolGal.toFixed(0)} Gal`, `(Q_pump × ${cycle} min) / 4`],
+      ["Basin Internal Dimensions", isSI ? `${(calcResults.dBasin * IN_TO_MM).toFixed(0)} mm Ø × ${(calcResults.totalBasinDepthInches * IN_TO_MM).toFixed(0)} mm Depth` : `${calcResults.dBasin}" Ø × ${calcResults.totalBasinDepthInches.toFixed(0)}" Depth`, "Includes 12\" Submergence + 12\" Alarm"],
+      ["Active Drawdown Depth", isSI ? `${(calcResults.activeDepthInches * IN_TO_MM).toFixed(0)} mm` : `${calcResults.activeDepthInches.toFixed(1)} inches`, "Drawdown between Start/Stop floats"],
+      ["Calculated Brake Horsepower", `${calcResults.bhp.toFixed(2)} BHP`, `@ ${pumpEfficiency}% Pump Efficiency`],
+      ["Selected Standard Motor Rating", isSI ? `${calcResults.recommendedMotorKW.toFixed(2)} kW` : `${calcResults.recommendedMotorHP} HP`, "NEMA Standard Heavy-Duty Submersible"],
+    ];
+
+    autoTable(doc, {
+      startY: 78,
+      head: [["Engineering Parameter", "Calculated Value", "Design Standard / Reference"]],
+      body: tableData,
+      theme: "striped",
+      headStyles: { fillColor: [30, 41, 59], fontSize: 8.5, fontStyle: "bold" },
+      styles: { fontSize: 8, cellPadding: 2.5 },
+      columnStyles: { 0: { cellWidth: 70, fontStyle: "bold" }, 1: { cellWidth: 55 }, 2: { cellWidth: 57 } },
+    });
+
+    // Signature Block
+    const finalY = (doc as any).lastAutoTable?.finalY || 210;
+    const sigDetails = getSignatureBlockDetails(project, currentUserName);
+    if (finalY < 235) {
+      doc.setDrawColor(203, 213, 225);
+      doc.line(14, finalY + 12, 196, finalY + 12);
       doc.setFontSize(8);
-      doc.setTextColor(70, 70, 70);
-      const pName = project?.name || "Sanitary Drainage Lift Station";
-      const pNum = project?.project_number || "SAN-EJECTOR-01";
-      doc.text(`Project: ${pName}  |  Code: ${pNum}  |  Date: ${formatDateStr(new Date().toISOString())}`, margin, margin + 24);
-
-      const summaryData = [
-        [
-          "Pump Duty Flow (Each)",
-          isSI ? `${(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s (${(calcResults.dutyFlowPerPump * GPM_TO_LMIN).toFixed(0)} L/min)` : `${calcResults.dutyFlowPerPump.toFixed(1)} GPM`,
-          "Total Dynamic Head (TDH)",
-          isSI ? `${(calcResults.tdh * FT_TO_M).toFixed(1)} m w.g. (${(calcResults.tdh * 0.02989).toFixed(2)} bar)` : `${calcResults.tdh.toFixed(1)} ft w.g.`
-        ],
-        [
-          "Recommended Motor Size",
-          isSI ? `${calcResults.recommendedMotorKW.toFixed(2)} kW (${calcResults.recommendedMotorHP} HP)` : `${calcResults.recommendedMotorHP} HP (${calcResults.recommendedMotorKW.toFixed(2)} kW)`,
-          "Wet Well Active Volume",
-          isSI ? `${calcResults.activeVolM3.toFixed(2)} m³ (${calcResults.activeVolL.toFixed(0)} L)` : `${calcResults.activeVolGal.toFixed(0)} Gal`
-        ],
-        [
-          "Discharge Scouring Velocity",
-          `${calcResults.velocityFps.toFixed(2)} ft/s (${calcResults.velocityMs.toFixed(2)} m/s) ${calcResults.isScouringCompliant ? "✓ OK" : "⚠ LOW"}`,
-          "Basin Diameter & Active Depth",
-          isSI ? `${(calcResults.dBasin * IN_TO_MM).toFixed(0)} mm Ø × ${(calcResults.activeDepthInches * IN_TO_MM).toFixed(0)} mm Depth` : `${calcResults.dBasin}" Ø × ${calcResults.activeDepthInches.toFixed(1)}" Depth`
-        ]
-      ];
-
-      autoTable(doc, {
-        startY: margin + 28,
-        theme: "grid",
-        styles: { fontSize: 8, cellPadding: 2 },
-        headStyles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold" },
-        body: summaryData,
-        columnStyles: {
-          0: { fontStyle: "bold", fillColor: [245, 245, 245], width: 45 },
-          1: { fontStyle: "bold", textColor: [16, 80, 160], width: 46 },
-          2: { fontStyle: "bold", fillColor: [245, 245, 245], width: 45 },
-          3: { fontStyle: "bold", textColor: [16, 80, 160], width: 46 }
-        }
-      });
-
-      const detailsY = (doc as any).lastAutoTable.finalY + 6;
-      const paramTableData = [
-        ["Peak Inflow Rate (Q_in)", `${calcResults.qIn} GPM (${(calcResults.qIn * GPM_TO_LPS).toFixed(2)} L/s)`, "User Input", "Peak sanitary drainage inflow"],
-        ["Pump Duty Factor", `${calcResults.mult}x`, "ASPE Standard", "Sizing factor Q_pump = Q_in × Multiplier"],
-        ["Pump Configuration", pumpCountMode === "1W_1S" ? "1 Duty + 1 Standby (100% Duplex)" : "2 Duty + 1 Standby (Triplex)", "IPC / ASPE", "Automatic alternating duty cycle"],
-        ["Static Lift (H_static)", `${calcResults.hStatic} ft (${(calcResults.hStatic * FT_TO_M).toFixed(1)} m)`, "Site Elevation", "Invert of basin to highest discharge invert"],
-        ["Discharge Pipe Size (NPS)", `${calcResults.dPipe}" NPS (${calcResults.dPipe * 25.4} mm)`, "IPC 712.4.2", "Min 2.0\" (50 mm) for raw sewage solids"],
-        ["Equivalent Pipe Length", `${calcResults.lPipe} ft (${(calcResults.lPipe * FT_TO_M).toFixed(1)} m)`, "Piping Layout", "Straight run developed pipe length"],
-        ["Pipe Friction Loss (H_f)", `${calcResults.frictionHead.toFixed(2)} ft (${(calcResults.frictionHead * FT_TO_M).toFixed(2)} m)`, "Hazen-Williams C=120", "Hydraulic friction through discharge line"],
-        ["Fittings & Valve Losses", `${calcResults.hFittings.toFixed(1)} ft (${(calcResults.hFittings * FT_TO_M).toFixed(2)} m)`, "Minor Losses", "Check valve, gate valve, bends & tees"],
-        ["Safety Margin Factor", `+${calcResults.sf}%`, "Design Margin", "Safety margin applied to total head"],
-        ["Pump Cycle Time", `${calcResults.tCycle} minutes`, "ASPE Guideline", "Average drawdown cycle duration"],
-        ["Pump Starts Per Hour", `${calcResults.calculatedStartsPerHour.toFixed(1)} starts/hr (Max ${calcResults.maxStarts})`, "NEMA Standard", "Motor thermal protection compliance"],
-        ["Hydraulic Water Power", `${calcResults.waterHP.toFixed(2)} HP (${(calcResults.waterHP * HP_TO_KW).toFixed(2)} kW)`, "P_w = (Q × H) / 3960", "Net fluid energy transfer"],
-        ["Pump Brake Horsepower", `${calcResults.bhp.toFixed(2)} BHP (Eff ${pumpEfficiency}%)`, "BHP = P_w / Eff_pump", "Required shaft input power"]
-      ];
-
-      autoTable(doc, {
-        startY: detailsY,
-        theme: "striped",
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        head: [["PARAMETER", "CALCULATED VALUE", "REFERENCE / FORMULA", "ENGINEERING DESCRIPTION"]],
-        headStyles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold" },
-        body: paramTableData,
-        columnStyles: {
-          0: { fontStyle: "bold", width: 50 },
-          1: { fontStyle: "bold", textColor: [16, 80, 160], width: 45 },
-          2: { width: 42 },
-          3: { width: 45 }
-        }
-      });
-
-      const sigY = (doc as any).lastAutoTable.finalY + 6;
-      const sigDetails = getSignatureBlockDetails(project);
-
-      autoTable(doc, {
-        startY: sigY,
-        theme: "plain",
-        styles: { fontSize: 7, cellPadding: 1.5 },
-        body: [
-          [
-            `Prepared By: ${currentUserName}`,
-            `Reviewed By: ${sigDetails.reviewer || "Senior Plumbing Engineer"}`,
-            `Approved By: ${sigDetails.approver || "Discipline Coordinator"}`
-          ],
-          [
-            `Design Status: ${project?.status || "In Review"}`,
-            `Compliance: IPC / ASPE 2024 / BS EN 12056`,
-            `Approval Date: ${formatDateStr(new Date().toISOString())}`
-          ]
-        ]
-      });
-
-      doc.save(`Sewage_Pump_Sizing_${pNum}_${Date.now()}.pdf`);
-      toast.success("PDF calculation report generated successfully!");
-    } catch (e) {
-      console.error("Failed to generate PDF", e);
-      toast.error("Failed to generate PDF report.");
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Calculated By: ${sigDetails.preparedBy}`, 14, finalY + 20);
+      doc.text(`Approved By: ${sigDetails.approvedBy}`, 110, finalY + 20);
+      doc.text(`Date & Stamp: ${sigDetails.date}`, 14, finalY + 26);
+      doc.text(`Status: ${sigDetails.status}`, 110, finalY + 26);
     }
+
+    doc.save(`Sewage_Pump_Sizing_${pName.replace(/[^a-zA-Z0-9]/g, "_")}.pdf`);
+    toast.success("PDF calculation report generated!");
   };
 
-  // Excel Export
+  // Export to Excel
   const exportToExcel = async () => {
-    try {
-      const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet("Sewage Pump Sizing");
+    const pName = project?.name || "Sanitary Drainage Lift Station";
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet("Sewage Pump Sizing");
 
-      ws.mergeCells("A1:E1");
-      ws.getCell("A1").value = "SEWAGE PUMP & WET WELL SIZING CALCULATION REPORT";
-      ws.getCell("A1").font = { name: "Segoe UI", size: 13, bold: true, color: { argb: "FFFFFFFF" } };
-      ws.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
-      ws.getCell("A1").alignment = { horizontal: "center", vertical: "middle" };
+    ws.columns = [
+      { width: 34 },
+      { width: 22 },
+      { width: 14 },
+      { width: 30 },
+      { width: 36 },
+    ];
 
-      ws.addRow([]);
-      ws.addRow(["PARAMETER", "VALUE", "UNIT", "FORMULA / BASIS", "DESCRIPTION"]);
-      const headerRow = ws.getRow(3);
-      headerRow.font = { name: "Segoe UI", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-      headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
-      headerRow.alignment = { horizontal: "center", vertical: "middle" };
+    // Header
+    ws.addRow(["SEWAGE PUMP & WET WELL SIZING REPORT"]);
+    ws.addRow([`Project: ${pName}`]);
+    ws.addRow([`Engineer: ${currentUserName}`]);
+    ws.addRow([`Date: ${new Date().toLocaleDateString()}`]);
+    ws.addRow([`Preset: ${SEWAGE_PRESETS[preset]?.label}`]);
+    ws.addRow([]);
 
-      const excelRows = [
-        ["Peak Inflow Rate (Q_in)", isSI ? (calcResults.qIn * GPM_TO_LPS).toFixed(2) : calcResults.qIn, isSI ? "L/s" : "GPM", "User Input", "Peak sanitary drainage inflow"],
-        ["Pump Duty Flow (Each)", isSI ? (calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2) : calcResults.dutyFlowPerPump.toFixed(1), isSI ? "L/s" : "GPM", "Q_in × Multiplier", "Required duty capacity per pump"],
-        ["Static Lift (H_static)", isSI ? (calcResults.hStatic * FT_TO_M).toFixed(1) : calcResults.hStatic, isSI ? "m" : "ft", "Site Elevation", "Vertical lift from basin invert to high point"],
-        ["Discharge Pipe Diameter", isSI ? (calcResults.dPipe * IN_TO_MM).toFixed(0) : calcResults.dPipe, isSI ? "mm" : "inches", "IPC 712.4.2", "Min 2.0\" (50 mm) for raw sewage solids"],
-        ["Discharge Velocity", isSI ? calcResults.velocityMs.toFixed(2) : calcResults.velocityFps.toFixed(2), isSI ? "m/s" : "ft/s", "v = 0.4085 × Q / d²", "Scouring velocity (2.0 - 8.0 fps)"],
-        ["Pipe Friction Loss", isSI ? (calcResults.frictionHead * FT_TO_M).toFixed(2) : calcResults.frictionHead.toFixed(2), isSI ? "m" : "ft", "Hazen-Williams (C=120)", "Friction head loss in discharge piping"],
-        ["Fittings & Valve Head", isSI ? (calcResults.hFittings * FT_TO_M).toFixed(2) : calcResults.hFittings.toFixed(1), isSI ? "m" : "ft", "Minor Losses", "Losses through check/gate valves and fittings"],
-        ["Safety Margin Factor", calcResults.sf, "%", "User Input", "Safety margin applied to head"],
-        ["Total Dynamic Head (TDH)", isSI ? (calcResults.tdh * FT_TO_M).toFixed(1) : calcResults.tdh.toFixed(1), isSI ? "m" : "ft", "(H_static + H_f + H_fit) × (1 + SF)", "Total calculated pump design head"],
-        ["Wet Well Active Volume", isSI ? calcResults.activeVolM3.toFixed(2) : calcResults.activeVolGal.toFixed(0), isSI ? "m³" : "Gal", "(Q_pump × Cycle) / 4", "Required active storage drawdown volume"],
-        ["Basin Internal Diameter", isSI ? (calcResults.dBasin * IN_TO_MM).toFixed(0) : calcResults.dBasin, isSI ? "mm" : "inches", "User Input", "Internal diameter of sump basin"],
-        ["Active Liquid Depth", isSI ? (calcResults.activeDepthInches * IN_TO_MM).toFixed(0) : calcResults.activeDepthInches.toFixed(1), isSI ? "mm" : "inches", "V_active / Basin_Area", "Liquid level rise between pump start/stop"],
-        ["Estimated Motor Power", isSI ? calcResults.motorKW.toFixed(2) : calcResults.bhp.toFixed(2), isSI ? "kW" : "BHP", "BHP / Motor_Eff", "Calculated wire-to-water shaft power"],
-        ["Recommended Motor Size", isSI ? calcResults.recommendedMotorKW.toFixed(2) : calcResults.recommendedMotorHP, isSI ? "kW" : "HP", "Standard Rating", "Selected commercial standard motor rating"]
-      ];
+    ws.addRow(["Parameter", "Calculated Value", "Unit", "Formula / Standard", "Remarks"]);
+    const headerRow = ws.getRow(7);
+    headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1E293B" },
+    };
 
-      excelRows.forEach((row) => {
-        const added = ws.addRow(row);
-        added.font = { name: "Segoe UI", size: 9.5 };
-      });
+    const excelRows = [
+      ["Peak Inflow Rate (Q_in)", isSI ? (calcResults.qIn * GPM_TO_LPS).toFixed(2) : calcResults.qIn, isSI ? "L/s" : "GPM", "User Input", "Peak sanitary drainage inflow"],
+      ["Pump Duty Flow (Each)", isSI ? (calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2) : calcResults.dutyFlowPerPump.toFixed(1), isSI ? "L/s" : "GPM", "Q_in x Multiplier", "Required duty capacity per pump"],
+      ["Static Lift (H_static)", isSI ? (calcResults.hStatic * FT_TO_M).toFixed(1) : calcResults.hStatic, isSI ? "m" : "ft", "Site Elevation", "Vertical lift from basin invert to high point"],
+      ["Discharge Pipe Diameter", isSI ? (calcResults.dPipe * IN_TO_MM).toFixed(0) : calcResults.dPipe, isSI ? "mm" : "inches", "IPC 712.4.2", "Min 2.0\" (50 mm) for raw sewage solids"],
+      ["Discharge Velocity", isSI ? calcResults.velocityMs.toFixed(2) : calcResults.velocityFps.toFixed(2), isSI ? "m/s" : "ft/s", "v = 0.4085 x Q / d²", "Scouring velocity (2.0 - 8.0 fps)"],
+      ["Pipe Friction Loss", isSI ? (calcResults.frictionHead * FT_TO_M).toFixed(2) : calcResults.frictionHead.toFixed(2), isSI ? "m" : "ft", "Hazen-Williams (C=120)", "Friction head loss in discharge piping"],
+      ["Fittings & Valve Head", isSI ? (calcResults.hFittings * FT_TO_M).toFixed(2) : calcResults.hFittings.toFixed(1), isSI ? "m" : "ft", "Minor Losses", "Losses through check/gate valves and fittings"],
+      ["Total Dynamic Head (TDH)", isSI ? (calcResults.tdh * FT_TO_M).toFixed(1) : calcResults.tdh.toFixed(1), isSI ? "m" : "ft", "(H_static + H_f + H_fit) x (1 + SF)", "Total calculated pump design head"],
+      ["Wet Well Active Volume", isSI ? calcResults.activeVolM3.toFixed(2) : calcResults.activeVolGal.toFixed(0), isSI ? "m3" : "Gal", "(Q_pump x Cycle) / 4", "Required active storage drawdown volume"],
+      ["Basin Internal Diameter", isSI ? (calcResults.dBasin * IN_TO_MM).toFixed(0) : calcResults.dBasin, isSI ? "mm" : "inches", "User Input", "Internal diameter of sump basin"],
+      ["Active Liquid Depth", isSI ? (calcResults.activeDepthInches * IN_TO_MM).toFixed(0) : calcResults.activeDepthInches.toFixed(1), isSI ? "mm" : "inches", "V_active / Basin_Area", "Liquid level rise between pump start/stop"],
+      ["Estimated Motor Power", isSI ? calcResults.motorKW.toFixed(2) : calcResults.bhp.toFixed(2), isSI ? "kW" : "BHP", "BHP / Motor_Eff", "Calculated wire-to-water shaft power"],
+      ["Recommended Motor Size", isSI ? calcResults.recommendedMotorKW.toFixed(2) : calcResults.recommendedMotorHP, isSI ? "kW" : "HP", "Standard Rating", "Selected commercial standard motor rating"],
+    ];
 
-      ws.getColumn(1).width = 28;
-      ws.getColumn(2).width = 16;
-      ws.getColumn(3).width = 12;
-      ws.getColumn(4).width = 26;
-      ws.getColumn(5).width = 40;
+    excelRows.forEach((r) => ws.addRow(r));
 
-      const buf = await wb.xlsx.writeBuffer();
-      saveAs(new Blob([buf]), `Sewage_Pump_Sizing_${Date.now()}.xlsx`);
-      toast.success("Excel report exported successfully!");
-    } catch (e) {
-      console.error("Failed to export Excel", e);
-      toast.error("Failed to export Excel report.");
-    }
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `Sewage_Pump_Sizing_${pName.replace(/[^a-zA-Z0-9]/g, "_")}.xlsx`);
+    toast.success("Excel calculation sheet exported!");
   };
 
   return (
-    <AppShell
-      title="Sewage Pump Sizing"
-      hideSubHeader={true}
-      onIntelClick={() => setIntelOpen((v) => !v)}
-      intelOpen={intelOpen}
-      intelLabel="Intelligence"
-    >
-      <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+    <AppShell>
+      <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans text-foreground">
+        
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
           
+          {/* Top Review Bar */}
+          <CalculationReviewBar
+            calculatorPath="/plumbing-sewage-pump"
+            calculatorTitle="Sewage Pump Sizing"
+            projectId={project?.id}
+          />
+
           {/* Header Bar */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-4">
-            <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
-                PLUMBING &gt; SEWAGE PUMP SIZING
-              </span>
-              <div className="flex items-center justify-between gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-baseline gap-2">
-                    <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sewage Pump Sizing</h1>
-                    <span className="text-[15px] font-semibold text-muted-foreground">
-                      Submersible ejector pump duty, wet well storage & dynamic head (IPC / ASPE)
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => setIntelOpen((v) => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                      intelOpen
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                    }`}
-                  >
-                    <Sparkles className="size-3.5" />
-                    Intelligence
-                  </button>
-                  <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-sewage-pump" calculatorTitle="Sewage Pump Sizing" />
-                  {commentsList.length > 0 && (
-                    <div 
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
-                      title={`${commentsList.length} active task(s)/comment(s)`}
-                    >
-                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                      <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"}</span>
-                    </div>
-                  )}
-                </div>
+          <header className="px-6 py-3 border-b border-border/80 bg-card/60 backdrop-blur-xs flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                <Droplets className="size-5" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-foreground flex items-center gap-2">
+                  Sewage Pump Sizing Calculator
+                  <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    IPC 712 / ASPE
+                  </span>
+                </h1>
+                <p className="text-xs text-muted-foreground">
+                  Submersible sewage ejector flow rate, total dynamic head (TDH), wet well volume & motor rating
+                </p>
               </div>
             </div>
-          </div>
 
-          {/* Main Card Container */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-3xl transition-all duration-300 mx-4 mb-4 ${
-            isApprovedLocked
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          }`}>
-            
-            {/* Tabs & Actions Row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
-              <div className="flex items-center gap-2">
-                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                  <button
-                    onClick={() => setTab("solver")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "solver"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Pump Sizer
-                  </button>
-                  <button
-                    onClick={() => setTab("report")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "report"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Printable Report
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setFormulaModalOpen(true)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 shadow-2xs"
-                  title="View IPC / ASPE Formulas"
-                >
-                  <Info className="size-3.5 text-primary" />
-                  <span>Formula Breakdown</span>
-                </button>
-              </div>
-
+            <div className="flex items-center gap-2.5">
               {/* Unit Toggle */}
               <UnitToggle
                 unitSystem={unitSystem}
                 onChange={handleUnitSystemChange}
                 disabled={isEffectiveReadOnly}
-                inputDescriptions="Flow Rate (GPM / L/s), Head (ft / m), Pipe Size (in / mm), Storage (gal / m³)"
-                conversionExample={
-                  unitSystem === "ip"
-                    ? "Convert 50 GPM → 3.15 L/s, 25 ft → 7.62 m, 150 gal → 0.57 m³"
-                    : "Convert 3.15 L/s → 50 GPM, 7.62 m → 25 ft, 0.57 m³ → 150 gal"
-                }
               />
+
+              {/* Formula Modal Trigger */}
+              <button
+                type="button"
+                onClick={() => setFormulaModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-surface-2 text-foreground text-xs font-semibold cursor-pointer shadow-2xs transition-colors"
+                title="View mathematical formula breakdown & IPC reference equations"
+              >
+                <FileText className="size-3.5 text-primary" />
+                <span>Formulas</span>
+              </button>
+
+              {/* Intelligence Drawer Trigger */}
+              <button
+                type="button"
+                onClick={() => setIntelOpen(!intelOpen)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors shadow-2xs ${
+                  intelOpen
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card hover:bg-surface-2 text-foreground"
+                }`}
+                title="Toggle IPC Hydraulic Intelligence Drawer"
+              >
+                <Sparkles className="size-3.5 text-primary" />
+                <span>{intelOpen ? "Hide Intel" : "Pump Intel"}</span>
+              </button>
+
+              {/* View Mode Toggle */}
+              <div className="flex p-0.5 bg-surface-2 rounded-xl border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setTab("solver")}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                    tab === "solver"
+                      ? "bg-card text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Calculator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                    tab === "report"
+                      ? "bg-card text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Summary Report
+                </button>
+              </div>
             </div>
+          </header>
 
-            {/* Content Area */}
-            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+          {/* Body Section */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+            <div className="max-w-7xl mx-auto space-y-6">
+              
               {tab === "solver" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+                <div className="space-y-6">
                   
-                  {/* Preset Selector Bar */}
-                  <div className="bg-muted/20 border border-border/70 rounded-2xl p-4 shadow-2xs">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Waves className="size-4 text-primary" />
-                        <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide">
-                          Application & Facility Presets
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-medium text-muted-foreground">
-                        Instant configuration for sanitary lift applications per IPC/ASPE
-                      </span>
-                    </div>
+                  {/* Presets Bar */}
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id="card-presets"
+                        className={`bg-card border rounded-2xl p-4 space-y-2.5 shadow-2xs transition-all ${
+                          highlightedTargetId === "card-presets" || highlightedTargetId === "presets"
+                            ? "border-primary bg-primary/5 ring-2 ring-primary"
+                            : "border-border/80"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Layers className="size-4 text-primary" />
+                            <span className="text-xs font-bold text-foreground">
+                              Quick Design Presets & Application Profiles
+                            </span>
+                            {renderCommentBadge("card-presets", "Sewage Sizing Presets")}
+                          </div>
+                          <span className="text-[11px] text-muted-foreground">
+                            Instant configuration for sanitary lift applications per IPC/ASPE
+                          </span>
+                        </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-                      {(Object.keys(SEWAGE_PRESETS) as SewagePresetKey[]).map((key) => {
-                        const p = SEWAGE_PRESETS[key];
-                        const isSelected = preset === key;
-                        return (
-                          <button
-                            key={key}
-                            onClick={() => handleApplyPreset(key)}
-                            disabled={isEffectiveReadOnly}
-                            className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
-                              isSelected
-                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
-                                : "border-border/70 hover:border-border hover:bg-muted/40 text-muted-foreground"
-                            }`}
-                          >
-                            <div className="text-[11.5px] font-bold truncate">{p.label}</div>
-                            <div className="text-[10px] opacity-80 mt-0.5">{p.inflow} GPM ({p.lift} ft lift)</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                          {(Object.keys(SEWAGE_PRESETS) as SewagePresetKey[]).map((key) => {
+                            const p = SEWAGE_PRESETS[key];
+                            const isSelected = preset === key;
+                            return (
+                              <button
+                                key={key}
+                                onClick={() => handleApplyPreset(key)}
+                                disabled={isEffectiveReadOnly}
+                                className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                                  isSelected
+                                    ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
+                                    : "border-border/70 hover:border-border hover:bg-muted/40 text-muted-foreground"
+                                }`}
+                              >
+                                <div className="text-[11.5px] font-bold truncate">{p.label}</div>
+                                <div className="text-[10px] opacity-80 mt-0.5">{p.inflow} GPM ({p.lift} ft lift)</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem
+                        onClick={() => handleOpenComment("card-presets", "Sewage Sizing Presets")}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                      >
+                        <MessageSquare className="size-3.5" />
+                        <span>Add Comment / Assign Task</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
 
                   {/* Top Key KPI Hero Banner */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="p-4 rounded-2xl border border-primary/20 bg-primary/5 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-primary uppercase tracking-wider">Pump Duty Flow</span>
-                        <Gauge className="size-4 text-primary" />
-                      </div>
-                      <div className="text-2xl font-black text-foreground">
-                        {isSI
-                          ? `${(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s`
-                          : `${calcResults.dutyFlowPerPump.toFixed(1)} GPM`}
-                      </div>
-                      <p className="text-[10.5px] text-muted-foreground">
-                        {calcResults.mult}x peak inflow ({calcResults.qIn} GPM)
-                      </p>
-                    </div>
+                    
+                    {/* KPI 1: Pump Duty Flow */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          id="res-dutyFlow"
+                          className={`p-4 rounded-2xl border bg-primary/5 space-y-1 transition-all ${
+                            highlightedTargetId === "res-dutyFlow" || highlightedTargetId === "dutyFlow"
+                              ? "border-primary ring-2 ring-primary bg-primary/10"
+                              : "border-primary/20"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-primary uppercase tracking-wider">Pump Duty Flow</span>
+                            <div className="flex items-center gap-1.5">
+                              {renderCommentBadge("res-dutyFlow", "Pump Duty Flow")}
+                              <Gauge className="size-4 text-primary" />
+                            </div>
+                          </div>
+                          <div className="text-2xl font-black text-foreground">
+                            {isSI
+                              ? `${(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s`
+                              : `${calcResults.dutyFlowPerPump.toFixed(1)} GPM`}
+                          </div>
+                          <p className="text-[10.5px] text-muted-foreground">
+                            {calcResults.mult}x peak inflow ({calcResults.qIn} GPM)
+                          </p>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => handleCopyValue("Pump Duty Flow", isSI ? `${(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s` : `${calcResults.dutyFlowPerPump.toFixed(1)} GPM`)}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                        >
+                          <Copy className="size-3.5 text-muted-foreground" />
+                          <span>Copy Value</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("res-dutyFlow", "Pump Duty Flow")}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
-                    <div className="p-4 rounded-2xl border border-border/80 bg-surface space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Total Head (TDH)</span>
-                        <ArrowUpRight className="size-4 text-primary" />
-                      </div>
-                      <div className="text-2xl font-black text-foreground">
-                        {isSI
-                          ? `${(calcResults.tdh * FT_TO_M).toFixed(1)} m`
-                          : `${calcResults.tdh.toFixed(1)} ft`}
-                      </div>
-                      <p className="text-[10.5px] text-muted-foreground">
-                        +{calcResults.sf}% safety margin applied
-                      </p>
-                    </div>
+                    {/* KPI 2: Total Head */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          id="res-tdh"
+                          className={`p-4 rounded-2xl border bg-surface space-y-1 transition-all ${
+                            highlightedTargetId === "res-tdh" || highlightedTargetId === "tdh"
+                              ? "border-primary ring-2 ring-primary bg-primary/5"
+                              : "border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Total Head (TDH)</span>
+                            <div className="flex items-center gap-1.5">
+                              {renderCommentBadge("res-tdh", "Total Dynamic Head")}
+                              <ArrowUpRight className="size-4 text-primary" />
+                            </div>
+                          </div>
+                          <div className="text-2xl font-black text-foreground">
+                            {isSI
+                              ? `${(calcResults.tdh * FT_TO_M).toFixed(1)} m`
+                              : `${calcResults.tdh.toFixed(1)} ft`}
+                          </div>
+                          <p className="text-[10.5px] text-muted-foreground">
+                            +{calcResults.sf}% safety margin applied
+                          </p>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => handleCopyValue("Total Dynamic Head", isSI ? `${(calcResults.tdh * FT_TO_M).toFixed(1)} m` : `${calcResults.tdh.toFixed(1)} ft`)}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                        >
+                          <Copy className="size-3.5 text-muted-foreground" />
+                          <span>Copy Value</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("res-tdh", "Total Dynamic Head")}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
-                    <div className="p-4 rounded-2xl border border-border/80 bg-surface space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Motor Rating</span>
-                        <Zap className="size-4 text-amber-500" />
-                      </div>
-                      <div className="text-2xl font-black text-foreground">
-                        {isSI
-                          ? `${calcResults.recommendedMotorKW.toFixed(2)} kW`
-                          : `${calcResults.recommendedMotorHP} HP`}
-                      </div>
-                      <p className="text-[10.5px] text-muted-foreground">
-                        {calcResults.bhp.toFixed(2)} BHP calculated ({pumpEfficiency}% eff)
-                      </p>
-                    </div>
+                    {/* KPI 3: Motor Rating */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          id="res-motor"
+                          className={`p-4 rounded-2xl border bg-surface space-y-1 transition-all ${
+                            highlightedTargetId === "res-motor" || highlightedTargetId === "motor"
+                              ? "border-primary ring-2 ring-primary bg-primary/5"
+                              : "border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Motor Rating</span>
+                            <div className="flex items-center gap-1.5">
+                              {renderCommentBadge("res-motor", "Motor Rating")}
+                              <Zap className="size-4 text-amber-500" />
+                            </div>
+                          </div>
+                          <div className="text-2xl font-black text-foreground">
+                            {isSI
+                              ? `${calcResults.recommendedMotorKW.toFixed(2)} kW`
+                              : `${calcResults.recommendedMotorHP} HP`}
+                          </div>
+                          <p className="text-[10.5px] text-muted-foreground">
+                            {calcResults.bhp.toFixed(2)} BHP calculated ({pumpEfficiency}% eff)
+                          </p>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => handleCopyValue("Recommended Motor Rating", isSI ? `${calcResults.recommendedMotorKW.toFixed(2)} kW` : `${calcResults.recommendedMotorHP} HP`)}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                        >
+                          <Copy className="size-3.5 text-muted-foreground" />
+                          <span>Copy Value</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("res-motor", "Motor Rating")}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
-                    <div className="p-4 rounded-2xl border border-border/80 bg-surface space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Active Sump Vol</span>
-                        <Cylinder className="size-4 text-blue-500" />
-                      </div>
-                      <div className="text-2xl font-black text-foreground">
-                        {isSI
-                          ? `${calcResults.activeVolM3.toFixed(2)} m³`
-                          : `${calcResults.activeVolGal.toFixed(0)} Gal`}
-                      </div>
-                      <p className="text-[10.5px] text-muted-foreground">
-                        Depth: {isSI ? `${(calcResults.activeDepthInches * IN_TO_MM).toFixed(0)} mm` : `${calcResults.activeDepthInches.toFixed(1)}"`} ({calcResults.dBasin}" Ø)
-                      </p>
-                    </div>
+                    {/* KPI 4: Active Sump Volume */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          id="res-sumpVol"
+                          className={`p-4 rounded-2xl border bg-surface space-y-1 transition-all ${
+                            highlightedTargetId === "res-sumpVol" || highlightedTargetId === "sumpVol"
+                              ? "border-primary ring-2 ring-primary bg-primary/5"
+                              : "border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Active Sump Vol</span>
+                            <div className="flex items-center gap-1.5">
+                              {renderCommentBadge("res-sumpVol", "Active Sump Volume")}
+                              <Cylinder className="size-4 text-blue-500" />
+                            </div>
+                          </div>
+                          <div className="text-2xl font-black text-foreground">
+                            {isSI
+                              ? `${calcResults.activeVolM3.toFixed(2)} m³`
+                              : `${calcResults.activeVolGal.toFixed(0)} Gal`}
+                          </div>
+                          <p className="text-[10.5px] text-muted-foreground">
+                            Depth: {isSI ? `${(calcResults.activeDepthInches * IN_TO_MM).toFixed(0)} mm` : `${calcResults.activeDepthInches.toFixed(1)}"`} ({calcResults.dBasin}" Ø)
+                          </p>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => handleCopyValue("Active Sump Volume", isSI ? `${calcResults.activeVolM3.toFixed(2)} m³` : `${calcResults.activeVolGal.toFixed(0)} Gal`)}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                        >
+                          <Copy className="size-3.5 text-muted-foreground" />
+                          <span>Copy Value</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("res-sumpVol", "Active Sump Volume")}
+                          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+
                   </div>
 
                   {/* 2-Column Responsive Layout for Parameters */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     
                     {/* Card 1: Inflow & Pumping Duty */}
-                    <div className="bg-card border border-border/80 rounded-2xl p-5 space-y-4 shadow-2xs">
+                    <div
+                      id="card-inflow"
+                      className={`bg-card border rounded-2xl p-5 space-y-4 shadow-2xs transition-all ${
+                        highlightedTargetId === "card-inflow" ? "border-primary bg-primary/5 ring-2 ring-primary" : "border-border/80"
+                      }`}
+                    >
                       <div className="flex items-center justify-between pb-2 border-b border-border/60">
                         <div className="flex items-center gap-2">
                           <Droplets className="size-4 text-primary" />
@@ -1001,125 +1236,307 @@ function SewagePumpPage() {
                       </div>
 
                       <div className="space-y-3 text-[12.5px]">
+                        
                         {/* Peak Sewage Inflow */}
-                        <div id="field-inflow" className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Peak Sewage Inflow Rate:</span>
-                            <span className="text-[11px] text-muted-foreground">Total continuous peak inflow to wet well</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="1"
-                              step="1"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-inflow"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "inflow" || highlightedTargetId === "field-inflow"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Peak Sewage Inflow Rate:</span>
+                                  {renderCommentBadge("inflow", "Peak Sewage Inflow Rate")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">Total continuous peak inflow to wet well</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  disabled={isEffectiveReadOnly}
+                                  value={isSI && typeof inflow === "number" ? parseFloat((inflow * GPM_TO_LPS).toFixed(2)) : inflow}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                    if (val === "") setInflow("");
+                                    else if (isSI) setInflow(val / GPM_TO_LPS);
+                                    else setInflow(val);
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                />
+                                <span className="text-xs font-semibold text-muted-foreground w-10">
+                                  {isSI ? "L/s" : "GPM"}
+                                </span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Peak Inflow", isSI ? `${(calcResults.qIn * GPM_TO_LPS).toFixed(2)} L/s` : `${calcResults.qIn} GPM`)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                            <ContextMenuItem
                               disabled={isEffectiveReadOnly}
-                              value={inflow}
-                              onChange={(e) => {
-                                setInflow(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                            />
-                            <span className="text-xs font-semibold text-muted-foreground w-10">
-                              {isSI ? "L/s" : "GPM"}
-                            </span>
-                          </div>
-                        </div>
+                              onClick={() => handlePasteValue("Peak Inflow", (v) => isSI ? setInflow(v / GPM_TO_LPS) : setInflow(v))}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <Clipboard className="size-3.5 text-muted-foreground" />
+                              <span>Paste Value</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => handleResetValue("Peak Inflow", setInflow, 50)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (50 GPM)</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => handleClearValue("Peak Inflow", setInflow)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <Trash2 className="size-3.5" />
+                              <span>Clear Field</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("inflow", "Peak Sewage Inflow Rate")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Pump Duty Multiplier */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Pump Drawdown Factor:</span>
-                            <span className="text-[11px] text-muted-foreground">ASPE recommends 1.5x - 2.0x peak inflow</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="1.0"
-                              max="3.0"
-                              step="0.1"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-flowMultiplier"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "flowMultiplier" || highlightedTargetId === "field-flowMultiplier"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Pump Drawdown Factor:</span>
+                                  {renderCommentBadge("flowMultiplier", "Pump Drawdown Factor")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">ASPE recommends 1.5x - 2.0x peak inflow</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="1.0"
+                                  max="3.0"
+                                  step="0.1"
+                                  disabled={isEffectiveReadOnly}
+                                  value={flowMultiplier}
+                                  onChange={(e) => {
+                                    setFlowMultiplier(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                />
+                                <span className="text-xs font-semibold text-muted-foreground w-10">
+                                  Multiplier
+                                </span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Pump Drawdown Factor", flowMultiplier)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                            <ContextMenuItem
                               disabled={isEffectiveReadOnly}
-                              value={flowMultiplier}
-                              onChange={(e) => {
-                                setFlowMultiplier(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                            />
-                            <span className="text-xs font-semibold text-muted-foreground w-10">
-                              Multiplier
-                            </span>
-                          </div>
-                        </div>
+                              onClick={() => handlePasteValue("Pump Drawdown Factor", setFlowMultiplier)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <Clipboard className="size-3.5 text-muted-foreground" />
+                              <span>Paste Value</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => handleResetValue("Pump Drawdown Factor", setFlowMultiplier, 2.0)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (2.0x)</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("flowMultiplier", "Pump Drawdown Factor")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Desired Pump Cycle Time */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Target Pump Cycle Time:</span>
-                            <span className="text-[11px] text-muted-foreground">Minutes between pump starts (typically 5–10 min)</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="2"
-                              max="30"
-                              step="0.5"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-cycle"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "cycle" || highlightedTargetId === "field-cycle"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Target Pump Cycle Time:</span>
+                                  {renderCommentBadge("cycle", "Target Pump Cycle Time")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">Minutes between pump starts (typically 5–10 min)</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="2"
+                                  max="30"
+                                  step="0.5"
+                                  disabled={isEffectiveReadOnly}
+                                  value={cycle}
+                                  onChange={(e) => {
+                                    setCycle(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                />
+                                <span className="text-xs font-semibold text-muted-foreground w-10">
+                                  min
+                                </span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Target Pump Cycle Time", `${cycle} min`)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
                               disabled={isEffectiveReadOnly}
-                              value={cycle}
-                              onChange={(e) => {
-                                setCycle(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                            />
-                            <span className="text-xs font-semibold text-muted-foreground w-10">
-                              min
-                            </span>
-                          </div>
-                        </div>
+                              onClick={() => handleResetValue("Target Pump Cycle Time", setCycle, 6)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (6 min)</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("cycle", "Target Pump Cycle Time")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Redundancy / Pump Mode */}
-                        <div className="flex items-center justify-between gap-4 pt-1 border-t border-border/40">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Pumping Arrangement:</span>
-                            <span className="text-[11px] text-muted-foreground">100% Standby redundancy mode</span>
-                          </div>
-                          <div className="flex gap-1 bg-surface-2 p-1 rounded-xl border border-border/80">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPumpCountMode("1W_1S");
-                                dirtyStore.set(true);
-                              }}
-                              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                pumpCountMode === "1W_1S"
-                                  ? "bg-primary text-primary-foreground shadow-xs"
-                                  : "text-muted-foreground hover:text-foreground"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pumpCountMode"
+                              className={`flex items-center justify-between gap-4 pt-2 border-t border-border/40 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "pumpCountMode" || highlightedTargetId === "field-pumpCountMode"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
                               }`}
                             >
-                              1 Duty + 1 Standby (Duplex)
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPumpCountMode("2W_1S");
-                                dirtyStore.set(true);
-                              }}
-                              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                pumpCountMode === "2W_1S"
-                                  ? "bg-primary text-primary-foreground shadow-xs"
-                                  : "text-muted-foreground hover:text-foreground"
-                              }`}
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Pumping Arrangement:</span>
+                                  {renderCommentBadge("pumpCountMode", "Pumping Arrangement")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">100% Standby redundancy mode</span>
+                              </div>
+                              <div className="flex gap-1 bg-surface-2 p-1 rounded-xl border border-border/80">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isEffectiveReadOnly) return;
+                                    setPumpCountMode("1W_1S");
+                                    dirtyStore.set(true);
+                                  }}
+                                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                    pumpCountMode === "1W_1S"
+                                      ? "bg-primary text-primary-foreground shadow-xs"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  Duplex (1W+1S)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isEffectiveReadOnly) return;
+                                    setPumpCountMode("2W_1S");
+                                    dirtyStore.set(true);
+                                  }}
+                                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                    pumpCountMode === "2W_1S"
+                                      ? "bg-primary text-primary-foreground shadow-xs"
+                                      : "text-muted-foreground hover:text-foreground"
+                                  }`}
+                                >
+                                  Triplex (2W+1S)
+                                </button>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("pumpCountMode", "Pumping Arrangement")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                             >
-                              2 Duty + 1 Standby
-                            </button>
-                          </div>
-                        </div>
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
                       </div>
                     </div>
 
                     {/* Card 2: Piping & Dynamic Head */}
-                    <div className="bg-card border border-border/80 rounded-2xl p-5 space-y-4 shadow-2xs">
+                    <div
+                      id="card-hydraulics"
+                      className={`bg-card border rounded-2xl p-5 space-y-4 shadow-2xs transition-all ${
+                        highlightedTargetId === "card-hydraulics" ? "border-primary bg-primary/5 ring-2 ring-primary" : "border-border/80"
+                      }`}
+                    >
                       <div className="flex items-center justify-between pb-2 border-b border-border/60">
                         <div className="flex items-center gap-2">
                           <Gauge className="size-4 text-primary" />
@@ -1129,106 +1546,273 @@ function SewagePumpPage() {
                       </div>
 
                       <div className="space-y-3 text-[12.5px]">
+                        
                         {/* Static Lift */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Static Elevation Lift:</span>
-                            <span className="text-[11px] text-muted-foreground">Basin low-water invert to highest discharge elevation</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.5"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-lift"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "lift" || highlightedTargetId === "field-lift"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Static Elevation Lift:</span>
+                                  {renderCommentBadge("lift", "Static Elevation Lift")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">Basin low-water invert to highest discharge elevation</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  disabled={isEffectiveReadOnly}
+                                  value={isSI && typeof lift === "number" ? parseFloat((lift * FT_TO_M).toFixed(2)) : lift}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                    if (val === "") setLift("");
+                                    else if (isSI) setLift(val / FT_TO_M);
+                                    else setLift(val);
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                />
+                                <span className="text-xs font-semibold text-muted-foreground w-10">
+                                  {isSI ? "m" : "ft"}
+                                </span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Static Lift", isSI ? `${(calcResults.hStatic * FT_TO_M).toFixed(1)} m` : `${calcResults.hStatic} ft`)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                            <ContextMenuItem
                               disabled={isEffectiveReadOnly}
-                              value={lift}
-                              onChange={(e) => {
-                                setLift(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                            />
-                            <span className="text-xs font-semibold text-muted-foreground w-10">
-                              {isSI ? "m" : "ft"}
-                            </span>
-                          </div>
-                        </div>
+                              onClick={() => handleResetValue("Static Lift", setLift, 25)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (25 ft)</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("lift", "Static Elevation Lift")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Discharge Pipe Internal Diameter */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Discharge Pipe Size:</span>
-                            <span className="text-[11px] text-muted-foreground">Min 2.0" (50mm) for raw sewage per IPC 712.4.2</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <select
-                              disabled={isEffectiveReadOnly}
-                              value={pipeDia}
-                              onChange={(e) => {
-                                setPipeDia(parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none cursor-pointer"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pipeDia"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "pipeDia" || highlightedTargetId === "field-pipeDia"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
                             >
-                              <option value="2.0">2.0" NPS (50mm)</option>
-                              <option value="2.5">2.5" NPS (65mm)</option>
-                              <option value="3.0">3.0" NPS (80mm)</option>
-                              <option value="4.0">4.0" NPS (100mm)</option>
-                              <option value="6.0">6.0" NPS (150mm)</option>
-                            </select>
-                            <span className="text-xs font-semibold text-muted-foreground w-10">NPS</span>
-                          </div>
-                        </div>
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Discharge Pipe Size:</span>
+                                  {renderCommentBadge("pipeDia", "Discharge Pipe Size")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">Min 2.0" (50mm) for raw sewage solids per IPC 712.4.2</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  disabled={isEffectiveReadOnly}
+                                  value={pipeDia}
+                                  onChange={(e) => {
+                                    setPipeDia(parseFloat(e.target.value));
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none cursor-pointer disabled:opacity-60"
+                                >
+                                  <option value="2.0">2.0" NPS (50mm)</option>
+                                  <option value="2.5">2.5" NPS (65mm)</option>
+                                  <option value="3.0">3.0" NPS (80mm)</option>
+                                  <option value="4.0">4.0" NPS (100mm)</option>
+                                  <option value="6.0">6.0" NPS (150mm)</option>
+                                </select>
+                                <span className="text-xs font-semibold text-muted-foreground w-10">NPS</span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Pipe Diameter", `${pipeDia} inches`)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => handleResetValue("Pipe Diameter", setPipeDia, 3.0)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (3.0")</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("pipeDia", "Discharge Pipe Size")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Pipe Developed Length */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Total Developed Pipe Length:</span>
-                            <span className="text-[11px] text-muted-foreground">Total straight-run piping to gravity connection</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="0"
-                              step="5"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pipeLen"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "pipeLen" || highlightedTargetId === "field-pipeLen"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Total Developed Pipe Length:</span>
+                                  {renderCommentBadge("pipeLen", "Total Developed Pipe Length")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">Total straight-run piping to gravity connection</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="5"
+                                  disabled={isEffectiveReadOnly}
+                                  value={isSI && typeof pipeLen === "number" ? parseFloat((pipeLen * FT_TO_M).toFixed(1)) : pipeLen}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                    if (val === "") setPipeLen("");
+                                    else if (isSI) setPipeLen(val / FT_TO_M);
+                                    else setPipeLen(val);
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                />
+                                <span className="text-xs font-semibold text-muted-foreground w-10">
+                                  {isSI ? "m" : "ft"}
+                                </span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Pipe Length", isSI ? `${(calcResults.frictionHead * FT_TO_M).toFixed(1)} m` : `${pipeLen} ft`)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
                               disabled={isEffectiveReadOnly}
-                              value={pipeLen}
-                              onChange={(e) => {
-                                setPipeLen(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                            />
-                            <span className="text-xs font-semibold text-muted-foreground w-10">
-                              {isSI ? "m" : "ft"}
-                            </span>
-                          </div>
-                        </div>
+                              onClick={() => handleResetValue("Pipe Length", setPipeLen, 65)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (65 ft)</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("pipeLen", "Total Developed Pipe Length")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Fittings Head & Safety Factor */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Fittings Loss & Head Margin:</span>
-                            <span className="text-[11px] text-muted-foreground">Minor valve losses ({calcResults.hFittings} ft) + {calcResults.sf}% safety</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-fittingsHead"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "fittingsHead" || highlightedTargetId === "field-fittingsHead"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Fittings Loss & Head Margin:</span>
+                                  {renderCommentBadge("fittingsHead", "Fittings Loss & Head Margin")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">Minor valve losses ({calcResults.hFittings} ft) + {calcResults.sf}% safety</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  disabled={isEffectiveReadOnly}
+                                  value={isSI && typeof fittingsHead === "number" ? parseFloat((fittingsHead * FT_TO_M).toFixed(1)) : fittingsHead}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                    if (val === "") setFittingsHead("");
+                                    else if (isSI) setFittingsHead(val / FT_TO_M);
+                                    else setFittingsHead(val);
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                />
+                                <span className="text-xs font-semibold text-muted-foreground w-10">
+                                  {isSI ? "m" : "ft"}
+                                </span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Fittings Head", `${fittingsHead} ft`)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
                               disabled={isEffectiveReadOnly}
-                              value={fittingsHead}
-                              onChange={(e) => {
-                                setFittingsHead(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                            />
-                            <span className="text-xs font-semibold text-muted-foreground w-10">
-                              {isSI ? "m" : "ft"}
-                            </span>
-                          </div>
-                        </div>
+                              onClick={() => handleResetValue("Fittings Head", setFittingsHead, 6.0)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (6.0 ft)</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("fittingsHead", "Fittings Loss & Head Margin")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Live Scouring Velocity Check Pill */}
                         <div className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
@@ -1250,7 +1834,12 @@ function SewagePumpPage() {
                     </div>
 
                     {/* Card 3: Wet Well Basin Geometry */}
-                    <div className="bg-card border border-border/80 rounded-2xl p-5 space-y-4 shadow-2xs">
+                    <div
+                      id="card-basin"
+                      className={`bg-card border rounded-2xl p-5 space-y-4 shadow-2xs transition-all ${
+                        highlightedTargetId === "card-basin" ? "border-primary bg-primary/5 ring-2 ring-primary" : "border-border/80"
+                      }`}
+                    >
                       <div className="flex items-center justify-between pb-2 border-b border-border/60">
                         <div className="flex items-center gap-2">
                           <Cylinder className="size-4 text-primary" />
@@ -1260,33 +1849,73 @@ function SewagePumpPage() {
                       </div>
 
                       <div className="space-y-3 text-[12.5px]">
+                        
                         {/* Basin Internal Diameter */}
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-foreground">Basin Internal Diameter:</span>
-                            <span className="text-[11px] text-muted-foreground">Standard fiberglass or polyethylene sump basin</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <select
-                              disabled={isEffectiveReadOnly}
-                              value={basinDia}
-                              onChange={(e) => {
-                                setBasinDia(parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className="w-24 text-right px-2 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none cursor-pointer"
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-basinDia"
+                              className={`flex items-center justify-between gap-4 p-2 rounded-xl transition-all ${
+                                highlightedTargetId === "basinDia" || highlightedTargetId === "field-basinDia"
+                                  ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:bg-muted/20"
+                              }`}
                             >
-                              <option value="24">24" Ø (600mm)</option>
-                              <option value="30">30" Ø (750mm)</option>
-                              <option value="36">36" Ø (900mm)</option>
-                              <option value="42">42" Ø (1050mm)</option>
-                              <option value="48">48" Ø (1200mm)</option>
-                              <option value="60">60" Ø (1500mm)</option>
-                              <option value="72">72" Ø (1800mm)</option>
-                            </select>
-                            <span className="text-xs font-semibold text-muted-foreground w-10">Ø</span>
-                          </div>
-                        </div>
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground">Basin Internal Diameter:</span>
+                                  {renderCommentBadge("basinDia", "Basin Internal Diameter")}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground">Standard fiberglass or polyethylene sump basin</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  disabled={isEffectiveReadOnly}
+                                  value={basinDia}
+                                  onChange={(e) => {
+                                    setBasinDia(parseFloat(e.target.value));
+                                    dirtyStore.set(true);
+                                  }}
+                                  className="w-24 text-right px-2 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none cursor-pointer disabled:opacity-60"
+                                >
+                                  <option value="24">24" Ø (600mm)</option>
+                                  <option value="30">30" Ø (750mm)</option>
+                                  <option value="36">36" Ø (900mm)</option>
+                                  <option value="42">42" Ø (1050mm)</option>
+                                  <option value="48">48" Ø (1200mm)</option>
+                                  <option value="60">60" Ø (1500mm)</option>
+                                  <option value="72">72" Ø (1800mm)</option>
+                                </select>
+                                <span className="text-xs font-semibold text-muted-foreground w-10">Ø</span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Basin Diameter", `${basinDia} inches`)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Value</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => handleResetValue("Basin Diameter", setBasinDia, 36)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset to Default (36")</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("basinDia", "Basin Internal Diameter")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Calculated Active Sump Depth */}
                         <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-2/60 border border-border/60">
@@ -1322,7 +1951,12 @@ function SewagePumpPage() {
                     </div>
 
                     {/* Card 4: Pump Selection & Power */}
-                    <div className="bg-card border border-border/80 rounded-2xl p-5 space-y-4 shadow-2xs">
+                    <div
+                      id="card-motor"
+                      className={`bg-card border rounded-2xl p-5 space-y-4 shadow-2xs transition-all ${
+                        highlightedTargetId === "card-motor" ? "border-primary bg-primary/5 ring-2 ring-primary" : "border-border/80"
+                      }`}
+                    >
                       <div className="flex items-center justify-between pb-2 border-b border-border/60">
                         <div className="flex items-center gap-2">
                           <Zap className="size-4 text-primary" />
@@ -1332,45 +1966,128 @@ function SewagePumpPage() {
                       </div>
 
                       <div className="space-y-3 text-[12.5px]">
+                        
                         {/* Pump & Motor Efficiencies */}
                         <div className="grid grid-cols-2 gap-3">
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[11px] font-semibold text-muted-foreground">Pump Efficiency:</span>
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="number"
-                                min="30"
-                                max="90"
+                          
+                          {/* Pump Efficiency */}
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              <div
+                                id="field-pumpEfficiency"
+                                className={`flex flex-col gap-1 p-2 rounded-xl transition-all ${
+                                  highlightedTargetId === "pumpEfficiency" || highlightedTargetId === "field-pumpEfficiency"
+                                    ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                    : "hover:bg-muted/20"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-semibold text-muted-foreground">Pump Efficiency:</span>
+                                  {renderCommentBadge("pumpEfficiency", "Pump Efficiency")}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="number"
+                                    min="30"
+                                    max="90"
+                                    disabled={isEffectiveReadOnly}
+                                    value={pumpEfficiency}
+                                    onChange={(e) => {
+                                      setPumpEfficiency(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                      dirtyStore.set(true);
+                                    }}
+                                    className="w-full text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                  />
+                                  <span className="text-xs font-semibold text-muted-foreground">%</span>
+                                </div>
+                              </div>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                              <ContextMenuItem
+                                onClick={() => handleCopyValue("Pump Efficiency", `${pumpEfficiency}%`)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                              >
+                                <Copy className="size-3.5 text-muted-foreground" />
+                                <span>Copy Value</span>
+                              </ContextMenuItem>
+                              <ContextMenuItem
                                 disabled={isEffectiveReadOnly}
-                                value={pumpEfficiency}
-                                onChange={(e) => {
-                                  setPumpEfficiency(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                  dirtyStore.set(true);
-                                }}
-                                className="w-full text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                              />
-                              <span className="text-xs font-semibold text-muted-foreground">%</span>
-                            </div>
-                          </div>
+                                onClick={() => handleResetValue("Pump Efficiency", setPumpEfficiency, 60)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                              >
+                                <RotateCcw className="size-3.5 text-muted-foreground" />
+                                <span>Reset to Default (60%)</span>
+                              </ContextMenuItem>
+                              <ContextMenuSeparator className="h-px bg-border my-1" />
+                              <ContextMenuItem
+                                onClick={() => handleOpenComment("pumpEfficiency", "Pump Efficiency")}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <MessageSquare className="size-3.5" />
+                                <span>Add Comment / Assign Task</span>
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
 
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[11px] font-semibold text-muted-foreground">Motor Efficiency:</span>
-                            <div className="flex items-center gap-1.5">
-                              <input
-                                type="number"
-                                min="50"
-                                max="98"
+                          {/* Motor Efficiency */}
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              <div
+                                id="field-motorEfficiency"
+                                className={`flex flex-col gap-1 p-2 rounded-xl transition-all ${
+                                  highlightedTargetId === "motorEfficiency" || highlightedTargetId === "field-motorEfficiency"
+                                    ? "border border-primary bg-primary/5 ring-1 ring-primary"
+                                    : "hover:bg-muted/20"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-semibold text-muted-foreground">Motor Efficiency:</span>
+                                  {renderCommentBadge("motorEfficiency", "Motor Efficiency")}
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="number"
+                                    min="50"
+                                    max="98"
+                                    disabled={isEffectiveReadOnly}
+                                    value={motorEfficiency}
+                                    onChange={(e) => {
+                                      setMotorEfficiency(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                      dirtyStore.set(true);
+                                    }}
+                                    className="w-full text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none disabled:opacity-60"
+                                  />
+                                  <span className="text-xs font-semibold text-muted-foreground">%</span>
+                                </div>
+                              </div>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                              <ContextMenuItem
+                                onClick={() => handleCopyValue("Motor Efficiency", `${motorEfficiency}%`)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                              >
+                                <Copy className="size-3.5 text-muted-foreground" />
+                                <span>Copy Value</span>
+                              </ContextMenuItem>
+                              <ContextMenuItem
                                 disabled={isEffectiveReadOnly}
-                                value={motorEfficiency}
-                                onChange={(e) => {
-                                  setMotorEfficiency(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                  dirtyStore.set(true);
-                                }}
-                                className="w-full text-right px-2.5 py-1.5 rounded-lg border border-border bg-background text-foreground font-mono font-bold focus:ring-1 focus:ring-primary outline-none"
-                              />
-                              <span className="text-xs font-semibold text-muted-foreground">%</span>
-                            </div>
-                          </div>
+                                onClick={() => handleResetValue("Motor Efficiency", setMotorEfficiency, 85)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
+                              >
+                                <RotateCcw className="size-3.5 text-muted-foreground" />
+                                <span>Reset to Default (85%)</span>
+                              </ContextMenuItem>
+                              <ContextMenuSeparator className="h-px bg-border my-1" />
+                              <ContextMenuItem
+                                onClick={() => handleOpenComment("motorEfficiency", "Motor Efficiency")}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                              >
+                                <MessageSquare className="size-3.5" />
+                                <span>Add Comment / Assign Task</span>
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+
                         </div>
 
                         {/* Calculated BHP */}
@@ -1598,58 +2315,52 @@ function SewagePumpIntelligenceDrawer({
               {calcResults.velocityFps.toFixed(2)} ft/s {calcResults.isScouringCompliant ? "✓" : "⚠"}
             </span>
           </div>
+
           <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Motor Starts / Hour (Max {calcResults.maxStarts}):</span>
-            <span className={`font-bold ${calcResults.isStartsCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"}`}>
-              {calcResults.calculatedStartsPerHour.toFixed(1)} / hr {calcResults.isStartsCompliant ? "✓" : "⚠"}
+            <span className="text-muted-foreground">IPC 712.4.2 Solids Clearance (Min 2.0"):</span>
+            <span className={`font-bold ${calcResults.isSolidsCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600"}`}>
+              {calcResults.dPipe}" NPS {calcResults.isSolidsCompliant ? "✓" : "⚠"}
             </span>
           </div>
+
           <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Solids Handling Clearance:</span>
-            <span className="font-bold text-primary">
-              {calcResults.dPipe >= 2.0 ? '≥ 2.0" (50mm) Solids ✓' : '⚠ < 2.0" Non-Compliant'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Drawdown Time per Cycle:</span>
-            <span className="font-bold text-foreground">
-              {((calcResults.activeVolGal / (calcResults.dutyFlowPerPump - calcResults.qIn || 1))).toFixed(1)} min
+            <span className="text-muted-foreground">Motor Starts per Hour (Max {calcResults.maxStarts}):</span>
+            <span className={`font-bold ${calcResults.calculatedStartsPerHour <= calcResults.maxStarts ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600"}`}>
+              {calcResults.calculatedStartsPerHour.toFixed(1)} / hr {calcResults.calculatedStartsPerHour <= calcResults.maxStarts ? "✓" : "⚠"}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Standards Summary */}
+      {/* Technical Reference Guidance */}
       <div className="space-y-2">
         <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-          Code References & Criteria
+          IPC / ASPE Engineering Guidance
         </div>
-        <div className="space-y-2 text-[11px] text-muted-foreground">
-          <div className="p-2.5 rounded-lg border border-border/50 bg-background space-y-1">
-            <div className="font-bold text-foreground">IPC Section 712.4.2 - Ejector Sizing</div>
-            <p>Discharge pipe size must be minimum 2 inches (50 mm). Flow velocity must be ≥ 2.0 fps (0.6 m/s) to maintain solids in suspension.</p>
-          </div>
-          <div className="p-2.5 rounded-lg border border-border/50 bg-background space-y-1">
-            <div className="font-bold text-foreground">ASPE Chapter 7 - Sump Drawdown</div>
-            <p>Provide minimum active volume V = (Q_pump × t_cycle) / 4 to ensure pump does not exceed allowable starts per hour.</p>
-          </div>
+
+        <div className="p-3 rounded-xl bg-surface-2/40 border border-border/60 space-y-2 text-[11.5px] leading-relaxed text-muted-foreground">
+          <p>
+            <strong className="text-foreground">IPC 712.4.2:</strong> Sewage ejector pumps shall have a minimum discharge pipe size of 2 inches (50 mm) to handle 2-inch spherical solids.
+          </p>
+          <p>
+            <strong className="text-foreground">ASPE Sizing Standard:</strong> The active storage volume between pump start and stop float switches should accommodate a minimum cycle time of 5 to 10 minutes to prevent thermal overload on the pump motor windings.
+          </p>
         </div>
       </div>
 
-      {/* Open Formula Reference Button */}
-      <div className="pt-2">
-        <button
-          onClick={() => setFormulaModalOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary text-[12px] font-bold transition-colors cursor-pointer"
-        >
-          <HelpCircle className="size-3.5" /> View Mathematical Equations
-        </button>
-      </div>
+      {/* Formula Button */}
+      <button
+        onClick={() => setFormulaModalOpen(true)}
+        className="w-full py-2 px-3 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer border border-primary/20"
+      >
+        <FileText className="size-3.5" />
+        <span>View Mathematical Formulas</span>
+      </button>
     </div>
   );
 }
 
-// Formula Reference Modal
+// Formula Breakdown Modal Component
 function SewagePumpFormulaModal({
   onClose,
   calcResults,
