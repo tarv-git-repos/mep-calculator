@@ -3,7 +3,6 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
-import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
@@ -185,6 +184,7 @@ function SewagePumpPage() {
 
   // Unit system (IP: GPM, ft, inches, gal, HP / SI: L/s, m, mm, m³ & L, kW)
   const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
+  const isSI = unitSystem === "si";
 
   // Preset
   const [preset, setPreset] = useState<SewagePresetKey>("commercial_building");
@@ -621,7 +621,6 @@ function SewagePumpPage() {
       const pNum = project?.project_number || "SAN-EJECTOR-01";
       doc.text(`Project: ${pName}  |  Code: ${pNum}  |  Date: ${formatDateStr(new Date().toISOString())}`, margin, margin + 24);
 
-      const isSI = unitSystem === "si";
       const summaryData = [
         [
           "Pump Duty Flow (Each)",
@@ -737,7 +736,6 @@ function SewagePumpPage() {
       headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1E293B" } };
       headerRow.alignment = { horizontal: "center", vertical: "middle" };
 
-      const isSI = unitSystem === "si";
       const excelRows = [
         ["Peak Inflow Rate (Q_in)", isSI ? (calcResults.qIn * GPM_TO_LPS).toFixed(2) : calcResults.qIn, isSI ? "L/s" : "GPM", "User Input", "Peak sanitary drainage inflow"],
         ["Pump Duty Flow (Each)", isSI ? (calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2) : calcResults.dutyFlowPerPump.toFixed(1), isSI ? "L/s" : "GPM", "Q_in × Multiplier", "Required duty capacity per pump"],
