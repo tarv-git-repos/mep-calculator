@@ -165,7 +165,9 @@ const EXCLUDED_PERSIST_PATHS = [
   "/plumbing-storm-water",
   "/plumbing-sprinkler-density",
   "/psychrometric",
-  "/plumbing-fm200"
+  "/plumbing-fm200",
+  "/plumbing-fire-water-demand",
+  "/plumbing-sewage-pump"
 ];
 
 const NON_VERSION_PATHS = [
