@@ -15,7 +15,7 @@ import {
   Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, X, HelpCircle,
   MessageSquare, ShieldAlert, Check, Activity, Copy, Clipboard, RotateCcw,
   Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers,
-  ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight
+  ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight, ChevronDown, ChevronRight, Lightbulb
 } from "lucide-react";
 import {
   ContextMenu,
@@ -651,6 +651,7 @@ function SewagePumpPage() {
     return {
       qIn,
       mult,
+      tCycle,
       dutyFlowPerPump,
       totalWorkingFlow,
       velocityFps,
@@ -861,7 +862,12 @@ function SewagePumpPage() {
   };
 
   return (
-    <AppShell>
+    <AppShell
+      title="Sewage Pump Sizing"
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen((v) => !v)}
+      intelOpen={intelOpen}
+    >
       <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans text-foreground">
         
         {/* Main Content Area */}
@@ -915,16 +921,16 @@ function SewagePumpPage() {
               {/* Intelligence Drawer Trigger */}
               <button
                 type="button"
-                onClick={() => setIntelOpen(!intelOpen)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors shadow-2xs ${
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                   intelOpen
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-card hover:bg-surface-2 text-foreground"
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                 }`}
-                title="Toggle IPC Hydraulic Intelligence Drawer"
+                title="Toggle IPC / ASPE Sewage Pump Intelligence & Audit"
               >
-                <Sparkles className="size-3.5 text-primary" />
-                <span>{intelOpen ? "Hide Intel" : "Pump Intel"}</span>
+                <Sparkles className="size-3.5" />
+                <span>Intelligence</span>
               </button>
 
               {/* View Mode Toggle */}
@@ -2220,7 +2226,15 @@ function SewagePumpPage() {
               onClose={() => setIntelOpen(false)}
               calcResults={calcResults}
               preset={preset}
+              onSelectPreset={handleApplyPreset}
+              isEffectiveReadOnly={isEffectiveReadOnly}
               unitSystem={unitSystem}
+              onNavigateToField={(id: string) => {
+                setTab("solver");
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent("mep-scroll-to-item", { detail: { id } }));
+                }, 100);
+              }}
               setFormulaModalOpen={setFormulaModalOpen}
             />
           )}
@@ -2260,102 +2274,458 @@ function SewagePumpIntelligenceDrawer({
   onClose,
   calcResults,
   preset,
+  onSelectPreset,
+  isEffectiveReadOnly,
   unitSystem,
+  onNavigateToField,
   setFormulaModalOpen,
 }: {
   onClose: () => void;
   calcResults: any;
   preset: SewagePresetKey;
+  onSelectPreset: (key: SewagePresetKey) => void;
+  isEffectiveReadOnly: boolean;
   unitSystem: "ip" | "si";
+  onNavigateToField: (fieldId: string) => void;
   setFormulaModalOpen: (open: boolean) => void;
 }) {
   const isSI = unitSystem === "si";
 
+  // Accordion state
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    compliance: true,
+    presets: true,
+    hydraulics: true,
+    advisories: true,
+    standards: false,
+  });
+
+  const toggleSection = (sec: string) => {
+    setOpenSections((prev) => ({ ...prev, [sec]: !prev[sec] }));
+  };
+
+  // Compliance checks calculations
+  const velocityCompliant = Boolean(calcResults.isScouringCompliant && calcResults.isMaxVelocityCompliant);
+  const solidsCompliant = Boolean(calcResults.isSolidsCompliant);
+  const startsCompliant = Boolean(calcResults.calculatedStartsPerHour <= calcResults.maxStarts);
+  const cycleCompliant = Boolean((calcResults.tCycle || 5) >= 4.0);
+
+  const totalChecks = 4;
+  const passedChecks = (velocityCompliant ? 1 : 0) + (solidsCompliant ? 1 : 0) + (startsCompliant ? 1 : 0) + (cycleCompliant ? 1 : 0);
+  const complianceScore = Math.round((passedChecks / totalChecks) * 100);
+
+  // Friction ratio
+  const frictionRatio = calcResults.tdh > 0 ? (calcResults.frictionHead / calcResults.tdh) * 100 : 0;
+
+  // Active Preset
+  const activePresetConfig = SEWAGE_PRESETS[preset] || SEWAGE_PRESETS.commercial_building;
+
   return (
-    <div className="h-full flex flex-col min-w-[360px] p-4 space-y-4 overflow-y-auto custom-scrollbar text-foreground">
-      <div className="flex items-center justify-between pb-3 border-b border-border/70">
+    <div className="h-full flex flex-col min-w-[360px] bg-card text-foreground font-sans">
+      {/* Header */}
+      <header className="h-12 px-4 flex items-center justify-between border-b border-border/80 shrink-0 bg-surface-1/50 backdrop-blur-xs">
         <div className="flex items-center gap-2">
-          <Sparkles className="size-4 text-primary" />
-          <h3 className="text-[13px] font-bold text-foreground">IPC / ASPE Pump Intelligence</h3>
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="size-4 animate-pulse" />
+          </div>
+          <div>
+            <h3 className="text-[13px] font-bold tracking-tight text-foreground flex items-center gap-1.5">
+              Sewage Pump Intelligence
+              <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded-full bg-primary/10 text-primary border border-primary/20">
+                IPC 712
+              </span>
+            </h3>
+          </div>
         </div>
         <button
           onClick={onClose}
-          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+          type="button"
+          className="size-7 grid place-items-center rounded-lg hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          title="Close Intelligence Drawer"
         >
           <X className="size-4" />
         </button>
-      </div>
+      </header>
 
-      {/* Active Preset Summary */}
-      <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
-        <div className="flex justify-between items-center">
-          <span className="text-[11px] font-bold text-primary uppercase tracking-wider">Active Configuration</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-            {SEWAGE_PRESETS[preset]?.category}
-          </span>
-        </div>
-        <p className="text-[12px] font-bold text-foreground">
-          {SEWAGE_PRESETS[preset]?.label}
-        </p>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          {SEWAGE_PRESETS[preset]?.description}
-        </p>
-      </div>
+      {/* Scrollable Body */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar text-[12.5px]">
 
-      {/* Compliance Verification Audit */}
-      <div className="space-y-2">
-        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-          Hydraulic Compliance Audit
-        </div>
-
-        <div className="p-3 rounded-xl bg-surface-2/60 border border-border/60 space-y-2 text-[11.5px]">
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Discharge Velocity (Min 2.0 fps):</span>
-            <span className={`font-bold ${calcResults.isScouringCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600"}`}>
-              {calcResults.velocityFps.toFixed(2)} ft/s {calcResults.isScouringCompliant ? "✓" : "⚠"}
+        {/* Section 1: Overall Compliance & Health Score */}
+        <div className="p-3.5 rounded-2xl bg-surface-1 border border-border/80 space-y-2.5 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <ShieldCheck className={`size-4 ${complianceScore === 100 ? "text-emerald-500" : complianceScore >= 75 ? "text-amber-500" : "text-rose-500"}`} />
+              <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider">
+                IPC / ASPE Health Score
+              </span>
+            </div>
+            <span className={`font-mono font-bold text-xs px-2 py-0.5 rounded-full ${
+              complianceScore === 100
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                : complianceScore >= 75
+                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+            }`}>
+              {complianceScore}% Validated
             </span>
           </div>
 
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">IPC 712.4.2 Solids Clearance (Min 2.0"):</span>
-            <span className={`font-bold ${calcResults.isSolidsCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600"}`}>
-              {calcResults.dPipe}" NPS {calcResults.isSolidsCompliant ? "✓" : "⚠"}
-            </span>
+          <div className="h-1.5 bg-surface-3 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-500 ${
+                complianceScore === 100 ? "bg-emerald-500" : complianceScore >= 75 ? "bg-amber-500" : "bg-rose-500"
+              }`}
+              style={{ width: `${complianceScore}%` }}
+            />
           </div>
 
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Motor Starts per Hour (Max {calcResults.maxStarts}):</span>
-            <span className={`font-bold ${calcResults.calculatedStartsPerHour <= calcResults.maxStarts ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600"}`}>
-              {calcResults.calculatedStartsPerHour.toFixed(1)} / hr {calcResults.calculatedStartsPerHour <= calcResults.maxStarts ? "✓" : "⚠"}
-            </span>
+          {/* Key Compliance Items */}
+          <div className="space-y-1.5 pt-1">
+            {/* Scouring Velocity */}
+            <div
+              onClick={() => onNavigateToField("pipeDia")}
+              className="flex items-center justify-between p-2 rounded-xl bg-background/60 hover:bg-surface-2 border border-border/50 cursor-pointer transition-colors group"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`size-2 rounded-full ${velocityCompliant ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
+                <span className="text-[11.5px] text-muted-foreground group-hover:text-foreground">Scouring Velocity (&ge; 2.0 fps)</span>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono text-[11.5px] font-bold">
+                <span className={velocityCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                  {calcResults.velocityFps.toFixed(2)} ft/s
+                </span>
+                <span className="text-[10px]">{velocityCompliant ? "✓" : "⚠"}</span>
+              </div>
+            </div>
+
+            {/* Solids Clearance */}
+            <div
+              onClick={() => onNavigateToField("pipeDia")}
+              className="flex items-center justify-between p-2 rounded-xl bg-background/60 hover:bg-surface-2 border border-border/50 cursor-pointer transition-colors group"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`size-2 rounded-full ${solidsCompliant ? "bg-emerald-500" : "bg-rose-500 animate-pulse"}`} />
+                <span className="text-[11.5px] text-muted-foreground group-hover:text-foreground">IPC 712.4.2 Solids (&ge; 2.0" NPS)</span>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono text-[11.5px] font-bold">
+                <span className={solidsCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+                  {calcResults.dPipe}" NPS
+                </span>
+                <span className="text-[10px]">{solidsCompliant ? "✓" : "✕"}</span>
+              </div>
+            </div>
+
+            {/* Motor Starts Thermal Check */}
+            <div
+              onClick={() => onNavigateToField("starts")}
+              className="flex items-center justify-between p-2 rounded-xl bg-background/60 hover:bg-surface-2 border border-border/50 cursor-pointer transition-colors group"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`size-2 rounded-full ${startsCompliant ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
+                <span className="text-[11.5px] text-muted-foreground group-hover:text-foreground">Thermal Starts/Hr (&le; {calcResults.maxStarts})</span>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono text-[11.5px] font-bold">
+                <span className={startsCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                  {calcResults.calculatedStartsPerHour.toFixed(1)} / hr
+                </span>
+                <span className="text-[10px]">{startsCompliant ? "✓" : "⚠"}</span>
+              </div>
+            </div>
+
+            {/* Cycle Time Check */}
+            <div
+              onClick={() => onNavigateToField("cycle")}
+              className="flex items-center justify-between p-2 rounded-xl bg-background/60 hover:bg-surface-2 border border-border/50 cursor-pointer transition-colors group"
+            >
+              <div className="flex items-center gap-2">
+                <span className={`size-2 rounded-full ${cycleCompliant ? "bg-emerald-500" : "bg-amber-500"}`} />
+                <span className="text-[11.5px] text-muted-foreground group-hover:text-foreground">Sump Cycle Time (&ge; 5 min)</span>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono text-[11.5px] font-bold">
+                <span className={cycleCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                  {(calcResults.tCycle || 5).toFixed(1)} min
+                </span>
+                <span className="text-[10px]">{cycleCompliant ? "✓" : "⚠"}</span>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Technical Reference Guidance */}
-      <div className="space-y-2">
-        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-          IPC / ASPE Engineering Guidance
+        {/* Section 2: Active Preset & Quick Switcher */}
+        <div className="p-3.5 rounded-2xl bg-surface-1 border border-border/80 space-y-2.5 shadow-2xs">
+          <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleSection("presets")}>
+            <div className="flex items-center gap-1.5">
+              <Layers className="size-4 text-primary" />
+              <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider">
+                Active Configuration
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                {activePresetConfig.category}
+              </span>
+              {openSections.presets ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
+            </div>
+          </div>
+
+          {openSections.presets && (
+            <div className="space-y-2.5 pt-1">
+              <div className="p-2.5 rounded-xl bg-primary/5 border border-primary/20 space-y-1">
+                <div className="font-bold text-[12.5px] text-foreground">{activePresetConfig.label}</div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {activePresetConfig.description}
+                </p>
+              </div>
+
+              {/* Quick Preset Pills */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+                  Quick Switch Preset:
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(Object.keys(SEWAGE_PRESETS) as SewagePresetKey[]).map((k) => {
+                    const cfg = SEWAGE_PRESETS[k];
+                    const isCur = preset === k;
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => onSelectPreset(k)}
+                        disabled={isEffectiveReadOnly}
+                        className={`text-left p-2 rounded-xl border text-[11px] transition-all cursor-pointer truncate ${
+                          isCur
+                            ? "bg-primary text-primary-foreground border-primary font-bold shadow-2xs"
+                            : "bg-background/80 hover:bg-surface-2 border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        <div className="font-bold truncate">{cfg.label}</div>
+                        <div className="text-[9.5px] opacity-80 mt-0.5">{cfg.inflow} GPM ({cfg.lift} ft)</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="p-3 rounded-xl bg-surface-2/40 border border-border/60 space-y-2 text-[11.5px] leading-relaxed text-muted-foreground">
-          <p>
-            <strong className="text-foreground">IPC 712.4.2:</strong> Sewage ejector pumps shall have a minimum discharge pipe size of 2 inches (50 mm) to handle 2-inch spherical solids.
-          </p>
-          <p>
-            <strong className="text-foreground">ASPE Sizing Standard:</strong> The active storage volume between pump start and stop float switches should accommodate a minimum cycle time of 5 to 10 minutes to prevent thermal overload on the pump motor windings.
-          </p>
+        {/* Section 3: Hydraulic & Power Breakdown */}
+        <div className="p-3.5 rounded-2xl bg-surface-1 border border-border/80 space-y-2.5 shadow-2xs">
+          <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleSection("hydraulics")}>
+            <div className="flex items-center gap-1.5">
+              <Gauge className="size-4 text-primary" />
+              <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider">
+                Hydraulic & Basin Specs
+              </span>
+            </div>
+            {openSections.hydraulics ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
+          </div>
+
+          {openSections.hydraulics && (
+            <div className="space-y-1.5 pt-1 text-[11.5px]">
+              <div className="flex justify-between items-center py-1 border-b border-border/40">
+                <span className="text-muted-foreground">Pump Duty Flow:</span>
+                <span className="font-mono font-bold text-foreground">
+                  {isSI ? `${(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s` : `${calcResults.dutyFlowPerPump.toFixed(1)} GPM`}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-border/40">
+                <span className="text-muted-foreground">Total Dynamic Head (TDH):</span>
+                <span className="font-mono font-bold text-foreground">
+                  {isSI ? `${(calcResults.tdh * FT_TO_M).toFixed(1)} m` : `${calcResults.tdh.toFixed(1)} ft`}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-border/40">
+                <span className="text-muted-foreground">Friction Head Loss:</span>
+                <span className="font-mono font-medium text-muted-foreground">
+                  {isSI ? `${(calcResults.frictionHead * FT_TO_M).toFixed(2)} m` : `${calcResults.frictionHead.toFixed(2)} ft`} ({frictionRatio.toFixed(0)}% of TDH)
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-border/40">
+                <span className="text-muted-foreground">Active Storage Volume:</span>
+                <span className="font-mono font-bold text-primary">
+                  {isSI ? `${calcResults.activeVolM3.toFixed(2)} m³` : `${calcResults.activeVolGal.toFixed(0)} Gal`}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-border/40">
+                <span className="text-muted-foreground">Active Drawdown Depth:</span>
+                <span className="font-mono font-medium text-foreground">
+                  {isSI ? `${(calcResults.activeDepthInches * IN_TO_MM).toFixed(0)} mm` : `${calcResults.activeDepthInches.toFixed(1)}"`}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-border/40">
+                <span className="text-muted-foreground">Recommended Total Depth:</span>
+                <span className="font-mono font-medium text-foreground">
+                  {isSI ? `${(calcResults.totalBasinDepthInches * IN_TO_MM).toFixed(0)} mm` : `${calcResults.totalBasinDepthInches.toFixed(1)}"`}
+                </span>
+              </div>
+              <div className="flex justify-between items-center pt-1 text-primary font-bold">
+                <span>Selected Motor Rating:</span>
+                <span className="font-mono">
+                  {isSI ? `${calcResults.recommendedMotorKW.toFixed(2)} kW` : `${calcResults.recommendedMotorHP} HP`}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Section 4: Smart Engineering Advisories */}
+        <div className="p-3.5 rounded-2xl bg-surface-1 border border-border/80 space-y-2.5 shadow-2xs">
+          <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleSection("advisories")}>
+            <div className="flex items-center gap-1.5">
+              <Lightbulb className="size-4 text-amber-500" />
+              <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider">
+                Smart Advisories & Alerts
+              </span>
+            </div>
+            {openSections.advisories ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
+          </div>
+
+          {openSections.advisories && (
+            <div className="space-y-2 pt-1 text-[11.5px]">
+              {/* Check 1: Scouring Velocity Low */}
+              {!calcResults.isScouringCompliant && (
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <AlertTriangle className="size-3.5" />
+                    <span>Low Scouring Velocity ({calcResults.velocityFps.toFixed(2)} ft/s)</span>
+                  </div>
+                  <p className="text-[10.5px] leading-relaxed opacity-90">
+                    Discharge velocity is under 2.0 ft/s (0.6 m/s). Solids and grease will settle in horizontal discharge pipes. Consider reducing pipe diameter or increasing flow factor.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToField("pipeDia")}
+                    className="text-[10.5px] font-bold text-amber-900 dark:text-amber-200 underline mt-0.5 cursor-pointer block"
+                  >
+                    Adjust Discharge Pipe Size &rarr;
+                  </button>
+                </div>
+              )}
+
+              {/* Check 2: High Velocity */}
+              {!calcResults.isMaxVelocityCompliant && (
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <AlertTriangle className="size-3.5" />
+                    <span>High Velocity ({calcResults.velocityFps.toFixed(2)} ft/s &gt; 8.0 ft/s)</span>
+                  </div>
+                  <p className="text-[10.5px] leading-relaxed opacity-90">
+                    Velocity exceeds 8.0 ft/s, causing excessive Hazen-Williams friction losses and water hammer risk upon check valve closure.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToField("pipeDia")}
+                    className="text-[10.5px] font-bold text-amber-900 dark:text-amber-200 underline mt-0.5 cursor-pointer block"
+                  >
+                    Upsize Pipe Diameter &rarr;
+                  </button>
+                </div>
+              )}
+
+              {/* Check 3: IPC Solids Clearance */}
+              {!calcResults.isSolidsCompliant && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-800 dark:text-rose-300 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <ShieldAlert className="size-3.5" />
+                    <span>IPC 712.4.2 Non-Compliance</span>
+                  </div>
+                  <p className="text-[10.5px] leading-relaxed opacity-90">
+                    Discharge pipe diameter is below 2.0" (50 mm). IPC mandates minimum 2.0" for sanitary ejectors serving water closets.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToField("pipeDia")}
+                    className="text-[10.5px] font-bold text-rose-900 dark:text-rose-200 underline mt-0.5 cursor-pointer block"
+                  >
+                    Set Pipe to 2.0"+ &rarr;
+                  </button>
+                </div>
+              )}
+
+              {/* Check 4: Excessive Friction Ratio */}
+              {frictionRatio > 35 && (
+                <div className="p-2.5 rounded-xl bg-primary/5 border border-primary/20 text-primary space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <Zap className="size-3.5" />
+                    <span>High Friction Loss ({frictionRatio.toFixed(0)}% of TDH)</span>
+                  </div>
+                  <p className="text-[10.5px] text-muted-foreground leading-relaxed">
+                    Friction head represents over 35% of total dynamic head. Upsizing discharge pipe will substantially reduce continuous pumping kWh and motor size.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToField("card-hydraulics")}
+                    className="text-[10.5px] font-bold underline mt-0.5 cursor-pointer block"
+                  >
+                    Review Piping Head Losses &rarr;
+                  </button>
+                </div>
+              )}
+
+              {/* All Optimal */}
+              {velocityCompliant && solidsCompliant && startsCompliant && cycleCompliant && frictionRatio <= 35 && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-300 space-y-1">
+                  <div className="font-bold flex items-center gap-1">
+                    <CheckCircle2 className="size-3.5" />
+                    <span>Optimal Hydraulic Performance</span>
+                  </div>
+                  <p className="text-[10.5px] leading-relaxed opacity-90">
+                    Self-scouring velocity, solids clearance, wet well retention volume, and motor duty are fully balanced and code compliant.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Section 5: IPC 712 & ASPE Standards Reference */}
+        <div className="p-3.5 rounded-2xl bg-surface-1 border border-border/80 space-y-2.5 shadow-2xs">
+          <div className="flex items-center justify-between cursor-pointer" onClick={() => toggleSection("standards")}>
+            <div className="flex items-center gap-1.5">
+              <Info className="size-4 text-primary" />
+              <span className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider">
+                IPC / ASPE Standards Reference
+              </span>
+            </div>
+            {openSections.standards ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
+          </div>
+
+          {openSections.standards && (
+            <div className="space-y-2 pt-1 text-[11px] text-muted-foreground leading-relaxed">
+              <div className="p-2 rounded-lg bg-background border border-border/50 space-y-1">
+                <strong className="text-foreground block font-semibold">IPC 712.4.2 — Solids Handling Clearance</strong>
+                <span>Sewage ejector pumps shall be capable of passing a 2-inch (50 mm) solid sphere. Minimum discharge pipe size shall be 2.0 inches NPS.</span>
+              </div>
+              <div className="p-2 rounded-lg bg-background border border-border/50 space-y-1">
+                <strong className="text-foreground block font-semibold">IPC 712.3.2 — Wet Well Venting</strong>
+                <span>Sumps receiving sewage shall be provided with a gas-tight sealed cover and vented by a minimum 2-inch vent extending through the roof.</span>
+              </div>
+              <div className="p-2 rounded-lg bg-background border border-border/50 space-y-1">
+                <strong className="text-foreground block font-semibold">ASPE Chapter 7 — Active Drawdown Formula</strong>
+                <span>Active volume between start and stop float switches: V = (Q × t) / 4 prevents motor thermal cycling and excessive start counts.</span>
+              </div>
+              <div className="p-2 rounded-lg bg-background border border-border/50 space-y-1">
+                <strong className="text-foreground block font-semibold">Hydraulic Scouring Velocity</strong>
+                <span>Minimum 2.0 ft/s (0.6 m/s) maintains solids in suspension; maximum 8.0 ft/s (2.4 m/s) prevents pipe wear and transient hydraulic water hammer.</span>
+              </div>
+            </div>
+          )}
+        </div>
+
       </div>
 
-      {/* Formula Button */}
-      <button
-        onClick={() => setFormulaModalOpen(true)}
-        className="w-full py-2 px-3 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer border border-primary/20"
-      >
-        <FileText className="size-3.5" />
-        <span>View Mathematical Formulas</span>
-      </button>
+      {/* Footer Action: View Mathematical Formulas */}
+      <footer className="p-3 border-t border-border/80 shrink-0 bg-surface-1/50">
+        <button
+          type="button"
+          onClick={() => setFormulaModalOpen(true)}
+          className="w-full py-2.5 px-3 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+        >
+          <FileText className="size-3.5" />
+          <span>View Engineering Equations & Formulas</span>
+        </button>
+      </footer>
     </div>
   );
 }
