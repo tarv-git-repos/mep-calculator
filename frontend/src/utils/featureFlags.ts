@@ -47,7 +47,11 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'plumbing-fire-water-demand',
   'fire-water-demand',
   'firewaterdemand',
-  'plumbing-fire-water'
+  'plumbing-fire-water',
+  'plumbing-sewage-pump',
+  'sewage-pump',
+  'sewage-pump-sizing',
+  'sewagepump'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -132,7 +136,11 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'plumbing-fire-water-demand' ||
     routeKey === 'fire-water-demand' ||
     routeKey === 'firewaterdemand' ||
-    routeKey === 'plumbing-fire-water'
+    routeKey === 'plumbing-fire-water' ||
+    routeKey === 'plumbing-sewage-pump' ||
+    routeKey === 'sewage-pump' ||
+    routeKey === 'sewage-pump-sizing' ||
+    routeKey === 'sewagepump'
   ) {
     return false;
   }
