@@ -128,6 +128,9 @@ interface StandardCalculatorLayoutProps<T extends { id: string; name?: string; c
   // Review status path
   calculatorPath: string;
   children?: React.ReactNode;
+  
+  hideHeader?: boolean;
+  hideReviewBar?: boolean;
 }
 
 export function StandardCalculatorLayout<T extends { id: string; name?: string; code?: string }>({
@@ -136,6 +139,8 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
   icon: HeaderIcon = Sparkles,
   summaryPills = [],
   tabs = [],
+  hideHeader = false,
+  hideReviewBar = false,
   activeTab,
   onTabChange,
   roundOffOptions, // Defaults to undefined so it's strictly optional
@@ -223,7 +228,7 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
   return (
     <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
       {/* Optional Title Header Bar (if title provided) */}
-      {title && (
+      {!hideHeader && title && (
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-border bg-header-bg shrink-0">
           <div className="flex items-center gap-3">
             <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -253,7 +258,7 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
       )}
 
       {/* Row 1: Pill Tabs & Round-off Selector (Only rendered if tabs or roundOffOptions are provided) */}
-      {showTopControlsRow && (
+      {!hideHeader && showTopControlsRow && (
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 bg-surface-1 border-b border-border/60 shrink-0">
           {/* Tabs Bar */}
           {tabs && tabs.length > 0 && (
@@ -312,9 +317,10 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
       )}
 
       {/* Row 2: Filter Search, Filter Button, Sort Button, Action Buttons */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2 border-b border-border bg-background shrink-0">
-        {/* Left Controls: Search Input + Filter Funnel + Sort Arrows */}
-        <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+      {!hideHeader && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2 border-b border-border bg-background shrink-0">
+          {/* Left Controls: Search Input + Filter Funnel + Sort Arrows */}
+          <div className="flex items-center gap-2 flex-1 min-w-[240px]">
           {onSearchChange && (
             <div className="relative flex-1 max-w-xs">
               <input
@@ -468,6 +474,7 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
           )}
         </div>
       </div>
+      )}
 
       {/* 3. Main Content Area / DataGrid */}
       <div className="flex-1 min-h-0 relative flex flex-col">
@@ -505,7 +512,7 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
       </div>
 
       {/* 4. Bottom Sticky Calculation Review Bar */}
-      <CalculationReviewBar path={calculatorPath} />
+      {!hideReviewBar && <CalculationReviewBar path={calculatorPath} />}
 
       {/* Modals */}
       {activeCommentTarget && (

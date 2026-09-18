@@ -40,7 +40,7 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 export const Route = createFileRoute("/diffuser-selector")({
   head: () => ({
     meta: [
-      { title: "Diffuser Selector — MEP Calc" },
+      { title: "Diffuser Selector â€” MEP Calc" },
       { name: "description", content: "Comprehensive HVAC air terminal & diffuser selection schedule with multi-space sizing, noise criteria, and ADPI analysis." },
     ],
   }),
@@ -64,7 +64,7 @@ export interface DiffuserRowItem {
   floor: string;
   zone: string;
   coolingKw?: number | ""; // Q in kW from Preliminary Cooling Load
-  deltaT?: number | "";    // Delta T in °C or °F
+  deltaT?: number | "";    // Delta T in Â°C or Â°F
   airflow: number | "";   // Flow in L/s or CFM
   count: number | "";
   diffType: DiffuserType;
@@ -103,13 +103,13 @@ const DIFFUSER_DATA: Record<DiffuserType, DiffuserSize[]> = {
     { size: "600x600 mm (24\"x24\")", maxFlow_20: 1239, maxFlow_25: 1239, throw: 32, nc: 50 }
   ],
   round: [
-    { size: "Ø250 mm (Ø10\")", maxFlow_20: 38, maxFlow_25: 47, throw: 8, nc: 20 },
-    { size: "Ø307 mm (Ø12\")", maxFlow_20: 66, maxFlow_25: 83, throw: 10, nc: 22 },
-    { size: "Ø366 mm (Ø14\")", maxFlow_20: 105, maxFlow_25: 132, throw: 12, nc: 24 },
-    { size: "Ø424 mm (Ø16\")", maxFlow_20: 167, maxFlow_25: 210, throw: 15, nc: 26 },
-    { size: "Ø483 mm (Ø18\")", maxFlow_20: 216, maxFlow_25: 271, throw: 18, nc: 28 },
-    { size: "Ø541 mm (Ø20\")", maxFlow_20: 274, maxFlow_25: 345, throw: 20, nc: 30 },
-    { size: "Ø600 mm (Ø24\")", maxFlow_20: 344, maxFlow_25: 432, throw: 22, nc: 32 }
+    { size: "Ã˜250 mm (Ã˜10\")", maxFlow_20: 38, maxFlow_25: 47, throw: 8, nc: 20 },
+    { size: "Ã˜307 mm (Ã˜12\")", maxFlow_20: 66, maxFlow_25: 83, throw: 10, nc: 22 },
+    { size: "Ã˜366 mm (Ã˜14\")", maxFlow_20: 105, maxFlow_25: 132, throw: 12, nc: 24 },
+    { size: "Ã˜424 mm (Ã˜16\")", maxFlow_20: 167, maxFlow_25: 210, throw: 15, nc: 26 },
+    { size: "Ã˜483 mm (Ã˜18\")", maxFlow_20: 216, maxFlow_25: 271, throw: 18, nc: 28 },
+    { size: "Ã˜541 mm (Ã˜20\")", maxFlow_20: 274, maxFlow_25: 345, throw: 20, nc: 30 },
+    { size: "Ã˜600 mm (Ã˜24\")", maxFlow_20: 344, maxFlow_25: 432, throw: 22, nc: 32 }
   ],
   slot16: [
     { size: "1 Slot (16mm)", maxFlow: 45, throw: 6, nc: 20 },
@@ -131,7 +131,7 @@ const DIFFUSER_DATA: Record<DiffuserType, DiffuserSize[]> = {
   ]
 };
 
-// Specific Heat Capacity (cp) lookup table at different temperatures for water (in kJ/kg·K)
+// Specific Heat Capacity (cp) lookup table at different temperatures for water (in kJ/kgÂ·K)
 export function getCpWater(tempC: number): number {
   if (tempC <= 0) return 4.217;
   if (tempC >= 100) return 4.216;
@@ -145,7 +145,7 @@ export function getCpWater(tempC: number): number {
 // Compute flow rate from Q = m * Cp * Delta_T
 export function computeAirflowFromKw(
   coolingKw: number,
-  deltaT: number, // in °C (or °F if isIP)
+  deltaT: number, // in Â°C (or Â°F if isIP)
   isIP: boolean = false,
   fluidType: "air" | "water" = "air",
   tempC: number = 20
@@ -344,7 +344,7 @@ function DiffuserSelectorPage() {
   const flowUnit = ip ? "CFM" : "L/s";
   const velUnit = ip ? "FPM" : "m/s";
   const lenUnit = ip ? "ft" : "m";
-  const tempUnit = ip ? "°F" : "°C";
+  const tempUnit = ip ? "Â°F" : "Â°C";
 
   // Auto compute airflow when coolingKw or deltaT changes in quick-add
   useEffect(() => {
@@ -602,7 +602,7 @@ function DiffuserSelectorPage() {
     }
 
     const velocityFpm = row.designVelocity * 196.85;
-    let adpi = "Good Selection (ADPI ≥ 80%)";
+    let adpi = "Good Selection (ADPI â‰¥ 80%)";
     let status = "PASS";
     if (velocityFpm > 600) {
       adpi = "High velocity - draft risk";
@@ -679,7 +679,7 @@ function DiffuserSelectorPage() {
     setNewCoolingKw("");
     setNewAirflow("");
     setShowAddModal(false);
-    toast.success(`Added "${name}" with Q=m·Cp·ΔT airflow computation`);
+    toast.success(`Added "${name}" with Q=mÂ·CpÂ·Î”T airflow computation`);
   };
 
   // Multi-Selection Operations
@@ -1404,7 +1404,7 @@ function DiffuserSelectorPage() {
       // 2. Diffuser Selection Schedule Table
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
-      doc.text("2. Diffuser Sizing & Acoustic Selection Schedule (Q = m·Cp·ΔT)", 40, (doc as any).lastAutoTable.finalY + 14);
+      doc.text("2. Diffuser Sizing & Acoustic Selection Schedule (Q = mÂ·CpÂ·Î”T)", 40, (doc as any).lastAutoTable.finalY + 14);
 
       const scheduleHead = [["No.", "Space / Room", "Diffuser Type", `Cooling (kW)`, `Total Flow (${flowUnit})`, "Qty", `Flow/Diff (${flowUnit})`, "Neck Size", `Vel (${velUnit})`, "NC"]];
       const scheduleBody = computedRows.map((r, idx) => [
@@ -1745,7 +1745,7 @@ function DiffuserSelectorPage() {
           step="0.1"
           min={0}
           value={r.coolingKw !== "" && r.coolingKw !== undefined ? r.coolingKw : ""}
-          placeholder="—"
+          placeholder="â€”"
           onCommit={(val) => {
             const nextKw = val === "" ? "" : Number(val);
             setRows(prev => prev.map(row => {
@@ -2012,7 +2012,7 @@ function DiffuserSelectorPage() {
                 unitSystem={unitSystem}
                 onChange={handleUnitSystemChange}
                 inputDescriptions="Supply Airflow per space"
-                conversionExample={unitSystem === "si" ? "Convert 500 L/s → 1,059 CFM" : "Convert 1000 CFM → 472 L/s"}
+                conversionExample={unitSystem === "si" ? "Convert 500 L/s â†’ 1,059 CFM" : "Convert 1000 CFM â†’ 472 L/s"}
               />
             </div>
           </div>
@@ -2153,7 +2153,7 @@ function DiffuserSelectorPage() {
                         <ArrowUpDown className="size-3.5 shrink-0" />
                         {floorOrder.length > 0 && (
                           <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                            ✓
+                            âœ“
                           </span>
                         )}
                       </button>
@@ -2171,7 +2171,7 @@ function DiffuserSelectorPage() {
                         )}
                       </div>
                       <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
-                        Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
+                        Use â–² / â–¼ buttons or drag floors to change their sorting order in grid views.
                       </p>
                       <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5">
                         {sortedFloorsForGrid.map((floor, index) => (
@@ -2242,7 +2242,7 @@ function DiffuserSelectorPage() {
                   {!isApprovedLocked && selectedRowIds.size > 0 && (
                     <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                       <span className="font-semibold">{selectedRowIds.size} selected</span>
-                      <span className="text-primary/30">·</span>
+                      <span className="text-primary/30">Â·</span>
                       <BulkBtn icon={Edit3} onClick={() => {
                         setBulkEditFloor("");
                         setBulkEditType("");
@@ -2327,12 +2327,12 @@ function DiffuserSelectorPage() {
                     Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} spaces
                   </div>
                   <div className="flex items-center gap-3 tabular">
-                    <span>Σ Airflow: <span className="font-mono text-primary font-bold">{totalFlowSum.toLocaleString()} {flowUnit}</span></span>
-                    <span>Σ Outlets: <span className="font-mono text-foreground font-bold">{totalDiffusersSum} Outlets</span></span>
+                    <span>Î£ Airflow: <span className="font-mono text-primary font-bold">{totalFlowSum.toLocaleString()} {flowUnit}</span></span>
+                    <span>Î£ Outlets: <span className="font-mono text-foreground font-bold">{totalDiffusersSum} Outlets</span></span>
                     {totalCoolingKwSum > 0 && (
-                      <span>Σ Load (kW): <span className="font-mono text-foreground font-bold">{totalCoolingKwSum.toFixed(2)} kW</span></span>
+                      <span>Î£ Load (kW): <span className="font-mono text-foreground font-bold">{totalCoolingKwSum.toFixed(2)} kW</span></span>
                     )}
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">Status: All Terminals Sized (NC ≤ 30)</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">Status: All Terminals Sized (NC â‰¤ 30)</span>
                   </div>
                 </div>
               </div>
@@ -2381,7 +2381,7 @@ function DiffuserSelectorPage() {
                         <ShieldCheck className="size-4" />
                       </div>
                       <span className="text-[10px] font-bold text-teal-600 dark:text-teal-400 uppercase tracking-widest block mb-1 font-sans">Acoustic Compliance</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">NC ≤ 30</strong>
+                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">NC â‰¤ 30</strong>
                       <span className="text-[11px] text-muted-foreground mt-2 block font-sans">ASHRAE 55 acoustic & sound compliant</span>
                     </div>
                   </div>
@@ -2394,7 +2394,7 @@ function DiffuserSelectorPage() {
                     <div className="flex flex-col gap-2">
                       <div className="flex items-start gap-2.5 p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[12.5px]">
                         <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
-                        <span>All terminal diffusers operate under recommended velocity limits (2.0 - 2.5 m/s) ensuring draft-free room air motion (ADPI ≥ 80%).</span>
+                        <span>All terminal diffusers operate under recommended velocity limits (2.0 - 2.5 m/s) ensuring draft-free room air motion (ADPI â‰¥ 80%).</span>
                       </div>
                       <div className="flex items-start gap-2.5 p-3 rounded-xl border border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[12.5px]">
                         <Info className="size-4 shrink-0 mt-0.5" />
@@ -2419,7 +2419,7 @@ function DiffuserSelectorPage() {
                     {/* 3. Project Summary Stats */}
                     <div className="mt-4 rounded-lg overflow-hidden border border-border/80 text-xs">
                       <div className="bg-[#06456F] text-white px-3 py-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                        📊 PROJECT SUMMARY STATS
+                        ðŸ“Š PROJECT SUMMARY STATS
                       </div>
                       <div className="grid grid-cols-2 divide-x divide-border/60 p-2 bg-slate-50/50 dark:bg-slate-800/30">
                         <div className="space-y-1.5 pr-3">
@@ -2447,7 +2447,7 @@ function DiffuserSelectorPage() {
                           </div>
                           <div className="flex justify-between">
                             <span className="font-semibold text-muted-foreground">Acoustic Compliance:</span>
-                            <span className="font-bold font-mono text-emerald-600">PASS (NC ≤ 30)</span>
+                            <span className="font-bold font-mono text-emerald-600">PASS (NC â‰¤ 30)</span>
                           </div>
                         </div>
                       </div>
@@ -2524,7 +2524,7 @@ function DiffuserSelectorPage() {
                         </div>
                       </div>
                       <div className="flex flex-col gap-8">
-                        <span className="font-semibold text-foreground">Approved By:</span>
+                        <span className="font-semibold text-foreground">Approver:</span>
                         <div className="border-b border-border/80 pt-4">
                           <span className="font-mono text-[11px] text-muted-foreground">Lead Mechanical Coordinator</span>
                         </div>
@@ -2550,7 +2550,7 @@ function DiffuserSelectorPage() {
                   onClick={() => setShowSourceModal(false)}
                   className="text-muted-foreground hover:text-foreground text-sm font-bold p-1"
                 >
-                  ✕
+                  âœ•
                 </button>
               </div>
 
@@ -2572,7 +2572,7 @@ function DiffuserSelectorPage() {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-xs font-bold text-foreground group-hover:text-primary">
-                      Preliminary Cooling Load (Q = ṁ·Cp·ΔT)
+                      Preliminary Cooling Load (Q = á¹Â·CpÂ·Î”T)
                     </span>
                     <span className="text-[11px] text-muted-foreground">
                       Auto-calculate airflow from calculated cooling loads (kW / TR) and temperature differential.
@@ -2626,7 +2626,7 @@ function DiffuserSelectorPage() {
                   onClick={() => setShowBulkEditModal(false)}
                   className="text-muted-foreground hover:text-foreground text-sm font-bold p-1"
                 >
-                  ✕
+                  âœ•
                 </button>
               </div>
 
@@ -2678,8 +2678,8 @@ function DiffuserSelectorPage() {
                     className="h-8 px-2 rounded-lg border border-border bg-surface-2 text-xs font-medium text-foreground outline-none focus:border-primary cursor-pointer"
                   >
                     <option value="">Leave unchanged</option>
-                    <option value="2.0">2.0 m/s (Quiet • NC ≤ 25)</option>
-                    <option value="2.5">2.5 m/s (Standard • NC ≤ 30)</option>
+                    <option value="2.0">2.0 m/s (Quiet â€¢ NC â‰¤ 25)</option>
+                    <option value="2.5">2.5 m/s (Standard â€¢ NC â‰¤ 30)</option>
                   </select>
                 </div>
               </div>
@@ -2731,10 +2731,10 @@ function DiffuserSelectorPage() {
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                        {row.name} — Diffuser Aerodynamic Breakdown
+                        {row.name} â€” Diffuser Aerodynamic Breakdown
                       </h3>
                       <p className="text-xs text-muted-foreground">
-                        Floor: {row.floor} • Zone: {row.zone} • Model: {DIFFUSER_NAMES[row.diffType]}
+                        Floor: {row.floor} â€¢ Zone: {row.zone} â€¢ Model: {DIFFUSER_NAMES[row.diffType]}
                       </p>
                     </div>
                   </div>
@@ -2742,7 +2742,7 @@ function DiffuserSelectorPage() {
                     onClick={() => setShowDetailModal(false)}
                     className="text-muted-foreground hover:text-foreground text-sm font-bold p-1"
                   >
-                    ✕
+                    âœ•
                   </button>
                 </div>
 
@@ -2752,7 +2752,7 @@ function DiffuserSelectorPage() {
                   <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex flex-col gap-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-primary flex items-center gap-1.5">
-                        <Zap className="size-3.5" /> Step 1: Sensible Cooling Thermal Sizing (Q = ṁ · Cp · ΔT)
+                        <Zap className="size-3.5" /> Step 1: Sensible Cooling Thermal Sizing (Q = á¹ Â· Cp Â· Î”T)
                       </span>
                       <span className="text-xs font-mono font-bold text-foreground">
                         {kwVal > 0 ? `${kwVal} kW` : "Direct Airflow Input"}
@@ -2760,7 +2760,7 @@ function DiffuserSelectorPage() {
                     </div>
                     <p className="text-[11px] text-muted-foreground font-mono leading-relaxed">
                       {kwVal > 0
-                        ? `ṁ = ${kwVal} kW ÷ (1.005 kJ/kg·K × ${dtVal}°C) = ${(kwVal / (1.005 * (dtVal || 10))).toFixed(3)} kg/s dry air mass flow`
+                        ? `á¹ = ${kwVal} kW Ã· (1.005 kJ/kgÂ·K Ã— ${dtVal}Â°C) = ${(kwVal / (1.005 * (dtVal || 10))).toFixed(3)} kg/s dry air mass flow`
                         : "Airflow manually entered or transferred from space airflow schedule."}
                     </p>
                   </div>
@@ -2901,7 +2901,7 @@ function DiffuserSelectorPage() {
                   </h3>
                 </div>
                 <button onClick={() => setShowOverviewModal(false)} className="text-muted-foreground hover:text-foreground text-sm font-bold">
-                  ✕
+                  âœ•
                 </button>
               </div>
 
@@ -2920,7 +2920,7 @@ function DiffuserSelectorPage() {
                 </div>
                 <div className="p-3 bg-surface-2 rounded-xl border border-border/80">
                   <span className="text-[10px] text-muted-foreground uppercase font-bold block">COMPLIANCE</span>
-                  <span className="text-xl font-black font-mono text-emerald-600">PASS (NC≤30)</span>
+                  <span className="text-xl font-black font-mono text-emerald-600">PASS (NCâ‰¤30)</span>
                 </div>
               </div>
 
@@ -2929,7 +2929,7 @@ function DiffuserSelectorPage() {
                 <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
                   <li>All scheduled diffuser necks operate below the recommended 2.5 m/s (500 FPM) velocity threshold for office spaces.</li>
                   <li>Noise criteria levels do not exceed NC-30 in occupied zones, complying with ASHRAE Handbook Fundamentals standards.</li>
-                  <li>Discharge throw pattern ensures effective room entrainment without low-velocity stagnation (ADPI ≥ 80%).</li>
+                  <li>Discharge throw pattern ensures effective room entrainment without low-velocity stagnation (ADPI â‰¥ 80%).</li>
                 </ul>
               </div>
 
@@ -2942,7 +2942,7 @@ function DiffuserSelectorPage() {
           </div>
         )}
 
-        {/* Modal: Import from Preliminary Cooling Load with Single Text Box for ΔT */}
+        {/* Modal: Import from Preliminary Cooling Load with Single Text Box for Î”T */}
         {showPclModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
             <div className="bg-card border border-border rounded-3xl p-6 max-w-2xl w-full shadow-2xl flex flex-col gap-4 max-h-[85vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
@@ -2950,11 +2950,11 @@ function DiffuserSelectorPage() {
                 <div className="flex items-center gap-2">
                   <Zap className="size-5 text-primary" />
                   <h3 className="text-base font-bold text-foreground">
-                    Import Flow Rate from Preliminary Cooling Load (Q = ṁ·Cp·ΔT)
+                    Import Flow Rate from Preliminary Cooling Load (Q = á¹Â·CpÂ·Î”T)
                   </h3>
                 </div>
                 <button onClick={() => setShowPclModal(false)} className="text-muted-foreground hover:text-foreground text-sm font-bold">
-                  ✕
+                  âœ•
                 </button>
               </div>
 
@@ -2962,14 +2962,14 @@ function DiffuserSelectorPage() {
                 Import cooling loads ($Q$ in $\text{kW}$) directly from <strong>Preliminary Cooling Load</strong> and compute air terminal volumetric airflow ($L/s$ / $\text{CFM}$) using the thermodynamic equation:
               </p>
 
-              {/* ΔT Text Box & Diversity Controls */}
+              {/* Î”T Text Box & Diversity Controls */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-surface-2 p-4 rounded-2xl border border-border/80">
                 {/* 1. Delta T Text/Number Input Only */}
                 <div className="flex flex-col gap-1.5">
                   <div className="flex justify-between items-center">
-                    <label className="text-xs font-bold text-foreground">Supply Air ΔT</label>
+                    <label className="text-xs font-bold text-foreground">Supply Air Î”T</label>
                     <span className="text-[11px] font-mono text-muted-foreground">
-                      ≈ {(pclDeltaT * 1.8).toFixed(1)} °F
+                      â‰ˆ {(pclDeltaT * 1.8).toFixed(1)} Â°F
                     </span>
                   </div>
                   <div className="relative flex items-center">
@@ -2980,7 +2980,7 @@ function DiffuserSelectorPage() {
                       max="30.0"
                       value={pclDeltaT || ""}
                       onChange={e => setPclDeltaT(Number(e.target.value) || 0)}
-                      placeholder="Enter ΔT (e.g. 10.0)"
+                      placeholder="Enter Î”T (e.g. 10.0)"
                       className="w-full bg-card border border-border rounded-xl px-3.5 py-2 text-xs font-bold text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all font-mono"
                     />
                     <span className="absolute right-3.5 text-xs font-bold text-muted-foreground font-mono select-none pointer-events-none">
@@ -3032,7 +3032,7 @@ function DiffuserSelectorPage() {
                     >
                       Select All
                     </button>
-                    <span>•</span>
+                    <span>â€¢</span>
                     <button
                       type="button"
                       onClick={() => setPclSelectedIds({})}
@@ -3072,7 +3072,7 @@ function DiffuserSelectorPage() {
                             )}
                             <div className="flex flex-col gap-0.5">
                               <span className="font-bold text-foreground">{p.name || `Space ${idx + 1}`}</span>
-                              <span className="text-[11px] text-muted-foreground">{p.type || "Occupied Area"} • Floor: {p.floor || "GF"}</span>
+                              <span className="text-[11px] text-muted-foreground">{p.type || "Occupied Area"} â€¢ Floor: {p.floor || "GF"}</span>
                             </div>
                           </div>
 
@@ -3084,7 +3084,7 @@ function DiffuserSelectorPage() {
                             <ArrowRight className="size-3.5 text-muted-foreground" />
                             <div className="flex flex-col">
                               <span className="font-bold text-primary">{calc.flowRate.toLocaleString()} {flowUnit}</span>
-                              <span className="text-[10px] text-muted-foreground">ṁ = {calc.massFlowKgS.toFixed(3)} kg/s</span>
+                              <span className="text-[10px] text-muted-foreground">á¹ = {calc.massFlowKgS.toFixed(3)} kg/s</span>
                             </div>
                           </div>
                         </div>
@@ -3148,7 +3148,7 @@ function DiffuserSelectorPage() {
                   <FolderOpen className="size-5 text-primary" /> Saved Diffuser Presets
                 </h3>
                 <button onClick={() => setShowLoadModal(false)} className="text-muted-foreground hover:text-foreground">
-                  ✕
+                  âœ•
                 </button>
               </div>
 
@@ -3240,7 +3240,7 @@ function DiffuserSelectorPage() {
                 </div>
 
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-foreground">Supply Air ΔT ({tempUnit})</label>
+                  <label className="text-xs font-semibold text-foreground">Supply Air Î”T ({tempUnit})</label>
                   <input
                     type="number"
                     value={newDeltaT}
@@ -3254,7 +3254,7 @@ function DiffuserSelectorPage() {
                   <label className="text-xs font-semibold text-foreground flex items-center justify-between">
                     <span>Supply Airflow ({flowUnit})</span>
                     {newCoolingKw !== "" && Number(newCoolingKw) > 0 && (
-                      <span className="text-[10px] text-primary font-bold">Auto (Q=ṁCpΔT)</span>
+                      <span className="text-[10px] text-primary font-bold">Auto (Q=á¹CpÎ”T)</span>
                     )}
                   </label>
                   <input
@@ -3306,7 +3306,7 @@ function DiffuserSelectorPage() {
                       }`}
                     >
                       <span>2.0 m/s (400 FPM)</span>
-                      <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Quiet • NC ≤ 25</span>
+                      <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">Quiet â€¢ NC â‰¤ 25</span>
                     </button>
                     <button
                       type="button"
@@ -3318,7 +3318,7 @@ function DiffuserSelectorPage() {
                       }`}
                     >
                       <span>2.5 m/s (500 FPM)</span>
-                      <span className="text-[10px] font-semibold text-primary">Standard • NC ≤ 30</span>
+                      <span className="text-[10px] font-semibold text-primary">Standard â€¢ NC â‰¤ 30</span>
                     </button>
                   </div>
                 </div>

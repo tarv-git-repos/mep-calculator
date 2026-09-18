@@ -923,7 +923,8 @@ function BasementSmokeCalcPage() {
   }, [floors, fanSystems, totalFans, unitSystem, showGlobalFanSizing, project?.id, isLoaded]);
 
   useEffect(() => {
-    const handleTriggerSave = () => {
+    const handleTriggerSave = (e: any) => {
+      if (e.detail) e.detail.handled = true;
       dirtyStore.set(false);
       if (typeof forceSaveToCloud === "function") {
         forceSaveToCloud(true);

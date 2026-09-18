@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import { Gauge, X, RefreshCw, Check } from "lucide-react";
 
 export interface UnitToggleProps {
@@ -89,9 +90,9 @@ export function UnitToggle({
       </div>
 
       {/* Unit System Conversion Preference Modal */}
-      {showModal && pendingTarget && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 font-sans">
-          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-5 shadow-2xl animate-fade-in select-none">
+      {showModal && pendingTarget && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 font-sans animate-fade-in">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-5 shadow-2xl animate-scale-in select-none">
             <div className="flex justify-between items-center pb-2 border-b border-border/60">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-primary/10 rounded-xl text-primary">
@@ -172,7 +173,8 @@ export function UnitToggle({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

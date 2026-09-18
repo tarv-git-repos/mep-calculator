@@ -19,7 +19,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/plumbing-loading-unit")({
   head: () => ({
     meta: [
-      { title: "Loading Unit & Pipe Sizer — MEP Calc" },
+      { title: "Loading Unit & Pipe Sizer â€” MEP Calc" },
       { name: "description", content: "Dubai (DBC / BS EN 806 / CIBSE), Abu Dhabi (ADM), and IPC/UPC Plumbing Loading Unit & Pipe Sizing Calculator." },
     ],
   }),
@@ -175,25 +175,25 @@ export const STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY: Record<
   StandardPreset,
   Record<string, Record<string, number>>
 > = {
-  // 🇬🇧 IoP PESDG Table 15 / BS EN 806 (Loading Units - LU)
+  // ðŸ‡¬ðŸ‡§ IoP PESDG Table 15 / BS EN 806 (Loading Units - LU)
   iop_bs: {
     low: EXTRACTED_FIXTURE_WEIGHTS_BY_STANDARD.iop_low,
     med: EXTRACTED_FIXTURE_WEIGHTS_BY_STANDARD.iop_med,
     high: EXTRACTED_FIXTURE_WEIGHTS_BY_STANDARD.iop_high,
   },
-  // 🇦🇪 Dubai Standard (DBC 2021 / BS EN 806-3 / CIBSE Guide G)
+  // ðŸ‡¦ðŸ‡ª Dubai Standard (DBC 2021 / BS EN 806-3 / CIBSE Guide G)
   dubai: {
     low: { wc: 1.5, wc_tank: 1.5, wc_valve: 15.0, handspray: 1.0, basin: 1.0, sink: 1.5, shower: 1.5, washer: 2.0, servicesink: 2.0, hose_bibb: 1.5, dishwasher: 1.5, hose_bibb_1: 1.0, bath: 4.0, bibtap: 1.5 },
     med: { wc: 2.5, wc_tank: 2.0, wc_valve: 28.0, handspray: 1.0, basin: 1.0, sink: 1.5, shower: 2.0, washer: 3.0, servicesink: 3.0, hose_bibb: 2.5, dishwasher: 1.5, hose_bibb_1: 1.0, bath: 10.0, bibtap: 2.5 },
     high: { wc: 2.5, wc_tank: 2.5, wc_valve: 28.0, handspray: 2.0, basin: 2.0, sink: 5.0, shower: 4.0, washer: 4.0, servicesink: 5.0, hose_bibb: 5.0, dishwasher: 4.0, hose_bibb_1: 2.5, bath: 12.0, bibtap: 5.0 }
   },
-  // 🇦🇪 Abu Dhabi Standard (ADM Table 6-7 / Table 6-9)
+  // ðŸ‡¦ðŸ‡ª Abu Dhabi Standard (ADM Table 6-7 / Table 6-9)
   abudhabi: {
     low: { wc: 2.5, wc_tank: 2.5, wc_valve: 3.5, handspray: 0.75, basin: 0.75, sink: 1.125, shower: 1.5, washer: 1.5, servicesink: 2.25, hose_bibb: 1.5, dishwasher: 1.4, hose_bibb_1: 1.0, bath: 1.4, bibtap: 1.5 },
     med: { wc: 2.5, wc_tank: 2.5, wc_valve: 5.0, handspray: 1.0, basin: 1.0, sink: 1.5, shower: 2.0, washer: 3.0, servicesink: 3.0, hose_bibb: 2.5, dishwasher: 1.5, hose_bibb_1: 1.0, bath: 1.4, bibtap: 2.5 },
     high: { wc: 3.5, wc_tank: 3.5, wc_valve: 8.0, handspray: 2.0, basin: 2.0, sink: 2.0, shower: 4.0, washer: 4.0, servicesink: 3.0, hose_bibb: 3.0, dishwasher: 3.0, hose_bibb_1: 2.0, bath: 3.0, bibtap: 3.0 }
   },
-  // 🌐 International IPC / UPC Standard (IPC Table E103.3(2))
+  // ðŸŒ International IPC / UPC Standard (IPC Table E103.3(2))
   ipc_upc: {
     ipc_total: EXTRACTED_FIXTURE_WEIGHTS_BY_STANDARD.ipc,
     ipc_cold: EXTRACTED_FIXTURE_WEIGHTS_BY_STANDARD.ipc,
@@ -515,7 +515,7 @@ export function convertFlowRate(
     }
     case "m3-h": {
       const val = flowLPS * 3.6;
-      return { val, formatted: `${val.toFixed(3)} m³/h` };
+      return { val, formatted: `${val.toFixed(3)} mÂ³/h` };
     }
     case "gpm": {
       const val = flowLPS * 15.850323074;
@@ -1880,13 +1880,13 @@ function LoadingUnitPage() {
       sheet.getCell(`A${r}`).border = { top: { style: "medium" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
 
       sheet.mergeCells(`B${r}:E${r}`);
-      sheet.getCell(`B${r}`).value = "Originated by";
+      sheet.getCell(`B${r}`).value = "Originator";
 
       sheet.mergeCells(`F${r}:G${r}`);
-      sheet.getCell(`F${r}`).value = "Reviewed by";
+      sheet.getCell(`F${r}`).value = "Reviewer";
 
       sheet.mergeCells(`H${r}:${lastColLetter}${r}`);
-      sheet.getCell(`H${r}`).value = "Approved by";
+      sheet.getCell(`H${r}`).value = "Approver";
 
       [ `B${r}`, `F${r}`, `H${r}` ].forEach(cellRef => {
         const c = sheet.getCell(cellRef);
@@ -2252,9 +2252,9 @@ function LoadingUnitPage() {
         head: [
           [
             { content: "" },
-            { content: "Originated by" },
-            { content: "Reviewed by" },
-            { content: "Approved by" }
+            { content: "Originator" },
+            { content: "Reviewer" },
+            { content: "Approver" }
           ]
         ],
         body: [
@@ -2341,7 +2341,6 @@ function LoadingUnitPage() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 select-none">
               <div className="flex flex-col gap-1 max-w-2xl">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; LOADING UNIT CALCULATOR</span>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
@@ -2527,7 +2526,7 @@ function LoadingUnitPage() {
                       className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer max-w-[200px] sm:max-w-[250px] truncate"
                     >
                       <optgroup label="Regional UAE">
-                        <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10×√LU)</option>
+                        <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10Ã—âˆšLU)</option>
                         <option value="abudhabi">Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
                       </optgroup>
                       <optgroup label="British Standards & CIPHE">
@@ -2583,7 +2582,7 @@ function LoadingUnitPage() {
                       className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1 rounded-full transition-all cursor-pointer"
                       title="Reset custom weights to standard defaults"
                     >
-                      ↺ Reset Weights
+                      â†º Reset Weights
                     </button>
                   )}
 
@@ -2644,7 +2643,7 @@ function LoadingUnitPage() {
                       onClick={handleBulkMoveFloor}
                       className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
                     >
-                      🏢 Move Floor
+                      ðŸ¢ Move Floor
                     </button>
                     <button
                       onClick={handleBulkEditQty}
@@ -2709,7 +2708,7 @@ function LoadingUnitPage() {
                         No. of Floors
                         <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                       </th>
-                      <th style={{ width: luColWidths.totalLu, minWidth: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value × (Space Qty if ON) × (No. of Floors if ON)">
+                      <th style={{ width: luColWidths.totalLu, minWidth: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value Ã— (Space Qty if ON) Ã— (No. of Floors if ON)">
                         {standardPreset === "dubai" || standardPreset === "iop_bs" ? "TOTAL LU" : "TOTAL WSFU"}
                         <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
                       </th>
@@ -2884,7 +2883,7 @@ function LoadingUnitPage() {
                                     title="Space Qty per floor" 
                                   />
                                 ) : (
-                                  <span className="text-muted-foreground font-mono text-[11px]">—</span>
+                                  <span className="text-muted-foreground font-mono text-[11px]">â€”</span>
                                 )}
                               </td>
                               <td className="p-1 text-center" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
@@ -2899,7 +2898,7 @@ function LoadingUnitPage() {
                                     title="No. of typical floors" 
                                   />
                                 ) : (
-                                  <span className="text-muted-foreground font-mono text-[11px]">—</span>
+                                  <span className="text-muted-foreground font-mono text-[11px]">â€”</span>
                                 )}
                               </td>
                               <td className="p-2 text-center font-mono font-extrabold text-[#0A7BC7]" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
@@ -3014,7 +3013,7 @@ function LoadingUnitPage() {
                 <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-xs">
                   <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
                     <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">📊 Sizing Results</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">ðŸ“Š Sizing Results</h3>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 font-sans text-xs">
@@ -3041,7 +3040,7 @@ function LoadingUnitPage() {
                 <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-xs">
                   <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
                     <div className="w-1 h-3.5 bg-emerald-500 rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">🚰 Recommended Pipe</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">ðŸš° Recommended Pipe</h3>
                   </div>
 
                   <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl">
@@ -3058,8 +3057,8 @@ function LoadingUnitPage() {
                   {/* Collapsible / Compact Pipe Schedule Table */}
                   <details className="group border border-border rounded-xl text-[10px]">
                     <summary className="p-2 font-semibold text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-between bg-slate-50 dark:bg-slate-900 rounded-xl select-none">
-                      <span>View Pipe Size Table (15–200mm)</span>
-                      <span className="group-open:rotate-180 transition-transform text-[9px]">▼</span>
+                      <span>View Pipe Size Table (15â€“200mm)</span>
+                      <span className="group-open:rotate-180 transition-transform text-[9px]">â–¼</span>
                     </summary>
                     <div className="overflow-x-auto overflow-y-auto max-h-48 p-1 border-t border-border custom-scrollbar">
                       <table className="w-full border-collapse font-mono text-[9px]">
@@ -3123,7 +3122,7 @@ function LoadingUnitPage() {
                   </div>
                   <div className="flex items-center justify-between p-3">
                     <span className="font-semibold text-muted-foreground">Diversity (if any)</span>
-                    <span className="font-mono font-medium text-muted-foreground">—</span>
+                    <span className="font-mono font-medium text-muted-foreground">â€”</span>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-blue-50/70 dark:bg-blue-950/40 font-bold">
                     <span className="text-blue-700 dark:text-blue-300">Selected Water Flow Rate (Q) L/s</span>
@@ -3157,7 +3156,7 @@ function LoadingUnitPage() {
             onClick={handleBulkMoveFloor}
             className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
           >
-            🏢 Move to Another Floor
+            ðŸ¢ Move to Another Floor
           </button>
           <button
             onClick={handleBulkEditQty}

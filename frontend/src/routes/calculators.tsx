@@ -858,7 +858,6 @@ function CalculatorsPage() {
         {/* Breadcrumbs & Page Header */}
         <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg z-10">
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">{groupName} &gt; {name}</span>
             <div className="flex items-center gap-3 mt-0.5">
               <h1 className="text-[28px] font-bold tracking-tight text-foreground">{name}</h1>
             </div>

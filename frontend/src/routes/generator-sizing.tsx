@@ -44,7 +44,7 @@ import { dirtyStore } from "@/lib/dirty-store";
 export const Route = createFileRoute("/generator-sizing")({
   head: () => ({
     meta: [
-      { title: "Generator Sizing — MEP Calc" },
+      { title: "Generator Sizing â€” MEP Calc" },
       {
         name: "description",
         content: "Calculate DG set size based on connected and emergency loads.",
@@ -1172,9 +1172,9 @@ function GeneratorSizingPage() {
         head: [
           [
             { content: "" },
-            { content: "Originated by" },
-            { content: "Reviewed by" },
-            { content: "Approved by" }
+            { content: "Originator" },
+            { content: "Reviewer" },
+            { content: "Approver" }
           ]
         ],
         body: [

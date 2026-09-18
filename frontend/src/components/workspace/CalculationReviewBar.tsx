@@ -306,7 +306,7 @@ export function CalculationReviewBar({
       return;
     }
     const timestamp = new Date().toLocaleString();
-    const commentText = srComments.trim() || "Calculation reviewed by Sr. Design Engineer";
+    const commentText = srComments.trim() || "Calculation Reviewer Sr. Design Engineer";
     const updated: CalculationReviewState = {
       ...reviewState,
       status: "REVIEWED",
@@ -693,7 +693,7 @@ export function CalculationReviewBar({
           className="px-3 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 text-xs font-bold rounded-full transition-all flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
         >
           <Clock className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-          <span>Reviewed by Sr. Engineer</span>
+          <span>Reviewer Sr. Engineer</span>
           <Info className="size-3 text-indigo-600/70 dark:text-indigo-400/70 ml-0.5" />
         </button>
       )}
@@ -755,7 +755,7 @@ export function CalculationReviewBar({
         </button>
       )}
 
-      {/* C. JR / DESIGN ENGINEER NOTES BUTTON (Only when Reviewed by Sr. Engineer and NOT Rejected/Approved) */}
+      {/* C. JR / DESIGN ENGINEER NOTES BUTTON (Only when Reviewer Sr. Engineer and NOT Rejected/Approved) */}
       {userRole === "Jr. / Design Engineer" && isReviewed && reviewState.reviewerComments && !isApproved && !isRejected && (
         <button
           onClick={() => setShowDetailsModal(true)}
@@ -780,7 +780,7 @@ export function CalculationReviewBar({
             <textarea
               value={srComments}
               onChange={(e) => setSrComments(e.target.value)}
-              placeholder="Add optional reviewer comments or guidelines for Jr. / Design Engineers…"
+              placeholder="Add optional reviewer comments or guidelines for Jr. / Design Engineersâ€¦"
               rows={4}
               className="w-full p-3 bg-surface-2 border border-border rounded-xl text-xs font-medium outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 text-foreground resize-none"
             />
@@ -818,7 +818,7 @@ export function CalculationReviewBar({
             <textarea
               value={approveComments}
               onChange={(e) => setApproveComments(e.target.value)}
-              placeholder="Add optional approval comments or notes…"
+              placeholder="Add optional approval comments or notesâ€¦"
               rows={4}
               className="w-full p-3 bg-surface-2 border border-emerald-300 dark:border-emerald-900/50 rounded-xl text-xs font-medium outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 text-foreground resize-none"
             />
@@ -856,7 +856,7 @@ export function CalculationReviewBar({
             <textarea
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Enter detailed description of why the calculation is rejected…"
+              placeholder="Enter detailed description of why the calculation is rejectedâ€¦"
               rows={4}
               className="w-full p-3 bg-surface-2 border border-red-300 dark:border-red-900/50 rounded-xl text-xs font-medium outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500/20 text-foreground resize-none"
             />
@@ -939,7 +939,7 @@ export function CalculationReviewBar({
               {isApproved && (
                 <div className="p-3.5 bg-emerald-500/5 rounded-xl border border-emerald-500/20 space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-muted-foreground">Approved By:</span>
+                    <span className="font-semibold text-muted-foreground">Approver:</span>
                     <span className="font-bold text-foreground">{reviewState.approvedBy || "Discipline Coordinator"}</span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -960,7 +960,7 @@ export function CalculationReviewBar({
               {isReviewed && (
                 <div className="p-3.5 bg-indigo-500/5 rounded-xl border border-indigo-500/20 space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-muted-foreground">Reviewed By:</span>
+                    <span className="font-semibold text-muted-foreground">Reviewer:</span>
                     <span className="font-bold text-foreground">{reviewState.reviewedBy}</span>
                   </div>
                   <div className="flex items-center justify-between">

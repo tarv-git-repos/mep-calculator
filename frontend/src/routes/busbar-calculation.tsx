@@ -28,7 +28,7 @@ import autoTable from "jspdf-autotable";
 export const Route = createFileRoute("/busbar-calculation")({
   head: () => ({
     meta: [
-      { title: "Busbar Calculation — MEP Calc" },
+      { title: "Busbar Calculation â€” MEP Calc" },
       { name: "description", content: "Calculate busbar voltage drop and parameters." },
     ],
   }),
@@ -1118,8 +1118,8 @@ function BusbarCalculationPage() {
     };
 
     const lenLabel = unitSystem === "ip" ? "Length (ft)" : "Length (m)";
-    const rLabel = unitSystem === "ip" ? "Resistance, R\n(mΩ/ft)" : "Resistance, R\n(mΩ/m)";
-    const xLabel = unitSystem === "ip" ? "Reactance, X\n(mΩ/ft)" : "Reactance, X\n(mΩ/m)";
+    const rLabel = unitSystem === "ip" ? "Resistance, R\n(mÎ©/ft)" : "Resistance, R\n(mÎ©/m)";
+    const xLabel = unitSystem === "ip" ? "Reactance, X\n(mÎ©/ft)" : "Reactance, X\n(mÎ©/m)";
 
     flatCalculatedSections.forEach((section, sIndex) => {
       let safeName = section.name.replace(/[\\/*?:\[\]]/g, '');
@@ -1171,7 +1171,7 @@ function BusbarCalculationPage() {
       t2.alignment = alignCenter;
 
       // Formula block
-      worksheet.getCell("G4").value = "Voltage Drop, Vd=1.732 x L x I x (Rcos Φ + Xsin Φ)";
+      worksheet.getCell("G4").value = "Voltage Drop, Vd=1.732 x L x I x (Rcos Î¦ + Xsin Î¦)";
       worksheet.getCell("G4").font = fontBold;
       worksheet.getCell("G5").value = "Where,";
       worksheet.getCell("G5").font = fontBold;
@@ -1179,9 +1179,9 @@ function BusbarCalculationPage() {
       worksheet.getCell("G6").font = fontBold;
       worksheet.getCell("G7").value = section.useMdForCurrent !== false ? "I = Current in Amps (I = (MD x 1000) / (1.732 x V x PF))" : "I = Current in Amps (I = (TCL x 1000) / (1.732 x V x PF))";
       worksheet.getCell("G7").font = fontBold;
-      worksheet.getCell("G8").value = "R = Resistance in mΩ/m";
+      worksheet.getCell("G8").value = "R = Resistance in mÎ©/m";
       worksheet.getCell("G8").font = fontBold;
-      worksheet.getCell("G9").value = "X = Reactance in mΩ/m";
+      worksheet.getCell("G9").value = "X = Reactance in mÎ©/m";
       worksheet.getCell("G9").font = fontBold;
 
       // Sub-title
@@ -1210,7 +1210,7 @@ function BusbarCalculationPage() {
         "SMDB load\n(kW)",
         "TCL at Tap off\npoint (kW)",
         "Volts (V)",
-        "Power\nfactor\n(Cos Φ)",
+        "Power\nfactor\n(Cos Î¦)",
         "Diversity",
         "Maximum\nDemand\nLoad (kW)",
         "Line\nCurrent\n(A)",
@@ -1379,7 +1379,7 @@ function BusbarCalculationPage() {
         worksheet.getCell(rowIndex, 2).value = "Note:";
         worksheet.getCell(rowIndex, 2).font = { name: "Arial", size: 10, bold: true, underline: true };
         rowIndex++;
-        worksheet.getCell(rowIndex, 2).value = "Resistance & reactance values were taken at 50°C ambient temperature";
+        worksheet.getCell(rowIndex, 2).value = "Resistance & reactance values were taken at 50Â°C ambient temperature";
         worksheet.getCell(rowIndex, 2).font = fontNormal;
       }
     });
@@ -1644,9 +1644,9 @@ function BusbarCalculationPage() {
         head: [
           [
             { content: "" },
-            { content: "Originated by" },
-            { content: "Reviewed by" },
-            { content: "Approved by" }
+            { content: "Originator" },
+            { content: "Reviewer" },
+            { content: "Approver" }
           ]
         ],
         body: [
@@ -1787,7 +1787,7 @@ function BusbarCalculationPage() {
                     className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
                   >
                     <option value="all">All V.Drop Status</option>
-                    <option value="within">Within Limit (≤ 2.5%)</option>
+                    <option value="within">Within Limit (â‰¤ 2.5%)</option>
                     <option value="exceeds">Exceeds Limit (&gt; 2.5%)</option>
                   </select>
                 </div>
@@ -1801,7 +1801,7 @@ function BusbarCalculationPage() {
                   >
                     <option value="all">All Loads</option>
                     <option value="high">High Load (&gt; 100 kW)</option>
-                    <option value="low">Low Load (≤ 100 kW)</option>
+                    <option value="low">Low Load (â‰¤ 100 kW)</option>
                   </select>
                 </div>
               </PopoverContent>
@@ -1875,8 +1875,8 @@ function BusbarCalculationPage() {
               inputDescriptions="Busbar Run Lengths"
               conversionExample={
                 unitSystem === "si"
-                  ? "Convert 160.0 m → 524.93 ft, 3.5 m → 11.48 ft"
-                  : "Convert 524.93 ft → 160.0 m, 11.48 ft → 3.5 m"
+                  ? "Convert 160.0 m â†’ 524.93 ft, 3.5 m â†’ 11.48 ft"
+                  : "Convert 524.93 ft â†’ 160.0 m, 11.48 ft â†’ 3.5 m"
               }
             />
 
@@ -2023,7 +2023,7 @@ function BusbarCalculationPage() {
                                 {section.totalCumulativeVd > 2.5 ? (
                                   <div className="flex items-center gap-3 bg-destructive/10 border border-destructive/20 px-3 py-1.5 rounded-md mr-1" title="Voltage drop exceeds the 2.5% standard limit!">
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-destructive">Cum V.Drop</span>
-                                    <span className="text-[15px] font-black font-mono text-destructive leading-none">{section.totalCumulativeVd.toFixed(3)}% ⚠</span>
+                                    <span className="text-[15px] font-black font-mono text-destructive leading-none">{section.totalCumulativeVd.toFixed(3)}% âš </span>
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-3 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-md mr-1">

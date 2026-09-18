@@ -193,14 +193,15 @@ export function AssignCommentModal({
 
     const allAssignedUserIds = new Set<string>();
     selectedUsers.forEach(uKey => {
-      if (uKey) allAssignedUserIds.add(uKey);
+      if (!uKey) return;
+      allAssignedUserIds.add(String(uKey).trim());
       const matchU = availableUsers.find(u => 
-        String(u.id) === uKey || String(u.email) === uKey || String(u.name) === uKey
+        String(u.id) === uKey || String(u.email) === uKey || String(u.name) === uKey || String(u.rawName) === uKey
       );
       if (matchU) {
-        if (matchU.id) allAssignedUserIds.add(String(matchU.id));
-        if (matchU.email) allAssignedUserIds.add(String(matchU.email));
-        if (matchU.name) allAssignedUserIds.add(String(matchU.name));
+        if (matchU.id) allAssignedUserIds.add(String(matchU.id).trim());
+        if (matchU.email) allAssignedUserIds.add(String(matchU.email).trim());
+        if (matchU.rawName) allAssignedUserIds.add(String(matchU.rawName).trim());
       }
     });
 
@@ -211,7 +212,16 @@ export function AssignCommentModal({
       assignedTeams: selectedTeams,
       authorId: profile?.id || userData?.id || 'unknown',
       authorName: userData?.name || profile?.name || 'SystemAdmin',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      targetId: targetId || '',
+      targetName: targetName || '',
+      targetType: targetType || 'parameter',
+      spaceId: targetId || '',
+      spaceName: targetName || '',
+      itemId: targetId || '',
+      calculatorTitle: calculatorTitle || (typeof document !== 'undefined' ? document.title.split('—')[0].trim() : 'MEP Calculator'),
+      calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/'),
+      projectId: project?.id || 'default',
     };
 
     try {

@@ -290,8 +290,8 @@ export const exportChwPumpHeadExcel = async (
   // 1. Flow Demand Parameters
   renderSectionHeader("1. CHW FLOW DEMAND & FLUID BASIS");
   renderDataRow("1.1", "Design Flow Rate", calculatedData.flowRateDisplay, calculatedData.flowUnit, "-", "Design Peak Flow", "Design Basis", false, "#,##0.00");
-  renderDataRow("1.2", "Metric Mass Flow Rate", Number(calculatedData.massFlow.toFixed(3)), "kg/s", "-", "Water @ 6°C", "Verified", false, "0.000");
-  renderDataRow("1.3", "Metric Volumetric Flow Rate", Number(calculatedData.flowRate.toFixed(2)), "L/s", "-", "Q_chw = P_ton / (Cp * ΔT)", "Verified", false, "#,##0.00");
+  renderDataRow("1.2", "Metric Mass Flow Rate", Number(calculatedData.massFlow.toFixed(3)), "kg/s", "-", "Water @ 6Â°C", "Verified", false, "0.000");
+  renderDataRow("1.3", "Metric Volumetric Flow Rate", Number(calculatedData.flowRate.toFixed(2)), "L/s", "-", "Q_chw = P_ton / (Cp * Î”T)", "Verified", false, "#,##0.00");
 
   curRow++; // space
 
@@ -304,28 +304,28 @@ export const exportChwPumpHeadExcel = async (
   renderDataRow("2.5", "Valves, Strainers & Accessories Allowance", calculatedData.valvesLengthDisplay, calculatedData.lengthUnit, "+30% allowance", "Valves Eq. Length", "Allowance", false, "#,##0.00");
   renderDataRow("2.6", "Total Effective Equivalent Length (Leff)", calculatedData.equivLengthDisplay, calculatedData.lengthUnit, "+5% safety factor", "Math.ceil(Sum * 1.05 / 10)*10", "Designed", true, "#,##0.0");
   renderDataRow("2.7", "Piping Unit Friction Loss Gradient", Number(Number(ffVal).toFixed(3)), ffUnit, "-", "Darcy / Hazen-Williams", "Design Limit", false, "0.000");
-  renderDataRow("2.8", "Piping Network Head Loss", calculatedData.frictionLossDisplay, calculatedData.headUnit, "-", "ΔH_pipe = Leff * (ff / 100)", "Calculated", true, "0.000");
+  renderDataRow("2.8", "Piping Network Head Loss", calculatedData.frictionLossDisplay, calculatedData.headUnit, "-", "Î”H_pipe = Leff * (ff / 100)", "Calculated", true, "0.000");
 
   curRow++; // space
 
   // 3. Hydronic Head Requirements & TDH
   renderSectionHeader("3. PUMP HEAD REQUIREMENTS & TOTAL DYNAMIC HEAD (TDH)");
-  renderDataRow("3.1", "Frictional Pipe Network Loss", calculatedData.frictionLossDisplay, calculatedData.headUnit, "-", "ΔH_friction", "Included", false, "0.000");
+  renderDataRow("3.1", "Frictional Pipe Network Loss", calculatedData.frictionLossDisplay, calculatedData.headUnit, "-", "Î”H_friction", "Included", false, "0.000");
   renderDataRow("3.2", "Static Head / Elevation Lift", calculatedData.staticHeadDisplay, calculatedData.headUnit, "-", "H_static", "Included", false, "0.00");
   renderDataRow("3.3", "Residual Pressure at Critical Index Terminal", calculatedData.outletHeadDisplay, calculatedData.headUnit, "-", "H_outlet", "Included", false, "0.00");
   renderDataRow("3.4", "Available Suction Pressure (Deducted)", Number((-calculatedData.suctionHeadDisplay).toFixed(2)), calculatedData.headUnit, "-", "H_suction", "Credit", false, "0.00");
   renderDataRow("3.5", "Dynamic Engineering Safety Margin", calculatedData.sfPercent, "%", `+${calculatedData.sfPercent}% safety`, "Hydraulic Margin", "Applied", false, "0.0");
-  renderDataRow("3.6", "Total Calculated Dynamic Head (TDH)", calculatedData.pumpHeadCalcDisplay, calculatedData.headUnit, "-", "(ΔH + H_stat + H_out - H_suc) * (1+SF)", "Calculated", true, "0.000");
+  renderDataRow("3.6", "Total Calculated Dynamic Head (TDH)", calculatedData.pumpHeadCalcDisplay, calculatedData.headUnit, "-", "(Î”H + H_stat + H_out - H_suc) * (1+SF)", "Calculated", true, "0.000");
   renderDataRow("3.7", "Selected Operating Pump Head", calculatedData.selectedHeadDisplay, calculatedData.headUnit, "-", "Pump Duty Point", "SELECTED", true, "0.000");
 
   curRow++; // space
 
   // 4. Motor Power & Electrical Sizing
   renderSectionHeader("4. PUMP SHAFT POWER & MOTOR SIZING");
-  renderDataRow("4.1", "Pump Hydraulic Efficiency (η_pump)", calculatedData.effPumpVal, "%", "-", "Centrifugal Impeller", "Design Basis", false, "0.0");
-  renderDataRow("4.2", "Electric Motor Efficiency (η_motor)", calculatedData.effMotorVal, "%", "-", "IE3 Premium Efficiency", "Design Basis", false, "0.0");
-  renderDataRow("4.3", "Hydraulic Shaft Power (P_shaft)", Number(calculatedData.shaftPowerKw.toFixed(2)), "kW", "-", "P_shaft = (Q * H) / (1000 * η_pump)", "Calculated", true, "#,##0.00");
-  renderDataRow("4.4", "Total Estimated Motor Input Power", Number(calculatedData.motorPowerKw.toFixed(2)), "kW", "-", "P_motor = P_shaft / η_motor", "Calculated", true, "#,##0.00");
+  renderDataRow("4.1", "Pump Hydraulic Efficiency (Î·_pump)", calculatedData.effPumpVal, "%", "-", "Centrifugal Impeller", "Design Basis", false, "0.0");
+  renderDataRow("4.2", "Electric Motor Efficiency (Î·_motor)", calculatedData.effMotorVal, "%", "-", "IE3 Premium Efficiency", "Design Basis", false, "0.0");
+  renderDataRow("4.3", "Hydraulic Shaft Power (P_shaft)", Number(calculatedData.shaftPowerKw.toFixed(2)), "kW", "-", "P_shaft = (Q * H) / (1000 * Î·_pump)", "Calculated", true, "#,##0.00");
+  renderDataRow("4.4", "Total Estimated Motor Input Power", Number(calculatedData.motorPowerKw.toFixed(2)), "kW", "-", "P_motor = P_shaft / Î·_motor", "Calculated", true, "#,##0.00");
   renderDataRow("4.5", "Motor Brake Horsepower (HP)", Number(calculatedData.motorPowerHp.toFixed(2)), "HP", "-", "1 kW = 1.34102 HP", "RECOMMENDED", true, "#,##0.00");
 
   // Gap before Reference Box
@@ -376,17 +376,17 @@ export const exportChwPumpHeadExcel = async (
   sheet.getCell(`A${sigStartRow}`).value = "";
 
   sheet.mergeCells(`C${sigStartRow}:D${sigStartRow}`);
-  sheet.getCell(`C${sigStartRow}`).value = "Originated by";
+  sheet.getCell(`C${sigStartRow}`).value = "Originator";
   sheet.getCell(`C${sigStartRow}`).font = boldFont;
   sheet.getCell(`C${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
   sheet.mergeCells(`E${sigStartRow}:F${sigStartRow}`);
-  sheet.getCell(`E${sigStartRow}`).value = "Reviewed by";
+  sheet.getCell(`E${sigStartRow}`).value = "Reviewer";
   sheet.getCell(`E${sigStartRow}`).font = boldFont;
   sheet.getCell(`E${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
   sheet.mergeCells(`G${sigStartRow}:H${sigStartRow}`);
-  sheet.getCell(`G${sigStartRow}`).value = "Approved by";
+  sheet.getCell(`G${sigStartRow}`).value = "Approver";
   sheet.getCell(`G${sigStartRow}`).font = boldFont;
   sheet.getCell(`G${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 

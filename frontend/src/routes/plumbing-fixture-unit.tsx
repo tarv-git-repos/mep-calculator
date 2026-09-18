@@ -528,7 +528,6 @@ function FixtureUnitPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full animate-in fade-in-50 duration-200">
           <div className="flex justify-between items-start select-none">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; FIXTURE UNIT SIZER</span>
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Fixture Unit Calculator</h1>
               <CalculationReviewBar calculatorPath="/plumbing-fixture-unit" calculatorTitle="Plumbing Fixture Unit" />

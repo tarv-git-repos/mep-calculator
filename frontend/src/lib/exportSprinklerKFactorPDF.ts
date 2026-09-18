@@ -13,7 +13,7 @@ export interface SprinklerExportRow {
   solveFor: "Q" | "P";
   pressure: number; // PSI or bar
   flow: number;     // GPM or LPM
-  coverage: number; // sq ft or m²
+  coverage: number; // sq ft or mÂ²
   hazard: string;
   notes?: string;
   flagged?: boolean;
@@ -74,7 +74,7 @@ export const exportSprinklerKFactorPDF = async (
     const isSI = meta.unitSystem === "si";
     const pressureUnit = isSI ? "bar" : "PSI";
     const flowUnit = isSI ? "L/min" : "GPM";
-    const areaUnit = isSI ? "m²" : "ft²";
+    const areaUnit = isSI ? "mÂ²" : "ftÂ²";
 
     const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-CAL-SKF-001";
     const today = meta.date || new Date().toLocaleDateString("en-GB");
@@ -313,9 +313,9 @@ export const exportSprinklerKFactorPDF = async (
       head: [
         [
           { content: "" },
-          { content: "Originated by" },
-          { content: "Reviewed by" },
-          { content: "Approved by" }
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" }
         ]
       ],
       body: [

@@ -7,11 +7,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
   Plus, Trash2, Download, Upload, X, AlertTriangle, CheckCircle2,
-  Gauge, FileText, Printer, FileSpreadsheet, Copy, RefreshCw
+  Gauge, FileText, Printer, FileSpreadsheet, Copy, RefreshCw,
+  Filter, ArrowUpDown, Search, SlidersHorizontal
 } from "lucide-react";
+import { toast } from "sonner";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -94,6 +98,26 @@ function CentralBatterySizingPage() {
 
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("schedule");
+  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState<"none" | "load-desc" | "load-asc">("none");
+  const [filterLoad, setFilterLoad] = useState<"all" | "high" | "low">("all");
+  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUnitSystemChange = (targetUnit: "ip" | "si", shouldConvert: boolean) => {
+    if (shouldConvert && targetUnit !== unitSystem) {
+      // Access the current powerFactor from state. 
+      // If going to IP (which we use as VA), divide W by PF.
+      // If going back to SI (W), multiply VA by PF.
+      setRows(rows.map(r => ({
+        ...r,
+        emLightW: targetUnit === "ip" ? Number((r.emLightW / powerFactor).toFixed(2)) : Number((r.emLightW * powerFactor).toFixed(2)),
+        exitLightW: targetUnit === "ip" ? Number((r.exitLightW / powerFactor).toFixed(2)) : Number((r.exitLightW * powerFactor).toFixed(2))
+      })));
+    }
+    setUnitSystem(targetUnit);
+  };
 
   // Global Constants
   const [loadingFactor, setLoadingFactor] = useState<number>(0.90);
@@ -288,87 +312,105 @@ function CentralBatterySizingPage() {
 
   // PDF Exporter
   const handleExportPDF = () => {
-    const doc = new jsPDF("p", "mm", "a4");
+    try {
+      const doc = new jsPDF("p", "mm", "a4");
 
-    // Header strip
-    doc.setFillColor(15, 23, 42); // slate-900
-    doc.rect(0, 0, 210, 25, "F");
+      // Header strip
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.rect(0, 0, 210, 25, "F");
 
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.text("CENTRAL BATTERY SYSTEM SIZING REPORT", 14, 11);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 18);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text("CENTRAL BATTERY SYSTEM SIZING REPORT", 14, 11);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 18);
 
-    // Sizing factors
-    doc.setTextColor(15, 23, 42);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.5);
-    doc.text("DESIGN CRITERIA", 14, 34);
+      // Sizing factors
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.text("DESIGN CRITERIA", 14, 34);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.text(`Loading Factor: ${loadingFactor} | Power Factor: ${powerFactor} | Spare Capacity: ${spareCapacity}%`, 14, 40);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.text(`Loading Factor: ${loadingFactor} | Power Factor: ${powerFactor} | Spare Capacity: ${spareCapacity}%`, 14, 40);
 
-    // Table Header & Rows
-    doc.setFont("helvetica", "bold");
-    doc.text("EMERGENCY & EXIT LIGHTING LOAD SCHEDULE", 14, 52);
+      // Table Header & Rows
+      doc.setFont("helvetica", "bold");
+      doc.text("EMERGENCY & EXIT LIGHTING LOAD SCHEDULE", 14, 52);
 
-    const headers = [["Sr.", "Description", "Unit", "EM Qty", "EM W", "Exit Qty", "Exit W", "Total (W)", "Remarks"]];
-    const data = rows.map((r, idx) => [
-      idx + 1,
-      r.description,
-      "W",
-      r.emLightQty,
-      r.emLightW,
-      r.exitLightQty,
-      r.exitLightW,
-      (r.emLightQty * r.emLightW) + (r.exitLightQty * r.exitLightW),
-      r.remarks
-    ]);
+      const headers = [["Sr.", "Description", "Unit", "EM Qty", "EM W", "Exit Qty", "Exit W", "Total (W)", "Remarks"]];
 
-    autoTable(doc, {
-      startY: 56,
-      head: headers,
-      body: data,
-      theme: "striped",
-      headStyles: { fillColor: [51, 65, 85], fontSize: 8 },
-      styles: { fontSize: 8 },
-    });
+      const data = rows.map((r, idx) => [
+        idx + 1,
+        r.description,
+        "W",
+        r.emLightQty,
+        r.emLightW,
+        r.exitLightQty,
+        r.exitLightW,
+        (r.emLightQty * r.emLightW) + (r.exitLightQty * r.exitLightW),
+        r.remarks
+      ]);
 
-    let nextY = (doc as any).lastAutoTable.finalY + 10;
+      const callAutoTable = (pdfDoc: any, options: any) => {
+        if (typeof autoTable === "function") {
+          autoTable(pdfDoc, options);
+        } else if (typeof (autoTable as any)?.default === "function") {
+          (autoTable as any).default(pdfDoc, options);
+        } else if (typeof pdfDoc.autoTable === "function") {
+          pdfDoc.autoTable(options);
+        }
+      };
 
-    // Sizing Summary
-    doc.setFont("helvetica", "bold");
-    doc.text("CALCULATION RESULTS", 14, nextY);
-    nextY += 4;
+      callAutoTable(doc, {
+        startY: 56,
+        head: headers,
+        body: data,
+        theme: "striped",
+        headStyles: { fillColor: [51, 65, 85], fontSize: 8 },
+        styles: { fontSize: 8 },
+      });
 
-    const summaryData = [
-      ["Total Connected Load", `${calculatedData.totalConnectedKw.toFixed(2)} kW`],
-      ["Total Load after Loading Factor", `${calculatedData.totalLoadAfterLFFactorKw.toFixed(2)} kW`],
-      ["Central Battery Rating", `${calculatedData.batteryRatingKva.toFixed(2)} kVA`],
-      ["Final Sized Rating (+Spare)", `${calculatedData.finalRecommendedKva.toFixed(2)} kVA`],
-      ["Recommended Standard Size", `${calculatedData.recStandardSize} kVA`],
-    ];
+      let nextY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 10 : 60;
 
-    autoTable(doc, {
-      startY: nextY,
-      body: summaryData,
-      theme: "plain",
-      styles: { fontSize: 8.5 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 80 },
-        1: { cellWidth: 50 },
+      // Sizing Summary
+      doc.setFont("helvetica", "bold");
+      doc.text("CALCULATION RESULTS", 14, nextY);
+      nextY += 4;
+
+      const summaryData = [
+        ["Total Connected Load", `${calculatedData.totalConnectedKw.toFixed(2)} kW`],
+        ["Total Load after Loading Factor", `${calculatedData.totalLoadAfterLFFactorKw.toFixed(2)} kW`],
+        ["Central Battery Rating", `${calculatedData.batteryRatingKva.toFixed(2)} kVA`],
+        ["Final Sized Rating (+Spare)", `${calculatedData.finalRecommendedKva.toFixed(2)} kVA`],
+        ["Recommended Standard Size", `${calculatedData.recStandardSize} kVA`],
+      ];
+
+      callAutoTable(doc, {
+        startY: nextY,
+        body: summaryData,
+        theme: "plain",
+        styles: { fontSize: 8.5 },
+        columnStyles: {
+          0: { fontStyle: "bold", cellWidth: 80 },
+          1: { cellWidth: 50 },
+        }
+      });
+
+      const sigFinalY = (doc as any).lastAutoTable?.finalY || (nextY + 30);
+      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "central-battery-sizing");
+      const pdfBuffer = doc.output("arraybuffer");
+      downloadFile(new Uint8Array(pdfBuffer), "CBS_Sizing_Report.pdf", "PDF Document", ["pdf"]);
+    } catch (err: any) {
+      console.error("PDF Export failed:", err);
+      toast.error(`PDF Export failed: ${err?.message || "Unknown error"}`);
+      if (typeof window !== "undefined") {
+        window.alert(`PDF Export failed! Error: ${err?.message || String(err)}\n\nPlease take a screenshot of this and tell me what it says.`);
       }
-    });
-
-    
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "central-battery-sizing");
-    const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), "CBS_Sizing_Report.pdf", "PDF Document", ["pdf"]);
+    }
   };
 
   // Excel Exporter
@@ -502,7 +544,7 @@ function CentralBatterySizingPage() {
     },
     {
       key: "emLightW",
-      header: "Emergency Light Wattage (W)",
+      header: unitSystem === "ip" ? "Emergency Light Wattage (VA)" : "Emergency Light Wattage (W)",
       width: 150,
       align: "center",
       editable: true,
@@ -532,7 +574,7 @@ function CentralBatterySizingPage() {
     },
     {
       key: "exitLightW",
-      header: "Exit Light Wattage (W)",
+      header: unitSystem === "ip" ? "Exit Light Wattage (VA)" : "Exit Light Wattage (W)",
       width: 140,
       align: "center",
       editable: true,
@@ -547,7 +589,7 @@ function CentralBatterySizingPage() {
     },
     {
       key: "totalW",
-      header: "Total Connected Load (W)",
+      header: unitSystem === "ip" ? "Total Connected Load (VA)" : "Total Connected Load (W)",
       width: 170,
       align: "right",
       render: (r) => {
@@ -568,7 +610,7 @@ function CentralBatterySizingPage() {
         />
       )
     }
-  ], [rows, selected]);
+  ], [rows, selected, unitSystem]);
 
   // Context Menu for CBS Sizing Row
   const renderRowContextMenu = (row: CBSRow) => {
@@ -683,7 +725,6 @@ function CentralBatterySizingPage() {
           {/* Breadcrumbs & Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; CENTRAL BATTERY SIZING</span>
               <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
@@ -704,7 +745,7 @@ function CentralBatterySizingPage() {
             <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
               
               {/* Tab Selector row */}
-              <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg">
+              <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   {TABS.map((t) => {
                     const active = t.id === tab;
@@ -736,87 +777,249 @@ function CentralBatterySizingPage() {
                       : "opacity-0 -translate-x-4 pointer-events-none"
                   }`}
                 >
-                  {/* Constants and File Upload Header Row */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 bg-slate-50/50 dark:bg-slate-900/50 border-b border-border/80 select-none shrink-0">
+                  {(() => {
+                    let renderedRows = rows.filter(row => {
+                      const matchesSearch = row.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                            row.remarks.toLowerCase().includes(searchQuery.toLowerCase());
+                      
+                      let matchesFilter = true;
+                      if (filterLoad === "high") {
+                        matchesFilter = ((row.emLightQty * row.emLightW) + (row.exitLightQty * row.exitLightW)) > 1000;
+                      } else if (filterLoad === "low") {
+                        matchesFilter = ((row.emLightQty * row.emLightW) + (row.exitLightQty * row.exitLightW)) <= 1000;
+                      }
+
+                      return matchesSearch && matchesFilter;
+                    });
                     
-                    {/* Sizing Constants inputs */}
-                    <div className="flex flex-wrap items-center gap-6 text-xs font-semibold">
+                    if (sortOrder === "load-desc") {
+                      renderedRows.sort((a, b) => ((b.emLightQty * b.emLightW) + (b.exitLightQty * b.exitLightW)) - ((a.emLightQty * a.emLightW) + (a.exitLightQty * a.exitLightW)));
+                    } else if (sortOrder === "load-asc") {
+                      renderedRows.sort((a, b) => ((a.emLightQty * a.emLightW) + (a.exitLightQty * a.exitLightW)) - ((b.emLightQty * b.emLightW) + (b.exitLightQty * b.exitLightW)));
+                    }
+                    
+                    return (
+                      <>
+                        {/* Toolbar */}
+                        <div className="relative flex items-center gap-1.5 px-4 h-12 shrink-0 flex-wrap no-print border-b border-border bg-background">
+                          <div className="relative flex items-center">
+                            <Search className="absolute left-2.5 size-3.5 text-muted-foreground" />
+                            <input
+                              ref={searchInputRef}
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              placeholder="Filter loads..."
+                              className="h-7 w-56 pl-8 pr-3 bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-slate-300 dark:focus:border-slate-700 rounded-full text-[12px] outline-none transition-all"
+                            />
+                          </div>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                                  filterLoad !== "all"
+                                    ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                                    : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                                }`}
+                              >
+                                <Filter className="size-3.5 shrink-0" />
+                                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                                  Filter Loads
+                                </span>
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                              <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                                Filter Loads
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Range</span>
+                                <select
+                                  value={filterLoad}
+                                  onChange={(e) => setFilterLoad(e.target.value as any)}
+                                  className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                                >
+                                  <option value="all">All Loads</option>
+                                  <option value="high">High Load (&gt; 1000 W)</option>
+                                  <option value="low">Low Load (≤ 1000 W)</option>
+                                </select>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                                  sortOrder !== "none" || rowDensity === "compact"
+                                    ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                                    : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                                }`}
+                              >
+                                <SlidersHorizontal className="size-3.5 shrink-0" />
+                                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                                  View / Sort
+                                </span>
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                              <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                                View Options
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
+                                <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                                  <button
+                                    onClick={() => setRowDensity("default")}
+                                    className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all cursor-pointer ${
+                                      rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                  >
+                                    Default
+                                  </button>
+                                  <button
+                                    onClick={() => setRowDensity("compact")}
+                                    className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all cursor-pointer ${
+                                      rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                  >
+                                    Compact
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
+                                <select
+                                  value={sortOrder}
+                                  onChange={(e) => setSortOrder(e.target.value as any)}
+                                  className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                                >
+                                  <option value="none">Original Order</option>
+                                  <option value="load-desc">Total Load (High to Low)</option>
+                                  <option value="load-asc">Total Load (Low to High)</option>
+                                </select>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+
+                          <div className="ml-auto flex items-center gap-2">
+                            <UnitToggle
+                              unitSystem={unitSystem}
+                              onChange={handleUnitSystemChange}
+                              ipLabel="IP"
+                              siLabel="SI"
+                              ipDescription="Imperial (IP) [Apparent Power - VA]"
+                              siDescription="Metric (SI) [Real Power - Watts]"
+                              conversionExample="Convert between Real Power (Watts) and Apparent Power (VA) using the Power Factor."
+                            />
+                            
+                            <ImportExcelBtn
+                              columnMapping={{
+                                "Description": "description",
+                                "Load Name": "description",
+                                "Emergency Light Quantity": "emLightQty",
+                                "EM Qty": "emLightQty",
+                                "Emergency Light Wattage (W)": "emLightW",
+                                "EM W": "emLightW",
+                                "Exit Light Quantity": "exitLightQty",
+                                "Exit Qty": "exitLightQty",
+                                "Exit Light Wattage (W)": "exitLightW",
+                                "Exit W": "exitLightW",
+                                "Remarks": "remarks"
+                              }}
+                              onImport={handleImportExcelRows}
+                            />
+
+                            <TBtn onClick={handleExportPDF}>
+                              <Printer className="size-3.5" /> Export PDF
+                            </TBtn>
+
+                            <TBtn primary onClick={handleAddRow}>
+                              <Plus className="size-3.5" /> Add Row
+                            </TBtn>
+                          </div>
+                        </div>
+
+                  {/* Global Inputs */}
+                  <div className="bg-surface-2/50 border-b border-border px-4 py-2.5 flex flex-wrap gap-4 items-center">
+                    <div className="flex flex-wrap items-center gap-4 lg:gap-6 text-xs font-semibold">
                       <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Loading Factor:</span>
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">LOADING FACTOR:</span>
                         <input
                           type="number"
                           step="0.05"
                           value={loadingFactor}
                           onChange={(e) => setLoadingFactor(Number(e.target.value))}
-                          className="w-16 bg-background border border-border rounded px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none"
+                          className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
                         />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Power Factor:</span>
+                      
+                      <div className="flex items-center gap-2 ml-4">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">POWER FACTOR:</span>
                         <input
                           type="number"
                           step="0.05"
                           value={powerFactor}
                           onChange={(e) => setPowerFactor(Number(e.target.value))}
-                          className="w-16 bg-background border border-border rounded px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none"
+                          className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
                         />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground uppercase tracking-wider text-[10.5px]">Spare Capacity:</span>
-                        <div className="flex items-center">
+
+                      <div className="flex items-center gap-2 ml-4">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">SPARE CAPACITY:</span>
+                        <div className="relative">
                           <input
                             type="number"
                             value={spareCapacity}
                             onChange={(e) => setSpareCapacity(Number(e.target.value))}
-                            className="w-16 bg-background border border-border rounded-l px-2 py-1 text-center font-bold font-mono text-foreground focus:border-primary outline-none border-r-0"
+                            className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
                           />
-                          <span className="bg-slate-100 dark:bg-slate-800 border border-border border-l-0 rounded-r px-2.5 py-1 font-bold text-slate-500 font-mono text-xs">%</span>
+                          <span className="absolute right-[-14px] top-1.5 text-[10px] text-slate-500">%</span>
                         </div>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Actions button group */}
-                    <div className="flex items-center gap-1.5">
-                      <TBtn onClick={handleReset}><RefreshCw className="size-3.5" /> Reset</TBtn>
-                      <ImportExcelBtn
-                        columnMapping={{
-                          "Description": "description",
-                          "Load Name": "description",
-                          "Emergency Light Quantity": "emLightQty",
-                          "EM Qty": "emLightQty",
-                          "Emergency Light Wattage (W)": "emLightW",
-                          "EM W": "emLightW",
-                          "Exit Light Quantity": "exitLightQty",
-                          "Exit Qty": "exitLightQty",
-                          "Exit Light Wattage (W)": "exitLightW",
-                          "Exit W": "exitLightW",
-                          "Remarks": "remarks"
-                        }}
-                        onImport={handleImportExcelRows}
+                  {/* Virtualized data grid or Empty State */}
+                  <div className="flex-1 min-h-[350px] flex flex-col">
+                    {renderedRows.length === 0 ? (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
+                        <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center">
+                          <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
+                            {searchQuery ? <Search className="size-6" /> : <Plus className="size-6" />}
+                          </div>
+                          <h3 className="text-[15px] font-semibold tracking-tight">
+                            {searchQuery ? "No Results Found" : "No Loads Added"}
+                          </h3>
+                          <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                            {searchQuery 
+                              ? `No items match the filter "${searchQuery}". Try adjusting your search.` 
+                              : 'Click "Add Row" to begin sizing your central battery system.'}
+                          </p>
+                          {searchQuery && (
+                            <TBtn onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}>
+                              Clear Search
+                            </TBtn>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <DataGrid
+                        rows={renderedRows}
+                        columns={columns}
+                        selected={selected}
+                        onToggle={handleToggle}
+                        onToggleAll={handleToggleAll}
+                        renderContextMenu={renderRowContextMenu}
+                        rowClassName={() => rowDensity === "compact" ? "h-[26px] text-[11px]" : ""}
                       />
-                      <TBtn primary onClick={handleAddRow}><Plus className="size-3.5" /> Add Row</TBtn>
-                      <TBtn
-                        primary
-                        onClick={() => setTab("report")}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-all duration-200 transform hover:scale-102 active:scale-98"
-                      >
-                        <Gauge className="size-3.5" /> Calculate
-                      </TBtn>
-                    </div>
+                    )}
                   </div>
-
-                  {/* Virtualized data grid */}
-                  <div className="flex-1 min-h-[350px]">
-                    <DataGrid
-                      rows={rows}
-                      columns={columns}
-                      selected={selected}
-                      onToggle={handleToggle}
-                      onToggleAll={handleToggleAll}
-                      renderContextMenu={renderRowContextMenu}
-                    />
-                  </div>
-                </div>
+                </>
+              );
+            })()}
+          </div>
 
                 {/* Report Tab view */}
                 <div 
@@ -933,10 +1136,10 @@ function CentralBatterySizingPage() {
                             <th className="px-3 py-2 text-center w-12 font-mono">Sr.</th>
                             <th className="px-3 py-2">Description</th>
                             <th className="px-2 py-2 text-center">EM Qty</th>
-                            <th className="px-2 py-2 text-center">EM Wattage</th>
+                            <th className="px-2 py-2 text-center">{unitSystem === "ip" ? "EM Wattage (VA)" : "EM Wattage (W)"}</th>
                             <th className="px-2 py-2 text-center">Exit Qty</th>
-                            <th className="px-2 py-2 text-center">Exit Wattage</th>
-                            <th className="px-3 py-2 text-right">Total Connected Load (W)</th>
+                            <th className="px-2 py-2 text-center">{unitSystem === "ip" ? "Exit Wattage (VA)" : "Exit Wattage (W)"}</th>
+                            <th className="px-3 py-2 text-right">{unitSystem === "ip" ? "Total Connected Load (VA)" : "Total Connected Load (W)"}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -948,9 +1151,9 @@ function CentralBatterySizingPage() {
                                 <td className="px-3 py-1.5 text-center font-mono">{idx + 1}</td>
                                 <td className="px-3 py-1.5 font-medium">{r.description}</td>
                                 <td className="px-2 py-1.5 text-center font-mono">{r.emLightQty}</td>
-                                <td className="px-2 py-1.5 text-center font-mono">{r.emLightW} W</td>
+                                <td className="px-2 py-1.5 text-center font-mono">{r.emLightW} {unitSystem === "ip" ? "VA" : "W"}</td>
                                 <td className="px-2 py-1.5 text-center font-mono">{r.exitLightQty}</td>
-                                <td className="px-2 py-1.5 text-center font-mono">{r.exitLightW} W</td>
+                                <td className="px-2 py-1.5 text-center font-mono">{r.exitLightW} {unitSystem === "ip" ? "VA" : "W"}</td>
                                 <td className="px-3 py-1.5 text-right font-mono font-semibold">{tot.toFixed(0)}</td>
                               </tr>
                             );

@@ -177,7 +177,7 @@ export const exportVentilationPDF = async (
         const extractAirTaken = Math.round(s.extractAir ?? totalExtractCalculated);
 
         let extNo: string | number = (s as any).extractAirNumber ?? (data && data.exhaustPerUnit > 0 ? occCount : '-');
-        let extStrat: string = (s as any).extractAirStrategy ?? (data && data.exhaustPerUnit > 0 ? 'L/s/unit' : 'L/s/m²');
+        let extStrat: string = (s as any).extractAirStrategy ?? (data && data.exhaustPerUnit > 0 ? 'L/s/unit' : 'L/s/mÂ²');
 
         const catLower = (s.category || "").toLowerCase();
         if (catLower === "rest room / changing room") {
@@ -202,7 +202,7 @@ export const exportVentilationPDF = async (
           extStrat = 'ACH';
         } else if (catLower === "ex. parking garages") {
           extNo = data ? parseFloat(String(data.exhaustPerArea)) : 3.7;
-          extStrat = 'L/s/m²';
+          extStrat = 'L/s/mÂ²';
         }
 
         floorArea += effectiveArea;
@@ -306,9 +306,9 @@ export const exportVentilationPDF = async (
         2: { halign: 'left', cellWidth: 22 }, // Space Name
         3: { halign: 'left', cellWidth: 18 }, // Zone Name
         4: { halign: 'left', cellWidth: 22 }, // Occupancy Category
-        5: { cellWidth: 10 },   // Area (m²)
+        5: { cellWidth: 10 },   // Area (mÂ²)
         6: { cellWidth: 10 },   // Fixtures/Occ.
-        7: { cellWidth: 10 },   // OA Rate (L/s/m²)
+        7: { cellWidth: 10 },   // OA Rate (L/s/mÂ²)
         8: { cellWidth: 10 },   // OA Rate (L/s/p)
         9: { cellWidth: 10 },   // Total Fresh (L/s)
         10: { cellWidth: 10 },  // Ext. Air Number
@@ -330,9 +330,9 @@ export const exportVentilationPDF = async (
           { content: 'Space Name' },
           { content: 'Zone Name' },
           { content: 'Occupancy Category' },
-          { content: 'Area\n(m²)' },
+          { content: 'Area\n(mÂ²)' },
           { content: 'Fixtures/\nOcc.' },
-          { content: 'OA Rate\n(L/s/m²)' },
+          { content: 'OA Rate\n(L/s/mÂ²)' },
           { content: 'OA Rate\n(L/s/p)' },
           { content: 'Total Fresh\n(L/s)' },
           { content: 'Ext. Air\nNumber' },
@@ -393,9 +393,9 @@ export const exportVentilationPDF = async (
       head: [
         [
           { content: '' },
-          { content: 'Originated by' },
-          { content: 'Reviewed by' },
-          { content: 'Approved by' }
+          { content: 'Originator' },
+          { content: 'Reviewer' },
+          { content: 'Approver' }
         ]
       ],
       body: [

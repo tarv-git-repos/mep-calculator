@@ -86,9 +86,9 @@ export const exportVentilationExcel = async (
   sheet.getColumn(3).width = 24;   // Space Name
   sheet.getColumn(4).width = 22;   // Zone Name
   sheet.getColumn(5).width = 28;   // Occupancy Category
-  sheet.getColumn(6).width = 12;   // Area (m²)
+  sheet.getColumn(6).width = 12;   // Area (mÂ²)
   sheet.getColumn(7).width = 14;   // Fixtures/ Occupancy No's
-  sheet.getColumn(8).width = 14;   // OA Rate L/s/m²
+  sheet.getColumn(8).width = 14;   // OA Rate L/s/mÂ²
   sheet.getColumn(9).width = 14;   // OA Rate L/s/person
   sheet.getColumn(10).width = 14;  // Total Fresh Air L/s
   sheet.getColumn(11).width = 14;  // Extract Air Number
@@ -201,9 +201,9 @@ export const exportVentilationExcel = async (
   sheet.getCell('N9').value = 'Fresh Air\nGiven';
   sheet.getCell('O9').value = 'Extract Air\nTaken';
 
-  sheet.getCell('F10').value = '(m²)';
+  sheet.getCell('F10').value = '(mÂ²)';
   sheet.getCell('G10').value = "No's";
-  sheet.getCell('H10').value = 'L/s/m²';
+  sheet.getCell('H10').value = 'L/s/mÂ²';
   sheet.getCell('I10').value = 'L/s/person';
   sheet.getCell('J10').value = 'L/s';
   sheet.getCell('M10').value = 'L/s';
@@ -314,7 +314,7 @@ export const exportVentilationExcel = async (
     c5.value = s.category || '-';
     c5.alignment = { horizontal: 'left', vertical: 'middle' };
 
-    // Col F: Area (m²)
+    // Col F: Area (mÂ²)
     const c6 = sheet.getCell(r, 6);
     c6.value = effectiveArea;
     c6.numFmt = '0.0';
@@ -325,7 +325,7 @@ export const exportVentilationExcel = async (
     c7.value = occCount || 0;
     c7.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    // Col H: Outdoor Air Rate L/s/m²
+    // Col H: Outdoor Air Rate L/s/mÂ²
     const c8 = sheet.getCell(r, 8);
     c8.value = oaAreaRate;
     c8.numFmt = '0.0';
@@ -349,7 +349,7 @@ export const exportVentilationExcel = async (
     
     // Col L: Extract Air Strategy
     const c12 = sheet.getCell(r, 12);
-    let extStrat: string = (s as any).extractAirStrategy ?? (data && data.exhaustPerUnit > 0 ? 'L/s/unit' : 'L/s/m²');
+    let extStrat: string = (s as any).extractAirStrategy ?? (data && data.exhaustPerUnit > 0 ? 'L/s/unit' : 'L/s/mÂ²');
 
     const catLower = (s.category || "").toLowerCase();
     if (catLower === "rest room / changing room") {
@@ -374,7 +374,7 @@ export const exportVentilationExcel = async (
       extStrat = 'ACH';
     } else if (catLower === "ex. parking garages") {
       extNo = data ? parseFloat(String(data.exhaustPerArea)) : 3.7;
-      extStrat = 'L/s/m²';
+      extStrat = 'L/s/mÂ²';
     }
 
     c11.value = extNo;
@@ -500,17 +500,17 @@ export const exportVentilationExcel = async (
   sheet.mergeCells(`A${sigStartRow}:C${sigStartRow}`);
 
   sheet.mergeCells(`D${sigStartRow}:G${sigStartRow}`);
-  sheet.getCell(`D${sigStartRow}`).value = 'Originated by';
+  sheet.getCell(`D${sigStartRow}`).value = 'Originator';
   sheet.getCell(`D${sigStartRow}`).font = boldFont;
   sheet.getCell(`D${sigStartRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
   sheet.mergeCells(`H${sigStartRow}:K${sigStartRow}`);
-  sheet.getCell(`H${sigStartRow}`).value = 'Reviewed by';
+  sheet.getCell(`H${sigStartRow}`).value = 'Reviewer';
   sheet.getCell(`H${sigStartRow}`).font = boldFont;
   sheet.getCell(`H${sigStartRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 
   sheet.mergeCells(`L${sigStartRow}:O${sigStartRow}`);
-  sheet.getCell(`L${sigStartRow}`).value = 'Approved by';
+  sheet.getCell(`L${sigStartRow}`).value = 'Approver';
   sheet.getCell(`L${sigStartRow}`).font = boldFont;
   sheet.getCell(`L${sigStartRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
 

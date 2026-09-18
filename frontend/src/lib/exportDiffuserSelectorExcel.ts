@@ -425,17 +425,17 @@ export const exportDiffuserSelectorExcel = async (
   sheet.getCell(`A${sigStartRow}`).value = "";
 
   sheet.mergeCells(`D${sigStartRow}:F${sigStartRow}`);
-  sheet.getCell(`D${sigStartRow}`).value = "Originated by";
+  sheet.getCell(`D${sigStartRow}`).value = "Originator";
   sheet.getCell(`D${sigStartRow}`).font = boldFont;
   sheet.getCell(`D${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
   sheet.mergeCells(`G${sigStartRow}:I${sigStartRow}`);
-  sheet.getCell(`G${sigStartRow}`).value = "Reviewed by";
+  sheet.getCell(`G${sigStartRow}`).value = "Reviewer";
   sheet.getCell(`G${sigStartRow}`).font = boldFont;
   sheet.getCell(`G${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
   sheet.mergeCells(`J${sigStartRow}:L${sigStartRow}`);
-  sheet.getCell(`J${sigStartRow}`).value = "Approved by";
+  sheet.getCell(`J${sigStartRow}`).value = "Approver";
   sheet.getCell(`J${sigStartRow}`).font = boldFont;
   sheet.getCell(`J${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 

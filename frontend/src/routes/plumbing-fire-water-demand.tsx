@@ -28,7 +28,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/plumbing-fire-water-demand")({
   head: () => ({
     meta: [
-      { title: "Fire Water Demand Calculator — MEP Calc" },
+      { title: "Fire Water Demand Calculator â€” MEP Calc" },
       { name: "description", content: "Determine total fire water demand for sprinklers, hydrants, hose reels, fire pumps, and storage tanks per NFPA 13, 14, 20 & 22." },
     ],
   }),
@@ -746,7 +746,7 @@ function FireWaterDemandPage() {
       autoTable(doc, {
         startY: table2Y,
         margin: { left: margin, right: margin },
-        head: [["ITEM", "HYDRAULIC DEMAND COMPONENT", "FLOW RATE (PRIMARY)", "FLOW RATE (M³/H)", "NOTES & NFPA 20 CRITERIA"]],
+        head: [["ITEM", "HYDRAULIC DEMAND COMPONENT", "FLOW RATE (PRIMARY)", "FLOW RATE (MÂ³/H)", "NOTES & NFPA 20 CRITERIA"]],
         body: resultsTableBody,
         theme: "plain",
         headStyles: {
@@ -794,7 +794,7 @@ function FireWaterDemandPage() {
       autoTable(doc, {
         startY: table3Y,
         margin: { left: margin, right: margin },
-        head: [["STORAGE DURATION / BASIS", "NET VOLUME (GAL)", "VOLUME IN METRIC (M³ / L)", "DESIGN STANDARD / APPLICABILITY"]],
+        head: [["STORAGE DURATION / BASIS", "NET VOLUME (GAL)", "VOLUME IN METRIC (MÂ³ / L)", "DESIGN STANDARD / APPLICABILITY"]],
         body: tankTableBody,
         theme: "plain",
         headStyles: {
@@ -893,11 +893,11 @@ function FireWaterDemandPage() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8);
       doc.setTextColor(0, 0, 0);
-      doc.text("ORIGINATED BY", margin + colWidth * 0.5, sigY + 4.2, { align: "center" });
-      doc.text("REVIEWED BY", margin + colWidth * 1.5, sigY + 4.2, { align: "center" });
-      doc.text("APPROVED BY", margin + colWidth * 2.5, sigY + 4.2, { align: "center" });
+      doc.text("Originator", margin + colWidth * 0.5, sigY + 4.2, { align: "center" });
+      doc.text("Reviewer", margin + colWidth * 1.5, sigY + 4.2, { align: "center" });
+      doc.text("Approver", margin + colWidth * 2.5, sigY + 4.2, { align: "center" });
 
-      // Column 1: Originated By
+      // Column 1: Originator
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.5);
       doc.text("Name:", margin + 2.5, sigY + 10.5);
@@ -914,7 +914,7 @@ function FireWaterDemandPage() {
       doc.setFont("helvetica", "normal");
       doc.text(sigData.originatedDate || dateStr, margin + 14, sigY + 20.5);
 
-      // Column 2: Reviewed By
+      // Column 2: Reviewer
       doc.setFont("helvetica", "bold");
       doc.text("Name:", margin + colWidth + 2.5, sigY + 10.5);
       doc.setFont("helvetica", "normal");
@@ -930,7 +930,7 @@ function FireWaterDemandPage() {
       doc.setFont("helvetica", "normal");
       doc.text(sigData.reviewedDate || "-", margin + colWidth + 14, sigY + 20.5);
 
-      // Column 3: Approved By
+      // Column 3: Approver
       doc.setFont("helvetica", "bold");
       doc.text("Name:", margin + colWidth * 2 + 2.5, sigY + 10.5);
       doc.setFont("helvetica", "normal");
@@ -968,48 +968,41 @@ function FireWaterDemandPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Breadcrumbs & Page Header (Matching FM-200 & Ventilation) */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg px-4">
-            <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
-                FIRE FIGHTING &gt; FIRE WATER DEMAND CALCULATOR
-              </span>
-              <div className="flex items-center justify-between gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-baseline gap-2">
-                    <h1 className="text-[28px] font-bold tracking-tight text-foreground">Fire Water Demand</h1>
-                    <span className="text-[15px] font-semibold text-muted-foreground">
-                      Total flow for sprinklers, hydrants, fire pump & tank sizing (NFPA 13/14/20/22)
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => setIntelOpen((v) => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                      intelOpen
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                    }`}
-                  >
-                    <Sparkles className="size-3.5" />
-                    Intelligence
-                  </button>
-                  <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-fire-water-demand" calculatorTitle="Fire Water Demand" />
-                  {commentsList.length > 0 && (
-                    <div 
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
-                      title={`${commentsList.length} active task(s)/comment(s)`}
-                    >
-                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                      <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"}</span>
-                    </div>
-                  )}
-                </div>
+          {/* Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Fire Water Demand</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">
+                  Total flow for sprinklers, hydrants, fire pump & tank sizing (NFPA 13/14/20/22)
+                </span>
               </div>
+              <button 
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-fire-water-demand" calculatorTitle="Fire Water Demand" />
+              {commentsList.length > 0 && (
+                <div 
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
+                  title={`${commentsList.length} active task(s)/comment(s)`}
+                >
+                  <MessageSquare className="size-3.5 fill-blue-500/20" />
+                  <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"}</span>
+                </div>
+              )}
             </div>
           </div>
 
           {/* White Card Container for Tabs & Data Grid */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-3xl transition-all duration-300 mx-4 mb-4 ${
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             isApprovedLocked
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
@@ -1037,7 +1030,7 @@ function FireWaterDemandPage() {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    Printable Report
+                    Report
                   </button>
                 </div>
 
@@ -1060,8 +1053,8 @@ function FireWaterDemandPage() {
                 inputDescriptions="Flow Rate (GPM / L/min), Pressure (psi / bar), Storage Tank Volume (gal / m³)"
                 conversionExample={
                   unitSystem === "ip"
-                    ? "Convert 500 GPM → 1,893 L/min, 65 psi → 4.48 bar, 45,000 gal → 170.3 m³"
-                    : "Convert 1,893 L/min → 500 GPM, 4.48 bar → 65 psi, 170.3 m³ → 45,000 gal"
+                    ? "Convert 500 GPM â†’ 1,893 L/min, 65 psi â†’ 4.48 bar, 45,000 gal â†’ 170.3 m³"
+                    : "Convert 1,893 L/min â†’ 500 GPM, 4.48 bar â†’ 65 psi, 170.3 m³ â†’ 45,000 gal"
                 }
               />
             </div>
@@ -2201,7 +2194,7 @@ function FireWaterDemandPage() {
                                 onClick={exportPdf}
                                 className="w-full flex items-center justify-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-3 px-4 text-[13px] font-bold transition-all shadow-sm cursor-pointer border-0"
                               >
-                                <Printer className="size-4" /> Export PDF Report
+                                <Printer className="size-4" /> Export PDF
                               </button>
                             </div>
                           </div>
@@ -2269,7 +2262,7 @@ function FireWaterDemandPage() {
                         onClick={exportPdf}
                         className="flex items-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-2 px-4 text-[12px] font-bold transition-all shadow-xs cursor-pointer border-0"
                       >
-                        <Printer className="size-3.5" /> Export PDF Report
+                        <Printer className="size-3.5" /> Export PDF
                       </button>
                     </div>
 
@@ -2379,13 +2372,13 @@ function FireWaterDemandPage() {
                     <div className="pt-4 border-t border-border">
                       <div className="border border-border rounded-xl overflow-hidden grid grid-cols-3 text-center">
                         <div className="bg-[#FFE6CC] dark:bg-amber-950/40 p-2 font-bold text-[11px] border-b border-border border-r">
-                          ORIGINATED BY
+                          Originator
                         </div>
                         <div className="bg-[#FFE6CC] dark:bg-amber-950/40 p-2 font-bold text-[11px] border-b border-border border-r">
-                          REVIEWED BY
+                          Reviewer
                         </div>
                         <div className="bg-[#FFE6CC] dark:bg-amber-950/40 p-2 font-bold text-[11px] border-b border-border">
-                          APPROVED BY
+                          Approver
                         </div>
 
                         <div className="p-3 text-[11px] border-r border-border space-y-1">

@@ -1,16 +1,16 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
-import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, m3sToCfm, cfmToM3s } from "@/utils/conversions";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
   Download, Upload, Sparkles, AlertTriangle, CheckCircle2,
   Info, Gauge, FileText, Printer, FileSpreadsheet, Bookmark, HelpCircle,
-  Wrench, MessageSquare, Wind, Droplets, Thermometer, Activity, RefreshCw
+  Wrench, MessageSquare, Wind, Droplets, Thermometer, Activity, RefreshCw,
+  Copy, X
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -20,6 +20,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/fresh-air-cooling-load")({
   head: () => ({
@@ -93,11 +94,31 @@ function FreshAirCoolingLoadPage() {
   const [safetyFactor, setSafetyFactor] = useState<number>(5);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);
+  const [showCalcPreviewModal, setShowCalcPreviewModal] = useState(false);
 
   // Comment System State
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [calcReviewState, setCalcReviewState] = useState<any>(null);
+  const isApprovedLocked = calcReviewState?.status === "APPROVED";
+  const isEffectiveReadOnly = isApprovedLocked;
+
+  const unlockCalculator = useCallback(() => {
+    try {
+      const pId = project?.id || "default";
+      const key = `mep_calc_review_${pId}_/fresh-air-cooling-load`;
+      const draftState = { status: "DRAFT" };
+      localStorage.setItem(key, JSON.stringify(draftState));
+      setCalcReviewState(draftState);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("mep-review-state-updated"));
+      }
+      toast.success("Fresh Air Cooling Load calculator unlocked!");
+    } catch (e) {
+      console.error(e);
+    }
+  }, [project?.id]);
 
   const ip = unitSystem === "ip";
 
@@ -155,8 +176,24 @@ function FreshAirCoolingLoadPage() {
     }
   }, [dbIn, wbIn, dbOut, wbOut, flowRate, safetyFactor, unitSystem, projectInfo]);
 
+  useEffect(() => {
+    const handleSaveTrigger = (e: any) => {
+      try {
+        if (e.detail) e.detail.handled = true;
+        forceSaveToCloud?.();
+        toast.success("Fresh Air Cooling Load calculation saved successfully!");
+      } catch (err) {}
+    };
+    window.addEventListener("mep-trigger-save", handleSaveTrigger);
+    return () => window.removeEventListener("mep-trigger-save", handleSaveTrigger);
+  }, [forceSaveToCloud]);
+
   const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
     if (targetUnit === unitSystem) return;
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is currently APPROVED and locked. Unlock calculation to edit.", { id: "readonly-notice" });
+      return;
+    }
     setUnitSystem(targetUnit);
 
     if (shouldConvert) {
@@ -173,6 +210,10 @@ function FreshAirCoolingLoadPage() {
   };
 
   const applyPreset = (presetKey: "gulf_summer" | "subtropical" | "moderate" | "desert_peak") => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is currently APPROVED and locked. Unlock calculation to edit.", { id: "readonly-notice" });
+      return;
+    }
     if (presetKey === "gulf_summer") {
       setDbIn(ip ? 115 : 46.1);
       setWbIn(ip ? 86 : 30.0);
@@ -249,13 +290,16 @@ function FreshAirCoolingLoadPage() {
     const totLoad = ip ? totKw * 3412.14 : totKw;
     const wIn = ip ? wInKg * 7000 : wInKg;
     const wOut = ip ? wOutKg * 7000 : wOutKg;
+    const hInBtu = hIn * 0.429923;
+    const hOutBtu = hOut * 0.429923;
 
     return {
+      dbInVal, wbInVal, dbOutVal, wbOutVal, flowVal,
       dbInC, wbInC, dbOutC, wbOutC,
       flowM3s, flowLps, flowCfm,
       wInKg, wOutKg,
       rhIn, rhOut,
-      hIn, hOut,
+      hIn, hOut, hInBtu, hOutBtu,
       sensKw, latKw, totKw,
       sensLoad, latLoad, totLoad,
       capacityTons: capTons,
@@ -342,6 +386,7 @@ function FreshAirCoolingLoadPage() {
     sheet.addRow(["Condensate Removal Rate", `${calc.condensateKgH.toFixed(2)} L/h (${calc.condensateGph.toFixed(2)} GPH)`]);
 
     const sigRow = (sheet as any).rowCount ? (sheet as any).rowCount + 2 : 30;
+    const { addExcelSignatureBlock } = await import("@/lib/excelHelpers");
     addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "fresh-air-cooling-load");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${projectInfo.projectName.replace(/\s+/g, "_")}_fresh_air_cooling_load.xlsx`);
@@ -420,6 +465,7 @@ function FreshAirCoolingLoadPage() {
     });
 
     const finalY = (doc as any).lastAutoTable.finalY + 25;
+    const { addPdfSignatureBlock } = await import("@/lib/pdfHelpers");
     addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "fresh-air-cooling-load");
     doc.save(`${projectInfo.projectName.replace(/\s+/g, "_")}_fresh_air_report.pdf`);
   };
@@ -463,84 +509,19 @@ function FreshAirCoolingLoadPage() {
   const uL = ip ? "BTU/h" : "kW";
 
   return (
-    <AppShell title="Fresh Air Cooling Load" hideSubHeader={true}>
-      <div className="flex flex-col h-full min-h-0 bg-transparent font-sans">
-        {/* Review Lifecycle Status Bar */}
-        <CalculationReviewBar
-          projectId={project?.id || "default"}
-          calculatorPath="/fresh-air-cooling-load"
-          calculatorTitle="Fresh Air Cooling Load"
+    <AppShell
+      title="Fresh Air Cooling Load"
+      actions={
+        <UnitToggle
+          unitSystem={unitSystem}
+          onChange={handleUnitSystemChange}
+          inputDescriptions="Entering/Leaving DB, WB, and Airflow"
+          conversionExample={unitSystem === "si" ? "Convert 35°C → 95°F, 0.47 m³/s → 1,000 CFM" : "Convert 95°F → 35°C, 1000 CFM → 0.47 m³/s"}
         />
-
-        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-4 overflow-y-auto h-full">
-          {/* Header & Tabs */}
-          <div className="flex flex-wrap items-center justify-between gap-3 select-none pb-2 border-b border-border/50">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">HVAC &gt; LOAD &amp; VENTILATION &gt; FRESH AIR COOLING LOAD</span>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Fresh Air Cooling Load</h1>
-                <span className="px-2 py-0.5 text-[10px] font-bold bg-primary/10 text-primary rounded-full border border-primary/20">
-                  ASHRAE Psychrometric Standard
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Calculate sensible, latent, and total cooling coil loads for untreated outdoor makeup fresh air systems.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1 border border-border/60">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("calculator")}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    activeTab === "calculator" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Calculator
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("report")}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    activeTab === "report" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Report &amp; Summary
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowFormulaPanel(!showFormulaPanel)}
-                className={`p-2 rounded-xl border text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  showFormulaPanel ? "bg-primary/15 text-primary border-primary/30" : "bg-card border-border hover:bg-slate-100 dark:hover:bg-slate-800 text-muted-foreground"
-                }`}
-                title="Toggle Psychrometric Formulas Panel"
-              >
-                <HelpCircle className="size-4" />
-                <span className="hidden sm:inline">Formulas</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCommentTargetItem({ id: "fresh-air-coil-duty", name: "Fresh Air Cooling Coil Sizing" });
-                  setCommentModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                title="Add Comment or Assign Task"
-              >
-                <MessageSquare className="size-3.5" />
-                <span>Comment / Task</span>
-                {commentsList.length > 0 && (
-                  <span className="px-1.5 py-0.2 bg-primary text-white text-[10px] font-extrabold rounded-full">
-                    {commentsList.length}
-                  </span>
-                )}
-              </button>
-            </div>
-          </div>
+      }
+    >
+      <div className="flex flex-col h-full min-h-0 bg-transparent font-sans">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-3.5 overflow-y-auto h-full">
 
           {/* Formula Reference Banner */}
           {showFormulaPanel && (
@@ -553,7 +534,7 @@ function FreshAirCoolingLoadPage() {
                 <button
                   type="button"
                   onClick={() => setShowFormulaPanel(false)}
-                  className="text-muted-foreground hover:text-foreground text-[11px]"
+                  className="text-muted-foreground hover:text-foreground text-[11px] font-bold"
                 >
                   ✕ Close
                 </button>
@@ -578,35 +559,9 @@ function FreshAirCoolingLoadPage() {
             </div>
           )}
 
-          {activeTab === "calculator" ? (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* Left Column: Inputs */}
               <div className="lg:col-span-5 flex flex-col gap-5">
-                {/* Unit & Climate Presets */}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    inputDescriptions="Entering/Leaving DB, WB, and Airflow"
-                    conversionExample={unitSystem === "si" ? "Convert 35°C → 95°F, 0.47 m³/s → 1,000 CFM" : "Convert 95°F → 35°C, 1000 CFM → 0.47 m³/s"}
-                  />
-
-                  {/* Weather Presets Dropdown */}
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span className="text-muted-foreground font-semibold">Preset:</span>
-                    <select
-                      onChange={(e) => applyPreset(e.target.value as any)}
-                      className="bg-card border border-border rounded-lg px-2.5 py-1 text-xs font-semibold outline-none focus:border-primary cursor-pointer text-foreground"
-                      defaultValue=""
-                    >
-                      <option value="" disabled>Select Climate</option>
-                      <option value="gulf_summer">Gulf Summer (Hot &amp; Humid)</option>
-                      <option value="subtropical">Subtropical Summer</option>
-                      <option value="moderate">Moderate / Temperate</option>
-                      <option value="desert_peak">Desert Peak (Extreme Dry)</option>
-                    </select>
-                  </div>
-                </div>
 
                 {/* Entering Coil Air Properties */}
                 <div className="bg-card border border-border rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-xs">
@@ -631,10 +586,11 @@ function FreshAirCoolingLoadPage() {
                       <input
                         type="number"
                         step="any"
+                        disabled={isEffectiveReadOnly}
                         value={dbIn}
                         onChange={(e) => setDbIn(e.target.value === "" ? "" : Number(e.target.value))}
                         placeholder={ip ? "95" : "35.0"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45"
+                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -645,10 +601,11 @@ function FreshAirCoolingLoadPage() {
                       <input
                         type="number"
                         step="any"
+                        disabled={isEffectiveReadOnly}
                         value={wbIn}
                         onChange={(e) => setWbIn(e.target.value === "" ? "" : Number(e.target.value))}
                         placeholder={ip ? "78" : "25.5"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45"
+                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -682,10 +639,11 @@ function FreshAirCoolingLoadPage() {
                       <input
                         type="number"
                         step="any"
+                        disabled={isEffectiveReadOnly}
                         value={dbOut}
                         onChange={(e) => setDbOut(e.target.value === "" ? "" : Number(e.target.value))}
                         placeholder={ip ? "55" : "12.8"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45"
+                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -696,10 +654,11 @@ function FreshAirCoolingLoadPage() {
                       <input
                         type="number"
                         step="any"
+                        disabled={isEffectiveReadOnly}
                         value={wbOut}
                         onChange={(e) => setWbOut(e.target.value === "" ? "" : Number(e.target.value))}
                         placeholder={ip ? "54" : "12.2"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45"
+                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -730,10 +689,11 @@ function FreshAirCoolingLoadPage() {
                       <input
                         type="number"
                         step="any"
+                        disabled={isEffectiveReadOnly}
                         value={flowRate}
                         onChange={(e) => setFlowRate(e.target.value === "" ? "" : Number(e.target.value))}
                         placeholder={ip ? "1000" : "0.472"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45"
+                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                     </div>
 
@@ -747,9 +707,10 @@ function FreshAirCoolingLoadPage() {
                         step="1"
                         min="0"
                         max="30"
+                        disabled={isEffectiveReadOnly}
                         value={safetyFactor}
                         onChange={(e) => setSafetyFactor(Number(e.target.value) || 0)}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground"
+                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -763,48 +724,6 @@ function FreshAirCoolingLoadPage() {
 
               {/* Right Column: Sizing Results & Visuals */}
               <div className="lg:col-span-7 flex flex-col gap-5">
-                {/* Actions Toolbar */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5 bg-card border border-border rounded-2xl p-2.5 shadow-2xs select-none">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleExportExcel}
-                      className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-foreground text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                    >
-                      <FileSpreadsheet className="size-3.5 text-emerald-600" />
-                      <span>Excel</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePrintPDF}
-                      className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-foreground text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                    >
-                      <Printer className="size-3.5 text-red-500" />
-                      <span>PDF Report</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={handleExportJSON}
-                      className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground font-medium rounded-lg transition-colors flex items-center gap-1"
-                      title="Export JSON scenario"
-                    >
-                      <Upload className="size-3.5" />
-                      <span className="hidden sm:inline">Export</span>
-                    </button>
-                    <label
-                      className="px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground font-medium rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                      title="Import JSON scenario"
-                    >
-                      <Download className="size-3.5" />
-                      <span className="hidden sm:inline">Import</span>
-                      <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
-                    </label>
-                  </div>
-                </div>
-
                 {/* Warnings */}
                 {warnings.length > 0 && (
                   <div className="bg-amber-500/10 border border-amber-500/20 text-amber-900 dark:text-amber-300 rounded-2xl p-3.5 flex flex-col gap-1.5 text-xs select-none">
@@ -819,7 +738,7 @@ function FreshAirCoolingLoadPage() {
 
                 {/* Key Sizing Metric Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Total Capacity Card */}
+                  {/* Total Capacity & Sizing Card */}
                   <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border border-primary/20 rounded-2xl p-4.5 flex flex-col justify-between shadow-2xs">
                     <div className="flex items-center justify-between pb-2 border-b border-primary/15">
                       <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -843,13 +762,23 @@ function FreshAirCoolingLoadPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground flex justify-between border-t border-primary/15 pt-2">
-                      <span>Sensible Heat Ratio:</span>
-                      <strong className="text-foreground font-mono">{calc.shr.toFixed(2)} ({Math.round(calc.shr * 100)}%)</strong>
+                    <div className="flex flex-col gap-1.5 border-t border-primary/15 pt-2 text-[11px]">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Sensible Heat Load:</span>
+                        <strong className="text-foreground font-mono">{calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL} ({calc.sensKw.toFixed(1)} kW)</strong>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Latent Heat Load:</span>
+                        <strong className="text-foreground font-mono">{calc.latLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL} ({calc.latKw.toFixed(1)} kW)</strong>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground border-t border-primary/10 pt-1">
+                        <span>Sensible Heat Ratio (SHR):</span>
+                        <strong className="text-primary font-mono">{calc.shr.toFixed(2)} ({Math.round(calc.shr * 100)}%)</strong>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Condensate Drain Card */}
+                  {/* Condensate Generation & Moisture Card */}
                   <div className="bg-card border border-border rounded-2xl p-4.5 flex flex-col justify-between shadow-2xs">
                     <div className="flex items-center justify-between pb-2 border-b border-border/60">
                       <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -873,75 +802,154 @@ function FreshAirCoolingLoadPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground flex justify-between border-t border-border/50 pt-2">
-                      <span>Moisture Delta (ΔW):</span>
-                      <strong className="text-foreground font-mono">
-                        {(Math.max(0, calc.wIn - calc.wOut)).toFixed(ip ? 2 : 5)} {uW}
-                      </strong>
+                    <div className="flex flex-col gap-1.5 border-t border-border/50 pt-2 text-[11px]">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Entering Moisture (W_in):</span>
+                        <strong className="text-foreground font-mono">{calc.wIn.toFixed(ip ? 2 : 5)} {uW}</strong>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Leaving Moisture (W_out):</span>
+                        <strong className="text-foreground font-mono">{calc.wOut.toFixed(ip ? 2 : 5)} {uW}</strong>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground border-t border-border/40 pt-1">
+                        <span>Moisture Delta (ΔW):</span>
+                        <strong className="text-foreground font-mono">
+                          {(Math.max(0, calc.wIn - calc.wOut)).toFixed(ip ? 2 : 5)} {uW}
+                        </strong>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Detailed Results Grid */}
-                <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-2xs">
-                  <div className="flex items-center justify-between pb-2.5 border-b border-border/60">
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-4 bg-primary rounded-full" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Coil Load Breakdown &amp; Enthalpy Values
-                      </h3>
+                {/* Calculation Preview Action Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowCalcPreviewModal(true)}
+                  className="w-full py-3.5 px-5 bg-gradient-to-r from-primary/10 via-primary/15 to-primary/10 hover:from-primary/20 hover:via-primary/25 hover:to-primary/20 border border-primary/30 rounded-2xl flex items-center justify-between text-primary font-bold text-xs shadow-2xs transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-primary text-primary-foreground rounded-xl shadow-xs group-hover:scale-105 transition-transform">
+                      <FileText className="size-4" />
                     </div>
-                    <span className="text-[11px] text-muted-foreground">
-                      Atmospheric Pressure: <strong className="font-mono text-foreground">101.3 kPa</strong>
+                    <div className="text-left">
+                      <div className="text-sm font-extrabold text-foreground group-hover:text-primary transition">
+                        Calculation Preview
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-normal">
+                        Click to view detailed psychrometric enthalpy values, equations, and breakdown
+                      </div>
+                    </div>
+                  </div>
+                  <span className="px-3.5 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-xl shadow-xs group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                    Open Preview →
+                  </span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      {/* Calculation Preview Modal */}
+      {showCalcPreviewModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 font-sans animate-fade-in">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-scale-in">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-5 border-b border-border bg-slate-50/50 dark:bg-slate-900/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-primary/15 text-primary rounded-xl">
+                  <FileText className="size-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-foreground flex items-center gap-2">
+                    Fresh Air Cooling Load — Calculation Preview
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                      {ip ? "ASHRAE Standard 14.7 psi" : "ASHRAE Standard 101.3 kPa"}
                     </span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Complete psychrometric enthalpy analysis, formulas, and load distribution
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCalcPreviewModal(false)}
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 text-xs custom-scrollbar">
+              {/* Summary Highlights */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 select-none">
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex flex-col">
+                  <span className="text-[10px] text-muted-foreground font-semibold uppercase">Total Coil Capacity</span>
+                  <strong className="text-base font-extrabold text-primary font-mono mt-0.5">{calc.capacityTons.toFixed(2)} TR</strong>
+                  <span className="text-[10px] text-muted-foreground font-mono">{calc.totKw.toFixed(1)} kW</span>
+                </div>
+                <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border rounded-xl p-3 flex flex-col">
+                  <span className="text-[10px] text-muted-foreground font-semibold uppercase">Sensible Load</span>
+                  <strong className="text-base font-bold text-foreground font-mono mt-0.5">{calc.sensKw.toFixed(2)} kW</strong>
+                  <span className="text-[10px] text-muted-foreground font-mono">{calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL}</span>
+                </div>
+                <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border rounded-xl p-3 flex flex-col">
+                  <span className="text-[10px] text-muted-foreground font-semibold uppercase">Latent Load</span>
+                  <strong className="text-base font-bold text-foreground font-mono mt-0.5">{calc.latKw.toFixed(2)} kW</strong>
+                  <span className="text-[10px] text-muted-foreground font-mono">{calc.latLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL}</span>
+                </div>
+                <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border rounded-xl p-3 flex flex-col">
+                  <span className="text-[10px] text-muted-foreground font-semibold uppercase">Condensate Rate</span>
+                  <strong className="text-base font-bold text-blue-600 dark:text-blue-400 font-mono mt-0.5">{calc.condensateKgH.toFixed(1)} L/h</strong>
+                  <span className="text-[10px] text-muted-foreground font-mono">{calc.condensateGph.toFixed(2)} GPH</span>
+                </div>
+              </div>
+
+              {/* Enthalpy & Psychrometric Values */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
+                <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground border-b border-border/60 pb-2">
+                  1. Psychrometric &amp; Enthalpy Values
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+                  <div className="flex justify-between py-1 border-b border-border/40">
+                    <span className="text-muted-foreground font-medium">Entering Enthalpy (h_in):</span>
+                    <strong className="font-mono text-foreground">{ip ? calc.hInBtu.toFixed(1) + " BTU/lb" : calc.hIn.toFixed(1) + " kJ/kg"}</strong>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 text-xs">
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Sensible Heat Load:</span>
-                      <strong className="font-bold text-foreground font-mono">
-                        {calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL} ({calc.sensKw.toFixed(2)} kW)
-                      </strong>
-                    </div>
-
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Latent Heat Load:</span>
-                      <strong className="font-bold text-foreground font-mono">
-                        {calc.latLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL} ({calc.latKw.toFixed(2)} kW)
-                      </strong>
-                    </div>
-
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Entering Enthalpy (h_in):</span>
-                      <strong className="font-bold text-foreground font-mono">
-                        {calc.hIn.toFixed(1)} kJ/kg
-                      </strong>
-                    </div>
-
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Leaving Enthalpy (h_out):</span>
-                      <strong className="font-bold text-foreground font-mono">
-                        {calc.hOut.toFixed(1)} kJ/kg
-                      </strong>
-                    </div>
-
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Entering Dew Point (estimated):</span>
-                      <strong className="font-bold text-foreground font-mono">
-                        {(calc.wbInC - (calc.dbInC - calc.wbInC) / 3).toFixed(1)} °C
-                      </strong>
-                    </div>
-
-                    <div className="flex justify-between items-center py-1.5 border-b border-border/40">
-                      <span className="font-semibold text-muted-foreground">Enthalpy Difference (Δh):</span>
-                      <strong className="font-bold text-primary font-mono">
-                        {(calc.hIn - calc.hOut).toFixed(1)} kJ/kg
-                      </strong>
-                    </div>
+                  <div className="flex justify-between py-1 border-b border-border/40">
+                    <span className="text-muted-foreground font-medium">Leaving Enthalpy (h_out):</span>
+                    <strong className="font-mono text-foreground">{ip ? calc.hOutBtu.toFixed(1) + " BTU/lb" : calc.hOut.toFixed(1) + " kJ/kg"}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/40">
+                    <span className="text-muted-foreground font-medium">Enthalpy Difference (Δh):</span>
+                    <strong className="font-mono text-primary font-bold">{ip ? Math.abs(calc.hInBtu - calc.hOutBtu).toFixed(1) + " BTU/lb" : Math.abs(calc.hIn - calc.hOut).toFixed(1) + " kJ/kg"}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/40">
+                    <span className="text-muted-foreground font-medium">Entering Dew Point (estimated):</span>
+                    <strong className="font-mono text-foreground">{ip ? (calc.wbInVal - (calc.dbInVal - calc.wbInVal) / 3).toFixed(1) + " °F" : (calc.wbInC - (calc.dbInC - calc.wbInC) / 3).toFixed(1) + " °C"}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/40">
+                    <span className="text-muted-foreground font-medium">Entering Air RH:</span>
+                    <strong className="font-mono text-foreground">{calc.rhIn.toFixed(1)}%</strong>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/40">
+                    <span className="text-muted-foreground font-medium">Leaving Air RH:</span>
+                    <strong className="font-mono text-foreground">{calc.rhOut.toFixed(1)}%</strong>
                   </div>
                 </div>
+              </div>
 
-                {/* SVG Visual Load Breakdown Chart */}
+              {/* Sensible vs Latent Distribution Chart */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-2">
+                <div className="flex justify-between items-center border-b border-border/60 pb-2">
+                  <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">
+                    2. Sensible vs. Latent Heat Distribution
+                  </h4>
+                  <span className="font-mono text-muted-foreground text-[11px]">
+                    Total: <strong className="text-foreground">{calc.totLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL}</strong>
+                  </span>
+                </div>
                 {(() => {
                   const bars = [
                     { label: "Sensible Load", value: calc.sensLoad, color: "#0A7BC7", display: `${calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${uL} (${Math.round(calc.shr * 100)}%)` },
@@ -949,166 +957,103 @@ function FreshAirCoolingLoadPage() {
                   ];
                   const maxVal = Math.max(...bars.map(b => b.value)) * 1.2 || 1;
                   return (
-                    <div className="flex flex-col gap-2 bg-card p-4.5 border border-border rounded-2xl shadow-2xs select-none">
-                      <div className="flex items-center justify-between pb-2 border-b border-border/50">
-                        <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                          Sensible vs Latent Heat Distribution
-                        </h4>
-                        <span className="text-[11px] text-muted-foreground font-semibold">
-                          Total: <strong className="text-foreground font-mono">{calc.totLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL}</strong>
-                        </span>
-                      </div>
-                      <svg viewBox="0 0 500 95" className="w-full h-auto block overflow-visible mt-1">
-                        {bars.map((b, i) => {
-                          const bw = 34;
-                          const bh = 18;
-                          const y = 14 + i * (bw + 2);
-                          const bWidth = Math.max(4, (b.value / maxVal) * 330);
-                          return (
-                            <g key={i}>
-                              <text x={110} y={y + bh / 2 + 3.5} textAnchor="end" fontSize="10" fontWeight="700" fill="currentColor" className="fill-muted-foreground font-sans">
-                                {b.label}
-                              </text>
-                              <rect x={118} y={y} width={bWidth} height={bh} fill={b.color} rx="4" />
-                              <text x={124 + bWidth} y={y + bh / 2 + 3.5} textAnchor="start" fontSize="10" fontWeight="800" fill={b.color} className="font-mono">
-                                {b.display}
-                              </text>
-                            </g>
-                          );
-                        })}
-                        <line x1={118} y1={10} x2={118} y2={85} stroke="currentColor" strokeWidth="1" className="stroke-border" />
-                      </svg>
-                    </div>
+                    <svg viewBox="0 0 500 95" className="w-full h-auto block overflow-visible mt-1 select-none">
+                      {bars.map((b, i) => {
+                        const bw = 34;
+                        const bh = 18;
+                        const y = 14 + i * (bw + 2);
+                        const bWidth = Math.max(4, (b.value / maxVal) * 330);
+                        return (
+                          <g key={i}>
+                            <text x={110} y={y + bh / 2 + 3.5} textAnchor="end" fontSize="10" fontWeight="700" fill="currentColor" className="fill-muted-foreground font-sans">
+                              {b.label}
+                            </text>
+                            <rect x={118} y={y} width={bWidth} height={bh} fill={b.color} rx="4" />
+                            <text x={124 + bWidth} y={y + bh / 2 + 3.5} textAnchor="start" fontSize="10" fontWeight="800" fill={b.color} className="font-mono">
+                              {b.display}
+                            </text>
+                          </g>
+                        );
+                      })}
+                      <line x1={118} y1={10} x2={118} y2={85} stroke="currentColor" strokeWidth="1" className="stroke-border" />
+                    </svg>
                   );
                 })()}
               </div>
-            </div>
-          ) : (
-            /* Engineering Report Tab */
-            <div className="bg-card border border-border rounded-2xl p-6 flex flex-col gap-6 shadow-xs max-w-4xl mx-auto w-full">
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-border/70">
-                <div>
-                  <h2 className="text-lg font-bold text-foreground">Project &amp; Calculation Report Details</h2>
-                  <p className="text-xs text-muted-foreground">Configure metadata for official consultant submission and documentation.</p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleExportExcel}
-                    className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-foreground text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <FileSpreadsheet className="size-3.5 text-emerald-600" />
-                    <span>Download Excel</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handlePrintPDF}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
-                  >
-                    <FileText className="size-3.5" />
-                    <span>Export PDF</span>
-                  </button>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-muted-foreground">Project Name</label>
-                  <input
-                    type="text"
-                    value={projectInfo.projectName}
-                    onChange={(e) => setProjectInfo({ ...projectInfo, projectName: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 font-semibold outline-none focus:border-primary text-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-muted-foreground">Project Reference Number</label>
-                  <input
-                    type="text"
-                    value={projectInfo.projectNumber}
-                    onChange={(e) => setProjectInfo({ ...projectInfo, projectNumber: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 font-semibold outline-none focus:border-primary text-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-muted-foreground">Consultant Name</label>
-                  <input
-                    type="text"
-                    value={projectInfo.consultant}
-                    onChange={(e) => setProjectInfo({ ...projectInfo, consultant: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 font-semibold outline-none focus:border-primary text-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-muted-foreground">Client Name</label>
-                  <input
-                    type="text"
-                    value={projectInfo.client}
-                    onChange={(e) => setProjectInfo({ ...projectInfo, client: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 font-semibold outline-none focus:border-primary text-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-muted-foreground">Calculation Number</label>
-                  <input
-                    type="text"
-                    value={projectInfo.calcNumber}
-                    onChange={(e) => setProjectInfo({ ...projectInfo, calcNumber: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 font-semibold outline-none focus:border-primary text-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-muted-foreground">Revision</label>
-                  <input
-                    type="text"
-                    value={projectInfo.revision}
-                    onChange={(e) => setProjectInfo({ ...projectInfo, revision: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 font-semibold outline-none focus:border-primary text-foreground"
-                  />
-                </div>
-              </div>
-
-              {/* Sizing Summary Preview Table */}
-              <div className="flex flex-col gap-3 pt-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Executive Sizing Summary</h3>
-                <div className="border border-border rounded-xl overflow-hidden text-xs">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-slate-100 dark:bg-slate-800/80 text-muted-foreground font-bold">
-                      <tr>
-                        <th className="p-2.5 border-b border-border">Parameter</th>
-                        <th className="p-2.5 border-b border-border">Design Value</th>
-                        <th className="p-2.5 border-b border-border">Engineering Reference</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60">
-                      <tr>
-                        <td className="p-2.5 font-semibold text-muted-foreground">Total Fresh Air Coil Capacity</td>
-                        <td className="p-2.5 font-bold text-primary font-mono">{calc.capacityTons.toFixed(2)} TR ({calc.totKw.toFixed(2)} kW)</td>
-                        <td className="p-2.5 text-muted-foreground">ASHRAE Psychrometric Model (+{safetyFactor}% SF)</td>
-                      </tr>
-                      <tr>
-                        <td className="p-2.5 font-semibold text-muted-foreground">Sensible Heat Duty</td>
-                        <td className="p-2.5 font-bold font-mono text-foreground">{calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL} ({calc.sensKw.toFixed(2)} kW)</td>
-                        <td className="p-2.5 text-muted-foreground">ΔT: {(Math.abs(calc.dbInC - calc.dbOutC)).toFixed(1)} °C</td>
-                      </tr>
-                      <tr>
-                        <td className="p-2.5 font-semibold text-muted-foreground">Latent Dehumidification Duty</td>
-                        <td className="p-2.5 font-bold font-mono text-foreground">{calc.latLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} {uL} ({calc.latKw.toFixed(2)} kW)</td>
-                        <td className="p-2.5 text-muted-foreground">ΔW: {(Math.max(0, calc.wIn - calc.wOut)).toFixed(ip ? 2 : 5)} {uW}</td>
-                      </tr>
-                      <tr>
-                        <td className="p-2.5 font-semibold text-muted-foreground">Estimated Condensate Drain Flow</td>
-                        <td className="p-2.5 font-bold font-mono text-foreground">{calc.condensateKgH.toFixed(1)} L/h ({calc.condensateGph.toFixed(2)} GPH)</td>
-                        <td className="p-2.5 text-muted-foreground">Gravity drain pipe sizing basis</td>
-                      </tr>
-                    </tbody>
-                  </table>
+              {/* Step-by-Step Derivations */}
+              <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
+                <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground border-b border-border/60 pb-2">
+                  3. Step-by-Step Mathematical Derivations
+                </h4>
+                <div className="space-y-3 font-mono text-[11.5px] leading-relaxed">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-border/50">
+                    <span className="font-sans font-bold text-foreground block mb-1">Step 1: {ip ? "Airflow Requirements" : "Mass Flow Rate (ṁ)"}</span>
+                    <div className="text-primary">
+                      {ip 
+                        ? `Q = ${calc.flowVal} CFM` 
+                        : `ṁ = Airflow (m³/s) × ρ_air (1.204 kg/m³) = ${calc.flowM3s.toFixed(3)} × 1.204 = ${calc.mDot.toFixed(3)} kg/s`}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-border/50">
+                    <span className="font-sans font-bold text-foreground block mb-1">Step 2: Sensible Cooling Load (Q_sens)</span>
+                    <div className="text-primary">
+                      {ip
+                        ? `Q_sens = 1.08 × CFM × (DB_in - DB_out) = 1.08 × ${calc.flowVal} × (${calc.dbInVal.toFixed(1)} - ${calc.dbOutVal.toFixed(1)}) = ${calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} BTU/h`
+                        : `Q_sens = ṁ × c_p × (DB_in - DB_out) = ${calc.mDot.toFixed(3)} × 1.006 × (${calc.dbInC.toFixed(1)} - ${calc.dbOutC.toFixed(1)}) = ${calc.sensKw.toFixed(2)} kW`}
+                      {Number(safetyFactor) > 0 && ` (includes +${safetyFactor}% margin)`}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-border/50">
+                    <span className="font-sans font-bold text-foreground block mb-1">Step 3: Latent Dehumidification Load (Q_lat)</span>
+                    <div className="text-primary">
+                      {ip
+                        ? `Q_lat = 0.68 × CFM × (W_in - W_out) = 0.68 × ${calc.flowVal} × (${calc.wIn.toFixed(1)} - ${calc.wOut.toFixed(1)}) = ${calc.latLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} BTU/h`
+                        : `Q_lat = ṁ × (W_in - W_out) × h_fg = ${calc.mDot.toFixed(3)} × (${(calc.wInKg).toFixed(5)} - ${(calc.wOutKg).toFixed(5)}) × 2501 = ${calc.latKw.toFixed(2)} kW`}
+                      {Number(safetyFactor) > 0 && ` (includes +${safetyFactor}% margin)`}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-border/50">
+                    <span className="font-sans font-bold text-foreground block mb-1">Step 4: Total Coil Load &amp; Capacity (TR)</span>
+                    <div className="text-primary">
+                      {ip
+                        ? `Q_total = Q_sens + Q_lat = ${calc.sensLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} + ${calc.latLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} = ${calc.totLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} BTU/h`
+                        : `Q_total = Q_sens + Q_lat = ${calc.sensKw.toFixed(2)} + ${calc.latKw.toFixed(2)} = ${calc.totKw.toFixed(2)} kW`}
+                    </div>
+                    <div className="text-primary font-bold mt-0.5">
+                      Required TR = {ip ? `${calc.totLoad.toLocaleString(undefined, { maximumFractionDigits: 0 })} / 12000` : `${calc.totKw.toFixed(2)} / 3.51685`} = {calc.capacityTons.toFixed(2)} TR
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-border bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const summaryText = `=== FRESH AIR COOLING LOAD CALCULATION PREVIEW ===\nAirflow: ${flowRate} ${ip ? "CFM" : "m³/s"}\nEntering DB/WB: ${dbIn}° / ${wbIn}° | Leaving DB/WB: ${dbOut}° / ${wbOut}°\nRequired Capacity: ${calc.capacityTons.toFixed(2)} TR (${calc.totKw.toFixed(1)} kW / ${calc.totLoad.toLocaleString()} ${uL})\nSensible Load: ${calc.sensLoad.toLocaleString()} ${uL} (${calc.sensKw.toFixed(1)} kW)\nLatent Load: ${calc.latLoad.toLocaleString()} ${uL} (${calc.latKw.toFixed(1)} kW)\nSHR: ${calc.shr.toFixed(2)} (${Math.round(calc.shr * 100)}%)\nCondensate Rate: ${calc.condensateKgH.toFixed(1)} L/h (${calc.condensateGph.toFixed(2)} GPH)`;
+                  navigator.clipboard.writeText(summaryText);
+                  toast.success("Calculation preview copied to clipboard!");
+                }}
+                className="px-4 py-2 border border-border rounded-xl text-xs font-bold text-foreground hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer flex items-center gap-2"
+              >
+                <Copy className="size-4" />
+                <span>Copy Summary</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCalcPreviewModal(false)}
+                className="px-5 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold shadow-xs hover:bg-primary/90 transition cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Task & Comment Assignment Modal */}
       <AssignCommentModal

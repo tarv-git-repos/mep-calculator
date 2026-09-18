@@ -164,7 +164,7 @@ export const exportChwPumpHeadPDF = async (data: ChwPumpHeadPdfData) => {
     const motorHp = calc.motorPowerHp;
 
     // 3. TABLE 1: DESIGN PARAMETERS & PIPING GEOMETRY
-    const flowDetails = `${calc.flowRateDisplay.toFixed(2)} ${calc.flowUnit} (${isIp ? `${flowLs.toFixed(2)} L/s` : `${flowGpm.toFixed(1)} GPM`} | ${flowM3h.toFixed(2)} m³/h)`;
+    const flowDetails = `${calc.flowRateDisplay.toFixed(2)} ${calc.flowUnit} (${isIp ? `${flowLs.toFixed(2)} L/s` : `${flowGpm.toFixed(1)} GPM`} | ${flowM3h.toFixed(2)} mÂ³/h)`;
     const table1Data = [
       [{ content: "Design Chilled Water Flow Rate (Q)", styles: { fontStyle: "normal" } }, { content: flowDetails, styles: { fontStyle: "bold" } }],
       [{ content: "Vertical Piping Rise / Elevation Length", styles: { fontStyle: "normal" } }, { content: `${calc.vertLengthDisplay.toFixed(1)} ${calc.lengthUnit}`, styles: { fontStyle: "normal" } }],
@@ -172,7 +172,7 @@ export const exportChwPumpHeadPDF = async (data: ChwPumpHeadPdfData) => {
       [{ content: "Total Straight Piping Run", styles: { fontStyle: "normal" } }, { content: `${straightPipeLen.toFixed(1)} ${calc.lengthUnit}`, styles: { fontStyle: "bold" } }],
       [{ content: "Fittings & Valves Allowance (+30% + 30%)", styles: { fontStyle: "normal" } }, { content: `${(calc.elbowsLengthDisplay + calc.valvesLengthDisplay).toFixed(1)} ${calc.lengthUnit} (+60% on straight run)`, styles: { fontStyle: "normal" } }],
       [{ content: "Total Design Equivalent Length (Leff)", styles: { fontStyle: "normal" } }, { content: `${calc.equivLengthDisplay.toFixed(1)} ${calc.lengthUnit} (incl. 5% safety margin)`, styles: { fontStyle: "bold" } }],
-      [{ content: "Design Friction Loss Factor (ΔP/100m)", styles: { fontStyle: "normal" } }, { content: frictionRateStr, styles: { fontStyle: "normal" } }],
+      [{ content: "Design Friction Loss Factor (Î”P/100m)", styles: { fontStyle: "normal" } }, { content: frictionRateStr, styles: { fontStyle: "normal" } }],
       [{ content: "Total Piping Dynamic Friction Loss Head", styles: { fontStyle: "normal" } }, { content: `${calc.frictionLossDisplay.toFixed(3)} ${calc.headUnit}`, styles: { fontStyle: "bold" } }]
     ];
 
@@ -248,9 +248,9 @@ export const exportChwPumpHeadPDF = async (data: ChwPumpHeadPdfData) => {
     // 5. TABLE 3: PUMP EFFICIENCY & MOTOR SIZING
     const table3Data = [
       [{ content: "Hydraulic Water Power (Phyd)", styles: { fontStyle: "normal" } }, { content: `${hydPower.toFixed(2)} kW`, styles: { fontStyle: "normal" } }],
-      [{ content: "Pump Hydraulic Efficiency (η_pump)", styles: { fontStyle: "normal" } }, { content: `${calc.effPumpVal.toFixed(1)}%`, styles: { fontStyle: "normal" } }],
+      [{ content: "Pump Hydraulic Efficiency (Î·_pump)", styles: { fontStyle: "normal" } }, { content: `${calc.effPumpVal.toFixed(1)}%`, styles: { fontStyle: "normal" } }],
       [{ content: "Pump Shaft Brake Power (P_shaft)", styles: { fontStyle: "normal" } }, { content: `${shaftPower.toFixed(2)} kW`, styles: { fontStyle: "normal" } }],
-      [{ content: "Electric Motor Efficiency (η_motor)", styles: { fontStyle: "normal" } }, { content: `${calc.effMotorVal.toFixed(1)}%`, styles: { fontStyle: "normal" } }],
+      [{ content: "Electric Motor Efficiency (Î·_motor)", styles: { fontStyle: "normal" } }, { content: `${calc.effMotorVal.toFixed(1)}%`, styles: { fontStyle: "normal" } }],
       [{ content: "Calculated Motor Power Required", styles: { fontStyle: "normal" } }, { content: `${motorPower.toFixed(2)} kW (${motorHp.toFixed(2)} HP)`, styles: { fontStyle: "bold" } }]
     ];
 
@@ -353,9 +353,9 @@ export const exportChwPumpHeadPDF = async (data: ChwPumpHeadPdfData) => {
       head: [
         [
           { content: "" },
-          { content: "Originated by" },
-          { content: "Reviewed by" },
-          { content: "Approved by" }
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" }
         ]
       ],
       body: [

@@ -724,12 +724,15 @@ async function getUserFromReq(req) {
   }
 }
 
-function sendJSON(res, statusCode, body, setCookieStr = null) {
+function sendJSON(res, statusCode, body, setCookieStr = null, req = null) {
+  const reqHeaders = req?.headers ? (req.headers['access-control-request-headers'] || '*') : '*';
   const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-hwid, hwid',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+    'Access-Control-Allow-Headers': `Content-Type, Authorization, x-hwid, hwid, x-device-id, X-HWID, X-Device-Id, ${reqHeaders}`,
+    'Access-Control-Allow-Private-Network': 'true',
+    'Access-Control-Max-Age': '86400',
   };
   if (setCookieStr) {
     headers['Set-Cookie'] = setCookieStr;
@@ -757,10 +760,13 @@ function getRequestBody(req) {
 const server = http.createServer(async (req, res) => {
   // CORS Preflight
   if (req.method === 'OPTIONS') {
+    const reqHeaders = req.headers['access-control-request-headers'] || '*';
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-hwid, hwid',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+      'Access-Control-Allow-Headers': `Content-Type, Authorization, x-hwid, hwid, x-device-id, X-HWID, X-Device-Id, ${reqHeaders}`,
+      'Access-Control-Allow-Private-Network': 'true',
+      'Access-Control-Max-Age': '86400',
     });
     return res.end();
   }
@@ -3897,23 +3903,40 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url === '/api/notifications/send') {
     try {
       const payload = await getRequestBody(req);
+      const uniqueNotifId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const commentId = payload.metadata?.id || payload.metadata?.commentId || payload.id;
+      const recId = String(payload.recipientId || '').trim();
+
       const notifItem = {
-        id: payload.metadata?.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        recipientId: String(payload.recipientId || ''),
+        id: uniqueNotifId,
+        recipientId: recId,
         title: payload.title,
         message: payload.message,
         link: payload.link,
-        metadata: payload.metadata || {},
+        metadata: {
+          ...(payload.metadata || {}),
+          commentId: commentId,
+          recipientId: recId,
+        },
         createdAt: new Date().toISOString(),
         read: false
       };
 
       try {
         const localNotifs = readNotificationsData();
-        const filtered = localNotifs.filter(n => n && n.id !== notifItem.id);
+        const filtered = localNotifs.filter(n => {
+          if (!n) return false;
+          if (n.id === notifItem.id) return false;
+          if (commentId && n.recipientId === recId && (n.metadata?.id === commentId || n.metadata?.commentId === commentId || n.id === commentId)) {
+            return false;
+          }
+          return true;
+        });
         filtered.unshift(notifItem);
         writeNotificationsData(filtered);
-      } catch (err) {}
+      } catch (err) {
+        console.error('Error writing local notifications:', err);
+      }
 
       try {
         await supabase.from('notifications').insert([notifItem]);
@@ -4017,25 +4040,92 @@ const server = http.createServer(async (req, res) => {
         const uId = String(user.id || '').toLowerCase().trim();
         const uEmail = String(user.email || '').toLowerCase().trim();
         const uName = String(user.name || '').toLowerCase().trim();
-        const localNotifs = readNotificationsData();
-        const userLocalNotifs = localNotifs.filter(n => {
+        const uHandle = uEmail ? uEmail.split('@')[0].toLowerCase().trim() : '';
+
+        const isUserRecipient = (n) => {
+          if (!n) return false;
           const rec = String(n.recipientId || '').toLowerCase().trim();
-          if (!rec || rec === 'all') return false;
-          return rec === uId || (uEmail && rec === uEmail) || (uName && rec === uName);
-        });
-        notifs = userLocalNotifs;
+
+          // 1. Author exclusion: author should not receive their own sent notification in received list
+          const authorId = String(n.metadata?.authorId || n.authorId || '').toLowerCase().trim();
+          const authorName = String(n.metadata?.authorName || n.authorName || '').toLowerCase().trim();
+          const isAuthor = Boolean(
+            (authorId && (authorId === uId || authorId === uEmail)) ||
+            (authorName && (authorName === uName || (uHandle && authorName === uHandle)))
+          );
+          if (isAuthor && !n.isCompletionNotif && !n.metadata?.isCompletionNotif) {
+            return false;
+          }
+
+          // 2. Direct exact matches
+          if (rec && (rec === uId || rec === uEmail || rec === uName || (uHandle && rec === uHandle))) {
+            return true;
+          }
+
+          // 3. Name (handle) format matching, e.g. "Abubakar Chanda (abubakarswork2)"
+          if (rec && rec.includes('(') && rec.includes(')')) {
+            const namePart = rec.split('(')[0].trim().toLowerCase();
+            const handlePart = rec.split('(')[1].replace(')', '').trim().toLowerCase();
+            if (uName && (namePart === uName || namePart.includes(uName) || uName.includes(namePart))) {
+              return true;
+            }
+            if (uHandle && (handlePart === uHandle || uEmail.startsWith(handlePart))) {
+              return true;
+            }
+          }
+
+          // 4. Handle matching or partial contains
+          if (uHandle && rec && (rec.includes(uHandle) || rec.endsWith(uHandle))) {
+            return true;
+          }
+          if (uName && rec && (rec.includes(uName) || uName.includes(rec))) {
+            return true;
+          }
+
+          // 5. Metadata assigned users list check
+          const assigned = Array.isArray(n.metadata?.assignedUsers)
+            ? n.metadata.assignedUsers
+            : Array.isArray(n.assignedUsers)
+              ? n.assignedUsers
+              : [];
+          if (assigned.length > 0) {
+            const matched = assigned.some(a => {
+              const aStr = String(a || '').toLowerCase().trim();
+              return (
+                aStr === uId ||
+                aStr === uEmail ||
+                aStr === uName ||
+                (uHandle && (aStr === uHandle || aStr.includes(uHandle)))
+              );
+            });
+            if (matched) return true;
+          }
+
+          // 6. Global / unassigned notification (e.g. rec === 'all' or empty)
+          if (!rec || rec === 'all') {
+            return !isAuthor;
+          }
+
+          return false;
+        };
+
+        const localNotifs = readNotificationsData();
+        notifs = localNotifs.filter(isUserRecipient);
 
         try {
-          const { data } = await supabase.from('notifications').select('*').eq('recipientId', user.id);
+          const { data } = await supabase.from('notifications').select('*');
           if (data && Array.isArray(data)) {
             data.forEach(d => {
-              if (!notifs.some(n => n.id === d.id)) notifs.push(d);
+              if (isUserRecipient(d) && !notifs.some(n => n.id === d.id)) {
+                notifs.push(d);
+              }
             });
           }
         } catch(e) {}
       }
       return sendJSON(res, 200, { success: true, notifications: notifs });
     } catch (err) {
+      console.error('Error in GET /api/notifications:', err);
       return sendJSON(res, 200, { success: true, notifications: [] });
     }
   }

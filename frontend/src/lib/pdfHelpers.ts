@@ -150,11 +150,11 @@ export function getSignatureBlockDetails(
     : resolvedState;
   const currentProj = workspaceStore.getState().project;
 
-  // 1. Originated By: Name = user who exported PDF/Excel (Primary auth user), Date = Current export/calculation date
+  // 1. Originator: Name = user who exported PDF/Excel (Primary auth user), Date = Current export/calculation date
   const originatedName = getExporterUserName(exporterName);
   const originatedDate = formatDateStr(new Date().toISOString());
 
-  // 2. Reviewed By: Find the LATEST reviewed action
+  // 2. Reviewer: Find the LATEST reviewed action
   let reviewerName = "";
   let reviewerDate = "";
 
@@ -176,7 +176,7 @@ export function getSignatureBlockDetails(
     reviewerDate = formatDateStr((currentProj as any).reviewedAt || new Date().toISOString());
   }
 
-  // 3. Approved By: Find the LATEST approved action
+  // 3. Approver: Find the LATEST approved action
   let approverName = "";
   let approverDate = "";
 
@@ -254,7 +254,7 @@ export function addPdfSignatureBlock(
   const colSigWidth = Math.floor(remainingWidth / 3);
   const lastColWidth = remainingWidth - (colSigWidth * 2);
 
-  const head = [["", "Originated by", "Reviewed by", "Approved by"]];
+  const head = [["", "Originator", "Reviewer", "Approver"]];
   const body = [
     ["Name:", originatedName || "-", reviewerName || "-", approverName || "-"],
     ["Date:", originatedDate || "-", reviewerDate || "-", approverDate || "-"],

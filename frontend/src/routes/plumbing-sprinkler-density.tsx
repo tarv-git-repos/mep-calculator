@@ -1163,7 +1163,6 @@ function SprinklerDensityPage() {
           {/* Breadcrumbs & Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; SPRINKLER DENSITY &amp; FLOW</span>
               <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler Density &amp; Flow</h1>

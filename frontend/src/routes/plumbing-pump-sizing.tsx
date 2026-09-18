@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { Download, ChevronDown, ChevronRight, Save, Sparkles, FileSpreadsheet, Eye } from "lucide-react";
+import { Download, ChevronDown, ChevronRight, Save, Sparkles, FileSpreadsheet, Eye, MessageSquare } from "lucide-react";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
@@ -11,11 +11,81 @@ import { dirtyStore } from "@/lib/dirty-store";
 import { IP_FIXTURE_UNITS } from "./plumbing-fixture-unit";
 import { useAuth } from "@/contexts/AuthContext";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 import {
   StandardCalculatorLayout,
   useCalculatorFramework,
   CalculationPreviewData,
 } from "@/components/calculator-framework";
+
+const ipcTable = [
+  { wsfu: 0, gpm: 0 },
+  { wsfu: 1, gpm: 3 },
+  { wsfu: 2, gpm: 5 },
+  { wsfu: 3, gpm: 6.5 },
+  { wsfu: 5, gpm: 9.4 },
+  { wsfu: 10, gpm: 14.6 },
+  { wsfu: 15, gpm: 17.5 },
+  { wsfu: 20, gpm: 19.6 },
+  { wsfu: 25, gpm: 21.5 },
+  { wsfu: 30, gpm: 23.3 },
+  { wsfu: 40, gpm: 26.3 },
+  { wsfu: 50, gpm: 29.1 },
+  { wsfu: 60, gpm: 32 },
+  { wsfu: 70, gpm: 35 },
+  { wsfu: 80, gpm: 38 },
+  { wsfu: 90, gpm: 41 },
+  { wsfu: 100, gpm: 43.5 },
+  { wsfu: 120, gpm: 48 },
+  { wsfu: 140, gpm: 52.5 },
+  { wsfu: 160, gpm: 57 },
+  { wsfu: 180, gpm: 61 },
+  { wsfu: 200, gpm: 65 },
+  { wsfu: 225, gpm: 70 },
+  { wsfu: 250, gpm: 75 },
+  { wsfu: 275, gpm: 80 },
+  { wsfu: 300, gpm: 85 },
+  { wsfu: 400, gpm: 105 },
+  { wsfu: 500, gpm: 124 },
+  { wsfu: 750, gpm: 170 },
+  { wsfu: 1000, gpm: 208 },
+  { wsfu: 1250, gpm: 239 },
+  { wsfu: 1500, gpm: 269 },
+  { wsfu: 1750, gpm: 297 },
+  { wsfu: 2000, gpm: 325 },
+  { wsfu: 2500, gpm: 380 },
+  { wsfu: 3000, gpm: 433 },
+  { wsfu: 4000, gpm: 525 },
+  { wsfu: 5000, gpm: 593 }
+];
+
+function wsfuToGPM(wsfu: number) {
+  let val = Math.max(0, Math.min(wsfu, 5000));
+  for (let i = 0; i < ipcTable.length; i++) {
+    if (ipcTable[i].wsfu === val) return ipcTable[i].gpm;
+  }
+  for (let i = 0; i < ipcTable.length - 1; i++) {
+    const lower = ipcTable[i];
+    const upper = ipcTable[i + 1];
+    if (val > lower.wsfu && val < upper.wsfu) {
+      const ratio = (val - lower.wsfu) / (upper.wsfu - lower.wsfu);
+      return lower.gpm + ratio * (upper.gpm - lower.gpm);
+    }
+  }
+  return 0;
+}
+
+function wsfuToLPS(wsfu: number) {
+  return wsfuToGPM(wsfu) * 0.06309;
+}
 
 export const Route = createFileRoute("/plumbing-pump-sizing")({
   head: () => ({
@@ -30,39 +100,6 @@ export const Route = createFileRoute("/plumbing-pump-sizing")({
   }),
   component: PumpSizingPage,
 });
-
-// Hunter's Curve lookup table (WSFU to GPM)
-const ipcTable = [
-  { wsfu: 0, gpm: 0 }, { wsfu: 1, gpm: 3 }, { wsfu: 2, gpm: 5 }, { wsfu: 3, gpm: 6.5 }, { wsfu: 5, gpm: 9.4 },
-  { wsfu: 10, gpm: 14.6 }, { wsfu: 15, gpm: 17.5 }, { wsfu: 20, gpm: 19.6 }, { wsfu: 25, gpm: 21.5 },
-  { wsfu: 30, gpm: 23.3 }, { wsfu: 40, gpm: 26.3 }, { wsfu: 50, gpm: 29.1 }, { wsfu: 60, gpm: 32 },
-  { wsfu: 70, gpm: 35 }, { wsfu: 80, gpm: 38 }, { wsfu: 90, gpm: 41 }, { wsfu: 100, gpm: 43.5 },
-  { wsfu: 120, gpm: 48 }, { wsfu: 140, gpm: 52.5 }, { wsfu: 160, gpm: 57 }, { wsfu: 180, gpm: 61 },
-  { wsfu: 200, gpm: 65 }, { wsfu: 225, gpm: 70 }, { wsfu: 250, gpm: 75 }, { wsfu: 275, gpm: 80 },
-  { wsfu: 300, gpm: 85 }, { wsfu: 400, gpm: 105 }, { wsfu: 500, gpm: 124 }, { wsfu: 750, gpm: 170 },
-  { wsfu: 1000, gpm: 208 }, { wsfu: 1250, gpm: 239 }, { wsfu: 1500, gpm: 269 }, { wsfu: 1750, gpm: 297 },
-  { wsfu: 2000, gpm: 325 }, { wsfu: 2500, gpm: 380 }, { wsfu: 3000, gpm: 433 }, { wsfu: 4000, gpm: 525 },
-  { wsfu: 5000, gpm: 593 }
-];
-
-function wsfuToGPM(wsfu: number): number {
-  const clamped = Math.max(0, Math.min(wsfu, 5000));
-  const exact = ipcTable.find(row => row.wsfu === clamped);
-  if (exact) return exact.gpm;
-  for (let i = 0; i < ipcTable.length - 1; i++) {
-    const lower = ipcTable[i];
-    const upper = ipcTable[i + 1];
-    if (clamped > lower.wsfu && clamped < upper.wsfu) {
-      const ratio = (clamped - lower.wsfu) / (upper.wsfu - lower.wsfu);
-      return lower.gpm + ratio * (upper.gpm - lower.gpm);
-    }
-  }
-  return 0;
-}
-
-function wsfuToLPS(wsfu: number): number {
-  return wsfuToGPM(wsfu) * 0.06309;
-}
 
 function PumpSizingPage() {
   const { userData, profile } = useAuth();
@@ -109,6 +146,157 @@ function PumpSizingPage() {
   const [expandDetails, setExpandDetails] = useState<boolean>(false);
   const [expandAssumptions, setExpandAssumptions] = useState<boolean>(false);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  // Comments state
+  const [commentsList, setCommentsList] = useState<any[]>([]);
+  const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<any>(null);
+
+  const getItemComments = (itemId: string) => commentsList.filter(c => c.targetId === itemId || c.spaceId === itemId || c.itemId === itemId);
+
+  // Load comments on project switch
+  useEffect(() => {
+    const pId = project?.id || "default";
+    const storageKey = `mep_calc_comments_${pId}_/plumbing-pump-sizing`;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setCommentsList(parsed);
+        }
+      } else {
+        setCommentsList([]);
+      }
+    } catch (e) {
+      console.error("Failed to load comments", e);
+    }
+  }, [project?.id]);
+
+  // Scroll and highlight notification target item
+  useEffect(() => {
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanId = (targetId || "").toLowerCase().trim();
+      const cleanRaw = cleanId.replace(/^(field-|card-|res-)/, "");
+      const cleanName = (targetName || "").toLowerCase().trim();
+
+      const el = document.getElementById(targetId || "") ||
+                 document.getElementById(`field-${cleanRaw}`) ||
+                 document.getElementById(`card-${cleanRaw}`) ||
+                 document.getElementById(`field-${targetId}`) ||
+                 document.getElementById(`card-${targetId}`) ||
+                 document.querySelector(`[data-field-id="${cleanRaw}"]`) ||
+                 document.querySelector(`[data-field-id="${targetId}"]`) ||
+                 document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
+                 document.querySelector(`[data-comment-target="${targetId}"]`);
+
+      setHighlightedTargetId(cleanRaw || cleanId || targetId || null);
+
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedTargetId(null);
+        highlightTimeoutRef.current = null;
+      }, 4500);
+
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    };
+
+    const handleScrollEvent = (e: any) => {
+      if (e.detail?.targetId) handleScrollTarget(e.detail.targetId, e.detail.targetName);
+    };
+
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlTargetId = searchParams.get("targetId") || searchParams.get("itemId") || searchParams.get("spaceId");
+      if (urlTargetId) {
+        setTimeout(() => handleScrollTarget(urlTargetId, searchParams.get("targetName") || ""), 800);
+      }
+    }
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
+    window.addEventListener("mep_scroll_to_comment_target", handleScrollEvent);
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
+      window.removeEventListener("mep_scroll_to_comment_target", handleScrollEvent);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, [typeof window !== "undefined" ? window.location.search : ""]);
+
+  const saveComments = (newList: any[]) => {
+    setCommentsList(newList);
+    const pId = project?.id || "default";
+    localStorage.setItem(`mep_calc_comments_${pId}_/plumbing-pump-sizing`, JSON.stringify(newList));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mep_notif_tick"));
+      window.dispatchEvent(new CustomEvent("mep_notification_received"));
+      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+      window.dispatchEvent(new Event("storage"));
+    }
+  };
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (commentData: any) => {
+    const targetId = commentTargetItem?.id || commentData?.targetId || commentData?.spaceId || commentData?.itemId || "pumpType";
+    const targetName = commentTargetItem?.name || commentData?.targetName || commentData?.spaceName || "Pump Parameter";
+
+    const commentWithMeta = {
+      ...commentData,
+      targetId,
+      targetName,
+      spaceId: targetId,
+      spaceName: targetName,
+      itemId: targetId,
+      targetType: "Pump Sizing Parameter",
+      calculatorPath: "/plumbing-pump-sizing",
+    };
+
+    const updated = [commentWithMeta, ...commentsList];
+    saveComments(updated);
+
+    notifyCommentAssigned({
+      ...commentWithMeta,
+      url: `/plumbing-pump-sizing?targetId=${targetId}&targetName=${encodeURIComponent(targetName)}`
+    });
+
+    setCommentModalOpen(false);
+    toast.success("Comment/Task added successfully!");
+  };
+
+  const isFieldHighlighted = (fieldId: string, searchKey?: string) => {
+    if (!highlightedTargetId) return "";
+    const cleanHighlight = highlightedTargetId.toLowerCase().trim();
+    if (fieldId.toLowerCase() === cleanHighlight) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
+    if (fieldId.toLowerCase().includes(cleanHighlight)) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
+    if (searchKey && searchKey.toLowerCase().includes(cleanHighlight)) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
+    return "";
+  };
+
+  const renderCommentBadge = (id: string, name: string) => {
+    const existing = getItemComments(id);
+    if (existing.length === 0) return null;
+    const unresolvedCount = existing.filter(c => c.status !== "resolved").length;
+    if (unresolvedCount === 0) return null;
+    return (
+      <button 
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenComment(id, name); }}
+        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
+      >
+        {unresolvedCount}
+      </button>
+    );
+  };
 
   // Modular Framework Hook
   const framework = useCalculatorFramework({
@@ -159,7 +347,7 @@ function PumpSizingPage() {
     setLoadedProjectId(project.id);
   }, [project?.id]);
 
-  const handleSaveCurrent = () => {
+  const handleSaveCurrent = useCallback(() => {
     try {
       const dataToSave = {
         pumpType,
@@ -184,14 +372,27 @@ function PumpSizingPage() {
         effMotor,
         effPump,
       };
-      localStorage.setItem(`mep_pump_sizing_calc_${project.id}`, JSON.stringify(dataToSave));
+      localStorage.setItem(`mep_pump_sizing_calc_${project?.id || "default"}`, JSON.stringify(dataToSave));
       dirtyStore.set(false);
       if (forceSaveToCloud) forceSaveToCloud();
       toast.success("Pump Sizing Calculation saved to project successfully!");
     } catch (e) {
       toast.error("Failed to save calculation.");
     }
-  };
+  }, [
+    project?.id, pumpType, wsfuVal, manualFlow, reqVolume, fillTime, workingPumps, standbyPumps,
+    fricFactor, pipeVert, pipeHoriz, filtCarbon, filtMM, filtCuAg, filtSoftener,
+    staticHead, presidHead, suctionHead, sfHead, selectedHead, effMotor, effPump, forceSaveToCloud
+  ]);
+
+  useEffect(() => {
+    const handleTriggerSave = (e: any) => {
+      if (e.detail) e.detail.handled = true;
+      handleSaveCurrent();
+    };
+    window.addEventListener("mep-trigger-save", handleTriggerSave);
+    return () => window.removeEventListener("mep-trigger-save", handleTriggerSave);
+  }, [handleSaveCurrent]);
 
   const handleImportWSFU = () => {
     try {
@@ -254,7 +455,22 @@ function PumpSizingPage() {
     const rawHead = Math.max(0, (frictionLoss + staticH + outletH) - suctionH) + filterLoss;
     const calcHead = rawHead * (1 + safetyMargin);
     const selHead = parseFloat(selectedHead) || calcHead;
-    const flowLps = parseFloat(manualFlow) || 0;
+    
+    let flowLps = parseFloat(manualFlow) || 0;
+    const wPumps = parseInt(workingPumps) || 1;
+    
+    if (pumpType === "booster" || pumpType === "transfer-booster") {
+       const wsfu = parseFloat(wsfuVal) || 0;
+       if (wsfu > 0) {
+         flowLps = wsfuToLPS(wsfu) / Math.max(1, wPumps);
+       }
+    } else if (pumpType === "transfer") {
+       const req = parseFloat(reqVolume) || 0;
+       const time = parseFloat(fillTime) || 0;
+       if (req > 0 && time > 0) {
+         flowLps = req / (time * 3600);
+       }
+    }
     
     const liftKpa = selHead * 100;
     const pEff = (parseFloat(effPump) || 70) / 100;
@@ -282,7 +498,7 @@ function PumpSizingPage() {
   }, [
     pipeVert, pipeHoriz, fricFactor, pumpType, filtCarbon, filtMM, filtCuAg, filtSoftener,
     staticHead, presidHead, suctionHead, sfHead, selectedHead, manualFlow,
-    effPump, effMotor
+    effPump, effMotor, wsfuVal, reqVolume, fillTime, workingPumps
   ]);
 
   // Step-by-Step Formula Preview Data for Framework Modal
@@ -421,24 +637,12 @@ function PumpSizingPage() {
         importLabel="Import WSFU"
         onExportExcel={handleExportExcel}
         getCalculationPreview={() => calculationPreviewData}
-        customToolbarActions={
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => framework.openPreviewModal(calculationPreviewData)}
-              className="px-3.5 py-1.5 border border-primary/30 hover:bg-primary/10 text-primary text-xs font-semibold rounded-full flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Eye className="size-3.5" />
-              <span>Calculation Preview</span>
-            </button>
-            <button
-              onClick={handleSaveCurrent}
-              className="px-4 py-1.5 bg-[#0A7BC7] hover:bg-[#06456F] text-white text-xs font-semibold rounded-full flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-            >
-              <Save className="size-3.5" />
-              <span>Save Calculation</span>
-            </button>
-          </div>
-        }
+        previewData={framework.previewData}
+        isPreviewOpen={framework.isPreviewOpen}
+        onClosePreviewModal={framework.closePreviewModal}
+        hideHeader={true}
+        hideReviewBar={true}
+        customToolbarActions={null}
       >
         {/* Pump Sizing Parameter Inputs and Calculation Breakdown Grid */}
         <div
@@ -665,7 +869,7 @@ function PumpSizingPage() {
                 </div>
 
                 {/* DETAILED METRICS TABLE */}
-                <div className="bg-slate-50 dark:bg-zinc-850 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
+                <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
                   <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                     <span className="text-slate-600 dark:text-zinc-400">Equivalent Pipe Length:</span>
                     <span className="font-mono font-bold">{results.equivLen.toFixed(1)} m</span>

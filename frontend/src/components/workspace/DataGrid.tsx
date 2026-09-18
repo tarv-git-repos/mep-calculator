@@ -53,7 +53,11 @@ export function DataGrid<T extends { id: string }>({
   gridId?: string;
   isReadOnly?: boolean;
 }) {
-  const isReadOnly = Boolean(isReadOnlyProp || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly)));
+  const [isClientReadOnly, setIsClientReadOnly] = useState(false);
+  useEffect(() => {
+    setIsClientReadOnly(Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly));
+  }, []);
+  const isReadOnly = Boolean(isReadOnlyProp || isClientReadOnly);
   const onToggle = onToggleProp;
   const onToggleAll = onToggleAllProp;
 

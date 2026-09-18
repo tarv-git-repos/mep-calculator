@@ -327,8 +327,14 @@ const triggerSave = () => {
   logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
 
   // Broadcast mep-trigger-save to all active calculator routes
-  window.dispatchEvent(new CustomEvent("mep-trigger-save"));
+  const saveEvent = new CustomEvent("mep-trigger-save", { detail: { handled: false } });
+  window.dispatchEvent(saveEvent);
   dirtyStore.set(false);
+
+  // If a listener handled the save and showed a toast, don't do fallback actions
+  if (saveEvent.detail && saveEvent.detail.handled) {
+    return true;
+  }
 
   const buttons = Array.from(document.querySelectorAll('button'));
   const saveBtn = buttons.find(btn => {
@@ -801,6 +807,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return updated;
     });
 
+    api.deleteNotification(keysToDelete).catch(() => {});
+
     setNotifTick(t => t + 1);
     toast.success("Notification moved to Deleted tab.");
   };
@@ -1078,6 +1086,28 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const currentId = userId || userData?.id || profile?.id || "current_user";
     const currentName = (userData?.name || profile?.name || "Design Engineer").toLowerCase().trim();
     const currentEmail = (userData?.email || profile?.email || "").toLowerCase().trim();
+    const currentIdStr = String(currentId || "").toLowerCase().trim();
+    const currentEmailStr = String(currentEmail || "").toLowerCase().trim();
+    const currentNameStr = String(currentName || "").toLowerCase().trim();
+    const currentHandle = currentEmailStr ? currentEmailStr.split('@')[0].toLowerCase().trim() : '';
+
+    const matchesCurrentUser = (identifier: any) => {
+      if (!identifier) return false;
+      const clean = String(identifier).toLowerCase().trim();
+      if (!clean) return false;
+      if (clean === 'all') return true;
+      if (currentIdStr && (clean === currentIdStr || currentIdStr === clean)) return true;
+      if (currentEmailStr && (clean === currentEmailStr || clean.includes(currentEmailStr) || currentEmailStr.includes(clean))) return true;
+      if (currentNameStr && (clean === currentNameStr || clean.startsWith(currentNameStr) || currentNameStr.startsWith(clean))) return true;
+      if (currentHandle && (clean === currentHandle || clean.includes(currentHandle) || currentHandle.includes(clean))) return true;
+      if (clean.includes('(') && clean.includes(')')) {
+        const nPart = clean.split('(')[0].trim().toLowerCase();
+        const hPart = clean.split('(')[1].replace(')', '').trim().toLowerCase();
+        if (currentNameStr && (nPart === currentNameStr || currentNameStr.includes(nPart) || nPart.includes(currentNameStr))) return true;
+        if (currentHandle && (hPart === currentHandle || currentEmailStr.startsWith(hPart))) return true;
+      }
+      return false;
+    };
 
     const notifs: any[] = [];
     const extractBusbarRows = (panels: any[]) => {
@@ -1415,24 +1445,26 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const pnAuthorId = String(pn.authorId || pn.metadata?.authorId || "").toLowerCase().trim();
       const pnAuthorName = String(pn.authorName || pn.metadata?.authorName || "").toLowerCase().trim();
       const isPnAuthor = Boolean(
-        (pnAuthorId && currentId && pnAuthorId === currentId) ||
-        (pnAuthorId && currentEmail && pnAuthorId === currentEmail) ||
-        (pnAuthorName && currentName && (pnAuthorName === currentName || currentName.includes(pnAuthorName) || pnAuthorName.includes(currentName))) ||
+        (pnAuthorId && currentIdStr && pnAuthorId === currentIdStr) ||
+        (pnAuthorId && currentEmailStr && pnAuthorId === currentEmailStr) ||
+        (pnAuthorName && currentNameStr && (pnAuthorName === currentNameStr || currentNameStr.includes(pnAuthorName) || pnAuthorName.includes(currentNameStr))) ||
         (pn.authorId && (pn.authorId === userId || pn.authorId === userData?.id || pn.authorId === profile?.id)) ||
         (pn.authorName && (pn.authorName === userData?.name || pn.authorName === profile?.name))
       );
 
       // Senders should never receive their own sent tasks/comments in Received tab
-      if (isPnAuthor && !pn.isCompletionNotif) return;
+      if (isPnAuthor && !pn.isCompletionNotif && !pn.metadata?.isCompletionNotif) return;
 
+      const pnRecipient = String(pn.recipientId || pn.metadata?.recipientId || '').toLowerCase().trim();
       const pnAssigned = Array.isArray(pn.assignedUsers) ? pn.assignedUsers : (pn.metadata?.assignedUsers || []);
+      
+      let isTargetedToMe = true;
       if (pnAssigned.length > 0) {
-        const isTargetedToMe = pnAssigned.some((u: any) => {
-          const uStr = String(u).toLowerCase().trim();
-          return (currentId && uStr === currentId) || (currentEmail && uStr === currentEmail) || (currentName && uStr === currentName);
-        });
-        if (!isTargetedToMe) return; // Assigned to someone else -> exclude!
+        isTargetedToMe = pnAssigned.some((u: any) => matchesCurrentUser(u));
+      } else if (pnRecipient && pnRecipient !== 'all') {
+        isTargetedToMe = matchesCurrentUser(pnRecipient);
       }
+      if (!isTargetedToMe) return; // Assigned to someone else -> exclude!
 
       combinedMap.set(pn.id, pn);
     });
@@ -1450,23 +1482,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const nAuthorId = String(n.authorId || n.metadata?.authorId || "").toLowerCase().trim();
       const nAuthorName = String(n.authorName || n.metadata?.authorName || "").toLowerCase().trim();
       const isAuthor = Boolean(
-        (nAuthorId && currentId && nAuthorId === currentId) ||
-        (nAuthorId && currentEmail && nAuthorId === currentEmail) ||
-        (nAuthorName && currentName && (nAuthorName === currentName || currentName.includes(nAuthorName) || nAuthorName.includes(currentName))) ||
+        (nAuthorId && currentIdStr && nAuthorId === currentIdStr) ||
+        (nAuthorId && currentEmailStr && nAuthorId === currentEmailStr) ||
+        (nAuthorName && currentNameStr && (nAuthorName === currentNameStr || currentNameStr.includes(nAuthorName) || nAuthorName.includes(currentNameStr))) ||
         (n.authorId && (n.authorId === userId || n.authorId === userData?.id || n.authorId === profile?.id)) ||
         (n.authorName && (n.authorName === userData?.name || n.authorName === profile?.name))
       );
 
       // If authored by current user and not a completion confirmation, never show in Received inbox
-      if (isAuthor && !n.isCompletionNotif) return false;
+      if (isAuthor && !n.isCompletionNotif && !n.metadata?.isCompletionNotif) return false;
 
-      // If targeted to specific assignees, verify current user is one of them
+      // If targeted to specific assignees or specific recipient, verify current user is one of them
+      const nRecipient = String(n.recipientId || n.metadata?.recipientId || '').toLowerCase().trim();
       const assigned = Array.isArray(n.assignedUsers) ? n.assignedUsers : (n.metadata?.assignedUsers || []);
       if (assigned.length > 0) {
-        const isTargetedToMe = assigned.some((u: any) => {
-          const uStr = String(u).toLowerCase().trim();
-          return (currentId && uStr === currentId) || (currentEmail && uStr === currentEmail) || (currentName && uStr === currentName);
-        });
+        const isTargetedToMe = assigned.some((u: any) => matchesCurrentUser(u));
+        if (!isTargetedToMe) return false;
+      } else if (nRecipient && nRecipient !== 'all') {
+        const isTargetedToMe = matchesCurrentUser(nRecipient);
         if (!isTargetedToMe) return false;
       }
 
@@ -1671,10 +1704,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         const cId = String(userId || userData?.id || profile?.id || "").toLowerCase().trim();
         const cEmail = String(userData?.email || profile?.email || "").toLowerCase().trim();
         const cName = String(userData?.name || profile?.name || "").toLowerCase().trim();
+        const cHandle = cEmail ? cEmail.split('@')[0].toLowerCase().trim() : '';
 
         const authorIdStr = String(item.authorId || item.metadata?.authorId || "").toLowerCase().trim();
         const authorNameStr = String(item.authorName || item.metadata?.authorName || "").toLowerCase().trim();
         const assignedUsers = Array.isArray(item.assignedUsers) ? item.assignedUsers : (item.metadata?.assignedUsers || []);
+        const itemRecipient = String(item.recipientId || item.metadata?.recipientId || '').toLowerCase().trim();
         const itemTargetRole = item.targetRole || item.metadata?.targetRole || "";
         const itemIsReviewNotif = Boolean(item.isReviewStateNotif || item.metadata?.isReviewStateNotif);
 
@@ -1687,7 +1722,25 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           (item.authorName && (item.authorName === userData?.name || item.authorName === profile?.name))
         );
 
-        if (isAuthor) return;
+        if (isAuthor && !item.isCompletionNotif && !item.metadata?.isCompletionNotif) return;
+
+        const checkMatch = (idVal: any) => {
+          if (!idVal) return false;
+          const s = String(idVal).toLowerCase().trim();
+          if (!s) return false;
+          if (s === 'all') return true;
+          if (cId && (s === cId || cId.includes(s) || s.includes(cId))) return true;
+          if (cEmail && (s === cEmail || cEmail.includes(s) || s.includes(cEmail))) return true;
+          if (cName && (s === cName || cName.startsWith(s) || s.startsWith(cName))) return true;
+          if (cHandle && (s === cHandle || s.includes(cHandle) || cHandle.includes(s))) return true;
+          if (s.includes('(') && s.includes(')')) {
+            const nPart = s.split('(')[0].trim().toLowerCase();
+            const hPart = s.split('(')[1].replace(')', '').trim().toLowerCase();
+            if (cName && (nPart === cName || cName.includes(nPart) || nPart.includes(cName))) return true;
+            if (cHandle && (hPart === cHandle || cEmail.startsWith(hPart))) return true;
+          }
+          return false;
+        };
 
         let isForMe = false;
 
@@ -1701,10 +1754,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             isForMe = (currentUserAuthority !== "APPROVE_REJECT");
           }
         } else if (assignedUsers.length > 0) {
-          isForMe = assignedUsers.some((u: any) => {
-            const uStr = String(u).toLowerCase().trim();
-            return (cId && uStr === cId) || (cEmail && uStr === cEmail) || (cName && uStr === cName);
-          });
+          isForMe = assignedUsers.some((u: any) => checkMatch(u));
+        } else if (itemRecipient && itemRecipient !== 'all') {
+          isForMe = checkMatch(itemRecipient);
         } else {
           isForMe = Boolean(
             (!cId || authorIdStr !== cId) &&

@@ -1,7 +1,7 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
-import { addExcelSignatureBlock } from "@/lib/excelHelpers";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
@@ -9,16 +9,20 @@ import { useState, useMemo, useEffect } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
-import { Plus, Download, Trash, Copy, X, Database } from "lucide-react";
+import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
-import ExcelJS from "exceljs";
-import saveAsPkg from "file-saver";
-const saveAs = saveAsPkg.saveAs || saveAsPkg;
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { TBtn, BulkBtn } from "@/components/workspace/Button";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import type { TaskComment } from "@/lib/ventilation-calc";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/load-summary")({
   head: () => ({
     meta: [
-      { title: "Load Summary — MEP Calc" },
+      { title: "Load Summary â€” MEP Calc" },
       { name: "description", content: "Calculate electrical load summary" },
     ],
   }),
@@ -36,6 +40,7 @@ interface LoadRow {
   other: number;
   totalLoad: number;
   remarks: string;
+  comments?: TaskComment[];
 }
 
 const computeRowOutputs = (row: LoadRow): LoadRow => {
@@ -81,8 +86,193 @@ function LoadSummaryPage() {
   
   const [transformers, setTransformers] = useState("");
 
+  // Unit System State (SI / IP)
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">(() => {
+    if (typeof window === "undefined") return "si";
+    try {
+      const pId = project?.id || "default";
+      return (localStorage.getItem(`mep_calc_unit_${pId}_/load-summary`) as "si" | "ip") || "si";
+    } catch {
+      return "si";
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const pId = project?.id || "default";
+      localStorage.setItem(`mep_calc_unit_${pId}_/load-summary`, unitSystem);
+    } catch {}
+  }, [unitSystem, project?.id]);
+
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
+    if (newSystem === unitSystem) return;
+    pushToHistory(rows, history, setHistory, setRedoStack);
+    setUnitSystem(newSystem);
+    if (shouldConvert) {
+      setRows(prev => prev.map(r => {
+        const oldArea = Number(r.area) || 0;
+        const newArea = newSystem === "ip"
+          ? Number((oldArea * 10.7639).toFixed(2))
+          : Number((oldArea / 10.7639).toFixed(2));
+        return {
+          ...r,
+          area: newArea
+        };
+      }));
+      toast.success(`Converted units to ${newSystem.toUpperCase()}`);
+    } else {
+      toast.success(`Switched unit display to ${newSystem.toUpperCase()}`);
+    }
+  };
+
+  // Comments & Notifications State
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type?: string } | null>(null);
+  const [commentsList, setCommentsList] = useState<TaskComment[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const pId = project?.id || "default";
+      const saved = localStorage.getItem(`mep_calc_comments_${pId}_/load-summary`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const pId = project?.id || "default";
+      const saved = localStorage.getItem(`mep_calc_comments_${pId}_/load-summary`);
+      if (saved) setCommentsList(JSON.parse(saved));
+      else setCommentsList([]);
+    } catch {
+      setCommentsList([]);
+    }
+  }, [project?.id]);
+
+  const saveComments = (newList: TaskComment[]) => {
+    setCommentsList(newList);
+    const pId = project?.id || "default";
+    localStorage.setItem(`mep_calc_comments_${pId}_/load-summary`, JSON.stringify(newList));
+  };
+
+  const handleOpenComment = (id: string, name: string, type: string = "load") => {
+    setCommentTargetItem({ id, name, type });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (comment: TaskComment) => {
+    const enrichedComment = {
+      ...comment,
+      targetId: commentTargetItem?.id || "load-summary",
+      targetName: commentTargetItem?.name || "Electrical Load",
+      targetType: commentTargetItem?.type || "load",
+      calculatorTitle: "Electrical Load Summary",
+      calculatorPath: "/load-summary",
+      projectId: project?.id || "default",
+      projectName: project?.name || "Electrical Load Summary",
+    };
+    const updated = [enrichedComment, ...commentsList];
+    saveComments(updated);
+
+    if (commentTargetItem?.id && commentTargetItem.id !== "load-summary-sheet") {
+      setRows(prev => prev.map(r => {
+        if (r.id === commentTargetItem.id) {
+          const existing = r.comments || [];
+          return { ...r, comments: [enrichedComment, ...existing] };
+        }
+        return r;
+      }));
+    }
+
+    notifyCommentAssigned({
+      comment: enrichedComment,
+      targetId: commentTargetItem?.id || "load-summary",
+      targetName: commentTargetItem?.name || "Electrical Load",
+      targetType: commentTargetItem?.type || "load",
+      calculatorTitle: "Electrical Load Summary",
+      calculatorPath: "/load-summary",
+      project,
+      currentUserName,
+      currentUserId: userData?.id || profile?.id
+    }).catch(console.error);
+  };
+
+  // Toolbar state: search, filter, and sort
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<"all" | "lighting" | "power" | "hvac" | "other">("all");
+  const [filterNonZeroOnly, setFilterNonZeroOnly] = useState(false);
+  const [filterWithRemarksOnly, setFilterWithRemarksOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<"default" | "description" | "qty" | "area" | "lighting" | "power" | "hvac" | "other" | "totalLoad">("default");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+
+  const activeFiltersCount = (filterType !== "all" ? 1 : 0) + (filterNonZeroOnly ? 1 : 0) + (filterWithRemarksOnly ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setFilterType("all");
+    setFilterNonZeroOnly(false);
+    setFilterWithRemarksOnly(false);
+  };
+
+  const handleResetSort = () => {
+    setSortKey("default");
+    setSortDirection("asc");
+  };
+
+  const filteredRows = useMemo(() => {
+    let result = [...rows];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(r => 
+        (r.description || "").toLowerCase().includes(q) || 
+        (r.remarks || "").toLowerCase().includes(q)
+      );
+    }
+
+    if (filterType === "lighting") {
+      result = result.filter(r => (r.lighting || 0) > 0);
+    } else if (filterType === "power") {
+      result = result.filter(r => (r.power || 0) > 0);
+    } else if (filterType === "hvac") {
+      result = result.filter(r => (r.hvac || 0) > 0);
+    } else if (filterType === "other") {
+      result = result.filter(r => (r.other || 0) > 0);
+    }
+
+    if (filterNonZeroOnly) {
+      result = result.filter(r => (r.totalLoad || 0) > 0);
+    }
+
+    if (filterWithRemarksOnly) {
+      result = result.filter(r => !!r.remarks && r.remarks.trim() !== "");
+    }
+
+    if (sortKey !== "default") {
+      result.sort((a, b) => {
+        let valA = a[sortKey as keyof LoadRow];
+        let valB = b[sortKey as keyof LoadRow];
+
+        if (typeof valA === "string") {
+          const comp = (valA || "").localeCompare(String(valB || ""));
+          return sortDirection === "asc" ? comp : -comp;
+        } else {
+          const numA = Number(valA) || 0;
+          const numB = Number(valB) || 0;
+          return sortDirection === "asc" ? numA - numB : numB - numA;
+        }
+      });
+    }
+
+    return result;
+  }, [rows, searchQuery, filterType, filterNonZeroOnly, filterWithRemarksOnly, sortKey, sortDirection]);
+
   const totalPower = rows.reduce((acc, row) => acc + row.totalLoad, 0);
   const totalPowerWithSafety = totalPower * 1.1;
+  const filteredPower = filteredRows.reduce((acc, row) => acc + row.totalLoad, 0);
+  const isFiltered = filteredRows.length !== rows.length;
 
   const updateRow = (id: string, updates: Partial<LoadRow>) => {
     pushToHistory(rows, history, setHistory, setRedoStack);
@@ -105,14 +295,14 @@ function LoadSummaryPage() {
     setSelected(prev => {
       const next = new Set(prev);
       if (isShift && activeRowId) {
-        const currentIndex = rows.findIndex(r => r.id === id);
-        const activeIndex = rows.findIndex(r => r.id === activeRowId);
+        const currentIndex = filteredRows.findIndex(r => r.id === id);
+        const activeIndex = filteredRows.findIndex(r => r.id === activeRowId);
         
         if (currentIndex !== -1 && activeIndex !== -1) {
           const start = Math.min(currentIndex, activeIndex);
           const end = Math.max(currentIndex, activeIndex);
           for (let i = start; i <= end; i++) {
-            next.add(rows[i].id);
+            next.add(filteredRows[i].id);
           }
           return next;
         }
@@ -127,10 +317,10 @@ function LoadSummaryPage() {
   };
 
   const handleToggleAll = () => {
-    if (selected.size === rows.length && rows.length > 0) {
+    if (selected.size === filteredRows.length && filteredRows.length > 0) {
        setSelected(new Set());
     } else {
-       setSelected(new Set(rows.map(r => r.id)));
+       setSelected(new Set(filteredRows.map(r => r.id)));
     }
   };
 
@@ -150,7 +340,7 @@ function LoadSummaryPage() {
     };
     pushToHistory(rows, history, setHistory, setRedoStack);
     setRows(prev => [...prev, computeRowOutputs(newRow)]);
-    setSelected(new Set([newId]));
+    setSelected(new Set());
     setActiveRowId(newId);
   };
 
@@ -164,6 +354,7 @@ function LoadSummaryPage() {
     
     pushToHistory(rows, history, setHistory, setRedoStack);
     setRows(prev => [...prev, ...dummy.map(computeRowOutputs)]);
+    toast.success("Loaded sample office loads.");
   };
 
   const deleteSelected = async () => {
@@ -173,6 +364,7 @@ function LoadSummaryPage() {
       setRows(prev => prev.filter(r => !selected.has(r.id)));
       setSelected(new Set());
       setActiveRowId(undefined);
+      toast.success("Selected load(s) deleted.");
     }
   };
 
@@ -191,6 +383,7 @@ function LoadSummaryPage() {
       }
     });
     setRows(prev => [...prev, ...duplicated]);
+    toast.success(`Duplicated ${duplicated.length} row(s).`);
   };
 
   useEffect(() => {
@@ -247,7 +440,7 @@ function LoadSummaryPage() {
 
       if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        setSelected(new Set(rows.map(r => r.id)));
+        setSelected(new Set(filteredRows.map(r => r.id)));
       }
 
       if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
@@ -312,285 +505,307 @@ function LoadSummaryPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [rows, selected, history, redoStack, confirm]);
+  }, [rows, filteredRows, selected, history, redoStack, confirm]);
 
-  const handleImportExcelRows = (mappedRows: any[]) => {
-    const newRows: LoadRow[] = mappedRows.map((mr, idx) => ({
-      id: `ls_import_${Date.now()}_${idx}`,
-      description: mr.description || `Imported Load ${idx + 1}`,
-      qty: Number(mr.qty) || 1,
-      phase: mr.phase || "3",
-      loadW: Number(mr.loadW) || 0,
-      powerFactor: Number(mr.powerFactor) || 0.8,
-      efficiency: Number(mr.efficiency) || 0.85,
-      diversityFactor: Number(mr.diversityFactor) || 1,
-      remarks: mr.remarks || ""
-    }));
-    
-    pushToHistory(rows, history, setHistory, setRedoStack);
-    setRows(prev => [...prev, ...newRows]);
+  const importColumnMapping = {
+    description: ["Description", "Space", "Room", "Area Name", "Load Description", "Tap Off Points", "Item Description", "Name"],
+    qty: ["Qty", "Quantity", "Unit", "Count", "Qty unit", "Qty (unit)", "Qty\nunit"],
+    area: ["Area", "Area sq.m", "Area (sq.m)", "Area (m2)", "sq.m", "m2", "Area sq.ft", "Area (sq.ft)", "Area (sq ft)", "sq.ft", "sqft", "ft2", "Area sq. m.", "Area\nsq. m."],
+    lighting: ["Lighting", "Lighting kW", "Lighting (kW)", "Light", "LTG", "Lighting\nkW", "Lighting Load (kW)"],
+    power: ["Power", "Power kW", "Power (kW)", "Small Power", "Power\nkW", "Power Load (kW)"],
+    hvac: ["HVAC", "HVAC kW", "HVAC (kW)", "AC", "Cooling", "HVAC\nkW", "HVAC Load (kW)"],
+    other: ["Other", "Other Load", "Other kW", "Other (kW)", "Other Load kW", "Other Load\nkW"],
+    remarks: ["Remarks", "Notes", "Comment", "Comments"]
   };
 
-  const exportExcel = async () => {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Load Summary");
-
-    worksheet.mergeCells("A1:G1");
-    worksheet.mergeCells("H1:J1");
-    worksheet.getCell("A1").value = "Calculation No: CEC-EED-PXXX-203   Rev. No.:";
-    worksheet.getCell("H1").value = "Date :";
-
-    worksheet.mergeCells("A2:G2");
-    worksheet.mergeCells("H2:J2");
-    worksheet.getCell("A2").value = `Project No : ${project.code}`;
-    worksheet.getCell("H2").value = "Client :";
-
-    worksheet.mergeCells("A3:G3");
-    worksheet.mergeCells("H3:J3");
-    worksheet.getCell("A3").value = `Project Name : ${project.name}`;
-    worksheet.getCell("H3").value = "End User :";
-
-    for (let r = 1; r <= 3; r++) {
-      const row = worksheet.getRow(r);
-      row.height = 22;
-      for (let c = 1; c <= 10; c++) {
-        const cell = worksheet.getCell(r, c);
-        cell.font = { bold: true, name: "Arial", size: 10 };
-        cell.alignment = { vertical: "middle", horizontal: "left" };
-        cell.border = {
-          top: { style: "thin", color: { argb: "000000" } },
-          left: { style: "thin", color: { argb: "000000" } },
-          bottom: { style: "thin", color: { argb: "000000" } },
-          right: { style: "thin", color: { argb: "000000" } }
-        };
-      }
-    }
-
-    const headers = [
-      "S.No", "Description", "Qty\nunit", "Area\nsq. m.", 
-      "Lighting\nkW", "Power\nkW", "HVAC\nkW", 
-      "Other Load\nkW", "Total Load\nkW", "Remarks"
-    ];
-
-    const headerRow = worksheet.getRow(4);
-    headerRow.values = headers;
-    headerRow.height = 35;
-    
-    headerRow.eachCell((cell) => {
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFD9D9D9" } 
-      };
-      cell.font = { bold: true, name: "Arial", size: 9 };
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      cell.border = {
-        top: { style: "thin", color: { argb: "000000" } },
-        left: { style: "thin", color: { argb: "000000" } },
-        bottom: { style: "thin", color: { argb: "000000" } },
-        right: { style: "thin", color: { argb: "000000" } }
-      };
+  const handleImportExcelRows = (mappedRows: any[]) => {
+    // Smart filter: keep rows that have either a description or any non-zero load / remark
+    const relevantRows = mappedRows.filter(mr => {
+      const hasDesc = Boolean(mr.description && String(mr.description).trim() !== "");
+      const hasValue = Boolean(
+        (Number(mr.area) || 0) > 0 ||
+        (Number(mr.lighting) || 0) > 0 ||
+        (Number(mr.power) || 0) > 0 ||
+        (Number(mr.hvac) || 0) > 0 ||
+        (Number(mr.other) || 0) > 0 ||
+        (mr.remarks && String(mr.remarks).trim() !== "")
+      );
+      return hasDesc || hasValue;
     });
 
-    rows.forEach((r, i) => {
-      const row = worksheet.addRow([
-        i + 1,
-        r.description,
-        r.qty,
-        r.area,
-        r.lighting,
-        r.power,
-        r.hvac,
-        r.other,
-        r.totalLoad,
-        r.remarks
+    const rowsToProcess = relevantRows.length > 0 ? relevantRows : mappedRows;
+
+    const newRows: LoadRow[] = rowsToProcess.map((mr, idx) => {
+      const row: LoadRow = {
+        id: `ls_import_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+        description: mr.description || mr.space || mr.name || `Imported Load ${idx + 1}`,
+        qty: mr.qty !== undefined && mr.qty !== null && !isNaN(Number(mr.qty)) ? Number(mr.qty) : 1,
+        area: Number(mr.area) || 0,
+        lighting: Number(mr.lighting) || 0,
+        power: Number(mr.power) || 0,
+        hvac: Number(mr.hvac) || 0,
+        other: Number(mr.other) || 0,
+        totalLoad: 0,
+        remarks: mr.remarks || ""
+      };
+      return computeRowOutputs(row);
+    });
+    
+    if (newRows.length > 0) {
+      pushToHistory(rows, history, setHistory, setRedoStack);
+      setRows(prev => [...prev, ...newRows]);
+      toast.success(`Successfully imported ${newRows.length} load row(s) from Excel.`);
+    } else {
+      toast.info("No load rows found to import.");
+    }
+  };
+
+  const exportPDF = () => {
+    if (rows.length === 0) {
+      toast.info("No load rows to export.");
+      return;
+    }
+
+    try {
+      const doc = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      });
+
+      const columnStyles = {
+        0: { cellWidth: 10, halign: "center" as const },
+        1: { cellWidth: 42, halign: "left" as const },
+        2: { cellWidth: 14, halign: "center" as const },
+        3: { cellWidth: 16, halign: "center" as const },
+        4: { cellWidth: 16, halign: "center" as const },
+        5: { cellWidth: 16, halign: "center" as const },
+        6: { cellWidth: 16, halign: "center" as const },
+        7: { cellWidth: 18, halign: "center" as const },
+        8: { cellWidth: 18, halign: "center" as const },
+        9: { cellWidth: 24, halign: "left" as const }
+      };
+
+      const currentDate = formatDateStr(new Date().toISOString());
+
+      // 1. Top Header Box
+      autoTable(doc, {
+        startY: 10,
+        margin: { left: 10, right: 10 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          fontStyle: "bold",
+          textColor: [0, 0, 0],
+          lineColor: [0, 0, 0],
+          lineWidth: 0.2,
+          cellPadding: 2,
+          valign: "middle"
+        },
+        body: [
+          [
+            { content: "Calculation No: CEC-EED-PXXX-203   Rev. No.:", colSpan: 7, styles: { halign: "left" } },
+            { content: `Date : ${currentDate}`, colSpan: 3, styles: { halign: "left" } }
+          ],
+          [
+            { content: `Project No : ${project?.code || ""}`, colSpan: 7, styles: { halign: "left" } },
+            { content: `Client : ${(project as any)?.client || ""}`, colSpan: 3, styles: { halign: "left" } }
+          ],
+          [
+            { content: `Project Name : ${project?.name || ""}`, colSpan: 7, styles: { halign: "left" } },
+            { content: `End User : ${(project as any)?.endUser || ""}`, colSpan: 3, styles: { halign: "left" } }
+          ]
+        ],
+        columnStyles,
+        tableWidth: 190
+      });
+
+      const headerEndY = (doc as any).lastAutoTable.finalY;
+
+      // 2. Main Data Rows
+      const dataRows = rows.map((r, i) => [
+        { content: String(i + 1), styles: { halign: "center" as const } },
+        { content: r.description || "", styles: { halign: "left" as const } },
+        { content: String(r.qty ?? 0), styles: { halign: "center" as const } },
+        { content: String(r.area ?? 0), styles: { halign: "center" as const } },
+        { content: String(r.lighting ?? 0), styles: { halign: "center" as const } },
+        { content: String(r.power ?? 0), styles: { halign: "center" as const } },
+        { content: String(r.hvac ?? 0), styles: { halign: "center" as const } },
+        { content: String(r.other ?? 0), styles: { halign: "center" as const } },
+        { content: String(r.totalLoad ?? 0), styles: { halign: "center" as const } },
+        { content: r.remarks || "", styles: { halign: "left" as const } }
       ]);
 
-      row.eachCell((cell) => {
-        cell.font = { name: "Arial", size: 10 };
-        cell.alignment = { horizontal: "center", vertical: "middle" };
-        cell.border = {
-          top: { style: "thin", color: { argb: "000000" } },
-          left: { style: "thin", color: { argb: "000000" } },
-          bottom: { style: "thin", color: { argb: "000000" } },
-          right: { style: "thin", color: { argb: "000000" } }
-        };
+      autoTable(doc, {
+        startY: headerEndY,
+        margin: { left: 10, right: 10, top: 10, bottom: 10 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 7.5,
+          textColor: [0, 0, 0],
+          lineColor: [0, 0, 0],
+          lineWidth: 0.2,
+          cellPadding: 1,
+          valign: "middle"
+        },
+        head: [
+          [
+            { content: "S.No", styles: { halign: "center" } },
+            { content: "Description", styles: { halign: "center" } },
+            { content: "Qty\nunit", styles: { halign: "center" } },
+            { content: unitSystem === "ip" ? "Area\nsq. ft." : "Area\nsq. m.", styles: { halign: "center" } },
+            { content: "Lighting\nkW", styles: { halign: "center" } },
+            { content: "Power\nkW", styles: { halign: "center" } },
+            { content: "HVAC\nkW", styles: { halign: "center" } },
+            { content: "Other Load\nkW", styles: { halign: "center" } },
+            { content: "Total Load\nkW", styles: { halign: "center" } },
+            { content: "Remarks", styles: { halign: "center" } }
+          ]
+        ],
+        headStyles: {
+          fillColor: [217, 217, 217],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          lineColor: [0, 0, 0],
+          lineWidth: 0.2,
+          fontSize: 7.5
+        },
+        body: dataRows,
+        columnStyles,
+        tableWidth: 190
       });
-    });
 
-    let currentRow = worksheet.rowCount + 2;
-
-    worksheet.mergeCells(currentRow, 1, currentRow, 8);
-    let cell = worksheet.getCell(currentRow, 1);
-    cell.value = "  Total Electrical Power";
-    cell.font = { name: "Arial", size: 10, bold: true };
-    cell.alignment = { horizontal: "left", vertical: "middle" };
-    
-    let cellValue = worksheet.getCell(currentRow, 9);
-    cellValue.value = totalPower;
-    cellValue.font = { name: "Arial", size: 10, bold: true };
-    cellValue.alignment = { horizontal: "right", vertical: "middle" };
-
-    for(let c=1; c<=10; c++) {
-       worksheet.getCell(currentRow, c).border = {
-         top: { style: "thin", color: { argb: "000000" } }, 
-         bottom: { style: "thin", color: { argb: "000000" } },
-         left: { style: "thin", color: { argb: "000000" } }, 
-         right: { style: "thin", color: { argb: "000000" } }
-       };
-    }
-    worksheet.getRow(currentRow).height = 20;
-
-    currentRow++;
-
-    worksheet.mergeCells(currentRow, 1, currentRow, 8);
-    cell = worksheet.getCell(currentRow, 1);
-    cell.value = "  Total Power Required Considering 10% safety (kW)";
-    cell.font = { name: "Arial", size: 10, bold: true };
-    cell.alignment = { horizontal: "left", vertical: "middle" };
-    
-    cellValue = worksheet.getCell(currentRow, 9);
-    cellValue.value = Number(totalPowerWithSafety.toFixed(2));
-    cellValue.font = { name: "Arial", size: 10, bold: true };
-    cellValue.alignment = { horizontal: "right", vertical: "middle" };
-
-    for(let c=1; c<=10; c++) {
-       worksheet.getCell(currentRow, c).border = {
-         top: { style: "thin", color: { argb: "000000" } }, 
-         bottom: { style: "thin", color: { argb: "000000" } },
-         left: { style: "thin", color: { argb: "000000" } }, 
-         right: { style: "thin", color: { argb: "000000" } }
-       };
-    }
-    worksheet.getRow(currentRow).height = 20;
-
-    currentRow += 2;
-
-    worksheet.mergeCells(currentRow, 1, currentRow, 8);
-    cell = worksheet.getCell(currentRow, 1);
-    cell.value = "  Selected Number of Transformers";
-    cell.font = { name: "Arial", size: 10, bold: true };
-    cell.alignment = { horizontal: "left", vertical: "middle" };
-    
-    cellValue = worksheet.getCell(currentRow, 9);
-    cellValue.value = transformers;
-    cellValue.font = { name: "Arial", size: 10, bold: true };
-    cellValue.alignment = { horizontal: "center", vertical: "middle" };
-    worksheet.mergeCells(currentRow, 9, currentRow, 10);
-
-    for(let c=1; c<=10; c++) {
-       worksheet.getCell(currentRow, c).border = {
-         top: { style: "thin", color: { argb: "000000" } }, 
-         bottom: { style: "thin", color: { argb: "000000" } },
-         left: { style: "thin", color: { argb: "000000" } }, 
-         right: { style: "thin", color: { argb: "000000" } }
-       };
-    }
-    worksheet.getRow(currentRow).height = 20;
-
-    currentRow += 2;
-
-    const refLines = [
-       "  Reference: 1. Architectural Drawings",
-       "                    2. DBR",
-       "                    3. Summary of Cooling Load",
-       "                    4. Selection from Manufacturer"
-    ];
-    for (let r = 0; r < refLines.length; r++) {
-      const rIdx = currentRow + r;
-      worksheet.getRow(rIdx).height = 20;
-      for (let c = 1; c <= 10; c++) {
-        worksheet.getCell(rIdx, c).border = {
-          left: c === 1 ? { style: "thin", color: { argb: "000000" } } : undefined,
-          right: c === 10 ? { style: "thin", color: { argb: "000000" } } : undefined,
-          top: r === 0 ? { style: "thin", color: { argb: "000000" } } : undefined,
-          bottom: r === refLines.length - 1 ? { style: "thin", color: { argb: "000000" } } : undefined
-        };
-      }
-      worksheet.mergeCells(rIdx, 1, rIdx, 10);
-      const cellRef = worksheet.getCell(rIdx, 1);
-      cellRef.value = refLines[r];
-      cellRef.font = { name: "Arial", size: 9, bold: true };
-      cellRef.alignment = { horizontal: "left", vertical: "middle" };
-    }
-
-    currentRow += refLines.length;
-
-    worksheet.getRow(currentRow).height = 25;
-    const orangeFill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFFCD5B4" } 
-    } as ExcelJS.Fill;
-
-    for(let c = 1; c <= 10; c++) {
-        const sigCell = worksheet.getCell(currentRow, c);
-        sigCell.fill = orangeFill;
-        sigCell.border = {
-            top: { style: "thin", color: { argb: "000000" } }, 
-            left: { style: "thin", color: { argb: "000000" } },
-            bottom: { style: "thin", color: { argb: "000000" } }, 
-            right: { style: "thin", color: { argb: "000000" } }
-        };
-    }
-    
-    worksheet.mergeCells(currentRow, 1, currentRow, 3);
-    worksheet.mergeCells(currentRow, 4, currentRow, 6);
-    worksheet.mergeCells(currentRow, 7, currentRow, 10);
-
-    worksheet.getCell(currentRow, 1).value = "Originated by";
-    worksheet.getCell(currentRow, 4).value = "Reviewed by";
-    worksheet.getCell(currentRow, 7).value = "Approved by";
-
-    [1, 4, 7].forEach(c => {
-      const cellSig = worksheet.getCell(currentRow, c);
-      cellSig.font = { bold: true, name: "Arial", size: 10 };
-      cellSig.alignment = { horizontal: "center", vertical: "middle" };
-    });
-
-    currentRow += 1;
-
-    const labels = ["Name:", "Signature:", "Date:"];
-    labels.forEach((label) => {
-      worksheet.getRow(currentRow).height = 25;
-      
-      for(let c = 1; c <= 10; c++) {
-          worksheet.getCell(currentRow, c).border = {
-              top: { style: "thin", color: { argb: "000000" } }, 
-              left: { style: "thin", color: { argb: "000000" } },
-              bottom: { style: "thin", color: { argb: "000000" } }, 
-              right: { style: "thin", color: { argb: "000000" } }
-          };
+      // Check remaining space before summary + references + signature block
+      const neededSpace = 75;
+      let currentY = (doc as any).lastAutoTable.finalY + 2;
+      if (doc.internal.pageSize.getHeight() - currentY < neededSpace) {
+        doc.addPage();
+        currentY = 10;
       }
 
-      worksheet.mergeCells(currentRow, 1, currentRow, 3);
-      worksheet.mergeCells(currentRow, 4, currentRow, 6);
-      worksheet.mergeCells(currentRow, 7, currentRow, 10);
+      // 3. Summary Rows Table
+      autoTable(doc, {
+        startY: currentY,
+        margin: { left: 10, right: 10 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 7.5,
+          textColor: [0, 0, 0],
+          lineColor: [0, 0, 0],
+          lineWidth: 0.2,
+          cellPadding: 1.2,
+          valign: "middle"
+        },
+        body: [
+          [
+            { content: "  Total Electrical Power", colSpan: 8, styles: { halign: "left", fontStyle: "bold" } },
+            { content: String(totalPower), styles: { halign: "center", fontStyle: "bold" } },
+            { content: "", styles: { halign: "center" } }
+          ],
+          [
+            { content: "  Total Power Required Considering 10% safety (kW)", colSpan: 8, styles: { halign: "left", fontStyle: "bold" } },
+            { content: String(Number(totalPowerWithSafety.toFixed(2))), styles: { halign: "center", fontStyle: "bold" } },
+            { content: "", styles: { halign: "center" } }
+          ],
+          [
+            { content: "  Selected Number of Transformers", colSpan: 8, styles: { halign: "left", fontStyle: "bold" } },
+            { content: transformers || "", colSpan: 2, styles: { halign: "center", fontStyle: "bold" } }
+          ]
+        ],
+        columnStyles,
+        tableWidth: 190
+      });
 
-      const cellA = worksheet.getCell(currentRow, 1);
-      cellA.value = `  ${label}`;
-      cellA.font = { name: "Arial", size: 10, bold: true };
-      cellA.alignment = { horizontal: "left", vertical: "middle" };
+      // 4. References Table
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 2,
+        margin: { left: 10, right: 10 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 7.5,
+          textColor: [0, 0, 0],
+          lineColor: [0, 0, 0],
+          lineWidth: 0.2,
+          cellPadding: 1.2,
+          valign: "middle",
+          fontStyle: "bold"
+        },
+        body: [
+          [{ content: "  Reference: 1. Architectural Drawings", colSpan: 10, styles: { halign: "left" } }],
+          [{ content: "                    2. DBR", colSpan: 10, styles: { halign: "left" } }],
+          [{ content: "                    3. Summary of Cooling Load", colSpan: 10, styles: { halign: "left" } }],
+          [{ content: "                    4. Selection from Manufacturer", colSpan: 10, styles: { halign: "left" } }]
+        ],
+        tableWidth: 190
+      });
 
-      currentRow += 1;
-    });
+      // 5. Sign-off Block Table
+      const sigColWidth1 = 10 + 42 + 14; // 66mm (cols 1..3)
+      const sigColWidth2 = 16 + 16 + 16; // 48mm (cols 4..6)
+      const sigColWidth3 = 16 + 18 + 18 + 24; // 76mm (cols 7..10)
 
-    worksheet.getColumn(1).width = 8;
-    worksheet.getColumn(2).width = 30;
-    worksheet.getColumn(3).width = 10;
-    worksheet.getColumn(4).width = 12;
-    worksheet.getColumn(5).width = 12;
-    worksheet.getColumn(6).width = 12;
-    worksheet.getColumn(7).width = 12;
-    worksheet.getColumn(8).width = 12;
-    worksheet.getColumn(9).width = 15;
-    worksheet.getColumn(10).width = 25;
+      const sigDetails = getSignatureBlockDetails(project?.id || "default", "/load-summary", currentUserName);
+      const origName = sigDetails.originatedName || currentUserName || "";
+      const origDate = sigDetails.originatedDate || currentDate;
+      const revName = sigDetails.reviewerName || "";
+      const revDate = sigDetails.reviewerDate || "";
+      const appName = sigDetails.approverName || "";
+      const appDate = sigDetails.approverDate || "";
 
-    
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "load-summary");
-    const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `Load_Summary_${project.code}.xlsx`);
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 2,
+        margin: { left: 10, right: 10 },
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8,
+          textColor: [0, 0, 0],
+          lineColor: [0, 0, 0],
+          lineWidth: 0.2,
+          cellPadding: 1.5,
+          valign: "middle"
+        },
+        body: [
+          [
+            { content: "Originator", styles: { halign: "center", fontStyle: "bold", fillColor: [252, 213, 180] } },
+            { content: "Reviewer", styles: { halign: "center", fontStyle: "bold", fillColor: [252, 213, 180] } },
+            { content: "Approver", styles: { halign: "center", fontStyle: "bold", fillColor: [252, 213, 180] } }
+          ],
+          [
+            { content: `  Name:   ${origName}`, styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
+            { content: revName ? `  Name:   ${revName}` : "  Name:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
+            { content: appName ? `  Name:   ${appName}` : "  Name:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } }
+          ],
+          [
+            { content: "  Signature:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
+            { content: "  Signature:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
+            { content: "  Signature:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } }
+          ],
+          [
+            { content: `  Date:   ${origDate}`, styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
+            { content: revDate ? `  Date:   ${revDate}` : "  Date:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
+            { content: appDate ? `  Date:   ${appDate}` : "  Date:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } }
+          ]
+        ],
+        columnStyles: {
+          0: { cellWidth: sigColWidth1 },
+          1: { cellWidth: sigColWidth2 },
+          2: { cellWidth: sigColWidth3 }
+        },
+        tableWidth: 190
+      });
+
+      const fileName = `Load_Summary_${(project?.code || project?.name || "Project").replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+      doc.save(fileName);
+      toast.success("PDF report exported successfully!");
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Failed to export PDF report.");
+    }
   };
 
   const columns: Column<LoadRow>[] = useMemo(() => [
@@ -600,25 +815,57 @@ function LoadSummaryPage() {
       width: 60,
       align: "center",
       render: (row) => {
-        const index = rows.findIndex(r => r.id === row.id) + 1;
-        return <span className="text-muted-foreground">{index}</span>;
+        const index = filteredRows.findIndex(r => r.id === row.id) + 1;
+        return <span className="text-muted-foreground font-mono text-[12px]">{index}</span>;
       }
     },
     {
       key: "description",
       header: "Description",
-      width: 250,
+      width: 260,
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
+        const index = rowIdx + 1;
+        const rowComments = commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id);
+
         return (
-          <input 
-            value={row.description}
-            onChange={(e) => updateRow(row.id, { description: e.target.value })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5"
-            autoComplete="off"
-            data-row-idx={rowIdx}
-            data-col-idx={1}
-          />
+          <div className="w-full h-full flex items-center gap-1 px-2 group">
+            <input 
+              value={row.description}
+              onChange={(e) => updateRow(row.id, { description: e.target.value })}
+              className="flex-1 min-w-0 h-full bg-transparent border-none outline-none focus:bg-primary/5"
+              autoComplete="off"
+              data-row-idx={rowIdx}
+              data-col-idx={1}
+              placeholder="e.g. Ground Floor Main Office"
+            />
+            {rowComments.length > 0 ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(row.id, row.description || `Load ${index}`);
+                }}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[10.5px] font-bold shrink-0 cursor-pointer transition-colors"
+                title={`${rowComments.length} comment(s) / task(s). Click to view or reply.`}
+              >
+                <MessageSquare className="size-3 fill-blue-500/20" />
+                <span>{rowComments.length}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(row.id, row.description || `Load ${index}`);
+                }}
+                className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity p-1 cursor-pointer shrink-0"
+                title="Add Comment / Assign Task"
+              >
+                <MessageSquare className="size-3.5" />
+              </button>
+            )}
+          </div>
         );
       }
     },
@@ -628,7 +875,7 @@ function LoadSummaryPage() {
       width: 80,
       align: "right",
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         return (
           <input 
             type="number"
@@ -643,11 +890,11 @@ function LoadSummaryPage() {
     },
     {
       key: "area",
-      header: "Area (sq.m)",
+      header: unitSystem === "ip" ? "Area (sq.ft)" : "Area (sq.m)",
       width: 100,
       align: "right",
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         return (
           <input 
             type="number"
@@ -666,7 +913,7 @@ function LoadSummaryPage() {
       width: 110,
       align: "right",
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         return (
           <input 
             type="number"
@@ -686,7 +933,7 @@ function LoadSummaryPage() {
       width: 100,
       align: "right",
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         return (
           <input 
             type="number"
@@ -706,7 +953,7 @@ function LoadSummaryPage() {
       width: 100,
       align: "right",
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         return (
           <input 
             type="number"
@@ -726,7 +973,7 @@ function LoadSummaryPage() {
       width: 110,
       align: "right",
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         return (
           <input 
             type="number"
@@ -746,9 +993,9 @@ function LoadSummaryPage() {
       width: 130,
       align: "right",
       render: (row) => (
-        <div className="h-full w-full flex items-center justify-end px-3 bg-blue-500/10 text-blue-700 dark:text-blue-400 font-bold border-x border-blue-500/20">
+        <span className="w-full text-right px-2 font-medium text-foreground">
           {row.totalLoad.toFixed(2)}
-        </div>
+        </span>
       )
     },
     {
@@ -756,7 +1003,7 @@ function LoadSummaryPage() {
       header: "Remarks",
       width: 200,
       render: (row) => {
-        const rowIdx = rows.findIndex(r => r.id === row.id);
+        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         return (
           <input 
             value={row.remarks}
@@ -764,117 +1011,309 @@ function LoadSummaryPage() {
             className="w-full h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5"
             autoComplete="off"
             data-row-idx={rowIdx}
-            data-col-idx={9}
+            data-col-idx={8}
           />
         );
       }
     }
-  ], [rows]);
+  ], [filteredRows, commentsList, unitSystem]);
 
   return (
     <AppShell 
       title="Load Summary" 
       subtitle="Calculate electrical load summary and equipment totals"
-      actions={
-        <div className="flex gap-2">
-          <CalculationReviewBar calculatorPath="/load-summary" calculatorTitle="Electrical Load Summary" />
-          <ImportExcelBtn
-            columnMapping={{
-              "Description": "description",
-              "Quantity": "qty",
-              "Qty": "qty",
-              "Phase": "phase",
-              "Load (W)": "loadW",
-              "Wattage": "loadW",
-              "Power Factor": "powerFactor",
-              "PF": "powerFactor",
-              "Efficiency": "efficiency",
-              "Eff": "efficiency",
-              "Diversity Factor": "diversityFactor",
-              "DF": "diversityFactor",
-              "Remarks": "remarks"
-            }}
-            onImport={handleImportExcelRows}
-            className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors"
-          />
-        </div>
-      }
+      spaceCount={rows.length}
     >
       <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
         <div className="relative z-10 flex flex-col h-full w-full">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-background/80 backdrop-blur-md shrink-0 select-none">
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={addRow}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded text-[12.5px] font-medium shadow-sm transition-all"
-              >
-                <Plus className="size-3.5" /> Add Row
-              </button>
-              
-              <div className="w-px h-4 bg-border mx-1" />
-              
-              <button 
-                disabled={selected.size === 0}
-                onClick={deleteSelected}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 rounded text-[12.5px] font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <Trash className="size-3.5" /> Delete Selected
-              </button>
+          {/* Toolbar matching Preliminary Cooling Load & Reference Screenshot */}
+          <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
+            {/* Pill Search Input */}
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter spaces..."
+              className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all placeholder:text-muted-foreground"
+            />
 
-              <div className="w-px h-4 bg-border mx-1" />
-              
-              <button 
-                onClick={loadDummyData}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:text-foreground hover:bg-surface-2 rounded text-[12.5px] font-medium transition-colors"
+            {/* Filter Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                    activeFiltersCount > 0
+                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                  }`}
+                  title="Filter Loads"
+                >
+                  <Filter className="size-3.5 shrink-0" />
+                  {activeFiltersCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                      {activeFiltersCount}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <span className="text-[12px] font-semibold text-foreground">Filters</span>
+                  {activeFiltersCount > 0 && (
+                    <button
+                      onClick={handleResetFilters}
+                      className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Type</span>
+                  <select
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value as any)}
+                    className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                  >
+                    <option value="all">All Loads</option>
+                    <option value="lighting">Has Lighting Load (&gt; 0 kW)</option>
+                    <option value="power">Has Power Load (&gt; 0 kW)</option>
+                    <option value="hvac">Has HVAC Load (&gt; 0 kW)</option>
+                    <option value="other">Has Other Load (&gt; 0 kW)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5 pt-1.5 border-t border-border/60">
+                  <label className="flex items-center gap-2 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={filterNonZeroOnly}
+                      onChange={(e) => setFilterNonZeroOnly(e.target.checked)}
+                      className="rounded border-gray-300 text-primary size-3.5 focus:ring-primary cursor-pointer"
+                    />
+                    <span>Non-zero Total Load Only</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={filterWithRemarksOnly}
+                      onChange={(e) => setFilterWithRemarksOnly(e.target.checked)}
+                      className="rounded border-gray-300 text-primary size-3.5 focus:ring-primary cursor-pointer"
+                    />
+                    <span>Has Remarks Only</span>
+                  </label>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {/* Sort Popover */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                    sortKey !== "default"
+                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                  }`}
+                  title="Sort Loads"
+                >
+                  <ArrowUpDown className="size-3.5 shrink-0" />
+                  {sortKey !== "default" && (
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                      âœ“
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                  <span className="text-[12px] font-semibold text-foreground">Sort Loads</span>
+                  {sortKey !== "default" && (
+                    <button
+                      onClick={handleResetSort}
+                      className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort Field</span>
+                  <select
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as any)}
+                    className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+                  >
+                    <option value="default">Default (S.No / Entry order)</option>
+                    <option value="description">Description</option>
+                    <option value="totalLoad">Total Load (kW)</option>
+                    <option value="area">Area (sq.m)</option>
+                    <option value="qty">Qty</option>
+                    <option value="lighting">Lighting (kW)</option>
+                    <option value="power">Power (kW)</option>
+                    <option value="hvac">HVAC (kW)</option>
+                  </select>
+                </div>
+
+                {sortKey !== "default" && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Direction</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSortDirection("asc")}
+                        className={`flex-1 py-1 px-2 rounded text-[11.5px] border cursor-pointer ${sortDirection === "asc" ? "bg-primary text-primary-foreground border-primary font-semibold" : "bg-surface-2 text-foreground border-border hover:bg-surface-3"}`}
+                      >
+                        Ascending
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSortDirection("desc")}
+                        className={`flex-1 py-1 px-2 rounded text-[11.5px] border cursor-pointer ${sortDirection === "desc" ? "bg-primary text-primary-foreground border-primary font-semibold" : "bg-surface-2 text-foreground border-border hover:bg-surface-3"}`}
+                      >
+                        Descending
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            {/* Right side buttons */}
+            <div className="ml-auto flex items-center gap-1.5">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                inputDescriptions="Area (sq.m / sq.ft)"
+                conversionExample={
+                  unitSystem === "si"
+                    ? "Convert 100 sq.m â†’ 1076.39 sq.ft"
+                    : "Convert 1000 sq.ft â†’ 92.90 sq.m"
+                }
+              />
+
+              <ImportExcelBtn
+                columnMapping={importColumnMapping}
+                onImport={handleImportExcelRows}
+                className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border border-border bg-background hover:bg-surface-2 transition-colors cursor-pointer"
               >
-                <Database className="size-3.5" /> Load Sample Data
-              </button>
+                <Download className="size-3.5" /> Import
+              </ImportExcelBtn>
+
+              <TBtn onClick={exportPDF}>
+                <FileText className="size-3.5" /> Export PDF
+              </TBtn>
+
+              <TBtn primary onClick={addRow}>
+                <Plus className="size-3.5" /> New Load
+              </TBtn>
             </div>
+
+            {/* Bulk Actions Bar Overlay */}
+            {selected.size > 0 && (
+              <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                <span className="font-semibold">{selected.size} selected</span>
+                <span className="text-primary/30">Â·</span>
+                <BulkBtn icon={MessageSquare} onClick={() => {
+                  const firstSelectedId = Array.from(selected)[0];
+                  const targetRow = rows.find(r => r.id === firstSelectedId);
+                  handleOpenComment(firstSelectedId, targetRow?.description || "Selected Load");
+                }}>
+                  Comment
+                </BulkBtn>
+                <BulkBtn icon={Copy} onClick={duplicateSelected}>
+                  Duplicate
+                </BulkBtn>
+                <BulkBtn icon={Trash} onClick={deleteSelected}>
+                  Delete
+                </BulkBtn>
+                <button
+                  onClick={() => {
+                    setSelected(new Set());
+                    setActiveRowId(undefined);
+                  }}
+                  className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                >
+                  <X className="size-3" /> Clear
+                </button>
+              </div>
+            )}
           </div>
           
-          {/* Main Content Area */}
-          <div className="flex-1 overflow-hidden flex flex-col relative p-4">
-             {/* Grid */}
-             <div className="flex-1 flex flex-col bg-white/80 dark:bg-black/40 backdrop-blur-sm rounded-xl border border-white/50 dark:border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.04)] overflow-hidden">
+          {/* Main Content Area - Flush with Toolbar, No Gap */}
+          <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
+             {/* Unified Single Container for Grid & Footer Calculations */}
+             <div className="flex-1 min-h-0 flex flex-col bg-background overflow-hidden">
                 {rows.length > 0 ? (
-                  <DataGrid
-                    rows={rows}
-                    columns={columns}
-                    selected={selected}
-                    onToggle={handleToggle}
-                    onToggleAll={handleToggleAll}
-                    renderContextMenu={(row) => (
-                      <ContextMenuContent className="w-48">
-                        <ContextMenuItem onClick={() => {
-                          const newRow = { ...row, id: `ls_${Math.random().toString(36).slice(2, 9)}` };
-                          pushToHistory(rows, history, setHistory);
-                          setRows(prev => {
-                            const idx = prev.findIndex(r => r.id === row.id);
-                            const next = [...prev];
-                            next.splice(idx + 1, 0, newRow);
-                            return next;
-                          });
-                        }}>
-                          <Copy className="size-4 mr-2" /> Duplicate Row
-                        </ContextMenuItem>
-                        <ContextMenuSeparator />
-                        <ContextMenuItem onClick={() => {
-                          pushToHistory(rows, history, setHistory);
-                          setRows(prev => prev.filter(r => r.id !== row.id));
-                          setSelected(prev => {
-                            const next = new Set(prev);
-                            next.delete(row.id);
-                            return next;
-                          });
-                        }} className="text-red-600 dark:text-red-400 focus:text-red-600">
-                          <Trash className="size-4 mr-2" /> Delete Row
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    )}
-                  />
+                  filteredRows.length > 0 ? (
+                    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                      <DataGrid
+                        rows={filteredRows}
+                        columns={columns}
+                        selected={selected}
+                        onToggle={handleToggle}
+                        onToggleAll={handleToggleAll}
+                        renderContextMenu={(row) => {
+                          const rowComments = commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id);
+                          return (
+                            <ContextMenuContent className="w-56">
+                              <ContextMenuItem onClick={() => handleOpenComment(row.id, row.description || `Load ${row.id}`)}>
+                                <MessageSquare className="size-4 mr-2 text-blue-500" />
+                                <span>{rowComments.length > 0 ? `Comments (${rowComments.length})` : "Add Comment / Assign Task"}</span>
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem onClick={() => {
+                                const newRow = { ...row, id: `ls_${Math.random().toString(36).slice(2, 9)}` };
+                                pushToHistory(rows, history, setHistory);
+                                setRows(prev => {
+                                  const idx = prev.findIndex(r => r.id === row.id);
+                                  const next = [...prev];
+                                  next.splice(idx + 1, 0, newRow);
+                                  return next;
+                                });
+                              }}>
+                                <Copy className="size-4 mr-2" /> Duplicate Row
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem onClick={() => {
+                                pushToHistory(rows, history, setHistory);
+                                setRows(prev => prev.filter(r => r.id !== row.id));
+                                setSelected(prev => {
+                                  const next = new Set(prev);
+                                  next.delete(row.id);
+                                  return next;
+                                });
+                              }} className="text-red-600 dark:text-red-400 focus:text-red-600">
+                                <Trash className="size-4 mr-2" /> Delete Row
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          );
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                      <div className="size-12 rounded-full bg-surface-2 flex items-center justify-center mb-4 border border-border shadow-sm text-muted-foreground">
+                        <Filter className="size-5" />
+                      </div>
+                      <h3 className="text-sm font-semibold text-foreground mb-1">No matching loads found</h3>
+                      <p className="text-xs text-muted-foreground max-w-sm mb-4">
+                        No rows match your current search or filter query. Try clearing filters to see all loads.
+                      </p>
+                      <button
+                        onClick={() => {
+                          setSearchQuery("");
+                          handleResetFilters();
+                        }}
+                        className="px-3 py-1.5 rounded-full text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                      >
+                        Reset Search & Filters
+                      </button>
+                    </div>
+                  )
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
                     <div className="size-12 rounded-full bg-surface-2 flex items-center justify-center mb-4 border border-border shadow-sm">
@@ -884,55 +1323,77 @@ function LoadSummaryPage() {
                     <p className="text-xs text-muted-foreground max-w-sm mb-4">
                       Add a row or load sample data to begin calculating your total electrical load.
                     </p>
-                    <button 
-                      onClick={addRow}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded text-[13px] font-medium shadow-sm transition-all"
-                    >
-                      <Plus className="size-4" /> Add First Row
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={addRow}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full text-[12.5px] font-medium shadow-sm transition-all cursor-pointer"
+                      >
+                        <Plus className="size-3.5" /> Add First Row
+                      </button>
+                      <button 
+                        onClick={loadDummyData}
+                        className="flex items-center gap-1.5 px-4 py-2 border border-border hover:bg-surface-2 rounded-full text-[12.5px] font-medium transition-all cursor-pointer"
+                      >
+                        <Sparkles className="size-3.5 text-primary" /> Load Sample Data
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Footer Calculations - Integrated Inside the Same Single Card */}
+                {rows.length > 0 && (
+                  <div className="border-t border-border bg-slate-50/70 dark:bg-slate-900/70 px-5 py-3.5 shrink-0 flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="bg-background border border-border/80 px-3 py-1.5 rounded-lg flex items-center gap-2.5 shadow-xs">
+                        <span className="text-[12px] font-medium text-muted-foreground">Total Electrical Power:</span>
+                        <span className="font-bold font-mono text-[14px] text-foreground">{totalPower.toFixed(2)} kW</span>
+                        {isFiltered && (
+                          <span className="text-[11px] font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full font-medium">
+                            Filtered: {filteredPower.toFixed(2)} kW ({filteredRows.length}/{rows.length})
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2.5 text-blue-800 dark:text-blue-300 shadow-xs">
+                        <span className="text-[12px] font-semibold">Total Power (10% Safety):</span>
+                        <span className="font-bold font-mono text-[14.5px] text-blue-700 dark:text-blue-400">{totalPowerWithSafety.toFixed(2)} kW</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <label className="text-[12px] font-medium text-muted-foreground whitespace-nowrap">Transformers:</label>
+                      <input
+                        type="text"
+                        value={transformers}
+                        onChange={(e) => setTransformers(e.target.value)}
+                        placeholder="e.g. 2 x 1500 kVA"
+                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-[12.5px] w-48 md:w-56 focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
+                      />
+                    </div>
                   </div>
                 )}
              </div>
-
-             {/* Footer Calculations */}
-             {rows.length > 0 && (
-               <div className="mt-4 bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex gap-12 shrink-0">
-                 <div className="flex-1 space-y-4">
-                   <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 border-b border-border pb-2">Load Totals</h3>
-                   
-                   <div className="flex justify-between items-center bg-slate-100 dark:bg-slate-800/50 p-3 rounded-lg">
-                     <span className="text-[13px] font-medium">Total Electrical Power:</span>
-                     <span className="font-bold font-mono text-[15px]">{totalPower.toFixed(2)} kW</span>
-                   </div>
-
-                   <div className="flex justify-between items-center bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 p-3 rounded-lg border border-blue-200 dark:border-blue-800/50">
-                     <span className="text-[13px] font-semibold">Total Power (10% Safety):</span>
-                     <span className="font-bold font-mono text-[16px]">{totalPowerWithSafety.toFixed(2)} kW</span>
-                   </div>
-                 </div>
-                 
-                 <div className="flex-1 space-y-4">
-                   <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 border-b border-border pb-2">Transformer Selection</h3>
-                   
-                   <div className="space-y-1">
-                     <label className="text-[12px] font-medium text-slate-500">Selected Number of Transformers</label>
-                     <input
-                       type="text"
-                       value={transformers}
-                       onChange={(e) => setTransformers(e.target.value)}
-                       placeholder="e.g., 2 x 1500 kVA"
-                       className="w-full bg-white dark:bg-slate-900 border border-border rounded p-2 text-[13px] focus:outline-none focus:ring-1 focus:ring-primary"
-                     />
-                     <p className="text-[11px] text-muted-foreground mt-1">
-                       This will be included at the bottom of your exported Excel sheet.
-                     </p>
-                   </div>
-                 </div>
-               </div>
-             )}
           </div>
         </div>
       </div>
+
+      {/* Assign Comment & Task Modal */}
+      {commentModalOpen && commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => {
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType={commentTargetItem.type || "load"}
+          calculatorTitle="Electrical Load Summary"
+          calculatorPath="/load-summary"
+          existingComments={commentsList.filter(c => c.targetId === commentTargetItem.id || (c as any).itemId === commentTargetItem.id)}
+          onSave={handleSaveComment}
+        />
+      )}
     </AppShell>
   );
 }

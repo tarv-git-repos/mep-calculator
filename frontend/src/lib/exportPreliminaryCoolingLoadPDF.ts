@@ -10,7 +10,7 @@ export interface PclExportRow {
   name: string;
   area: number | "";
   type: string;
-  density: number; // W/m²
+  density: number; // W/mÂ²
   dissipation: number; // Watts
   kw: number;
   tr: number;
@@ -253,9 +253,9 @@ export const exportPreliminaryCoolingLoadPDF = async (
         1: { cellWidth: 14 },                // Floor
         2: { halign: "left", cellWidth: 32 },// Space Name
         3: { halign: "left", cellWidth: 28 },// Space Type
-        4: { cellWidth: 18 },                // Area (m²)
+        4: { cellWidth: 18 },                // Area (mÂ²)
         5: { cellWidth: 14 },                // Occupancy
-        6: { cellWidth: 18 },                // Density (W/m²)
+        6: { cellWidth: 18 },                // Density (W/mÂ²)
         7: { cellWidth: 20 },                // Watts (W)
         8: { cellWidth: 15 },                // Load (kW)
         9: { cellWidth: 15 }                 // Load (TR)
@@ -271,9 +271,9 @@ export const exportPreliminaryCoolingLoadPDF = async (
           { content: "Space Floor" },
           { content: "Space Name" },
           { content: "Space Type" },
-          { content: "Area\n(m²)" },
+          { content: "Area\n(mÂ²)" },
           { content: "Occupancy" },
-          { content: "Density\n(W/m²)" },
+          { content: "Density\n(W/mÂ²)" },
           { content: "Heat Gain\n(W)" },
           { content: "Load\n(kW)" },
           { content: "Load\n(TR)" }
@@ -319,9 +319,9 @@ export const exportPreliminaryCoolingLoadPDF = async (
       head: [
         [
           { content: "" },
-          { content: "Originated by" },
-          { content: "Reviewed by" },
-          { content: "Approved by" }
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" }
         ]
       ],
       body: [

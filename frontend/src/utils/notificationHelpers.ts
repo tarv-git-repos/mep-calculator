@@ -159,18 +159,45 @@ export async function notifyCommentAssigned(options: {
         link: `${calculatorPath}?projectId=${encodeURIComponent(projId)}&commentTargetType=${encodeURIComponent(targetType)}&commentTargetId=${encodeURIComponent(targetId)}&commentTargetName=${encodeURIComponent(targetName)}`,
         metadata: {
           id: comment.id,
+          commentId: comment.id,
+          assignedUsers: comment.assignedUsers,
+          authorId: currentUserId || comment.authorId,
+          authorName: currentUserName,
           projectId: projId,
           projectName: projName,
+          calculatorTitle,
           calculatorPath,
           targetId,
           targetName,
           targetType,
-          authorName: currentUserName,
           text: comment.text,
           createdAt: comment.timestamp || new Date().toISOString(),
         }
       }).catch(e => console.error("Failed to send notification to user", uId, e))
     ));
+  } else {
+    api.sendNotification({
+      recipientId: 'all',
+      title: `💬 New Task / Comment on ${targetName} (${projName})`,
+      message: `${currentUserName} commented on ${targetType} "${targetName}" in ${projName} (${calculatorTitle}): "${comment.text}"`,
+      link: `${calculatorPath}?projectId=${encodeURIComponent(projId)}&commentTargetType=${encodeURIComponent(targetType)}&commentTargetId=${encodeURIComponent(targetId)}&commentTargetName=${encodeURIComponent(targetName)}`,
+      metadata: {
+        id: comment.id,
+        commentId: comment.id,
+        assignedUsers: [],
+        authorId: currentUserId || comment.authorId,
+        authorName: currentUserName,
+        projectId: projId,
+        projectName: projName,
+        calculatorTitle,
+        calculatorPath,
+        targetId,
+        targetName,
+        targetType,
+        text: comment.text,
+        createdAt: comment.timestamp || new Date().toISOString(),
+      }
+    }).catch(e => console.error("Failed to send unassigned notification", e));
   }
 }
 
@@ -192,6 +219,12 @@ export function executeHighlightAndScroll(detail: {
 
   // 1. Try to find the exact element by ID or data attributes
   const candidateSelectors = [
+    cleanId ? `[data-field-id="${cleanId}"]` : null,
+    cleanId ? `[data-field-id="field-${cleanId}"]` : null,
+    cleanId ? `[data-comment-target="${cleanId}"]` : null,
+    cleanId ? `#field-${cleanId}` : null,
+    cleanId ? `#card-${cleanId}` : null,
+    cleanId ? `#input-${cleanId}` : null,
     cleanId ? `[data-row-id="${cleanId}"]` : null,
     cleanId ? `[data-coil-id="${cleanId}"]` : null,
     cleanId ? `[data-space-id="${cleanId}"]` : null,
@@ -208,6 +241,8 @@ export function executeHighlightAndScroll(detail: {
     cleanId ? `#lux-row-${cleanId}` : null,
     cleanId ? `#item-${cleanId}` : null,
     cleanId ? `#${cleanId}` : null,
+    cleanId ? `input[id="${cleanId}"]` : null,
+    cleanId ? `select[id="${cleanId}"]` : null,
   ].filter(Boolean) as string[];
 
   let targetEl: HTMLElement | null = null;
@@ -216,21 +251,39 @@ export function executeHighlightAndScroll(detail: {
     try {
       const found = document.querySelector(selector) as HTMLElement;
       if (found) {
-        targetEl = found;
+        // If the found element is an input or select, prefer highlighting its parent container box
+        if (found.tagName === 'INPUT' || found.tagName === 'SELECT') {
+          targetEl = (found.closest('[data-field-id]') || found.closest('.border') || found.parentElement) as HTMLElement || found;
+        } else {
+          targetEl = found;
+        }
         break;
       }
     } catch (e) {}
   }
 
-  // 2. If not found by direct selector, search table rows, cards, or grid items by text / name (avoid matching container grids)
+  // 2. If not found by direct selector, search labels, table rows, cards, or grid items by text / name
   if (!targetEl && cleanName) {
-    const rowsAndCards = document.querySelectorAll('tbody tr, [role="row"], [data-row-id], [data-card], [data-zone-id], [data-space-id], [data-coil-id]');
-    for (let i = 0; i < rowsAndCards.length; i++) {
-      const el = rowsAndCards[i] as HTMLElement;
+    // First try labels
+    const labels = document.querySelectorAll('label, [data-field-id] span');
+    for (let i = 0; i < labels.length; i++) {
+      const el = labels[i] as HTMLElement;
       const text = (el.textContent || "").toLowerCase();
-      if (text.includes(cleanName)) {
-        targetEl = el;
+      if (text.includes(cleanName) || cleanName.includes(text)) {
+        targetEl = (el.closest('[data-field-id]') || el.closest('.border') || el.parentElement) as HTMLElement || el;
         break;
+      }
+    }
+
+    if (!targetEl) {
+      const rowsAndCards = document.querySelectorAll('tbody tr, [role="row"], [data-row-id], [data-card], [data-zone-id], [data-space-id], [data-coil-id]');
+      for (let i = 0; i < rowsAndCards.length; i++) {
+        const el = rowsAndCards[i] as HTMLElement;
+        const text = (el.textContent || "").toLowerCase();
+        if (text.includes(cleanName)) {
+          targetEl = el;
+          break;
+        }
       }
     }
   }
@@ -238,15 +291,15 @@ export function executeHighlightAndScroll(detail: {
   // 3. If element found, scroll into center and apply flashing pulse highlight
   if (targetEl) {
     targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-    targetEl.classList.add('row-highlight-flash', 'item-highlight-pulse', 'ring-2', 'ring-primary', 'bg-primary/20');
+    targetEl.classList.add('field-highlight-pulse', 'row-highlight-flash', 'item-highlight-pulse', 'ring-2', 'ring-primary', 'bg-primary/20');
     
     // Also highlight child tds or cells if present
-    const childTds = targetEl.querySelectorAll('td, th');
+    const childTds = targetEl.querySelectorAll('td, th, input, select');
     childTds.forEach(td => td.classList.add('item-highlight-pulse'));
 
     setTimeout(() => {
       if (targetEl) {
-        targetEl.classList.remove('row-highlight-flash', 'item-highlight-pulse', 'ring-2', 'ring-primary', 'bg-primary/20');
+        targetEl.classList.remove('field-highlight-pulse', 'row-highlight-flash', 'item-highlight-pulse', 'ring-2', 'ring-primary', 'bg-primary/20');
       }
       childTds.forEach(td => td.classList.remove('item-highlight-pulse'));
     }, 4500);

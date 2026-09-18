@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
+import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { getOccupancyCategories, getCategoryDisplayName } from "@/lib/ashrae-data";
@@ -48,8 +49,8 @@ export function CategorySelect({ value, onChange, className, triggerClassName, h
             {!hideChevron && <ChevronsUpDown className="size-3 text-muted-foreground shrink-0 opacity-55" />}
           </button>
         </PopoverTrigger>
-        <PopoverContent 
-          className="w-[320px] p-0 font-mori z-50" 
+        <PopoverContent
+          className="w-[320px] p-0 font-mori z-50"
           align="start"
           onClick={(e) => e.stopPropagation()}
         >

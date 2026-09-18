@@ -771,7 +771,6 @@ function SupplyPipeSizerPage() {
           
           {/* Header Section */}
           <div className="flex flex-col gap-1 select-none">
-            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">PLUMBING &gt; WATER SUPPLY &gt; SUPPLY PIPE SIZER</span>
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Water Supply Pipe Sizer</h1>

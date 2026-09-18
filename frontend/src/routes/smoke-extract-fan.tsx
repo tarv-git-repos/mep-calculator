@@ -607,7 +607,6 @@ function SmokeExtractFanPage() {
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           <div className="flex flex-col gap-1 select-none">
-            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">SMOKE MANAGEMENT &gt; SMOKE EXTRACT</span>
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>

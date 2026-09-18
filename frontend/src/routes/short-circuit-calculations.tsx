@@ -34,7 +34,7 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 export const Route = createFileRoute("/short-circuit-calculations")({
   head: () => ({
     meta: [
-      { title: "Short Circuit Current Calculation — MEP Calc" },
+      { title: "Short Circuit Current Calculation â€” MEP Calc" },
       { name: "description", content: "IEC 60909 prospective short circuit current analysis for electrical power networks." },
     ],
   }),
@@ -46,7 +46,7 @@ interface CableRow {
   description: string;
   length: number;
   runs: number;
-  size: number; // mm²
+  size: number; // mmÂ²
   voltage: number; // V
   material: "Copper" | "Aluminium";
   remarks: string;
@@ -181,10 +181,10 @@ function ShortCircuitCalculationsPage() {
       const A = r.size || 1.5;
       const V = r.voltage || 400;
 
-      // Resistivity at 20°C: Cu = 0.01724, Al = 0.0282
+      // Resistivity at 20Â°C: Cu = 0.01724, Al = 0.0282
       const rho20 = r.material === "Copper" ? 0.01724 : 0.0282;
       const alpha = r.material === "Copper" ? 0.00393 : 0.00403;
-      // rho at temperature 70°C
+      // rho at temperature 70Â°C
       const rho70 = rho20 * (1 + alpha * 50);
 
       // Resistance (Ohms) = (rho70 * L) / (A * N)
@@ -264,7 +264,7 @@ function ShortCircuitCalculationsPage() {
     if (zeroSize) {
       logs.push({
         type: "danger",
-        msg: "Cable size must be a valid cross-sectional area (mm²)."
+        msg: "Cable size must be a valid cross-sectional area (mmÂ²)."
       });
     }
 
@@ -500,7 +500,7 @@ function ShortCircuitCalculationsPage() {
     sheet.getColumn("B").width = 30;
 
     // Table headers
-    sheet.getRow(8).values = ["Sr. No.", "Description", "Length (m)", "Runs", "Size (mm²)", "Voltage (V)", "Material", "Resistance (Ω)", "Impedance (Ω)", "Running ΣR", "Running ΣX", "Isc (kA)", "Remarks"];
+    sheet.getRow(8).values = ["Sr. No.", "Description", "Length (m)", "Runs", "Size (mmÂ²)", "Voltage (V)", "Material", "Resistance (Î©)", "Impedance (Î©)", "Running Î£R", "Running Î£X", "Isc (kA)", "Remarks"];
     sheet.getRow(8).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(8).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF334155" } };
 
@@ -532,9 +532,9 @@ function ShortCircuitCalculationsPage() {
 
     const results = [
       ["Total Cable Length", `${calculatedData.totalCableLength.toFixed(1)} m`],
-      ["Total Resistance", `${calculatedData.totalR.toFixed(5)} Ω`],
-      ["Total Reactance", `${calculatedData.totalX.toFixed(5)} Ω`],
-      ["Total Impedance", `${calculatedData.totalZ.toFixed(5)} Ω`],
+      ["Total Resistance", `${calculatedData.totalR.toFixed(5)} Î©`],
+      ["Total Reactance", `${calculatedData.totalX.toFixed(5)} Î©`],
+      ["Total Impedance", `${calculatedData.totalZ.toFixed(5)} Î©`],
       ["Final Short Circuit Current", `${calculatedData.finalIsc.toFixed(3)} kA`]
     ];
 
@@ -600,12 +600,12 @@ function ShortCircuitCalculationsPage() {
           { content: "Description" },
           { content: `Length\n(${unitSystem === "ip" ? "ft" : "m"})` },
           { content: "Runs" },
-          { content: "Size\n(mm²)" },
+          { content: "Size\n(mmÂ²)" },
           { content: "Material" },
-          { content: "Resistance\nR (mΩ)" },
-          { content: "Reactance\nX (mΩ)" },
-          { content: "Impedance\nZ (mΩ)" },
-          { content: "Running\nΣZ (mΩ)" },
+          { content: "Resistance\nR (mÎ©)" },
+          { content: "Reactance\nX (mÎ©)" },
+          { content: "Impedance\nZ (mÎ©)" },
+          { content: "Running\nÎ£Z (mÎ©)" },
           { content: "Fault Current\nIsc (kA)", styles: { fillColor: blueFill } }
         ]
       ];
@@ -617,7 +617,7 @@ function ShortCircuitCalculationsPage() {
           r.description || `Cable Feeder ${idx + 1}`,
           `${r.length || 0} ${unitSystem === "ip" ? "ft" : "m"}`,
           r.runs || 1,
-          `${r.size || 0} mm²`,
+          `${r.size || 0} mmÂ²`,
           r.material || "Copper",
           (d.segmentR * 1000).toFixed(2),
           (d.segmentX * 1000).toFixed(2),
@@ -721,9 +721,9 @@ function ShortCircuitCalculationsPage() {
         head: [
           [
             { content: "" },
-            { content: "Originated by" },
-            { content: "Reviewed by" },
-            { content: "Approved by" }
+            { content: "Originator" },
+            { content: "Reviewer" },
+            { content: "Approver" }
           ]
         ],
         body: [
@@ -819,7 +819,7 @@ function ShortCircuitCalculationsPage() {
     },
     {
       key: "size",
-      header: "Cable Size (mm²)",
+      header: "Cable Size (mmÂ²)",
       width: 140,
       align: "center",
       render: (r) => (
@@ -869,7 +869,7 @@ function ShortCircuitCalculationsPage() {
     },
     {
       key: "resistance",
-      header: "Resistance (Ω)",
+      header: "Resistance (Î©)",
       width: 130,
       align: "right",
       render: (r) => {
@@ -879,7 +879,7 @@ function ShortCircuitCalculationsPage() {
     },
     {
       key: "impedance",
-      header: "Impedance (Ω)",
+      header: "Impedance (Î©)",
       width: 130,
       align: "right",
       render: (r) => {
@@ -889,7 +889,7 @@ function ShortCircuitCalculationsPage() {
     },
     {
       key: "runningSumR",
-      header: "Running ΣR",
+      header: "Running Î£R",
       width: 120,
       align: "right",
       render: (r) => {
@@ -899,7 +899,7 @@ function ShortCircuitCalculationsPage() {
     },
     {
       key: "runningSumX",
-      header: "Running ΣX",
+      header: "Running Î£X",
       width: 120,
       align: "right",
       render: (r) => {
@@ -1045,7 +1045,6 @@ function ShortCircuitCalculationsPage() {
           {/* Breadcrumbs & Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; SHORT CIRCUIT CURRENT CALCULATOR</span>
               <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
@@ -1202,7 +1201,7 @@ function ShortCircuitCalculationsPage() {
                             >
                               <option value="all">All Sizes</option>
                               {uniqueSizes.map((s) => (
-                                <option key={s} value={String(s)}>{s} mm²</option>
+                                <option key={s} value={String(s)}>{s} mmÂ²</option>
                               ))}
                             </select>
                           </div>
@@ -1240,7 +1239,7 @@ function ShortCircuitCalculationsPage() {
                             </span>
                             {sortBy !== "none" && (
                               <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                                ✓
+                                âœ“
                               </span>
                             )}
                           </button>
@@ -1285,8 +1284,8 @@ function ShortCircuitCalculationsPage() {
                         inputDescriptions="Cable Length, Conductor Properties"
                         conversionExample={
                           unitSystem === "si"
-                            ? "Convert 30 m → 98.4 ft"
-                            : "Convert 98.4 ft → 30 m"
+                            ? "Convert 30 m â†’ 98.4 ft"
+                            : "Convert 98.4 ft â†’ 30 m"
                         }
                       />
                       <ImportExcelBtn
@@ -1299,7 +1298,7 @@ function ShortCircuitCalculationsPage() {
                           "Length": "length",
                           "Number of Parallel Runs": "runs",
                           "Runs": "runs",
-                          "Cable Size (mm²)": "size",
+                          "Cable Size (mmÂ²)": "size",
                           "Size": "size",
                           "Voltage (V)": "voltage",
                           "Voltage": "voltage",
@@ -1365,7 +1364,7 @@ function ShortCircuitCalculationsPage() {
                       <span className="text-[9.5px] font-bold text-muted-foreground uppercase tracking-wider block">Total Resistance</span>
                       <div className="mt-2.5">
                         <strong className="text-[15px] font-bold font-mono text-foreground block">
-                          {calculatedData.totalR.toFixed(5)} Ω
+                          {calculatedData.totalR.toFixed(5)} Î©
                         </strong>
                       </div>
                     </div>
@@ -1375,7 +1374,7 @@ function ShortCircuitCalculationsPage() {
                       <span className="text-[9.5px] font-bold text-muted-foreground uppercase tracking-wider block">Total Reactance</span>
                       <div className="mt-2.5">
                         <strong className="text-[15px] font-bold font-mono text-foreground block">
-                          {calculatedData.totalX.toFixed(5)} Ω
+                          {calculatedData.totalX.toFixed(5)} Î©
                         </strong>
                       </div>
                     </div>
@@ -1385,7 +1384,7 @@ function ShortCircuitCalculationsPage() {
                       <span className="text-[9.5px] font-bold text-muted-foreground uppercase tracking-wider block">Total Impedance</span>
                       <div className="mt-2.5">
                         <strong className="text-[15px] font-bold font-mono text-foreground block">
-                          {calculatedData.totalZ.toFixed(5)} Ω
+                          {calculatedData.totalZ.toFixed(5)} Î©
                         </strong>
                       </div>
                     </div>
@@ -1446,9 +1445,9 @@ function ShortCircuitCalculationsPage() {
                             <th className="px-2 py-2 text-center">Runs</th>
                             <th className="px-2 py-2 text-center">Size</th>
                             <th className="px-2 py-2 text-center">Material</th>
-                            <th className="px-2 py-2 text-right">R (Ω)</th>
-                            <th className="px-2 py-2 text-right">Z (Ω)</th>
-                            <th className="px-2 py-2 text-right">Running ΣZ</th>
+                            <th className="px-2 py-2 text-right">R (Î©)</th>
+                            <th className="px-2 py-2 text-right">Z (Î©)</th>
+                            <th className="px-2 py-2 text-right">Running Î£Z</th>
                             <th className="px-2 py-2 text-right">Isc (kA)</th>
                           </tr>
                         </thead>
@@ -1461,7 +1460,7 @@ function ShortCircuitCalculationsPage() {
                                 <td className="px-2 py-1.5 font-medium">{r.description}</td>
                                 <td className="px-2 py-1.5 text-center font-mono">{r.length} m</td>
                                 <td className="px-2 py-1.5 text-center font-mono">{r.runs}</td>
-                                <td className="px-2 py-1.5 text-center font-mono">{r.size} mm²</td>
+                                <td className="px-2 py-1.5 text-center font-mono">{r.size} mmÂ²</td>
                                 <td className="px-2 py-1.5 text-center">{r.material}</td>
                                 <td className="px-2 py-1.5 text-right font-mono">{details.segmentR.toFixed(5)}</td>
                                 <td className="px-2 py-1.5 text-right font-mono">{details.segmentZ.toFixed(5)}</td>
@@ -1485,11 +1484,11 @@ function ShortCircuitCalculationsPage() {
                           </div>
                           <div className="flex justify-between">
                             <span>Total Cascade Resistance:</span>
-                            <strong className="font-mono">{calculatedData.totalR.toFixed(5)} Ω</strong>
+                            <strong className="font-mono">{calculatedData.totalR.toFixed(5)} Î©</strong>
                           </div>
                           <div className="flex justify-between">
                             <span>Total Cascade Reactance:</span>
-                            <strong className="font-mono">{calculatedData.totalX.toFixed(5)} Ω</strong>
+                            <strong className="font-mono">{calculatedData.totalX.toFixed(5)} Î©</strong>
                           </div>
                           <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1.5 mt-1 font-semibold text-primary">
                             <span>Final Short Circuit Current:</span>
@@ -1503,15 +1502,15 @@ function ShortCircuitCalculationsPage() {
                         <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-3 flex flex-col gap-2 bg-slate-50/50 dark:bg-slate-800/10">
                           <div className="flex justify-between">
                             <span>Source R:</span>
-                            <strong className="font-mono">{calculatedData.rSource.toFixed(6)} Ω</strong>
+                            <strong className="font-mono">{calculatedData.rSource.toFixed(6)} Î©</strong>
                           </div>
                           <div className="flex justify-between">
                             <span>Source X:</span>
-                            <strong className="font-mono">{calculatedData.xSource.toFixed(6)} Ω</strong>
+                            <strong className="font-mono">{calculatedData.xSource.toFixed(6)} Î©</strong>
                           </div>
                           <div className="flex justify-between">
                             <span>Source Impedance (Zs):</span>
-                            <strong className="font-mono">{calculatedData.zSource.toFixed(6)} Ω</strong>
+                            <strong className="font-mono">{calculatedData.zSource.toFixed(6)} Î©</strong>
                           </div>
                         </div>
                       </div>
@@ -1527,7 +1526,7 @@ function ShortCircuitCalculationsPage() {
                         </div>
                         <div>
                           <p className="font-semibold font-sans text-foreground">Running Impedance Cascade:</p>
-                          <span className="text-primary">Running ΣZ = sqrt((ΣR_cables + R_s)^2 + (ΣX_cables + X_s)^2)</span>
+                          <span className="text-primary">Running Î£Z = sqrt((Î£R_cables + R_s)^2 + (Î£X_cables + X_s)^2)</span>
                         </div>
                         <div className="mt-2">
                           <p className="font-semibold font-sans text-foreground">Conductor Reactance:</p>
@@ -1535,7 +1534,7 @@ function ShortCircuitCalculationsPage() {
                         </div>
                         <div className="mt-2">
                           <p className="font-semibold font-sans text-foreground">Short Circuit Current (kA):</p>
-                          <span className="text-primary">Isc = V / (sqrt(3) * Running ΣZ * 1000)</span>
+                          <span className="text-primary">Isc = V / (sqrt(3) * Running Î£Z * 1000)</span>
                         </div>
                       </div>
                     </div>
@@ -1563,7 +1562,7 @@ function ShortCircuitCalculationsPage() {
                       </div>
                       <div className="text-right">
                         <p>Calculation Engine Ver: 4.0.0 (Simple)</p>
-                        <p className="mt-1">© MEP Calculator, All Rights Reserved</p>
+                        <p className="mt-1">Â© MEP Calculator, All Rights Reserved</p>
                       </div>
                     </div>
 

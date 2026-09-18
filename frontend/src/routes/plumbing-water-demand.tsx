@@ -1581,9 +1581,6 @@ function WaterDemandPage() {
           {/* Header Bar */}
           <div className="flex justify-between items-start select-none flex-wrap gap-4">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
-                PLUMBING &gt; WATER DEMAND &amp; STORAGE TANK
-              </span>
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[26px] font-extrabold tracking-tight text-foreground mt-0.5">
                   Water Demand &amp; Tank Sizer

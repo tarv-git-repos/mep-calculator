@@ -55,17 +55,17 @@ export function addExcelSignatureBlock(
   if (totalColumns === 10) {
     // 10-column layout spanning Columns A through J
     worksheet.mergeCells(`B${sigStartRow}:D${sigStartRow}`);
-    worksheet.getCell(`B${sigStartRow}`).value = "Originated by";
+    worksheet.getCell(`B${sigStartRow}`).value = "Originator";
     worksheet.getCell(`B${sigStartRow}`).font = boldFont;
     worksheet.getCell(`B${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
     worksheet.mergeCells(`E${sigStartRow}:G${sigStartRow}`);
-    worksheet.getCell(`E${sigStartRow}`).value = "Reviewed by";
+    worksheet.getCell(`E${sigStartRow}`).value = "Reviewer";
     worksheet.getCell(`E${sigStartRow}`).font = boldFont;
     worksheet.getCell(`E${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
     worksheet.mergeCells(`H${sigStartRow}:J${sigStartRow}`);
-    worksheet.getCell(`H${sigStartRow}`).value = "Approved by";
+    worksheet.getCell(`H${sigStartRow}`).value = "Approver";
     worksheet.getCell(`H${sigStartRow}`).font = boldFont;
     worksheet.getCell(`H${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
@@ -137,17 +137,17 @@ export function addExcelSignatureBlock(
   } else if (totalColumns === 7) {
     // 7-column layout spanning Columns A through G
     worksheet.mergeCells(`B${sigStartRow}:C${sigStartRow}`);
-    worksheet.getCell(`B${sigStartRow}`).value = "Originated by";
+    worksheet.getCell(`B${sigStartRow}`).value = "Originator";
     worksheet.getCell(`B${sigStartRow}`).font = boldFont;
     worksheet.getCell(`B${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
     worksheet.mergeCells(`D${sigStartRow}:E${sigStartRow}`);
-    worksheet.getCell(`D${sigStartRow}`).value = "Reviewed by";
+    worksheet.getCell(`D${sigStartRow}`).value = "Reviewer";
     worksheet.getCell(`D${sigStartRow}`).font = boldFont;
     worksheet.getCell(`D${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
     worksheet.mergeCells(`F${sigStartRow}:G${sigStartRow}`);
-    worksheet.getCell(`F${sigStartRow}`).value = "Approved by";
+    worksheet.getCell(`F${sigStartRow}`).value = "Approver";
     worksheet.getCell(`F${sigStartRow}`).font = boldFont;
     worksheet.getCell(`F${sigStartRow}`).alignment = { horizontal: "center", vertical: "middle" };
 
@@ -218,9 +218,9 @@ export function addExcelSignatureBlock(
     }
   } else {
     // 4-column fallback
-    worksheet.getCell(sigStartRow, 2).value = "Originated by";
-    worksheet.getCell(sigStartRow, 3).value = "Reviewed by";
-    worksheet.getCell(sigStartRow, 4).value = "Approved by";
+    worksheet.getCell(sigStartRow, 2).value = "Originator";
+    worksheet.getCell(sigStartRow, 3).value = "Reviewer";
+    worksheet.getCell(sigStartRow, 4).value = "Approver";
 
     const nameRow = sigStartRow + 1;
     worksheet.getCell(nameRow, 1).value = "Name:";

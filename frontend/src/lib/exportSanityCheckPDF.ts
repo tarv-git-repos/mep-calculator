@@ -258,9 +258,9 @@ export const exportSanityCheckPDF = async ({
       head: [
         [
           { content: "" },
-          { content: "Originated by" },
-          { content: "Reviewed by" },
-          { content: "Approved by" }
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" }
         ]
       ],
       body: [

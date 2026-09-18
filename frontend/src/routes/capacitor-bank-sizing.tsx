@@ -927,7 +927,6 @@ function CapacitorBankSizingPage() {
         {/* Breadcrumbs & Page Header */}
         <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg z-10">
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL &gt; CAPACITOR BANK SIZING</span>
             <div className="flex items-center gap-3 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Capacitor Bank Sizing</h1>

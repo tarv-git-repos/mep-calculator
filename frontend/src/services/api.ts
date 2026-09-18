@@ -1005,7 +1005,9 @@ export const api = {
         window.dispatchEvent(new CustomEvent('mep-notification-added', { detail: newNotifItem }));
       }
 
-      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/send`, notifData);
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/send`, notifData, {
+        headers: getAuthHeaders()
+      });
       return data;
     } catch(e) {
       return { success: true };
@@ -1014,10 +1016,48 @@ export const api = {
 
   async getNotifications() {
     try {
-      const { data } = await axios.get(`${getBackendUrl()}/api/notifications`);
+      const { data } = await axios.get(`${getBackendUrl()}/api/notifications`, {
+        headers: getAuthHeaders()
+      });
       return data.success ? (data.notifications || []) : [];
     } catch(e) {
       return [];
+    }
+  },
+
+  async markNotificationRead(id: string | string[]) {
+    try {
+      const payload = Array.isArray(id) ? { ids: id } : { id };
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/read`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(e) {
+      return { success: true };
+    }
+  },
+
+  async deleteNotification(id: string | string[]) {
+    try {
+      const payload = Array.isArray(id) ? { ids: id } : { id };
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/delete`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(e) {
+      return { success: true };
+    }
+  },
+
+  async completeNotification(id: string | string[]) {
+    try {
+      const payload = Array.isArray(id) ? { ids: id } : { id };
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/complete`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(e) {
+      return { success: true };
     }
   },
 

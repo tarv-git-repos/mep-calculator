@@ -477,7 +477,6 @@ function ConductorSizingPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">ELECTRICAL {'>'} CONDUCTOR (CABLE) Sizing</span>
               <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">

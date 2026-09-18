@@ -43,7 +43,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/preliminary-cooling-load")({
   head: () => ({
     meta: [
-      { title: "Preliminary Cooling Load — MEP Calc" },
+      { title: "Preliminary Cooling Load â€” MEP Calc" },
       { name: "description", content: "Preliminary room-by-room cooling load and heat density estimation." },
     ],
   }),
@@ -84,7 +84,7 @@ interface PclRow {
   name: string;
   area: number | "";
   type: string;
-  density: number; // W/m²
+  density: number; // W/mÂ²
   dissipation: number; // Watts
   kw: number;
   tr: number;
@@ -217,9 +217,9 @@ const INFER_MAP: [string, string][] = [
   ["pantry", "Kitchen - Private"],
   ["kitchenette", "Kitchen - Private"],
   ["kitchen", "Kitchen - Public"],
-  ["cafe", "Café"],
-  ["café", "Café"],
-  ["coffee", "Café"],
+  ["cafe", "CafÃ©"],
+  ["cafÃ©", "CafÃ©"],
+  ["coffee", "CafÃ©"],
   ["restaurant", "Food & Beverage"],
   ["food", "Food & Beverage"],
   ["dining area", "Food & Beverage"],
@@ -328,7 +328,7 @@ const SPACE_DENSITIES: Record<string, number> = {
   "Food & Beverage": 2000,
   "Kitchen - Public": 600,
   "Kitchen - Private": 120,
-  "Café": 140,
+  "CafÃ©": 140,
   // Office & Coworking
   "Office - Cabin": 120,
   "Office - Meeting Room": 120,
@@ -465,7 +465,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   );
 }
 
-/* ──────────────────── Preliminary Cooling Load Intelligence Drawer ───────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Preliminary Cooling Load Intelligence Drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 interface CollapsibleMissingPclSectionProps {
   label: string;
   count: number;
@@ -556,7 +556,7 @@ function PclIntelligenceDrawer({
   }));
   const highDensityItems = highDensitySpaces.map((s) => ({
     id: s.id,
-    name: `${s.name || "Space"} (${s.density} W/m²)`,
+    name: `${s.name || "Space"} (${s.density} W/mÂ²)`,
     detail: s.type || "High Density",
   }));
   const flaggedItems = flaggedSpaces.map((s) => ({
@@ -630,11 +630,11 @@ function PclIntelligenceDrawer({
           <div className="space-y-1.5 text-[11.5px]">
             <div className="flex justify-between py-0.5 border-b border-border/40">
               <span className="text-muted-foreground">Total Conditioned Area:</span>
-              <span className="font-mono font-bold text-foreground">{totalArea.toFixed(1)} m²</span>
+              <span className="font-mono font-bold text-foreground">{totalArea.toFixed(1)} mÂ²</span>
             </div>
             <div className="flex justify-between py-0.5 border-b border-border/40">
               <span className="text-muted-foreground">Avg Heat Density:</span>
-              <span className="font-mono font-bold text-foreground">{avgDensity.toFixed(1)} W/m²</span>
+              <span className="font-mono font-bold text-foreground">{avgDensity.toFixed(1)} W/mÂ²</span>
             </div>
             <div className="flex justify-between py-0.5 border-b border-border/40">
               <span className="text-muted-foreground">Total Cooling Load (kW):</span>
@@ -654,15 +654,15 @@ function PclIntelligenceDrawer({
           </span>
           {avgDensity > 300 ? (
             <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded p-2 mb-2">
-              High average heat density detected ({avgDensity.toFixed(1)} W/m²). Ensure dedicated airflow and high air-change rates.
+              High average heat density detected ({avgDensity.toFixed(1)} W/mÂ²). Ensure dedicated airflow and high air-change rates.
             </div>
           ) : (
             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded p-2 mb-2">
-              Average heat density is within normal range ({avgDensity.toFixed(1)} W/m²).
+              Average heat density is within normal range ({avgDensity.toFixed(1)} W/mÂ²).
             </div>
           )}
           <CollapsibleMissingPclSection
-            label="High density spaces (>300 W/m²)"
+            label="High density spaces (>300 W/mÂ²)"
             count={highDensityItems.length}
             itemsList={highDensityItems}
             isOpen={openSections.highDensity}
@@ -1111,12 +1111,12 @@ function PreliminaryCoolingLoadPage() {
     if (calculatedData.avgDensity > 300) {
       logs.push({
         type: "warning",
-        msg: `High average heat load density detected (${calculatedData.avgDensity.toFixed(1)} W/m²). Ensure high air-change rates to prevent local hotspots.`,
+        msg: `High average heat load density detected (${calculatedData.avgDensity.toFixed(1)} W/mÂ²). Ensure high air-change rates to prevent local hotspots.`,
       });
     } else {
       logs.push({
         type: "success",
-        msg: `Average load density is in standard range (${calculatedData.avgDensity.toFixed(1)} W/m²).`,
+        msg: `Average load density is in standard range (${calculatedData.avgDensity.toFixed(1)} W/mÂ²).`,
       });
     }
 
@@ -1124,7 +1124,7 @@ function PreliminaryCoolingLoadPage() {
     if (highDensityRow) {
       logs.push({
         type: "danger",
-        msg: `Space '${highDensityRow.name}' has extremely high load density (${highDensityRow.density} W/m²). Verify ventilation and spot cooling layouts.`,
+        msg: `Space '${highDensityRow.name}' has extremely high load density (${highDensityRow.density} W/mÂ²). Verify ventilation and spot cooling layouts.`,
       });
     }
 
@@ -1594,7 +1594,7 @@ function PreliminaryCoolingLoadPage() {
           const isMetaRow = rowNorm.some(h => h.startsWith("project") || h.startsWith("calculation") || h.startsWith("client"));
           if (isMetaRow) continue;
 
-          const hasArea = rowNorm.some(h => h.includes("area") || h.includes("sq. m") || h.includes("sq.m") || h.includes("sqm") || h.includes("m2") || h.includes("m²"));
+          const hasArea = rowNorm.some(h => h.includes("area") || h.includes("sq. m") || h.includes("sq.m") || h.includes("sqm") || h.includes("m2") || h.includes("mÂ²"));
           const hasNameOrDesc = rowNorm.some(h => h.includes("description") || h.includes("name") || h.includes("space") || h.includes("room") || h.includes("sr. no") || h.includes("sr no") || h.includes("level") || h.includes("floor"));
 
           if (hasArea && hasNameOrDesc) {
@@ -1632,7 +1632,7 @@ function PreliminaryCoolingLoadPage() {
 
         let idxLevel = findCol([/^level$/i, /^floor$/i, /^storey$/i, /^story$/i, "floor level", "level / floor", "level", "floor", "flr", "lvl"]);
         let idxName = findCol([/^name$/i, /^space\s*name$/i, /^room\s*name$/i, /^description$/i, "space name", "room name", "space description", "description", "room", "space", "name"]);
-        let idxArea = findCol([/^area$/i, /^area\s*\(.*?\)$/i, "area (sq. m)", "area (sqm)", "area (m2)", "area (m²)", "area", "sq. m", "sq.m", "sqm", "m2", "m²"]);
+        let idxArea = findCol([/^area$/i, /^area\s*\(.*?\)$/i, "area (sq. m)", "area (sqm)", "area (m2)", "area (mÂ²)", "area", "sq. m", "sq.m", "sqm", "m2", "mÂ²"]);
         let idxType = findCol([/^type$/i, /^space\s*type$/i, /^room\s*type$/i, /^category$/i, "type of space", "space type", "room type", "category", "type"]);
         let idxOcc = findCol([/^occupancy$/i, /^occupancy\s*\(.*?\)$/i, "occupancy (no.)", "occupancy", "occupants", "number of people", "fixtures"]);
 
@@ -1681,9 +1681,9 @@ function PreliminaryCoolingLoadPage() {
             allCellsStr.includes("total fresh air") ||
             allCellsStr.includes("fresh air load") ||
             allCellsStr.includes("reference:") ||
-            allCellsStr.includes("originated by") ||
-            allCellsStr.includes("reviewed by") ||
-            allCellsStr.includes("approved by") ||
+            allCellsStr.includes("Originator") ||
+            allCellsStr.includes("Reviewer") ||
+            allCellsStr.includes("Approver") ||
             allCellsStr.includes("architectural drawings") ||
             allCellsStr.includes("dbr")
           ) {
@@ -1869,9 +1869,9 @@ function PreliminaryCoolingLoadPage() {
     // Column widths (7 columns)
     sheet.getColumn(1).width = 8;   // S.No
     sheet.getColumn(2).width = 32;  // Name of Space
-    sheet.getColumn(3).width = 16;  // Area (m²)
+    sheet.getColumn(3).width = 16;  // Area (mÂ²)
     sheet.getColumn(4).width = 30;  // Type of Space
-    sheet.getColumn(5).width = 18;  // Cooling load Density (W/m²)
+    sheet.getColumn(5).width = 18;  // Cooling load Density (W/mÂ²)
     sheet.getColumn(6).width = 16;  // Cooling Load (kW)
     sheet.getColumn(7).width = 16;  // Cooling Load (TR)
 
@@ -1949,7 +1949,7 @@ function PreliminaryCoolingLoadPage() {
     r9.getCell(7).alignment = { horizontal: "right" };
     r9.getCell(7).numFmt = "0.00";
 
-    const r10 = sheet.addRow(["Total Floor Area (m²):", "", Number(calculatedData.totalArea.toFixed(1)), "Total Load (TR):", "", "", Number(calculatedData.totalTr.toFixed(2))]);
+    const r10 = sheet.addRow(["Total Floor Area (mÂ²):", "", Number(calculatedData.totalArea.toFixed(1)), "Total Load (TR):", "", "", Number(calculatedData.totalTr.toFixed(2))]);
     sheet.mergeCells(`A10:B10`);
     sheet.mergeCells(`D10:F10`);
     r10.getCell(1).font = boldFont;
@@ -1961,7 +1961,7 @@ function PreliminaryCoolingLoadPage() {
     r10.getCell(7).alignment = { horizontal: "right" };
     r10.getCell(7).numFmt = "0.00";
 
-    const r11 = sheet.addRow(["Total Cooling Load (kW):", "", Number(calculatedData.totalKw.toFixed(2)), "Average Load Density (W/m²):", "", "", Number(calculatedData.avgDensity.toFixed(1))]);
+    const r11 = sheet.addRow(["Total Cooling Load (kW):", "", Number(calculatedData.totalKw.toFixed(2)), "Average Load Density (W/mÂ²):", "", "", Number(calculatedData.avgDensity.toFixed(1))]);
     sheet.mergeCells(`A11:B11`);
     sheet.mergeCells(`D11:F11`);
     r11.getCell(1).font = boldFont;
@@ -2001,9 +2001,9 @@ function PreliminaryCoolingLoadPage() {
     const headerRow = sheet.addRow([
       "Sr. No.",
       "Name of Space",
-      "Area (m²)",
+      "Area (mÂ²)",
       "Type of Space",
-      "Cooling load\nDensity\n(W/m²)",
+      "Cooling load\nDensity\n(W/mÂ²)",
       "Cooling Load\n(kW)",
       "Cooling\nLoad (TR)"
     ]);
@@ -2228,7 +2228,7 @@ function PreliminaryCoolingLoadPage() {
     },
     {
       key: "area",
-      header: "Area (m²)",
+      header: "Area (mÂ²)",
       width: 90,
       align: "center",
       mono: true,
@@ -2238,7 +2238,7 @@ function PreliminaryCoolingLoadPage() {
           type="number"
           min={1}
           value={r.area}
-          placeholder="—"
+          placeholder="â€”"
           onCommit={(newAreaStr) => {
             const editIds = getSpaceEditIds(r.id);
             const editSet = new Set(editIds);
@@ -2368,7 +2368,7 @@ function PreliminaryCoolingLoadPage() {
       width: 100,
       align: "right",
       mono: true,
-      render: (r) => r.type && r.density ? `${r.density} W/m²` : <span className="text-muted-foreground/35 font-mono">—</span>,
+      render: (r) => r.type && r.density ? `${r.density} W/mÂ²` : <span className="text-muted-foreground/35 font-mono">â€”</span>,
     },
     {
       key: "kw",
@@ -2377,7 +2377,7 @@ function PreliminaryCoolingLoadPage() {
       align: "right",
       mono: true,
       render: (r) => (!r.area || !r.type || r.kw === 0) ? (
-        <span className="text-muted-foreground/35 font-mono">—</span>
+        <span className="text-muted-foreground/35 font-mono">â€”</span>
       ) : `${r.kw.toFixed(2)} kW`,
     },
     {
@@ -2387,7 +2387,7 @@ function PreliminaryCoolingLoadPage() {
       align: "right",
       mono: true,
       render: (r) => (!r.area || !r.type || r.tr === 0) ? (
-        <span className="text-muted-foreground/35 font-mono">—</span>
+        <span className="text-muted-foreground/35 font-mono">â€”</span>
       ) : `${r.tr.toFixed(2)} TR`,
     },
     {
@@ -2718,7 +2718,7 @@ function PreliminaryCoolingLoadPage() {
                             <ArrowUpDown className="size-3.5 shrink-0" />
                             {floorOrder.length > 0 && (
                               <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                                ✓
+                                âœ“
                               </span>
                             )}
                           </button>
@@ -2736,7 +2736,7 @@ function PreliminaryCoolingLoadPage() {
                             )}
                           </div>
                           <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
-                            Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
+                            Use â–² / â–¼ buttons or drag floors to change their sorting order in grid views.
                           </p>
                           <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5">
                             {sortedFloorsForGrid.map((floor, index) => (
@@ -2804,7 +2804,7 @@ function PreliminaryCoolingLoadPage() {
                       {!isApprovedLocked && selected.size > 0 && (
                         <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                           <span className="font-semibold">{selected.size} selected</span>
-                          <span className="text-primary/30">·</span>
+                          <span className="text-primary/30">Â·</span>
                           <BulkBtn icon={Edit3} onClick={() => {
                             setBulkEditValues({
                               floor: "",
@@ -2927,10 +2927,10 @@ function PreliminaryCoolingLoadPage() {
                     <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none">
                       <div>Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} spaces</div>
                       <div className="flex items-center gap-3 tabular">
-                        <span>Σ Area: <span className="font-mono text-foreground font-bold">{calculatedData.totalArea.toFixed(1)} m²</span></span>
-                        <span>Avg Heat Density: <span className="font-mono text-foreground font-bold">{calculatedData.avgDensity.toFixed(1)} W/m²</span></span>
-                        <span>Σ Load (kW): <span className="font-mono text-primary font-bold">{calculatedData.totalKw.toFixed(2)} kW</span></span>
-                        <span>Σ Load (TR): <span className="font-mono text-pink-600 font-bold">{calculatedData.totalTr.toFixed(2)} TR</span></span>
+                        <span>Î£ Area: <span className="font-mono text-foreground font-bold">{calculatedData.totalArea.toFixed(1)} mÂ²</span></span>
+                        <span>Avg Heat Density: <span className="font-mono text-foreground font-bold">{calculatedData.avgDensity.toFixed(1)} W/mÂ²</span></span>
+                        <span>Î£ Load (kW): <span className="font-mono text-primary font-bold">{calculatedData.totalKw.toFixed(2)} kW</span></span>
+                        <span>Î£ Load (TR): <span className="font-mono text-pink-600 font-bold">{calculatedData.totalTr.toFixed(2)} TR</span></span>
                       </div>
                     </div>
 
@@ -2963,8 +2963,8 @@ function PreliminaryCoolingLoadPage() {
                         <Gauge className="size-4" />
                       </div>
                       <span className="text-[10px] font-bold text-pink-600 dark:text-pink-400 uppercase tracking-widest block mb-1 font-sans">Average Load Density</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.avgDensity.toFixed(1)} W/m²</strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Total Area Sized: {calculatedData.totalArea.toFixed(1)} m²</span>
+                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.avgDensity.toFixed(1)} W/mÂ²</strong>
+                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Total Area Sized: {calculatedData.totalArea.toFixed(1)} mÂ²</span>
                     </div>
 
                     <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 border border-emerald-200/60 dark:border-emerald-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
@@ -3045,7 +3045,7 @@ function PreliminaryCoolingLoadPage() {
                     {/* 3. Project Summary Stats */}
                     <div className="mt-4 rounded-lg overflow-hidden border border-border/80 text-xs">
                       <div className="bg-[#06456F] text-white px-3 py-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                        📊 PROJECT SUMMARY STATS
+                        ðŸ“Š PROJECT SUMMARY STATS
                       </div>
                       <div className="grid grid-cols-2 divide-x divide-border/60 p-2 bg-slate-50/50 dark:bg-slate-800/30">
                         <div className="space-y-1.5 pr-3">
@@ -3055,7 +3055,7 @@ function PreliminaryCoolingLoadPage() {
                           </div>
                           <div className="flex justify-between">
                             <span className="font-semibold text-muted-foreground">Total Floor Area:</span>
-                            <span className="font-bold font-mono">{calculatedData.totalArea.toFixed(1)} m²</span>
+                            <span className="font-bold font-mono">{calculatedData.totalArea.toFixed(1)} mÂ²</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="font-semibold text-muted-foreground">Total Cooling Load:</span>
@@ -3073,7 +3073,7 @@ function PreliminaryCoolingLoadPage() {
                           </div>
                           <div className="flex justify-between">
                             <span className="font-semibold text-muted-foreground">Average Load Density:</span>
-                            <span className="font-bold font-mono">{calculatedData.avgDensity.toFixed(1)} W/m²</span>
+                            <span className="font-bold font-mono">{calculatedData.avgDensity.toFixed(1)} W/mÂ²</span>
                           </div>
                         </div>
                       </div>
@@ -3082,7 +3082,7 @@ function PreliminaryCoolingLoadPage() {
                     {/* 4. Cooling Load Schedule Table */}
                     <div className="mt-5 rounded-lg overflow-hidden border border-border/80">
                       <div className="bg-[#06456F] text-white px-3 py-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                        ⚙️ COOLING LOAD SCHEDULE
+                        âš™ï¸ COOLING LOAD SCHEDULE
                       </div>
                       
                       {(() => {
@@ -3101,9 +3101,9 @@ function PreliminaryCoolingLoadPage() {
                               <tr className="bg-[#0A7BC7] font-bold text-white text-center">
                                 <th className="p-2 border-r border-white/20 w-10">S.No</th>
                                 <th className="p-2 border-r border-white/20 text-left">Name of Space</th>
-                                <th className="p-2 border-r border-white/20 text-right w-20">Area (m²)</th>
+                                <th className="p-2 border-r border-white/20 text-right w-20">Area (mÂ²)</th>
                                 <th className="p-2 border-r border-white/20 text-left">Type of Space</th>
-                                <th className="p-2 border-r border-white/20 text-right w-36">Cooling load Density (W/m²)</th>
+                                <th className="p-2 border-r border-white/20 text-right w-36">Cooling load Density (W/mÂ²)</th>
                                 <th className="p-2 border-r border-white/20 text-right w-28">Cooling Load (kW)</th>
                                 <th className="p-2 text-right w-24">Cooling Load (TR)</th>
                               </tr>
@@ -3149,7 +3149,7 @@ function PreliminaryCoolingLoadPage() {
                         <p className="font-sans">Consulting HVAC Engineer</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold uppercase tracking-wider text-slate-800 mb-6 font-sans">Reviewed & Approved By:</p>
+                        <p className="font-semibold uppercase tracking-wider text-slate-800 mb-6 font-sans">Reviewed & Approver:</p>
                         <div className="border-b border-slate-300 w-48 ml-auto mb-1"></div>
                         <p className="font-sans">Lead MEP Principal Engineer</p>
                       </div>
@@ -3296,7 +3296,7 @@ function PreliminaryCoolingLoadPage() {
                             </th>
                             <th className="p-3">Level</th>
                             <th className="p-3">Name</th>
-                            <th className="p-3">Area (m²)</th>
+                            <th className="p-3">Area (mÂ²)</th>
                             <th className="p-3">Space Type</th>
                           </tr>
                         </thead>
@@ -3485,7 +3485,7 @@ function PreliminaryCoolingLoadPage() {
                   >
                     <option value="" disabled>Select Space Type...</option>
                     {Object.keys(SPACE_DENSITIES).map(k => (
-                      <option key={k} value={k}>{k} ({SPACE_DENSITIES[k]} W/m²)</option>
+                      <option key={k} value={k}>{k} ({SPACE_DENSITIES[k]} W/mÂ²)</option>
                     ))}
                   </select>
                 )}
@@ -3500,7 +3500,7 @@ function PreliminaryCoolingLoadPage() {
                     onChange={(e) => setBulkEditFields({ ...bulkEditFields, area: e.target.checked })}
                     className="rounded border-gray-300 text-primary size-3.5"
                   />
-                  <span>Area (m²)</span>
+                  <span>Area (mÂ²)</span>
                 </label>
                 {bulkEditFields.area && (
                   <input
@@ -3686,7 +3686,7 @@ function PreliminaryCoolingLoadPage() {
               ) : (
                 <div className="flex flex-col gap-3 border-t border-border/40 pt-3">
                   <div>
-                    <label className="block text-muted-foreground font-medium mb-1">Cooling Load Density (W/m²)</label>
+                    <label className="block text-muted-foreground font-medium mb-1">Cooling Load Density (W/mÂ²)</label>
                     <input
                       type="number"
                       step="any"

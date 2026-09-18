@@ -785,44 +785,39 @@ function FM200SizerPage() {
     >
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
-            <div className="flex flex-col gap-1 w-full">
-              <span className="text-[10px] font-bold tracking-wider text-muted-foreground uppercase">FIRE FIGHTING &gt; FM-200 CLEAN AGENT SIZER</span>
-              <div className="flex items-center justify-between gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-baseline gap-2">
-                    <h1 className="text-[28px] font-bold tracking-tight text-foreground">FM-200 Gas Sizing</h1>
-                    <span className="text-[15px] font-semibold text-muted-foreground">Total flooding clean agent sizer (NFPA 2001)</span>
-                  </div>
-                  <button 
-                    onClick={() => setIntelOpen((v) => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                      intelOpen
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                    }`}
-                  >
-                    <Sparkles className="size-3.5" />
-                    Intelligence
-                  </button>
-                  <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-fm200" calculatorTitle="FM-200 Gas Sizing" />
-                  {commentsList.length > 0 && (
-                    <div 
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
-                      title={`${commentsList.length} active comment(s)/task(s) in FM-200 calculation`}
-                    >
-                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                      <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
-                    </div>
-                  )}
-                </div>
+          {/* Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">FM-200 Gas Sizing</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">Total flooding clean agent sizer (NFPA 2001)</span>
               </div>
+              <button 
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-fm200" calculatorTitle="FM-200 Gas Sizing" />
+              {commentsList.length > 0 && (
+                <div 
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
+                  title={`${commentsList.length} active comment(s)/task(s) in FM-200 calculation`}
+                >
+                  <MessageSquare className="size-3.5 fill-blue-500/20" />
+                  <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
+                </div>
+              )}
             </div>
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-3xl transition-all duration-300 ${
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             isApprovedLocked
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
@@ -849,7 +844,7 @@ function FM200SizerPage() {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    Printable Report
+                    Report
                   </button>
                 </div>
 
@@ -1620,7 +1615,7 @@ function FM200SizerPage() {
                           onClick={exportPdf}
                           className="inline-flex items-center gap-1.5 h-8 px-4 rounded-xl bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/95 transition-colors cursor-pointer shadow-sm"
                         >
-                          <Printer className="size-3.5" /> Export PDF Report
+                          <Printer className="size-3.5" /> Export PDF
                         </button>
                       </div>
                     </div>

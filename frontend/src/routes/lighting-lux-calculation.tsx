@@ -23,7 +23,7 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 export const Route = createFileRoute("/lighting-lux-calculation")({
   head: () => ({
     meta: [
-      { title: "Lighting LUX Calculation — MEP Calc" },
+      { title: "Lighting LUX Calculation â€” MEP Calc" },
       { name: "description", content: "Calculate Lighting LUX requirements" },
     ],
   }),
@@ -457,7 +457,7 @@ function LightingLuxCalculationPage() {
     const headers = [
       "Sr. No.", "Location", "Type of Light", "IP RATING", 
       "Length (L)\nmtr.", "Width (W)\nmtr.", "Height (H)\nmtr.", 
-      "Room Index\n(RI)", "Area (A)m²", "Req.Lux\nLevel (LL)", 
+      "Room Index\n(RI)", "Area (A)mÂ²", "Req.Lux\nLevel (LL)", 
       "Lumen", "Maintenance\nFactor (M.F)", "Utility Factor\n(U.F)", 
       "Req. Light\nQTY.", "Remarks"
     ];
@@ -568,11 +568,11 @@ function LightingLuxCalculationPage() {
     worksheet.mergeCells(currentRow, 12, currentRow, 15);
 
     const sigCol4 = worksheet.getCell(currentRow, 4);
-    sigCol4.value = "Originated by";
+    sigCol4.value = "Originator";
     const sigCol8 = worksheet.getCell(currentRow, 8);
-    sigCol8.value = "Reviewed by";
+    sigCol8.value = "Reviewer";
     const sigCol12 = worksheet.getCell(currentRow, 12);
-    sigCol12.value = "Approved by";
+    sigCol12.value = "Approver";
 
     [sigCol4, sigCol8, sigCol12].forEach(cell => {
       cell.font = { bold: true, name: "Arial", size: 10 };
@@ -646,7 +646,7 @@ function LightingLuxCalculationPage() {
     });
 
     const headers = [
-      ["Sr.", "Location", "Type of Light", "IP Rating", "L(m)", "W(m)", "H(m)", "R.I", "Area(m²)", "Req. Lux", "Lumen", "M.F", "U.F", "Req. Qty", "Remarks"]
+      ["Sr.", "Location", "Type of Light", "IP Rating", "L(m)", "W(m)", "H(m)", "R.I", "Area(mÂ²)", "Req. Lux", "Lumen", "M.F", "U.F", "Req. Qty", "Remarks"]
     ];
 
     const data = rows.map((r, i) => [
@@ -847,7 +847,7 @@ function LightingLuxCalculationPage() {
     },
     {
       key: "area",
-      header: "Area (m²)",
+      header: "Area (mÂ²)",
       width: 100,
       align: "right",
       render: (row) => <span className="font-medium px-2">{row.area}</span>

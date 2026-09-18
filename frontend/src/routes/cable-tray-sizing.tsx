@@ -35,7 +35,7 @@ import {
 export const Route = createFileRoute("/cable-tray-sizing")({
   head: () => ({
     meta: [
-      { title: "Cable Tray Sizing — MEP Calc" },
+      { title: "Cable Tray Sizing â€” MEP Calc" },
       { name: "description", content: "Calculate cable tray containment sizes." },
     ],
   }),
@@ -942,7 +942,7 @@ function CableTraySizingPage() {
               idx + 1,
               c.type || "XLPE/SWA/PVC",
               c.cores || "-",
-              c.size ? `${c.size} mm²` : "-",
+              c.size ? `${c.size} mmÂ²` : "-",
               qtyNum.toString(),
               isNaN(od) ? "-" : od.toFixed(1),
               isNaN(sumOd) ? "-" : sumOd.toFixed(1)
@@ -983,7 +983,7 @@ function CableTraySizingPage() {
           };
 
           runAutoTable({
-            head: [["No.", "Cable Type", "Cores", "Size (mm²)", "Qty", "O.D. (mm)", "Sum O.D. (mm)"]],
+            head: [["No.", "Cable Type", "Cores", "Size (mmÂ²)", "Qty", "O.D. (mm)", "Sum O.D. (mm)"]],
             body: tableData,
             startY: currentY + 8,
             theme: "grid",
@@ -1088,9 +1088,9 @@ function CableTraySizingPage() {
         head: [
           [
             { content: "" },
-            { content: "Originated by" },
-            { content: "Reviewed by" },
-            { content: "Approved by" }
+            { content: "Originator" },
+            { content: "Reviewer" },
+            { content: "Approver" }
           ]
         ],
         body: [
@@ -1258,8 +1258,8 @@ function CableTraySizingPage() {
               inputDescriptions="Cable Diameters, Tray Sizing Output"
               conversionExample={
                 unitSystem === "si"
-                  ? "Convert 150 mm → 6\", 300 mm → 12\""
-                  : "Convert 6\" → 150 mm, 12\" → 300 mm"
+                  ? "Convert 150 mm â†’ 6\", 300 mm â†’ 12\""
+                  : "Convert 6\" â†’ 150 mm, 12\" â†’ 300 mm"
               }
             />
 
@@ -1384,7 +1384,7 @@ function CableTraySizingPage() {
                     onClick={(e) => e.stopPropagation()}
                     placeholder="From..."
                   />
-                  <span className="text-muted-foreground text-sm flex-shrink-0">→</span>
+                  <span className="text-muted-foreground text-sm flex-shrink-0">â†’</span>
                   <input
                     type="text"
                     className="text-sm bg-transparent border border-border rounded px-2 py-0.5 text-foreground w-48 focus:border-primary outline-none"
@@ -1485,7 +1485,7 @@ function CableTraySizingPage() {
                         </div>
                       </th>
                       <th style={{ width: colWidths.size, minWidth: colWidths.size }} className="px-3 py-1.5 relative group">
-                        Cable Size (mm²)
+                        Cable Size (mmÂ²)
                         <div onMouseDown={(e) => handleResizeMouseDown("size", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
@@ -1958,7 +1958,7 @@ function CableTraySizingPage() {
                   </select>
                 </div>
                 <div className="col-span-2 space-y-1">
-                  <label className="text-xs text-muted-foreground">Size (mm²)</label>
+                  <label className="text-xs text-muted-foreground">Size (mmÂ²)</label>
                   <select 
                     className="w-full text-sm border border-border rounded p-1.5 bg-background text-foreground"
                     value={bulkForm.size}
@@ -2112,7 +2112,7 @@ function CableTraySizingPage() {
             updateCable(editingCable.trayId, editingCable.cable.id, "size", updated.size);
             updateCable(editingCable.trayId, editingCable.cable.id, "qty", updated.qty);
             setEditingCable(null);
-            toast.success(`Updated "${updated.cores} ${updated.size} mm²" cable parameters.`);
+            toast.success(`Updated "${updated.cores} ${updated.size} mmÂ²" cable parameters.`);
           }}
         />
       )}

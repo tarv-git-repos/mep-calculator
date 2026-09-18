@@ -111,7 +111,7 @@ export const exportBasementSmokePDF = async (
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
 
     const ip = unitSystem === "ip";
-    const areaUnit = ip ? "ft²" : "m²";
+    const areaUnit = ip ? "ftÂ²" : "mÂ²";
     const heightUnit = ip ? "ft" : "m";
     const flowUnit = ip ? "CFM" : "L/s";
 
@@ -166,7 +166,7 @@ export const exportBasementSmokePDF = async (
     const blueFill = [218, 233, 248] as [number, number, number];
     const blueBodyFill = [242, 248, 253] as [number, number, number];
 
-    // Section 1: Smoke ventilation calculation
+    // Section 1: Smoke Ventilation Calculation
     let currentY = 42;
     doc.setFontSize(10);
     doc.setFont("helvetica", "bold");
@@ -380,7 +380,7 @@ export const exportBasementSmokePDF = async (
           { content: "Fan System Name", styles: { halign: "center" } },
           { content: "Total No.\nof Fans" },
           { content: "Location\nof fan(s)" },
-          { content: `Duct Len\n(${ip ? "ft" : "m"})` },
+          { content: `Duct Length\n(${ip ? "ft" : "m"})` },
           { content: "Friction Loss\n(Pa)" },
           { content: "Duct Accessories Drop\n(Pa)" },
           { content: "Total Static\n(Pa)", styles: { fillColor: blueFill } },
@@ -425,9 +425,9 @@ export const exportBasementSmokePDF = async (
       head: [
         [
           { content: "" },
-          { content: "Originated by" },
-          { content: "Reviewed by" },
-          { content: "Approved by" }
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" }
         ]
       ],
       body: [

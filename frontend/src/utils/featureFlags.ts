@@ -3,6 +3,10 @@ import { Profile } from "@/contexts/AuthContext";
 export const DEFAULT_UNLOCKED_FEATURES = [
   'ventilation',
   'preliminary-cooling-load',
+  'fresh-air-cooling-load',
+  'fresh-air-cooling',
+  'fresh-air',
+  'fresh-air-load',
   'plumbing-loading-unit',
   'plumbing-water-demand',
   'water-demand',
@@ -51,7 +55,18 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'plumbing-sewage-pump',
   'sewage-pump',
   'sewage-pump-sizing',
-  'sewagepump'
+  'sewagepump',
+  'heating-load',
+  'heating',
+  'heating-calc',
+  'heating-load-calc',
+  'plumbing-drainage',
+  'drainage',
+  'drainage-sizing',
+  'drainage-pipe-sizing',
+  'plumbing-drainage-sizing',
+  'plumbing-pump-sizing',
+  'pump-sizing'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -94,6 +109,10 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
 
   // Keep Cable Tray Sizing, Water Demand, Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density, Condensate Drain, Smoke Extract & Psychrometric Calculators unlocked for everyone by default
   if (
+    routeKey === 'fresh-air-cooling-load' ||
+    routeKey === 'fresh-air-cooling' ||
+    routeKey === 'fresh-air' ||
+    routeKey === 'fresh-air-load' ||
     routeKey === 'cable-tray-sizing' ||
     routeKey === 'cable-tray' ||
     routeKey === 'cable-sizing' ||
@@ -140,7 +159,18 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'plumbing-sewage-pump' ||
     routeKey === 'sewage-pump' ||
     routeKey === 'sewage-pump-sizing' ||
-    routeKey === 'sewagepump'
+    routeKey === 'sewagepump' ||
+    routeKey === 'heating-load' ||
+    routeKey === 'heating' ||
+    routeKey === 'heating-calc' ||
+    routeKey === 'heating-load-calc' ||
+    routeKey === 'plumbing-drainage' ||
+    routeKey === 'drainage' ||
+    routeKey === 'drainage-sizing' ||
+    routeKey === 'drainage-pipe-sizing' ||
+    routeKey === 'plumbing-drainage-sizing' ||
+    routeKey === 'plumbing-pump-sizing' ||
+    routeKey === 'pump-sizing'
   ) {
     return false;
   }

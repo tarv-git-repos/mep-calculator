@@ -209,8 +209,8 @@ export const exportCondensateExcel = async (
 
   // Columns C to J (Row 5 Title, Row 6 Units)
   const headers = [
-    { col: "C", cIdx: 3, title: "ON COIL CONDN DRY BULB/WET BULB", unit: "°C" },
-    { col: "D", cIdx: 4, title: "OFF COIL CONDN DRY BULB/WET BULB", unit: "°C" },
+    { col: "C", cIdx: 3, title: "ON COIL CONDN DRY BULB/WET BULB", unit: "Â°C" },
+    { col: "D", cIdx: 4, title: "OFF COIL CONDN DRY BULB/WET BULB", unit: "Â°C" },
     { col: "E", cIdx: 5, title: "AIR FLOW RATE", unit: "l/s" },
     { col: "F", cIdx: 6, title: "QTY.", unit: "NOS." },
     { col: "G", cIdx: 7, title: "ON COIL SP.HUMIDITY", unit: "kg/kg of dry air" },
@@ -444,9 +444,9 @@ export const exportCondensateExcel = async (
   sheet.getRow(rSigHead).height = 24;
 
   formatRange(`A${rSigHead}`, `B${rSigHead}`, "", fontCambria(11, true), { horizontal: "center", vertical: "middle" }, peachFill);
-  formatRange(`C${rSigHead}`, `D${rSigHead}`, "Originated by", fontCambria(11, true), { horizontal: "center", vertical: "middle" }, peachFill);
-  formatRange(`E${rSigHead}`, `G${rSigHead}`, "Reviewed by", fontCambria(11, true), { horizontal: "center", vertical: "middle" }, peachFill);
-  formatRange(`H${rSigHead}`, `J${rSigHead}`, "Approved by", fontCambria(11, true), { horizontal: "center", vertical: "middle" }, peachFill);
+  formatRange(`C${rSigHead}`, `D${rSigHead}`, "Originator", fontCambria(11, true), { horizontal: "center", vertical: "middle" }, peachFill);
+  formatRange(`E${rSigHead}`, `G${rSigHead}`, "Reviewer", fontCambria(11, true), { horizontal: "center", vertical: "middle" }, peachFill);
+  formatRange(`H${rSigHead}`, `J${rSigHead}`, "Approver", fontCambria(11, true), { horizontal: "center", vertical: "middle" }, peachFill);
 
   // Signatures: Name (Row N+10)
   const rSigName = endDataRow + 10;
