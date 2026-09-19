@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, CheckCircle2, FileText, Zap, SlidersHorizontal,
   X, Check, Edit3, MessageSquare, Copy, RotateCcw, Trash2, Sparkles,
@@ -13,6 +14,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { VersionManager } from "@/components/workspace/VersionManager";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -56,6 +58,7 @@ interface ParamDef {
 function SanityCheckToolPage() {
   const { project, activeProjectId, isReadOnly } = useWorkspace();
 
+  const [tab, setTab] = useState<"calculator" | "report">("calculator");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
   const [ductVel, setDuctVel] = useState<number>(1500);
   const [ductFr, setDuctFr] = useState<number>(0.08);
@@ -490,10 +493,14 @@ function SanityCheckToolPage() {
     );
   };
 
+  const passCount = checks.filter((c) => c.status === "pass").length;
+  const warnCount = checks.length - passCount;
+  const sigDetails = getSignatureBlockDetails(activeProjectId || project?.id || "default", "/sanity-check-tool");
+
   return (
     <AppShell title="Sanity Check Tool" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 pb-6 gap-5 overflow-y-auto h-full w-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 pb-6 gap-4 overflow-y-auto h-full w-full">
           {/* Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
@@ -533,199 +540,377 @@ function SanityCheckToolPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Left Inputs */}
-            <div className="lg:col-span-5 flex flex-col gap-4">
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center justify-between pb-3 border-b border-border/60">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Design Values</h3>
-                  </div>
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    inputDescriptions="Duct & Pipe Velocities, Pressures, Temps"
-                    conversionExample={unitSystem === "si" ? "Convert 7.6 m/s → 1,500 FPM, 20 Pa/m → 0.08 in.wg/100ft" : "Convert 1500 FPM → 7.6 m/s, 0.08 in.wg/100ft → 20 Pa/m"}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  {paramsList.map((p) => {
-                    const itemComments = paramComments[p.id] || [];
-                    const isActive = editingParam?.id === p.id;
-                    return (
-                      <ContextMenu key={p.id}>
-                        <ContextMenuTrigger asChild>
-                          <div
-                            onDoubleClick={() => handleOpenEditParam(p)}
-                            className={`flex flex-col gap-1 select-none p-2 rounded-xl transition-all hover:bg-slate-100/70 dark:hover:bg-slate-800/50 cursor-pointer group border ${
-                              isActive
-                                ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
-                                : "border-transparent"
-                            } ${p.gridSpan || ""}`}
-                            title="Right-click for options • Double-click to edit"
-                          >
-                            <label className="text-[11px] font-semibold text-muted-foreground flex items-center justify-between cursor-pointer">
-                              <span className="flex items-center gap-1.5">
-                                <span>{p.label}</span>
-                                {Array.isArray(itemComments) && itemComments.length > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleOpenComment(p.id, p.label);
-                                    }}
-                                    className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                    title={`${itemComments.length} comment(s)/task(s) assigned to "${p.label}"`}
-                                  >
-                                    <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                    <span className="text-[10px] font-bold font-mono">{itemComments.length}</span>
-                                  </button>
-                                )}
-                              </span>
-                              <span className="text-[10px] font-mono text-muted-foreground/70">{p.unit}</span>
-                            </label>
-                            <input
-                              type="number"
-                              step="any"
-                              value={p.val}
-                              disabled={isEffectiveReadOnly}
-                              onChange={(e) => {
-                                if (isEffectiveReadOnly) return;
-                                p.setter(Number(e.target.value));
-                                setHasCalculated(true);
-                              }}
-                              className={`bg-slate-50/80 dark:bg-slate-900/60 border border-border/80 focus:border-[#0A7BC7] focus:ring-1 focus:ring-[#0A7BC7] rounded-lg px-2.5 py-1.5 font-bold font-mono text-xs text-foreground outline-none transition-all ${
-                                isEffectiveReadOnly ? "opacity-60 cursor-not-allowed" : ""
-                              }`}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        {renderParamContextMenu(p)}
-                      </ContextMenu>
-                    );
-                  })}
-                </div>
+          {/* White Card Container for Tabs & Content */}
+          <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+            {/* Tabs Selector row */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setTab("calculator")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "calculator"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Calculator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Report
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={handleCalculate}
-                className="w-full bg-[#0A7BC7] hover:bg-[#0863A0] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:shadow-sm active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs"
-              >
-                <Zap className="size-3.5 fill-current" />
-                Run Sanity Check
-              </button>
+              {/* Units toggle option */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  inputDescriptions="Duct & Pipe Velocities, Pressures, Temps"
+                  conversionExample={unitSystem === "si" ? "Convert 7.6 m/s → 1,500 FPM, 20 Pa/m → 0.08 in.wg/100ft" : "Convert 1500 FPM → 7.6 m/s, 0.08 in.wg/100ft → 20 Pa/m"}
+                />
+              </div>
             </div>
 
-            {/* Right Results */}
-            <div className="lg:col-span-7 flex flex-col gap-5">
-              {!hasCalculated ? (
-                <div className="bg-card border border-border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[350px] text-center shadow-xs">
-                  <div className="size-12 rounded-full bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center text-muted-foreground text-xl mb-4 border border-border/40 select-none">
-                    📐
-                  </div>
-                  <h4 className="text-xs font-bold text-foreground mb-1 uppercase tracking-wider">Ready to Check</h4>
-                  <p className="text-[11.5px] text-muted-foreground max-w-xs leading-normal">
-                    Enter your calculated project parameters and run sanity checks to verify they comply with engineering guidelines.
-                  </p>
-                </div>
-              ) : (
-                <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs animate-fade-in">
-                  <div className="flex items-center justify-between pb-3 border-b border-border/60 flex-wrap gap-2">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Engineering Audit Summary</h3>
+            {/* Active Tab View */}
+            <div key={tab} className="flex-1 min-h-0 animate-fade-in flex flex-col overflow-y-auto p-4 md:p-6">
+              {tab === "calculator" && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* Left Inputs */}
+                  <div className="lg:col-span-5 flex flex-col gap-4">
+                    <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                      <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Design Values</h3>
+                        </div>
                       </div>
-                      {(() => {
-                        const passCount = checks.filter(c => c.status === "pass").length;
-                        const warnCount = checks.length - passCount;
-                        return (
-                          <div className="flex items-center gap-1.5 text-[11px] font-mono">
-                            <span className="px-2 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                              <CheckCircle2 className="size-3" />
-                              {passCount} Passed
-                            </span>
-                            {warnCount > 0 && (
-                              <span className="px-2 py-0.5 rounded-full font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1">
-                                <AlertTriangle className="size-3" />
-                                {warnCount} Requires Review
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        {paramsList.map((p) => {
+                          const itemComments = paramComments[p.id] || [];
+                          const isActive = editingParam?.id === p.id;
+                          return (
+                            <ContextMenu key={p.id}>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  onDoubleClick={() => handleOpenEditParam(p)}
+                                  className={`flex flex-col gap-1 select-none p-2 rounded-xl transition-all hover:bg-slate-100/70 dark:hover:bg-slate-800/50 cursor-pointer group border ${
+                                    isActive
+                                      ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
+                                      : "border-transparent"
+                                  } ${p.gridSpan || ""}`}
+                                  title="Right-click for options • Double-click to edit"
+                                >
+                                  <label className="text-[11px] font-semibold text-muted-foreground flex items-center justify-between cursor-pointer">
+                                    <span className="flex items-center gap-1.5">
+                                      <span>{p.label}</span>
+                                      {Array.isArray(itemComments) && itemComments.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenComment(p.id, p.label);
+                                          }}
+                                          className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                          title={`${itemComments.length} comment(s)/task(s) assigned to "${p.label}"`}
+                                        >
+                                          <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                          <span className="text-[10px] font-bold font-mono">{itemComments.length}</span>
+                                        </button>
+                                      )}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-muted-foreground/70">{p.unit}</span>
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={p.val}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => {
+                                      if (isEffectiveReadOnly) return;
+                                      p.setter(Number(e.target.value));
+                                      setHasCalculated(true);
+                                    }}
+                                    className={`bg-slate-50/80 dark:bg-slate-900/60 border border-border/80 focus:border-[#0A7BC7] focus:ring-1 focus:ring-[#0A7BC7] rounded-lg px-2.5 py-1.5 font-bold font-mono text-xs text-foreground outline-none transition-all ${
+                                      isEffectiveReadOnly ? "opacity-60 cursor-not-allowed" : ""
+                                    }`}
+                                  />
+                                </div>
+                              </ContextMenuTrigger>
+                              {renderParamContextMenu(p)}
+                            </ContextMenu>
+                          );
+                        })}
+                      </div>
                     </div>
+
                     <button
                       type="button"
-                      onClick={handleExportPDF}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-foreground transition-colors border border-border/60 cursor-pointer shadow-2xs"
+                      onClick={handleCalculate}
+                      className="w-full bg-[#0A7BC7] hover:bg-[#0863A0] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:shadow-sm active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs"
                     >
-                      <FileText className="size-3.5 text-red-600 dark:text-red-400" />
-                      Export PDF
+                      <Zap className="size-3.5 fill-current" />
+                      Run Sanity Check
                     </button>
                   </div>
 
-                  <div className="flex flex-col font-sans text-xs divide-y divide-border/40">
-                    {checks.map((c, i) => {
-                      const p = paramsList[i];
-                      const itemComments = p ? (paramComments[p.id] || []) : [];
-                      const isActive = p && editingParam?.id === p.id;
-                      return (
-                        <ContextMenu key={i}>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              onDoubleClick={() => p && handleOpenEditParam(p)}
-                              className={`flex items-center justify-between py-2 px-2.5 rounded-lg transition-colors gap-3 cursor-pointer select-none border ${
-                                isActive
-                                  ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
-                                  : "border-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
-                              }`}
-                              title="Right-click for options • Double-click to edit"
-                            >
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-semibold text-foreground text-xs leading-snug flex items-center gap-1.5">
-                                  <span>{c.label}</span>
-                                  {Array.isArray(itemComments) && itemComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (p) handleOpenComment(p.id, p.label);
-                                      }}
-                                      className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                      title={`${itemComments.length} comment(s)/task(s) assigned to "${c.label}"`}
-                                    >
-                                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                      <span className="text-[10px] font-bold font-mono">{itemComments.length}</span>
-                                    </button>
-                                  )}
-                                </span>
-                                <span className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">{c.desc}</span>
-                              </div>
-                              <div className="flex flex-col items-end shrink-0">
-                                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-mono font-bold ${
-                                  c.status === "pass"
-                                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                                    : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                                }`}>
-                                  <span>{c.value}</span>
-                                  {c.status === "pass" ? (
-                                    <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                  ) : (
-                                    <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
-                                  )}
-                                </div>
-                                <span className="text-[10px] font-mono text-muted-foreground/80 mt-1">Std: {c.range}</span>
-                              </div>
+                  {/* Right Results */}
+                  <div className="lg:col-span-7 flex flex-col gap-5">
+                    {!hasCalculated ? (
+                      <div className="bg-card border border-border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[350px] text-center shadow-xs">
+                        <div className="size-12 rounded-full bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center text-muted-foreground text-xl mb-4 border border-border/40 select-none">
+                          📐
+                        </div>
+                        <h4 className="text-xs font-bold text-foreground mb-1 uppercase tracking-wider">Ready to Check</h4>
+                        <p className="text-[11.5px] text-muted-foreground max-w-xs leading-normal">
+                          Enter your calculated project parameters and run sanity checks to verify they comply with engineering guidelines.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs animate-fade-in">
+                        <div className="flex items-center justify-between pb-3 border-b border-border/60 flex-wrap gap-2">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Engineering Audit Summary</h3>
                             </div>
-                          </ContextMenuTrigger>
-                          {p && renderParamContextMenu(p)}
-                        </ContextMenu>
-                      );
-                    })}
+                            <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                              <span className="px-2 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                                <CheckCircle2 className="size-3" />
+                                {passCount} Passed
+                              </span>
+                              {warnCount > 0 && (
+                                <span className="px-2 py-0.5 rounded-full font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                                  <AlertTriangle className="size-3" />
+                                  {warnCount} Requires Review
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <TBtn
+                            onClick={handleExportPDF}
+                          >
+                            <FileText className="size-3.5" /> Export PDF
+                          </TBtn>
+                        </div>
+
+                        <div className="flex flex-col font-sans text-xs divide-y divide-border/40">
+                          {checks.map((c, i) => {
+                            const p = paramsList[i];
+                            const itemComments = p ? (paramComments[p.id] || []) : [];
+                            const isActive = p && editingParam?.id === p.id;
+                            return (
+                              <ContextMenu key={i}>
+                                <ContextMenuTrigger asChild>
+                                  <div
+                                    onDoubleClick={() => p && handleOpenEditParam(p)}
+                                    className={`flex items-center justify-between py-2 px-2.5 rounded-lg transition-colors gap-3 cursor-pointer select-none border ${
+                                      isActive
+                                        ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
+                                        : "border-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                                    }`}
+                                    title="Right-click for options • Double-click to edit"
+                                  >
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="font-semibold text-foreground text-xs leading-snug flex items-center gap-1.5">
+                                        <span>{c.label}</span>
+                                        {Array.isArray(itemComments) && itemComments.length > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (p) handleOpenComment(p.id, p.label);
+                                            }}
+                                            className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                            title={`${itemComments.length} comment(s)/task(s) assigned to "${c.label}"`}
+                                          >
+                                            <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                            <span className="text-[10px] font-bold font-mono">{itemComments.length}</span>
+                                          </button>
+                                        )}
+                                      </span>
+                                      <span className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">{c.desc}</span>
+                                    </div>
+                                    <div className="flex flex-col items-end shrink-0">
+                                      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-mono font-bold ${
+                                        c.status === "pass"
+                                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                                          : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                                      }`}>
+                                        <span>{c.value}</span>
+                                        {c.status === "pass" ? (
+                                          <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                        ) : (
+                                          <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] font-mono text-muted-foreground/80 mt-1">Std: {c.range}</span>
+                                    </div>
+                                  </div>
+                                </ContextMenuTrigger>
+                                {p && renderParamContextMenu(p)}
+                              </ContextMenu>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* PRINTABLE REPORT PREVIEW TAB (MATCHING VENTILATION & COIL CONDENSATE FORMAT) */}
+              {tab === "report" && (
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+                    
+                    <div className="flex justify-between items-start pb-4 border-b border-border">
+                      <div>
+                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                          Engineering Sanity Check Report
+                        </h2>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          Design Standards: ASHRAE Handbook Fundamentals, SMACNA HVAC Systems Duct Design &amp; Carrier System Design
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <TBtn primary onClick={handleExportPDF}>
+                          <FileText className="size-3.5" /> Export PDF
+                        </TBtn>
+                      </div>
+                    </div>
+
+                    {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
+                    <div className="border border-border rounded-xl overflow-hidden text-[12px] bg-card">
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Calculation No.:</span>
+                          <span className="text-muted-foreground font-mono">
+                            {(project as any)?.calcNo || `TRV-CAL-SNT-${(activeProjectId || project?.id || "0000").slice(-4).toUpperCase()}`}
+                          </span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Date:</span>
+                          <span className="text-muted-foreground">{formatDateStr(new Date().toISOString())}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project No.:</span>
+                          <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Client:</span>
+                          <span className="text-muted-foreground">{project?.client || "-"}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project Name:</span>
+                          <span className="text-muted-foreground">{project?.name || "MEP Project"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">End User:</span>
+                          <span className="text-muted-foreground">{(project as any)?.endUser || project?.location || "-"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Structured Summary & Audit Bar */}
+                    <div className="border border-border rounded-xl p-3 bg-[#F5F7FA] dark:bg-slate-900/60 flex items-center justify-between text-xs font-bold text-foreground flex-wrap gap-2">
+                      <span>Standards: ASHRAE / SMACNA / Carrier</span>
+                      <span>Units: {unitSystem === "ip" ? "Imperial (IP)" : "Metric (SI)"}</span>
+                      <span className={warnCount === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                        {warnCount === 0
+                          ? `Audit: ${passCount}/${checks.length} Passed (All In-Range)`
+                          : `Audit: ${passCount} Passed | ${warnCount} Requires Review`}
+                      </span>
+                    </div>
+
+                    {/* Table 1: 6-Column Checklist Table */}
+                    <div className="border border-border rounded-xl overflow-hidden bg-card">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                              <th className="py-2 px-2.5 w-12">Sr. No.</th>
+                              <th className="py-2 px-3 text-left">Design Parameter</th>
+                              <th className="py-2 px-3 text-center">Design Value</th>
+                              <th className="py-2 px-3 text-center">Standard Range</th>
+                              <th className="py-2 px-3 text-center">Compliance</th>
+                              <th className="py-2 px-3 text-left">Engineering Guideline / Reference</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60 font-sans">
+                            {checks.map((c, idx) => {
+                              const isPass = c.status === "pass";
+                              return (
+                                <tr key={idx} className="hover:bg-muted/30">
+                                  <td className="py-2 px-2.5 text-center font-mono">{idx + 1}</td>
+                                  <td className="py-2 px-3 font-bold text-foreground">{c.label}</td>
+                                  <td className="py-2 px-3 text-center font-mono font-bold">{c.value}</td>
+                                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{c.range}</td>
+                                  <td className="py-2 px-3 text-center">
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold font-mono ${
+                                      isPass
+                                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800"
+                                        : "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-300 dark:border-amber-800"
+                                    }`}>
+                                      {isPass ? "IN RANGE" : "CHECK VALUE"}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-3 text-muted-foreground text-[10.5px]">{c.desc}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Table 2: 4-Column Dynamic Signature Block */}
+                    <div className="border border-border rounded-xl overflow-hidden mt-6 bg-card">
+                      <table className="w-full text-center text-[11px] border-collapse">
+                        <thead>
+                          <tr className="bg-[#FFE6CC] text-black font-bold border-b border-border">
+                            <th className="py-2 px-3 text-left w-1/4">Designation</th>
+                            <th className="py-2 px-3 w-1/4">Originator</th>
+                            <th className="py-2 px-3 w-1/4">Reviewer</th>
+                            <th className="py-2 px-3 w-1/4">Approver</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border font-sans">
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Name:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.name || sigDetails?.originatedName || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.name || sigDetails?.approverName || "-"}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Date:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.date || sigDetails?.originatedDate || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.date || sigDetails?.approverDate || "-"}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Signature:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-")}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-")}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-")}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
                   </div>
                 </div>
               )}

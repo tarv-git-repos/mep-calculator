@@ -8,7 +8,6 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle,
   Info,
-  Printer,
   HelpCircle,
   MessageSquare,
   Copy,
@@ -44,7 +43,8 @@ import {
 } from "@/components/ui/context-menu";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditPsychrometricModal, type PsychrometricFormData } from "@/components/workspace/EditPsychrometricModal";
-import { addPdfHeader, addPdfSignatureBlock, getExporterUserName } from "@/lib/pdfHelpers";
+import { exportPsychrometricPDF } from "@/lib/exportPsychrometricPDF";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { dirtyStore } from "@/lib/dirty-store";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
@@ -134,6 +134,7 @@ function PsychrometricPage() {
   const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
   const isApprovedLocked = isCalcLocked || calcReviewState?.status === "APPROVED";
 
+  const [tab, setTab] = useState<"calculator" | "report">("calculator");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
   const [dbtInput, setDbtInput] = useState<number | "">("");
   const [secondParam, setSecondParam] = useState<SecondParam>("rh");
@@ -487,184 +488,30 @@ function PsychrometricPage() {
     setHasCalculated(true);
   };
 
+  const sigDetails = useMemo(() => {
+    return getSignatureBlockDetails(project?.id || "default", "/psychrometric");
+  }, [project?.id, calcReviewState]);
+
   const handleExportPDF = async () => {
     try {
-      const jsPDFModule = await import("jspdf");
-      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-      const autoTableModule = await import("jspdf-autotable");
-      const autoTable = autoTableModule.default || autoTableModule;
-
-      const doc = new jsPDF("p", "mm", "a4");
-
-      const runAutoTable = (options: any) => {
-        if (typeof autoTable === "function") {
-          autoTable(doc, options);
-        } else if (typeof (autoTable as any)?.default === "function") {
-          (autoTable as any).default(doc, options);
-        } else if ((doc as any).autoTable) {
-          (doc as any).autoTable(options);
-        }
-      };
-
-      const startY = addPdfHeader(doc, "PSYCHROMETRIC STATE CALCULATION REPORT", {
-        projectName: project?.name || "Psychrometric Analysis",
-        calcNo: (project as any)?.calcNo || "MEP-PSY-001",
-        projectNo: project?.code || (project as any)?.projectNo || "PRJ-001",
-        client: (project as any)?.client || "Engineering Client",
-        endUser: (project as any)?.endUser || "MEP Facility",
+      toast.loading("Generating Psychrometric calculation PDF report...", { id: "psych-pdf-export" });
+      await exportPsychrometricPDF(calculatedData, {
+        calcNo: (project as any)?.calcNo || `TRV-CAL-PSY-${(project?.id || "0000").slice(-4).toUpperCase()}`,
+        projectNo: project?.code || (project?.id ? project.id.slice(0, 8) : "P000"),
+        projectName: project?.name || "MEP Project",
+        client: project?.client || "",
+        endUser: (project as any)?.endUser || project?.location || "",
+        unitSystem,
+        secondParam,
+        paramValue,
+        atmPressure,
+        dbtInput,
       });
-
-      // 1. Input Ambient State Table
-      const paramNameMap: Record<SecondParam, string> = {
-        rh: "Relative Humidity (RH)",
-        wb: "Wet Bulb Temperature (WBT)",
-        dp: "Dew Point Temperature (DPT)",
-        w: "Humidity Ratio (W)",
-      };
-
-      const paramValueDisplay =
-        secondParam === "rh"
-          ? `${paramValue !== "" ? paramValue : 60} %`
-          : secondParam === "wb" || secondParam === "dp"
-          ? `${paramValue !== "" ? paramValue : (ip ? 78 : 25.5)} ${ip ? "°F" : "°C"}`
-          : `${paramValue !== "" ? paramValue : (ip ? 100 : 15)} ${ip ? "gr/lb" : "g/kg"}`;
-
-      const pAtmKpa = atmPressure !== "" ? Number(atmPressure) : 101.325;
-      const pAtmPsi = (pAtmKpa * 0.145038).toFixed(3);
-      const dbtValDisplay = `${dbtInput !== "" ? dbtInput : (ip ? 95 : 35)} ${ip ? "°F" : "°C"}`;
-
-      runAutoTable({
-        startY: startY + 4,
-        head: [["Design Input Parameter", "Specified Value", "Engineering Basis & Standard"]],
-        body: [
-          ["Atmospheric Pressure (P_atm)", `${pAtmKpa.toFixed(3)} kPa (${pAtmPsi} psi / 29.92 inHg)`, "Standard Barometric Design Level"],
-          ["Dry Bulb Temperature (T_db)", dbtValDisplay, "Known Primary Moist Air Temperature"],
-          ["Selected Known 2nd Parameter", `${paramNameMap[secondParam]} = ${paramValueDisplay}`, "Independent Thermodynamic Boundary"],
-          ["Thermodynamic Formulation", "Hyland-Wexler Formulation", "ASHRAE Handbook Fundamentals Formulations"],
-        ],
-        theme: "grid",
-        headStyles: {
-          fillColor: [10, 123, 199],
-          textColor: [255, 255, 255],
-          fontStyle: "bold",
-          fontSize: 9,
-          halign: "left",
-        },
-        styles: { fontSize: 8.5, cellPadding: 2.8 },
-        columnStyles: {
-          0: { cellWidth: 60, fontStyle: "bold" },
-          1: { cellWidth: 55, fontStyle: "bold", textColor: [10, 123, 199] },
-          2: { cellWidth: 67 },
-        },
-        margin: { left: 14, right: 14 },
-      });
-
-      // 2. Solved Moist Air Psychrometric State Table
-      const dbtC = calculatedData.dbt;
-      const dbtF = cToF(dbtC);
-      const wbtC = calculatedData.wbt;
-      const wbtF = cToF(wbtC);
-      const dpC = calculatedData.dp;
-      const dpF = cToF(dpC);
-      const rhVal = calculatedData.rh;
-      const wGPerKg = calculatedData.w * 1000;
-      const wGrPerLb = calculatedData.w * 7000;
-      const hKjKg = calculatedData.h;
-      const hBtuLb = calculatedData.h / 2.326;
-      const vM3Kg = calculatedData.v;
-      const vFt3Lb = calculatedData.v * 0.062428;
-      const pwKpa = calculatedData.pw / 1000;
-      const pwPsi = calculatedData.pw / 6894.76;
-      const densitySi = (1 / vM3Kg).toFixed(3);
-      const densityIp = (1 / vFt3Lb).toFixed(4);
-
-      const tableData = [
-        ["Dry Bulb Temperature", "T_db", `${dbtC.toFixed(1)} °C`, `${dbtF.toFixed(1)} °F`, "Sensible thermal state of moist air"],
-        ["Wet Bulb Temperature", "T_wb", `${wbtC.toFixed(1)} °C`, `${wbtF.toFixed(1)} °F`, "Adiabatic saturation limit & evaporative threshold"],
-        ["Dew Point Temperature", "T_dp", `${dpC.toFixed(1)} °C`, `${dpF.toFixed(1)} °F`, "Surface condensation risk boundary"],
-        ["Relative Humidity", "RH", `${rhVal.toFixed(1)} %`, `${rhVal.toFixed(1)} %`, "Degree of moisture saturation (Pw / Pws)"],
-        ["Humidity Ratio (Specific Moisture)", "W", `${wGPerKg.toFixed(2)} g/kg`, `${wGrPerLb.toFixed(2)} gr/lb`, "Mass ratio of moisture to dry air mass"],
-        ["Specific Enthalpy (Total Energy)", "h", `${hKjKg.toFixed(2)} kJ/kg`, `${hBtuLb.toFixed(2)} BTU/lb`, "Total energy content (Sensible + Latent)"],
-        ["Specific Volume", "v", `${vM3Kg.toFixed(4)} m³/kg`, `${vFt3Lb.toFixed(4)} ft³/lb`, "Volume per unit mass of dry air"],
-        ["Moist Air Density", "ρ", `${densitySi} kg/m³`, `${densityIp} lb/ft³`, "Reciprocal of moist air specific volume"],
-        ["Water Vapor Partial Pressure", "P_w", `${pwKpa.toFixed(3)} kPa`, `${pwPsi.toFixed(4)} psi`, "Partial pressure exerted by water vapor"],
-      ];
-
-      runAutoTable({
-        startY: (doc as any).lastAutoTable.finalY + 6,
-        head: [["Psychrometric Property", "Symbol", "SI Metric", "IP Imperial", "Engineering Definition & Application"]],
-        body: tableData,
-        theme: "striped",
-        headStyles: {
-          fillColor: [10, 123, 199],
-          textColor: [255, 255, 255],
-          fontStyle: "bold",
-          fontSize: 9,
-          halign: "left",
-        },
-        styles: { fontSize: 8.5, cellPadding: 2.5 },
-        columnStyles: {
-          0: { cellWidth: 50, fontStyle: "bold" },
-          1: { cellWidth: 18, halign: "center", fontStyle: "bold", textColor: [10, 123, 199] },
-          2: { cellWidth: 28, halign: "right", fontStyle: "bold" },
-          3: { cellWidth: 28, halign: "right", fontStyle: "bold" },
-          4: { cellWidth: 58, fontSize: 8 },
-        },
-        margin: { left: 14, right: 14 },
-      });
-
-      // 3. Thermal Comfort & Health Assessment (ASHRAE 55) Table
-      const isSummerComfort = dbtC >= 23 && dbtC <= 26 && rhVal >= 30 && rhVal <= 60;
-      const isWinterComfort = dbtC >= 20 && dbtC <= 24 && rhVal >= 30 && rhVal <= 60;
-      let comfortStatusText = "Standard Conditioned Boundary";
-      if (isSummerComfort) comfortStatusText = "Compliant (ASHRAE 55 Summer Comfort Envelope)";
-      else if (isWinterComfort) comfortStatusText = "Compliant (ASHRAE 55 Winter Comfort Envelope)";
-      else if (rhVal > 80) comfortStatusText = "Caution: High Humidity / Surface Mold & Condensation Risk";
-      else if (rhVal < 20) comfortStatusText = "Caution: Low Humidity / Static Discharge & Mucous Dryness";
-
-      const sensEnthalpy = 1.006 * dbtC;
-      const latEnthalpy = calculatedData.w * (2501 + 1.805 * dbtC);
-      const sensPercent = ((sensEnthalpy / hKjKg) * 100).toFixed(1);
-      const latPercent = ((latEnthalpy / hKjKg) * 100).toFixed(1);
-      const wbDepression = (dbtC - wbtC).toFixed(1);
-
-      runAutoTable({
-        startY: (doc as any).lastAutoTable.finalY + 6,
-        head: [["Engineering Assessment (ASHRAE 55 / Energy Audit)", "Result / Value", "Design Compliance Note"]],
-        body: [
-          ["Thermal Comfort Compliance (ASHRAE 55)", comfortStatusText, "Evaluates human thermal comfort criteria"],
-          ["Sensible vs. Latent Enthalpy Breakdown", `Sensible: ${sensPercent}% | Latent: ${latPercent}%`, `Sensible: ${sensEnthalpy.toFixed(1)} kJ/kg, Latent: ${latEnthalpy.toFixed(1)} kJ/kg`],
-          ["Condensation Protection Boundary", `Surface Temp >= ${dpC.toFixed(1)} °C (${dpF.toFixed(1)} °F)`, "Pipe and duct insulation must maintain surface above T_dp"],
-          ["Evaporative Cooling Potential", `Wet Bulb Depression: ${wbDepression} °C / K`, "Direct adiabatic water evaporation limit"],
-        ],
-        theme: "grid",
-        headStyles: {
-          fillColor: [71, 85, 105],
-          textColor: [255, 255, 255],
-          fontStyle: "bold",
-          fontSize: 9,
-          halign: "left",
-        },
-        styles: { fontSize: 8.5, cellPadding: 2.8 },
-        columnStyles: {
-          0: { cellWidth: 62, fontStyle: "bold" },
-          1: { cellWidth: 55, fontStyle: "bold" },
-          2: { cellWidth: 65, fontSize: 8 },
-        },
-        margin: { left: 14, right: 14 },
-      });
-
-      // 4. Standard 3-Tier Signature Block
-      const finalY = (doc as any).lastAutoTable.finalY + 4;
-      addPdfSignatureBlock(doc, finalY, getExporterUserName(user?.name), project?.id || "default", "/psychrometric");
-
-      // 5. Download File
-      const projNameSanitized = (project?.name || "Psychrometric_Calculation").replace(/[^a-zA-Z0-9_\-]/g, "_");
-      doc.save(`${projNameSanitized}_Psychrometric_Report.pdf`);
-      toast.success("Exported Psychrometric calculation report to PDF");
-    } catch (err) {
-      console.error("Failed to generate PDF", err);
-      toast.error("Failed to export PDF report");
+      toast.dismiss("psych-pdf-export");
+    } catch (e) {
+      console.error("Failed to export Psychrometric PDF", e);
+      toast.dismiss("psych-pdf-export");
+      toast.error("Failed to generate Psychrometric PDF report.");
     }
   };
 
@@ -1113,333 +960,714 @@ function PsychrometricPage() {
     );
   };
 
+  const pAtmKpa = atmPressure !== "" ? Number(atmPressure) : 101.325;
+  const pAtmPsi = (pAtmKpa * 0.145038).toFixed(3);
+  const dbtC = calculatedData.dbt;
+  const dbtF = cToF(dbtC);
+  const wbtC = calculatedData.wbt;
+  const wbtF = cToF(wbtC);
+  const dpC = calculatedData.dp;
+  const dpF = cToF(dpC);
+  const rhVal = calculatedData.rh;
+  const wGPerKg = calculatedData.w * 1000;
+  const wGrPerLb = calculatedData.w * 7000;
+  const hKjKg = calculatedData.h;
+  const hBtuLb = calculatedData.h / 2.326;
+  const vM3Kg = calculatedData.v;
+  const vFt3Lb = calculatedData.v * 16.0185;
+  const pwKpa = calculatedData.pw / 1000;
+  const pwPsi = calculatedData.pw / 6894.76;
+  const densitySi = 1 / vM3Kg;
+  const densityIp = 1 / vFt3Lb;
+
+  const isSummerComfort = dbtC >= 23 && dbtC <= 26 && rhVal >= 30 && rhVal <= 60;
+  const isWinterComfort = dbtC >= 20 && dbtC <= 24 && rhVal >= 30 && rhVal <= 60;
+  let comfortStatusText = "Standard Conditioned Boundary";
+  if (isSummerComfort) comfortStatusText = "Compliant (ASHRAE 55 Summer Comfort Envelope)";
+  else if (isWinterComfort) comfortStatusText = "Compliant (ASHRAE 55 Winter Comfort Envelope)";
+  else if (rhVal > 80) comfortStatusText = "Caution: High Humidity / Surface Mold & Condensation Risk";
+  else if (rhVal < 20) comfortStatusText = "Caution: Low Humidity / Static Discharge & Mucous Dryness";
+
+  const sensEnthalpy = 1.006 * dbtC;
+  const latEnthalpy = calculatedData.w * (2501 + 1.805 * dbtC);
+  const sensPercent = hKjKg > 0 ? ((sensEnthalpy / hKjKg) * 100).toFixed(1) : "0.0";
+  const latPercent = hKjKg > 0 ? ((latEnthalpy / hKjKg) * 100).toFixed(1) : "0.0";
+  const wbDepression = (dbtC - wbtC).toFixed(1);
+
+  const paramNameMap: Record<SecondParam, string> = {
+    rh: "Relative Humidity (RH)",
+    wb: "Wet Bulb Temperature (T_wb)",
+    dp: "Dew Point Temperature (T_dp)",
+    w: "Humidity Ratio (W)",
+  };
+  const paramName = paramNameMap[secondParam] || "Relative Humidity (RH)";
+  let paramValDisplay = `${rhVal.toFixed(1)} %`;
+  if (secondParam === "wb") {
+    paramValDisplay = `${wbtC.toFixed(1)} °C (${wbtF.toFixed(1)} °F)`;
+  } else if (secondParam === "dp") {
+    paramValDisplay = `${dpC.toFixed(1)} °C (${dpF.toFixed(1)} °F)`;
+  } else if (secondParam === "w") {
+    paramValDisplay = `${wGPerKg.toFixed(2)} g/kg (${wGrPerLb.toFixed(2)} gr/lb)`;
+  }
+
   return (
     <AppShell title="Psychrometric Calculator" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          <div className="flex flex-col gap-1 select-none">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Psychrometric Calculator</h1>
-              <button 
-                onClick={() => setIntelOpen(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
-              >
-                <Sparkles className="size-3.5" />
-                Intelligence
-              </button>
-              <CalculationReviewBar
-                projectId={project?.id}
-                calculatorPath="/psychrometric"
-                calculatorTitle="Psychrometric Calculator"
-                onReviewStateChange={setCalcReviewState}
-              />
-              {commentsList.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const first = commentsList[0];
-                    handleOpenComment(first.targetId || "psych-dbt", first.targetName || "Psychrometric Field");
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 font-bold text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
-                  title={`${commentsList.length} total active comment(s)/task(s)`}
+          {/* Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+            <div className="flex flex-col gap-1 w-full">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Psychrometric Calculator</h1>
+                <button 
+                  onClick={() => setIntelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
                 >
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active {commentsList.length === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
+                  <Sparkles className="size-3.5" />
+                  Intelligence
                 </button>
-              )}
+                <CalculationReviewBar
+                  projectId={project?.id}
+                  calculatorPath="/psychrometric"
+                  calculatorTitle="Psychrometric Calculator"
+                  onReviewStateChange={setCalcReviewState}
+                />
+                {commentsList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const first = commentsList[0];
+                      handleOpenComment(first.targetId || "psych-dbt", first.targetName || "Psychrometric Field");
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 font-bold text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+                    title={`${commentsList.length} total active comment(s)/task(s)`}
+                  >
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{commentsList.length} Active {commentsList.length === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
+                  </button>
+                )}
+              </div>
+              <p className="text-[13px] text-muted-foreground mt-0.5">
+                Calculate complete psychrometric state of moist air from two known properties based on Hyland-Wexler equations.
+              </p>
             </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              Calculate complete psychrometric state of moist air from two known properties based on Hyland-Wexler equations.
-            </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Left Inputs Panel */}
-            <div className="lg:col-span-5 flex flex-col gap-5">
-              <div className={`rounded-2xl p-5 flex flex-col gap-4 transition-all duration-300 ${
-                isApprovedLocked
-                  ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]"
-                  : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-              }`}>
-                {isApprovedLocked && (
-                  <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 rounded-xl p-3 flex items-center justify-between text-xs font-semibold select-none">
-                    <div className="flex items-center gap-2">
-                      <Lock className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>This calculation is APPROVED & LOCKED.</span>
-                    </div>
-                    <span className="text-[10.5px] opacity-80">Discipline Coordinator authority required to unlock.</span>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-1 h-3.5 rounded-full ${isApprovedLocked ? "bg-emerald-500" : "bg-[#0A7BC7]"}`}></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Input Conditions</h3>
-                  </div>
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    inputDescriptions="Dry Bulb Temp & Second Known Parameter"
-                    conversionExample={unitSystem === "si" ? "Convert 24°C → 75.2°F, 18°C WB → 64.4°F WB" : "Convert 75°F → 23.9°C, 65°F WB → 18.3°C WB"}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-3.5 text-xs">
-                  {/* Dry Bulb Temperature */}
-                  {renderInputBox(
-                    "psych-dbt",
-                    `Dry Bulb Temperature (${ip ? "°F" : "°C"})`,
-                    dbtInput,
-                    setDbtInput,
-                    ip ? 95 : 35,
-                    ip ? "95" : "35.0"
-                  )}
-
-                  {/* Known Second Parameter Selector */}
-                  {(() => {
-                    const paramId = "psych-second-param";
-                    const paramComments = commentsList.filter(c => c.spaceId === paramId || c.targetId === paramId || c.itemId === paramId);
-                    const hasComments = paramComments.length > 0;
-                    const isHighlighted = highlightedTargetId === paramId || (highlightedTargetId && paramId.includes(highlightedTargetId.toLowerCase()));
-                    return (
-                      <ContextMenu key={paramId}>
-                        <ContextMenuTrigger asChild>
-                          <div
-                            id={paramId}
-                            data-item-id={paramId}
-                            data-field-id={paramId}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              setEditModalOpen(true);
-                            }}
-                            className={`flex flex-col gap-1.5 p-1 rounded-xl transition cursor-context-menu group ${
-                              isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                            }`}
-                          >
-                            <label className="font-semibold text-foreground flex items-center justify-between gap-2">
-                              <span className="flex items-center gap-1.5">
-                                <span>Known Second Parameter</span>
-                                {hasComments && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleOpenComment(paramId, "Known Second Parameter");
-                                    }}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    title={`${paramComments.length} comment(s)/task(s) assigned`}
-                                  >
-                                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                    <span>{paramComments.length}</span>
-                                  </button>
-                                )}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Double-click to edit</span>
-                            </label>
-                            <div className="grid grid-cols-2 gap-2 select-none">
-                              {(["rh", "wb", "dp", "w"] as SecondParam[]).map((param) => {
-                                const active = secondParam === param;
-                                const labelMap: Record<SecondParam, string> = { rh: "Rel. Humidity", wb: "Wet Bulb", dp: "Dew Point", w: "Hum. Ratio" };
-                                return (
-                                  <button
-                                    key={param}
-                                    type="button"
-                                    disabled={isApprovedLocked}
-                                    onClick={() => {
-                                      if (isApprovedLocked) {
-                                        toast.info("Calculation is Approved & Locked by Discipline Coordinator.");
-                                        return;
-                                      }
-                                      setSecondParam(param);
-                                      setHasCalculated(false);
-                                    }}
-                                    className={`py-1.5 px-3 rounded-lg border text-center font-semibold transition-all ${
-                                      isApprovedLocked
-                                        ? "opacity-60 cursor-not-allowed"
-                                        : "cursor-pointer"
-                                    } ${
-                                      active
-                                        ? "bg-primary/10 border-primary text-primary font-bold shadow-xs"
-                                        : "bg-slate-100/30 border-border/70 hover:bg-slate-100/60 text-muted-foreground"
-                                    }`}
-                                  >
-                                    {labelMap[param]}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                          <ContextMenuItem
-                            onClick={() => setEditModalOpen(true)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                          >
-                            <Edit3 className="size-3.5 text-muted-foreground" />
-                            <span>Edit Parameters</span>
-                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                          </ContextMenuItem>
-
-                          <ContextMenuSeparator className="h-px bg-border my-1" />
-
-                          <ContextMenuItem
-                            onClick={() => handleOpenComment(paramId, "Known Second Parameter")}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                          >
-                            <MessageSquare className="size-3.5" />
-                            <span>{hasComments ? `View / Add Comments (${paramComments.length})` : "Add Comment / Assign Task"}</span>
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-                    );
-                  })()}
-
-                  {/* Parameter Value Input */}
-                  {renderInputBox(
-                    "psych-param-value",
-                    secondParam === "rh"
-                      ? "Relative Humidity (%)"
-                      : secondParam === "wb"
-                      ? `Wet Bulb Temperature (${ip ? "°F" : "°C"})`
-                      : secondParam === "dp"
-                      ? `Dew Point Temperature (${ip ? "°F" : "°C"})`
-                      : `Humidity Ratio (${ip ? "gr/lb" : "g/kg"})`,
-                    paramValue,
-                    setParamValue,
-                    secondParam === "rh" ? 60 : secondParam === "wb" || secondParam === "dp" ? (ip ? 78 : 25.5) : (ip ? 100 : 15),
-                    secondParam === "rh" ? "60" : secondParam === "wb" || secondParam === "dp" ? (ip ? "78" : "25.5") : (ip ? "100" : "15")
-                  )}
-
-                  {/* Atmospheric Pressure */}
-                  {renderInputBox(
-                    "psych-atm-pressure",
-                    "Atmospheric Pressure (kPa)",
-                    atmPressure,
-                    setAtmPressure,
-                    101.325,
-                    "101.325"
-                  )}
-                </div>
+          {/* White Card Container for Tabs & Content */}
+          <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+            {/* Tabs Selector row */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setTab("calculator")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "calculator"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Calculator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Report
+                </button>
               </div>
 
-              <button
-                type="button"
-                disabled={isApprovedLocked}
-                onClick={handleCalculate}
-                className={`w-full font-bold py-2.5 px-4 rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 text-xs ${
-                  isApprovedLocked
-                    ? "bg-slate-200 dark:bg-slate-800 text-muted-foreground cursor-not-allowed opacity-75"
-                    : "bg-[#0A7BC7] text-white hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] cursor-pointer"
-                }`}
-              >
-                {isApprovedLocked ? "🔒 Calculation Locked (Approved)" : "⚡ Calculate Psychrometric State"}
-              </button>
+              {/* Units toggle option */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  inputDescriptions="Dry Bulb Temp & Second Known Parameter"
+                  conversionExample={unitSystem === "si" ? "Convert 24°C → 75.2°F, 18°C WB → 64.4°F WB" : "Convert 75°F → 23.9°C, 65°F WB → 18.3°C WB"}
+                />
+              </div>
             </div>
 
-            {/* Right Results Panel */}
-            <div className="lg:col-span-7 flex flex-col gap-5">
-              {!hasCalculated ? (
-                <div className="bg-card border border-border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[300px] text-center shadow-xs">
-                  <div className="size-12 rounded-full bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center text-muted-foreground text-xl mb-4 border border-border/40 select-none">
-                    📏
-                  </div>
-                  <h4 className="text-xs font-bold text-foreground mb-1 uppercase tracking-wider">Ready to Solve</h4>
-                  <p className="text-[11.5px] text-muted-foreground max-w-xs leading-normal">
-                    Enter the known Dry Bulb Temperature and select a second moist air property to solve the full psychrometric state.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-5 animate-fade-in">
-                  {/* Action toolbar */}
-                  <div className="flex items-center gap-2.5 bg-background border border-border rounded-xl p-2 select-none flex-wrap">
-                    <TBtn onClick={() => setShowFormulaPanel(!showFormulaPanel)} className="h-8.5 text-xs">
-                      <HelpCircle className="size-3.5" /> Formula Reference
-                    </TBtn>
-                    <TBtn onClick={handleExportPDF} className="h-8.5 text-xs">
-                      <Printer className="size-3.5" /> Export PDF
-                    </TBtn>
-                  </div>
-
-                  {showFormulaPanel && (
-                    <div className="bg-white dark:bg-slate-900 border border-border rounded-2xl p-5 shadow-xs text-xs flex flex-col gap-2">
-                      <h4 className="font-bold text-foreground mb-1">Psychrometric Saturation Equations Reference</h4>
-                      <p className="text-muted-foreground">Calculations utilize standard Hyland-Wexler equations to determine saturation pressure and humidity ratios.</p>
-                      <code className="bg-slate-100 dark:bg-slate-800 p-2 rounded block font-mono text-[10.5px] text-primary">
-                        W = 0.621945 × Pw / (P_atm - Pw)
-                      </code>
-                    </div>
-                  )}
-
-                  {/* Warning logs */}
-                  {warnings.length > 0 && (
-                    <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex flex-col gap-2 text-[11.5px]">
-                      {warnings.map((w, idx) => (
-                        <div key={idx} className="flex gap-2.5 items-start">
-                          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
-                          <span>{w}</span>
+            {/* Active Tab View */}
+            <div key={tab} className="flex-1 min-h-0 animate-fade-in flex flex-col overflow-y-auto p-4 md:p-6">
+              {tab === "calculator" && (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* Left Inputs Panel */}
+                  <div className="lg:col-span-5 flex flex-col gap-5">
+                    <div className={`rounded-2xl p-5 flex flex-col gap-4 transition-all duration-300 ${
+                      isApprovedLocked
+                        ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                        : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                    }`}>
+                      {isApprovedLocked && (
+                        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 rounded-xl p-3 flex items-center justify-between text-xs font-semibold select-none">
+                          <div className="flex items-center gap-2">
+                            <Lock className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span>This calculation is APPROVED & LOCKED.</span>
+                          </div>
+                          <span className="text-[10.5px] opacity-80">Discipline Coordinator authority required to unlock.</span>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      )}
 
-                  {/* Solved Air State Properties Card */}
-                  <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
-                    <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Solved Air State</h3>
+                      <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-1 h-3.5 rounded-full ${isApprovedLocked ? "bg-emerald-500" : "bg-[#0A7BC7]"}`}></div>
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Input Conditions</h3>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3.5 text-xs">
+                        {/* Dry Bulb Temperature */}
+                        {renderInputBox(
+                          "psych-dbt",
+                          `Dry Bulb Temperature (${ip ? "°F" : "°C"})`,
+                          dbtInput,
+                          setDbtInput,
+                          ip ? 95 : 35,
+                          ip ? "95" : "35.0"
+                        )}
+
+                        {/* Known Second Parameter Selector */}
+                        {(() => {
+                          const paramId = "psych-second-param";
+                          const paramComments = commentsList.filter(c => c.spaceId === paramId || c.targetId === paramId || c.itemId === paramId);
+                          const hasComments = paramComments.length > 0;
+                          const isHighlighted = highlightedTargetId === paramId || (highlightedTargetId && paramId.includes(highlightedTargetId.toLowerCase()));
+                          return (
+                            <ContextMenu key={paramId}>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id={paramId}
+                                  data-item-id={paramId}
+                                  data-field-id={paramId}
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditModalOpen(true);
+                                  }}
+                                  className={`flex flex-col gap-1.5 p-1 rounded-xl transition cursor-context-menu group ${
+                                    isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                                  }`}
+                                >
+                                  <label className="font-semibold text-foreground flex items-center justify-between gap-2">
+                                    <span className="flex items-center gap-1.5">
+                                      <span>Known Second Parameter</span>
+                                      {hasComments && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenComment(paramId, "Known Second Parameter");
+                                          }}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                                          title={`${paramComments.length} comment(s)/task(s) assigned`}
+                                        >
+                                          <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                          <span>{paramComments.length}</span>
+                                        </button>
+                                      )}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Double-click to edit</span>
+                                  </label>
+                                  <div className="grid grid-cols-2 gap-2 select-none">
+                                    {(["rh", "wb", "dp", "w"] as SecondParam[]).map((param) => {
+                                      const active = secondParam === param;
+                                      const labelMap: Record<SecondParam, string> = { rh: "Rel. Humidity", wb: "Wet Bulb", dp: "Dew Point", w: "Hum. Ratio" };
+                                      return (
+                                        <button
+                                          key={param}
+                                          type="button"
+                                          disabled={isApprovedLocked}
+                                          onClick={() => {
+                                            if (isApprovedLocked) {
+                                              toast.info("Calculation is Approved & Locked by Discipline Coordinator.");
+                                              return;
+                                            }
+                                            setSecondParam(param);
+                                            setHasCalculated(false);
+                                          }}
+                                          className={`py-1.5 px-3 rounded-lg border text-center font-semibold transition-all ${
+                                            isApprovedLocked
+                                              ? "opacity-60 cursor-not-allowed"
+                                              : "cursor-pointer"
+                                          } ${
+                                            active
+                                              ? "bg-primary/10 border-primary text-primary font-bold shadow-xs"
+                                              : "bg-slate-100/30 border-border/70 hover:bg-slate-100/60 text-muted-foreground"
+                                          }`}
+                                        >
+                                          {labelMap[param]}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => setEditModalOpen(true)}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                                >
+                                  <Edit3 className="size-3.5 text-muted-foreground" />
+                                  <span>Edit Parameters</span>
+                                  <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+                                </ContextMenuItem>
+
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment(paramId, "Known Second Parameter")}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>{hasComments ? `View / Add Comments (${paramComments.length})` : "Add Comment / Assign Task"}</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          );
+                        })()}
+
+                        {/* Parameter Value Input */}
+                        {renderInputBox(
+                          "psych-param-value",
+                          secondParam === "rh"
+                            ? "Relative Humidity (%)"
+                            : secondParam === "wb"
+                            ? `Wet Bulb Temperature (${ip ? "°F" : "°C"})`
+                            : secondParam === "dp"
+                            ? `Dew Point Temperature (${ip ? "°F" : "°C"})`
+                            : `Humidity Ratio (${ip ? "gr/lb" : "g/kg"})`,
+                          paramValue,
+                          setParamValue,
+                          secondParam === "rh" ? 60 : secondParam === "wb" || secondParam === "dp" ? (ip ? 78 : 25.5) : (ip ? 100 : 15),
+                          secondParam === "rh" ? "60" : secondParam === "wb" || secondParam === "dp" ? (ip ? "78" : "25.5") : (ip ? "100" : "15")
+                        )}
+
+                        {/* Atmospheric Pressure */}
+                        {renderInputBox(
+                          "psych-atm-pressure",
+                          "Atmospheric Pressure (kPa)",
+                          atmPressure,
+                          setAtmPressure,
+                          101.325,
+                          "101.325"
+                        )}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
-                      {renderResultRow(
-                        "res-dbt",
-                        "Dry Bulb Temp",
-                        ip ? `${cToF(calculatedData.dbt).toFixed(1)} °F` : `${calculatedData.dbt.toFixed(1)} °C`
-                      )}
-                      {renderResultRow(
-                        "res-wbt",
-                        "Wet Bulb Temp",
-                        ip ? `${cToF(calculatedData.wbt).toFixed(1)} °F` : `${calculatedData.wbt.toFixed(1)} °C`
-                      )}
-                      {renderResultRow(
-                        "res-dp",
-                        "Dew Point Temp",
-                        ip ? `${cToF(calculatedData.dp).toFixed(1)} °F` : `${calculatedData.dp.toFixed(1)} °C`
-                      )}
-                      {renderResultRow(
-                        "res-rh",
-                        "Relative Humidity",
-                        `${calculatedData.rh.toFixed(1)} %`
-                      )}
-                      {renderResultRow(
-                        "res-w",
-                        "Humidity Ratio (W)",
-                        ip ? `${(calculatedData.w * 7000).toFixed(2)} gr/lb` : `${(calculatedData.w * 1000).toFixed(2)} g/kg`
-                      )}
-                      {renderResultRow(
-                        "res-h",
-                        "Specific Enthalpy (h)",
-                        ip ? `${(calculatedData.h / 2.326).toFixed(2)} BTU/lb` : `${calculatedData.h.toFixed(2)} kJ/kg`,
-                        true,
-                        "text-[#0A7BC7]"
-                      )}
-                      {renderResultRow(
-                        "res-v",
-                        "Specific Volume (v)",
-                        ip ? `${(calculatedData.v * 0.062428).toFixed(4)} ft³/lb` : `${calculatedData.v.toFixed(4)} m³/kg`
-                      )}
-                      {renderResultRow(
-                        "res-pw",
-                        "Vapor Pressure",
-                        ip ? `${(calculatedData.pw / 6894.76).toFixed(4)} psi` : `${(calculatedData.pw / 1000).toFixed(3)} kPa`
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      disabled={isApprovedLocked}
+                      onClick={handleCalculate}
+                      className={`w-full font-bold py-2.5 px-4 rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 text-xs ${
+                        isApprovedLocked
+                          ? "bg-slate-200 dark:bg-slate-800 text-muted-foreground cursor-not-allowed opacity-75"
+                          : "bg-[#0A7BC7] text-white hover:bg-[#06456F] hover:shadow-sm active:scale-[0.98] cursor-pointer"
+                      }`}
+                    >
+                      {isApprovedLocked ? "🔒 Calculation Locked (Approved)" : "⚡ Calculate Psychrometric State"}
+                    </button>
                   </div>
 
-                  {renderChart()}
+                  {/* Right Results Panel */}
+                  <div className="lg:col-span-7 flex flex-col gap-5">
+                    {!hasCalculated ? (
+                      <div className="bg-card border border-border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[300px] text-center shadow-xs">
+                        <div className="size-12 rounded-full bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center text-muted-foreground text-xl mb-4 border border-border/40 select-none">
+                          📏
+                        </div>
+                        <h4 className="text-xs font-bold text-foreground mb-1 uppercase tracking-wider">Ready to Solve</h4>
+                        <p className="text-[11.5px] text-muted-foreground max-w-xs leading-normal">
+                          Enter the known Dry Bulb Temperature and select a second moist air property to solve the full psychrometric state.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-5 animate-fade-in">
+                        {/* Action toolbar matching Ventilation standard */}
+                        <div className="flex items-center gap-2 bg-background border border-border rounded-xl p-2 select-none flex-wrap">
+                          <TBtn onClick={() => setShowFormulaPanel(!showFormulaPanel)}>
+                            <HelpCircle className="size-3.5" /> Formula Reference
+                          </TBtn>
+                          <TBtn onClick={handleExportPDF}>
+                            <FileText className="size-3.5" /> Export PDF
+                          </TBtn>
+                        </div>
+
+                        {showFormulaPanel && (
+                          <div className="bg-white dark:bg-slate-900 border border-border rounded-2xl p-5 shadow-xs text-xs flex flex-col gap-2">
+                            <h4 className="font-bold text-foreground mb-1">Psychrometric Saturation Equations Reference</h4>
+                            <p className="text-muted-foreground">Calculations utilize standard Hyland-Wexler equations to determine saturation pressure and humidity ratios.</p>
+                            <code className="bg-slate-100 dark:bg-slate-800 p-2 rounded block font-mono text-[10.5px] text-primary">
+                              W = 0.621945 × Pw / (P_atm - Pw)
+                            </code>
+                          </div>
+                        )}
+
+                        {/* Warning logs */}
+                        {warnings.length > 0 && (
+                          <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex flex-col gap-2 text-[11.5px]">
+                            {warnings.map((w, idx) => (
+                              <div key={idx} className="flex gap-2.5 items-start">
+                                <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
+                                <span>{w}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Solved Air State Properties Card */}
+                        <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs">
+                          <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                            <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Solved Air State</h3>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                            {renderResultRow(
+                              "res-dbt",
+                              "Dry Bulb Temp",
+                              ip ? `${dbtF.toFixed(1)} °F` : `${dbtC.toFixed(1)} °C`
+                            )}
+                            {renderResultRow(
+                              "res-wbt",
+                              "Wet Bulb Temp",
+                              ip ? `${wbtF.toFixed(1)} °F` : `${wbtC.toFixed(1)} °C`
+                            )}
+                            {renderResultRow(
+                              "res-dp",
+                              "Dew Point Temp",
+                              ip ? `${dpF.toFixed(1)} °F` : `${dpC.toFixed(1)} °C`
+                            )}
+                            {renderResultRow(
+                              "res-rh",
+                              "Relative Humidity",
+                              `${rhVal.toFixed(1)} %`
+                            )}
+                            {renderResultRow(
+                              "res-w",
+                              "Humidity Ratio (W)",
+                              ip ? `${wGrPerLb.toFixed(2)} gr/lb` : `${wGPerKg.toFixed(2)} g/kg`
+                            )}
+                            {renderResultRow(
+                              "res-h",
+                              "Specific Enthalpy (h)",
+                              ip ? `${hBtuLb.toFixed(2)} BTU/lb` : `${hKjKg.toFixed(2)} kJ/kg`,
+                              true,
+                              "text-[#0A7BC7]"
+                            )}
+                            {renderResultRow(
+                              "res-v",
+                              "Specific Volume (v)",
+                              ip ? `${vFt3Lb.toFixed(4)} ft³/lb` : `${vM3Kg.toFixed(4)} m³/kg`
+                            )}
+                            {renderResultRow(
+                              "res-density",
+                              "Moist Air Density (ρ)",
+                              ip ? `${densityIp.toFixed(4)} lb/ft³` : `${densitySi.toFixed(3)} kg/m³`
+                            )}
+                            {renderResultRow(
+                              "res-pw",
+                              "Vapor Pressure",
+                              ip ? `${pwPsi.toFixed(4)} psi` : `${pwKpa.toFixed(3)} kPa`
+                            )}
+                          </div>
+                        </div>
+
+                        {renderChart()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* PRINTABLE REPORT PREVIEW TAB (MATCHING VENTILATION & COIL CONDENSATE REPORT FORMAT) */}
+              {tab === "report" && (
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+                    
+                    <div className="flex justify-between items-start pb-4 border-b border-border">
+                      <div>
+                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                          Psychrometric State Calculation Report
+                        </h2>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          Design Standards: ASHRAE Handbook Fundamentals (Hyland-Wexler Formulation) &amp; ASHRAE Standard 55
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <TBtn primary onClick={handleExportPDF}>
+                          <FileText className="size-3.5" /> Export PDF
+                        </TBtn>
+                      </div>
+                    </div>
+
+                    {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
+                    <div className="border border-border rounded-xl overflow-hidden text-[12px] bg-card">
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Calculation No.:</span>
+                          <span className="text-muted-foreground font-mono">
+                            {(project as any)?.calcNo || `TRV-CAL-PSY-${(project?.id || "0000").slice(-4).toUpperCase()}`}
+                          </span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Date:</span>
+                          <span className="text-muted-foreground">{formatDateStr(new Date().toISOString())}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project No.:</span>
+                          <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Client:</span>
+                          <span className="text-muted-foreground">{project?.client || "-"}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project Name:</span>
+                          <span className="text-muted-foreground">{project?.name || "MEP Project"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">End User:</span>
+                          <span className="text-muted-foreground">{(project as any)?.endUser || project?.location || "-"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Table 1: Design Input Parameter */}
+                    <div className="border border-border rounded-xl overflow-hidden bg-card">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                              <th className="py-2 px-2.5 w-10">Sr.</th>
+                              <th className="py-2 px-3 text-left">Design Input Parameter</th>
+                              <th className="py-2 px-3 text-left">Governing Rule / Basis</th>
+                              <th className="py-2 px-3 text-right">Specified Value</th>
+                              <th className="py-2 px-3 text-left">Engineering Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60 font-sans">
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">1</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Atmospheric Pressure (P_atm)</td>
+                              <td className="py-2 px-3 text-muted-foreground">Standard Barometric Design Level</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{pAtmKpa.toFixed(3)} kPa ({pAtmPsi} psi / 29.92 inHg)</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Sea-level standard atmosphere</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">2</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Dry Bulb Temperature (T_db)</td>
+                              <td className="py-2 px-3 text-muted-foreground">Primary Known Moist Air Temperature</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">
+                                {ip ? `${dbtF.toFixed(1)} °F (${dbtC.toFixed(1)} °C)` : `${dbtC.toFixed(1)} °C (${dbtF.toFixed(1)} °F)`}
+                              </td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Sensible boundary condition</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">3</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Known 2nd Parameter ({paramName})</td>
+                              <td className="py-2 px-3 text-muted-foreground">Independent Thermodynamic Boundary</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{paramValDisplay}</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Governing moisture state condition</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">4</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Thermodynamic Formulation</td>
+                              <td className="py-2 px-3 text-muted-foreground">ASHRAE Handbook Fundamentals</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">Hyland-Wexler Formulation</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Standard high-precision psychrometric model</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Table 2: Solved Psychrometric Properties */}
+                    <div className="border border-border rounded-xl overflow-hidden bg-card">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                              <th className="py-2 px-2.5 w-10">Sr.</th>
+                              <th className="py-2 px-3 text-left">Psychrometric Property</th>
+                              <th className="py-2 px-2 text-center">Symbol</th>
+                              <th className="py-2 px-3 text-right">SI Metric</th>
+                              <th className="py-2 px-3 text-right">IP Imperial</th>
+                              <th className="py-2 px-3 text-left">Engineering Definition &amp; Application</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60 font-sans">
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">1</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Dry Bulb Temperature</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">T_db</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{dbtC.toFixed(1)} °C</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{dbtF.toFixed(1)} °F</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Sensible thermal state of moist air</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">2</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Wet Bulb Temperature</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">T_wb</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{wbtC.toFixed(1)} °C</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{wbtF.toFixed(1)} °F</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Adiabatic saturation limit &amp; evaporative threshold</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">3</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Dew Point Temperature</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">T_dp</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{dpC.toFixed(1)} °C</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{dpF.toFixed(1)} °F</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Surface condensation risk boundary</td>
+                            </tr>
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-foreground font-semibold">
+                              <td className="py-2 px-2.5 text-center font-mono">4</td>
+                              <td className="py-2 px-3 font-bold">Relative Humidity</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">RH</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{rhVal.toFixed(1)} %</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{rhVal.toFixed(1)} %</td>
+                              <td className="py-2 px-3 text-[10.5px]">Degree of moisture saturation (Pw / Pws)</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">5</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Humidity Ratio (Specific Moisture)</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">W</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{wGPerKg.toFixed(2)} g/kg</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{wGrPerLb.toFixed(2)} gr/lb</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Mass ratio of moisture to dry air mass</td>
+                            </tr>
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-foreground font-semibold">
+                              <td className="py-2 px-2.5 text-center font-mono">6</td>
+                              <td className="py-2 px-3 font-bold">Specific Enthalpy (Total Energy)</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">h</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{hKjKg.toFixed(2)} kJ/kg</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{hBtuLb.toFixed(2)} BTU/lb</td>
+                              <td className="py-2 px-3 text-[10.5px]">Total energy content (Sensible + Latent)</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">7</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Specific Volume</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">v</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{vM3Kg.toFixed(4)} m³/kg</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{vFt3Lb.toFixed(4)} ft³/lb</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Volume per unit mass of dry air</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">8</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Moist Air Density</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">ρ</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{densitySi.toFixed(3)} kg/m³</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{densityIp.toFixed(4)} lb/ft³</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Reciprocal of moist air specific volume</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">9</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Water Vapor Partial Pressure</td>
+                              <td className="py-2 px-2 text-center font-mono font-bold">P_w</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{pwKpa.toFixed(3)} kPa</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{pwPsi.toFixed(4)} psi</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Partial pressure exerted by water vapor</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Table 3: Engineering Assessment (ASHRAE 55 / Energy Audit) */}
+                    <div className="border border-border rounded-xl overflow-hidden bg-card">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                              <th className="py-2 px-2.5 w-10">Sr.</th>
+                              <th className="py-2 px-3 text-left">Engineering Assessment Item</th>
+                              <th className="py-2 px-3 text-left">Governing Rule / Basis</th>
+                              <th className="py-2 px-3 text-right">Result / Value</th>
+                              <th className="py-2 px-3 text-left">Design Compliance Note</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60 font-sans">
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-foreground font-semibold">
+                              <td className="py-2 px-2.5 text-center font-mono">1</td>
+                              <td className="py-2 px-3 font-bold">Thermal Comfort Compliance (ASHRAE 55)</td>
+                              <td className="py-2 px-3">ASHRAE 55 Standard</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{comfortStatusText}</td>
+                              <td className="py-2 px-3 text-[10.5px]">Evaluates human thermal comfort criteria</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">2</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Sensible vs. Latent Enthalpy Breakdown</td>
+                              <td className="py-2 px-3 text-muted-foreground">Energy Breakdown</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">Sensible: {sensPercent}% | Latent: {latPercent}%</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Sensible: {sensEnthalpy.toFixed(1)} kJ/kg, Latent: {latEnthalpy.toFixed(1)} kJ/kg</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">3</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Condensation Protection Boundary</td>
+                              <td className="py-2 px-3 text-muted-foreground">Dew Point Envelope</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">Surface Temp &gt;= {dpC.toFixed(1)} °C ({dpF.toFixed(1)} °F)</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Pipe and duct insulation must maintain surface above T_dp</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">4</td>
+                              <td className="py-2 px-3 font-bold text-foreground">Evaporative Cooling Potential</td>
+                              <td className="py-2 px-3 text-muted-foreground">Wet Bulb Depression</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{wbDepression} °C / K depression</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Direct adiabatic water evaporation limit</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Table 4: 4-Column Dynamic Signature Block */}
+                    <div className="border border-border rounded-xl overflow-hidden mt-6 bg-card">
+                      <table className="w-full text-center text-[11px] border-collapse">
+                        <thead>
+                          <tr className="bg-[#FFE6CC] text-black font-bold border-b border-border">
+                            <th className="py-2 px-3 text-left w-1/4">Designation</th>
+                            <th className="py-2 px-3 w-1/4">Originator</th>
+                            <th className="py-2 px-3 w-1/4">Reviewer</th>
+                            <th className="py-2 px-3 w-1/4">Approver</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border font-sans">
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Name:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.name || sigDetails?.originatedName || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.name || sigDetails?.approverName || "-"}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Date:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.date || sigDetails?.originatedDate || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.date || sigDetails?.approverDate || "-"}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Signature:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-")}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-")}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-")}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                  </div>
                 </div>
               )}
             </div>

@@ -1,7 +1,6 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
-import { addExcelSignatureBlock } from "@/lib/excelHelpers";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { exportSprinklerDensityPDF, type SprinklerDensityExportData } from "@/lib/exportSprinklerDensityPDF";
 import { exportSprinklerDensityExcel } from "@/lib/exportSprinklerDensityExcel";
 import { downloadFile } from "@/lib/download";
@@ -23,6 +22,7 @@ import {
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditSprinklerModal, type SprinklerFormData } from "@/components/workspace/EditSprinklerModal";
 import { AppShell } from "@/components/workspace/AppShell";
+import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace } from "@/lib/workspace-store";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
@@ -324,42 +324,48 @@ function SprinklerDensityPage() {
 
   // Calculations
   const calcResults = useMemo(() => {
-    const customDensVal = customDens === "" ? 0 : customDens;
-    const customAreaVal = customArea === "" ? 0 : customArea;
-    const coverageVal = coverage === "" ? 0 : coverage;
+    const customDensVal = customDens === "" ? 0 : Number(customDens);
+    const customAreaVal = customArea === "" ? 0 : Number(customArea);
+    const coverageVal = coverage === "" ? 0 : Number(coverage);
+    const kFactorVal = kFactor === "" ? 5.6 : Number(kFactor);
 
-    let dens = 0.15;
-    let designArea = 1500;
-
-    if (hazard === "custom") {
-      dens = customDensVal;
-      designArea = customAreaVal;
-    } else {
-      const parts = hazard.split(",");
-      dens = parseFloat(parts[0]);
-      designArea = parseFloat(parts[1]);
-    }
+    let densIP = 0.20;
+    let designAreaFt2 = 1500;
 
     const ip = unitSystem === "ip";
-    // Convert to IP if SI is selected (SI: mm/min and m²)
-    // mm/min -> GPM/ft²: divide by 40.74
-    // m² -> ft²: multiply by 10.7639
-    const densIP = ip ? dens : dens / 40.74;
+
+    if (hazard === "custom") {
+      if (ip) {
+        densIP = customDensVal;
+        designAreaFt2 = customAreaVal;
+      } else {
+        densIP = customDensVal / 40.7458;
+        designAreaFt2 = customAreaVal * 10.7639;
+      }
+    } else {
+      const parts = hazard.split(",");
+      densIP = parseFloat(parts[0]) || 0.20;
+      designAreaFt2 = parseFloat(parts[1]) || 1500;
+    }
+
+    // coverage: if SI, coverageVal is in m2 (e.g. 12.1 m2 -> 130.2 ft2). If IP, it is in ft2 (130 ft2)
     const coverFt2 = ip ? coverageVal : coverageVal * 10.7639;
-    const designAreaFt2 = ip ? designArea : designArea * 10.7639;
+
+    // kFactor: if SI, kFactor is in metric (e.g. 80 -> 5.6). If IP, it is in IP (5.6).
+    const kFactorIP = ip ? kFactorVal : kFactorVal / 14.288;
 
     const flowPerSprink = densIP * coverFt2; // GPM
-    const pressReq = Math.pow(flowPerSprink / kFactor, 2); // psi
+    const pressReq = kFactorIP > 0 ? Math.pow(flowPerSprink / kFactorIP, 2) : 0; // psi
     const nSprink = coverFt2 > 0 ? Math.ceil(designAreaFt2 / coverFt2) : 0;
     const totalSprinkFlow = densIP * designAreaFt2; // GPM
 
-    // Hose stream allowance: LH=100, OH=250, EH=500 GPM
-    const hoseAllow = densIP <= 0.10 ? 100 : densIP <= 0.20 ? 250 : 500;
+    // Hose stream allowance: LH (0.10)=100, OH (0.15/0.20)=250, EH (0.30/0.40)=500 GPM
+    const hoseAllow = densIP <= 0.105 ? 100 : densIP <= 0.205 ? 250 : 500;
     const systemTotal = totalSprinkFlow + hoseAllow;
 
     // Unit conversions for display
     const formatFlow = (gpm: number) => {
-      return ip ? `${gpm.toFixed(1)} GPM` : `${(gpm * 0.06309).toFixed(2)} L/s`;
+      return ip ? `${gpm.toFixed(1)} GPM` : `${(gpm * 3.78541).toFixed(1)} L/min`;
     };
 
     const formatPressure = (psi: number) => {
@@ -367,11 +373,11 @@ function SprinklerDensityPage() {
     };
 
     const formatArea = (ft2: number) => {
-      return ip ? `${ft2.toFixed(0)} ft²` : `${(ft2 / 10.7639).toFixed(1)} m²`;
+      return ip ? `${ft2.toFixed(0)} ft²` : `${(ft2 * 0.092903).toFixed(1)} m²`;
     };
 
     const formatDens = (gpmft2: number) => {
-      return ip ? `${gpmft2.toFixed(3)} GPM/ft²` : `${(gpmft2 * 40.74).toFixed(2)} mm/min`;
+      return ip ? `${gpmft2.toFixed(2)} gpm/ft²` : `${(gpmft2 * 40.7458).toFixed(2)} mm/min`;
     };
 
     return {
@@ -393,13 +399,32 @@ function SprinklerDensityPage() {
 
   // Get hazard display label
   const getHazardLabel = () => {
+    const isSI = unitSystem === "si";
     switch (hazard) {
-      case "0.10,1500": return "Light Hazard (0.10 gpm/ft² / 1,500 ft²)";
-      case "0.15,1500": return "Ordinary Hazard Group 1 (0.15 gpm/ft² / 1,500 ft²)";
-      case "0.20,1500": return "Ordinary Hazard Group 2 (0.20 gpm/ft² / 1,500 ft²)";
-      case "0.30,2500": return "Extra Hazard Group 1 (0.30 gpm/ft² / 2,500 ft²)";
-      case "0.40,2500": return "Extra Hazard Group 2 (0.40 gpm/ft² / 2,500 ft²)";
-      default: return `Custom Hazard (${calcResults.densIP.toFixed(2)} gpm/ft² / ${calcResults.designAreaFt2} ft²)`;
+      case "0.10,1500":
+        return isSI
+          ? "Light Hazard (4.07 mm/min / 139 m²)"
+          : "Light Hazard (0.10 gpm/ft² / 1,500 ft²)";
+      case "0.15,1500":
+        return isSI
+          ? "Ordinary Hazard Group 1 (6.11 mm/min / 139 m²)"
+          : "Ordinary Hazard Group 1 (0.15 gpm/ft² / 1,500 ft²)";
+      case "0.20,1500":
+        return isSI
+          ? "Ordinary Hazard Group 2 (8.15 mm/min / 139 m²)"
+          : "Ordinary Hazard Group 2 (0.20 gpm/ft² / 1,500 ft²)";
+      case "0.30,2500":
+        return isSI
+          ? "Extra Hazard Group 1 (12.22 mm/min / 232 m²)"
+          : "Extra Hazard Group 1 (0.30 gpm/ft² / 2,500 ft²)";
+      case "0.40,2500":
+        return isSI
+          ? "Extra Hazard Group 2 (16.30 mm/min / 232 m²)"
+          : "Extra Hazard Group 2 (0.40 gpm/ft² / 2,500 ft²)";
+      default:
+        return isSI
+          ? `Custom Hazard (${(calcResults.densIP * 40.7458).toFixed(2)} mm/min / ${(calcResults.designAreaFt2 * 0.092903).toFixed(1)} m²)`
+          : `Custom Hazard (${calcResults.densIP.toFixed(2)} gpm/ft² / ${calcResults.designAreaFt2.toFixed(0)} ft²)`;
     }
   };
 
@@ -410,26 +435,36 @@ function SprinklerDensityPage() {
     const totalStorageGal = flowGpm * waterDurationMin;
     const totalStorageM3 = totalStorageGal * 0.00378541;
 
+    const densityVal = isSI ? calcResults.densIP * 40.7458 : calcResults.densIP;
+    const designAreaVal = isSI ? calcResults.designAreaFt2 * 0.092903 : calcResults.designAreaFt2;
+    const coverageVal = Number(coverage) || (isSI ? 12.1 : 130);
+    const kFactorVal = Number(kFactor) || (isSI ? 80 : 5.6);
+    const flowPerSprinkVal = isSI ? calcResults.flowPerSprink * 3.78541 : calcResults.flowPerSprink;
+    const pressReqVal = isSI ? calcResults.pressReq * 0.0689476 : calcResults.pressReq;
+    const totalSprinkFlowVal = isSI ? calcResults.totalSprinkFlow * 3.78541 : calcResults.totalSprinkFlow;
+    const hoseAllowVal = isSI ? calcResults.hoseAllow * 3.78541 : calcResults.hoseAllow;
+    const systemTotalVal = isSI ? calcResults.systemTotal * 3.78541 : calcResults.systemTotal;
+
     return {
       hazard,
       hazardLabel: getHazardLabel(),
-      density: isSI ? calcResults.densIP * 40.7458 : calcResults.densIP,
+      density: densityVal,
       densityUnit: isSI ? "mm/min" : "gpm/ft²",
-      designArea: isSI ? calcResults.designAreaFt2 * 0.092903 : calcResults.designAreaFt2,
+      designArea: parseFloat(designAreaVal.toFixed(1)),
       designAreaUnit: isSI ? "m²" : "ft²",
-      coverage: Number(coverage) || (isSI ? 12 : 130),
+      coverage: coverageVal,
       coverageUnit: isSI ? "m²" : "ft²",
-      kFactor,
+      kFactor: kFactorVal,
       kFactorUnit: isSI ? "L/min/bar^0.5" : "gpm/psi^0.5",
       unitSystem,
-      flowPerSprinkler: isSI ? calcResults.flowPerSprink * 3.78541 : calcResults.flowPerSprink,
-      pressureRequired: isSI ? calcResults.pressReq * 0.0689476 : calcResults.pressReq,
+      flowPerSprinkler: flowPerSprinkVal,
+      pressureRequired: pressReqVal,
       pressureUnit: isSI ? "bar" : "psi",
       sprinklersCount: calcResults.nSprink,
-      totalSprinklerFlow: isSI ? calcResults.totalSprinkFlow * 3.78541 : calcResults.totalSprinkFlow,
+      totalSprinklerFlow: totalSprinkFlowVal,
       flowUnit: isSI ? "L/min" : "GPM",
-      hoseAllowance: isSI ? calcResults.hoseAllow * 3.78541 : calcResults.hoseAllow,
-      totalSystemDemand: isSI ? calcResults.systemTotal * 3.78541 : calcResults.systemTotal,
+      hoseAllowance: hoseAllowVal,
+      totalSystemDemand: systemTotalVal,
       waterDurationMin,
       totalStorageGallons: totalStorageGal,
       totalStorageM3,
@@ -442,12 +477,12 @@ function SprinklerDensityPage() {
   const exportExcel = async () => {
     const exportData = getExportData();
     const meta = {
-      calcNo: `TRV-CAL-SDF-${project?.code || "001"}`,
-      projectNo: project?.code || "CALC-001",
+      calcNo: `TRV-CAL-SDF-${(project?.id || "0000").slice(-4).toUpperCase()}`,
+      projectNo: project?.code || (project?.id ? project.id.slice(0, 8) : "P000"),
       projectName: project?.name || "Sprinkler Hydraulic Calculation",
       client: project?.client || "Consistent Engineering Consultants",
-      endUser: project?.location || project?.name || "Main Complex",
-      date: new Date().toLocaleDateString("en-GB"),
+      endUser: project?.location || (project as any)?.endUser || "Main Complex",
+      date: formatDateStr(new Date().toISOString()),
       userName: currentUserName,
       unitSystem,
     };
@@ -457,12 +492,12 @@ function SprinklerDensityPage() {
   const exportPdf = async () => {
     const exportData = getExportData();
     const meta = {
-      calcNo: `TRV-CAL-SDF-${project?.code || "001"}`,
-      projectNo: project?.code || "CALC-001",
+      calcNo: `TRV-CAL-SDF-${(project?.id || "0000").slice(-4).toUpperCase()}`,
+      projectNo: project?.code || (project?.id ? project.id.slice(0, 8) : "P000"),
       projectName: project?.name || "Sprinkler Hydraulic Calculation",
       client: project?.client || "Consistent Engineering Consultants",
-      endUser: project?.location || project?.name || "Main Complex",
-      date: new Date().toLocaleDateString("en-GB"),
+      endUser: project?.location || (project as any)?.endUser || "Main Complex",
+      date: formatDateStr(new Date().toISOString()),
       userName: currentUserName,
       unitSystem,
     };
@@ -475,16 +510,16 @@ function SprinklerDensityPage() {
     if (shouldConvert) {
       if (newUnit === "si") {
         if (coverage !== "") {
-          setCoverage(parseFloat((Number(coverage) / 10.7639).toFixed(1)));
+          setCoverage(parseFloat((Number(coverage) * 0.092903).toFixed(1)));
         }
         if (customDens !== "") {
           setCustomDens(parseFloat((Number(customDens) * 40.7458).toFixed(2)));
         }
         if (customArea !== "") {
-          setCustomArea(parseFloat((Number(customArea) / 10.7639).toFixed(1)));
+          setCustomArea(parseFloat((Number(customArea) * 0.092903).toFixed(1)));
         }
-        if (kFactor) {
-          setKFactor(parseFloat((Number(kFactor) * 14.28).toFixed(1)));
+        if (kFactor !== "") {
+          setKFactor(parseFloat((Number(kFactor) * 14.288).toFixed(1)));
         }
       } else {
         if (coverage !== "") {
@@ -496,8 +531,8 @@ function SprinklerDensityPage() {
         if (customArea !== "") {
           setCustomArea(parseFloat((Number(customArea) * 10.7639).toFixed(0)));
         }
-        if (kFactor) {
-          setKFactor(parseFloat((Number(kFactor) / 14.28).toFixed(1)));
+        if (kFactor !== "") {
+          setKFactor(parseFloat((Number(kFactor) / 14.288).toFixed(1)));
         }
       }
     }
@@ -1360,149 +1395,275 @@ function SprinklerDensityPage() {
                 </div>
               )}
 
-            {/* Sizing Report summary */}
+            {/* PRINTABLE REPORT PREVIEW TAB */}
             {tab === "report" && (
-              <div className="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col gap-6 w-full">
-                {/* Toolbar */}
-                <div className="flex justify-between items-center pb-4 border-b border-border">
-                  <div>
-                    <h3 className="text-[16px] font-bold text-foreground">Sprinkler Density & Demand Report</h3>
-                    <p className="text-[12.5px] text-muted-foreground mt-0.5">Summary of NFPA 13 preliminary water supply requirements.</p>
-                  </div>
-                  <div className="flex items-center gap-2 no-print print:hidden">
-                    <button
-                      onClick={exportPdf}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-4 rounded-full text-[12.5px] font-bold bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer shadow-xs transition-all active:scale-95"
-                    >
-                      <FileText className="size-3.5 text-white" />
-                      <span>Export PDF</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Four KPI cards */}
-                <div className="grid grid-cols-4 gap-4">
-                  {renderKpiCard("report-design-area", "Design Area", calcResults.formatArea(calcResults.designAreaFt2), `${calcResults.nSprink} heads in area`, "bg-blue-500/10", "text-blue-500", Grid)}
-                  {renderKpiCard("report-flow-head", "Discharge / Head", calcResults.formatFlow(calcResults.flowPerSprink), `K-${kFactor} coefficient`, "bg-red-500/10", "text-red-500", Droplet)}
-                  {renderKpiCard("report-press-req", "Pressure Required", `${calcResults.pressReq.toFixed(1)} psi`, "At remote sprinkler", "bg-sky-500/10", "text-amber-500", Activity)}
-                  {renderKpiCard("report-system-total", "Total Water Supply", calcResults.formatFlow(calcResults.systemTotal), "With hose allowance", "bg-emerald-500/10", "text-emerald-500", Flame)}
-                </div>
-
-                {/* Two Column Layout: Parameters (left) and Audit Sidebar (right) */}
-                <div className="flex flex-col lg:flex-row gap-6 items-start">
+              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
                   
-                  {/* Left Column: Sizing Parameters table */}
-                  <div className="flex-1 min-w-0 w-full border border-border rounded-3xl bg-background shadow-sm overflow-hidden">
-                    <div className="px-4 py-3 border-b border-border bg-surface-2/15 flex items-center justify-between">
-                      <span className="text-[13px] font-bold text-foreground">Sprinkler Sizing Parameters Preview</span>
-                      <span className="text-[11px] text-muted-foreground font-mono">NFPA 13</span>
+                  <div className="flex justify-between items-start pb-4 border-b border-border">
+                    <div>
+                      <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                        Sprinkler Density & Flow Calculation Report
+                      </h2>
+                      <p className="text-[12px] text-muted-foreground mt-0.5">
+                        Design Standards: NFPA 13 Standard for the Installation of Sprinkler Systems & Hydraulic Calculations
+                      </p>
                     </div>
-                    <div className="p-4 flex flex-col gap-4 text-[13px] text-foreground">
-                      <div className="grid grid-cols-2 gap-y-2 border-b border-border pb-3">
-                        <div>Project Code: <span className="font-semibold font-mono">{project?.code || "CALC-001"}</span></div>
-                        <div>Project Name: <span className="font-semibold">{project?.name || "MEP Project"}</span></div>
-                        <div>Client Name: <span className="font-semibold">{project?.client || "Client"}</span></div>
-                        <div>Hazard Sized: <span className="font-semibold capitalize">{hazard === "custom" ? "Custom" : hazard}</span></div>
-                      </div>
-
-                      <table className="w-full text-left border-collapse text-[12.5px]">
-                        <thead>
-                          <tr className="border-b border-border text-muted-foreground font-bold text-[11px] uppercase tracking-wider">
-                            <th className="py-2.5">Sizing Parameter</th>
-                            <th className="py-2.5 text-right">Value</th>
-                            <th className="py-2.5 text-center">Unit</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border font-medium">
-                          {renderReportTableRow("preview-design-density", "Design Density", calcResults.formatDens(calcResults.densIP).split(" ")[0], calcResults.formatDens(calcResults.densIP).split(" ").slice(1).join(" "))}
-                          {renderReportTableRow("preview-design-area", "Design Area", calcResults.formatArea(calcResults.designAreaFt2).split(" ")[0], calcResults.formatArea(calcResults.designAreaFt2).split(" ").slice(1).join(" "))}
-                          {renderReportTableRow("preview-coverage", "Coverage per Sprinkler", coverage, unitSystem === "ip" ? "ft²" : "m²")}
-                          {renderReportTableRow("preview-kfactor", "Sprinkler K-Factor", kFactor, "gpm/psi⁰·⁵")}
-                          {renderReportTableRow("preview-flow-sprinkler", "Flow Rate per Sprinkler", calcResults.formatFlow(calcResults.flowPerSprink).split(" ")[0], calcResults.formatFlow(calcResults.flowPerSprink).split(" ").slice(1).join(" "))}
-                          {renderReportTableRow("preview-sprink-count", "Sprinkler Count in Area", calcResults.nSprink, "heads")}
-                          {renderReportTableRow("preview-sprink-flow", "Sprinkler Flow Demand", calcResults.formatFlow(calcResults.totalSprinkFlow).split(" ")[0], calcResults.formatFlow(calcResults.totalSprinkFlow).split(" ").slice(1).join(" "))}
-                          {renderReportTableRow("preview-hose-allow", "Hose Allowance (NFPA 13)", calcResults.formatFlow(calcResults.hoseAllow).split(" ")[0], calcResults.formatFlow(calcResults.hoseAllow).split(" ").slice(1).join(" "))}
-                          {renderReportTableRow("preview-system-total", "Total Water Supply Demand", calcResults.formatFlow(calcResults.systemTotal).split(" ")[0], calcResults.formatFlow(calcResults.systemTotal).split(" ").slice(1).join(" "), true)}
-                        </tbody>
-                      </table>
+                    <div className="flex items-center gap-2">
+                      <TBtn onClick={() => window.print()}>
+                        <Printer className="size-3.5" /> Print
+                      </TBtn>
+                      <TBtn primary onClick={exportPdf}>
+                        <FileText className="size-3.5" /> Export PDF
+                      </TBtn>
                     </div>
                   </div>
 
-                  {/* Right Column: Audits & Recommendations */}
-                  <div className="w-full lg:w-[350px] shrink-0 flex flex-col gap-4">
-                    {/* Compliance Auditor Card */}
+                  {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
+                  <div className="border border-border rounded-xl overflow-hidden text-[12px]">
+                    <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
+                      <div className="p-2.5 px-3 flex justify-between">
+                        <span className="font-bold text-foreground">Calculation No.:</span>
+                        <span className="text-muted-foreground font-mono">TRV-CAL-SDF-{(project?.id || "0000").slice(-4).toUpperCase()}</span>
+                      </div>
+                      <div className="p-2.5 px-3 flex justify-between">
+                        <span className="font-bold text-foreground">Date:</span>
+                        <span className="text-muted-foreground">{formatDateStr(new Date().toISOString())}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+                      <div className="p-2.5 px-3 flex justify-between">
+                        <span className="font-bold text-foreground">Project No.:</span>
+                        <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
+                      </div>
+                      <div className="p-2.5 px-3 flex justify-between">
+                        <span className="font-bold text-foreground">Client:</span>
+                        <span className="text-muted-foreground">{project?.client || "Consistent Engineering Consultants"}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 divide-x divide-border bg-muted/10">
+                      <div className="p-2.5 px-3 flex justify-between">
+                        <span className="font-bold text-foreground">Project Name:</span>
+                        <span className="text-muted-foreground font-semibold">{project?.name || "Sprinkler Hydraulic Calculation"}</span>
+                      </div>
+                      <div className="p-2.5 px-3 flex justify-between">
+                        <span className="font-bold text-foreground">End User:</span>
+                        <span className="text-muted-foreground">{project?.endUser || project?.location || "Main Complex"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table 1: Sprinkler Sizing Parameters */}
+                  <div className="space-y-2">
+                    <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                      1. Sprinkler Sizing Parameters & Hydraulic Demand Breakdown
+                    </h3>
+                    <table className="w-full text-[12px] border-collapse border border-border">
+                      <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                        <tr>
+                          <th className="border border-border p-2 text-center w-10">Sr.</th>
+                          <th className="border border-border p-2 text-left">Sprinkler Sizing Parameter</th>
+                          <th className="border border-border p-2 text-left">Governing Formula / Rule</th>
+                          <th className="border border-border p-2 text-center w-40">Calculated Value</th>
+                          <th className="border border-border p-2 text-center w-24">Unit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                          <td className="border border-border p-2 font-bold">Hazard Classification</td>
+                          <td className="border border-border p-2 text-muted-foreground">NFPA 13 Standard</td>
+                          <td className="border border-border p-2 text-center font-bold">{getHazardLabel()}</td>
+                          <td className="border border-border p-2 text-center">-</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                          <td className="border border-border p-2 font-bold">Design Density (d)</td>
+                          <td className="border border-border p-2 text-muted-foreground">NFPA 13 Density Curve</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.densIP * 40.7458).toFixed(2) : calcResults.densIP.toFixed(2)}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "mm/min" : "gpm/ft²"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                          <td className="border border-border p-2 font-bold">Design Area of Operation (A_design)</td>
+                          <td className="border border-border p-2 text-muted-foreground">NFPA 13 Area Curve</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.designAreaFt2 * 0.092903).toLocaleString(undefined, { maximumFractionDigits: 1 }) : calcResults.designAreaFt2.toLocaleString()}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "m²" : "ft²"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                          <td className="border border-border p-2 font-bold">Sprinkler Coverage Area (A_cov)</td>
+                          <td className="border border-border p-2 text-muted-foreground">Spacing Criterion</td>
+                          <td className="border border-border p-2 text-center font-bold">{coverage}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "m²" : "ft²"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">5</td>
+                          <td className="border border-border p-2 font-bold">Sprinkler Discharge Coefficient (K)</td>
+                          <td className="border border-border p-2 text-muted-foreground">Standard Orifice</td>
+                          <td className="border border-border p-2 text-center font-bold">K-{kFactor.toFixed(1)}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "L/min/bar^0.5" : "gpm/psi^0.5"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">6</td>
+                          <td className="border border-border p-2 font-bold">Minimum Flow per Sprinkler (q = d &times; A_cov)</td>
+                          <td className="border border-border p-2 text-muted-foreground">q = d &middot; A_cov</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.flowPerSprink * 3.78541).toFixed(2) : calcResults.flowPerSprink.toFixed(2)}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "L/min" : "GPM"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">7</td>
+                          <td className="border border-border p-2 font-bold">Minimum Operating Pressure (P = (q/K)&sup2;)</td>
+                          <td className="border border-border p-2 text-muted-foreground">P = (q / K)&sup2;</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.pressReq * 0.0689476).toFixed(2) : calcResults.pressReq.toFixed(2)}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "bar" : "psi"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">8</td>
+                          <td className="border border-border p-2 font-bold">Number of Design Sprinklers (N)</td>
+                          <td className="border border-border p-2 text-muted-foreground">N = ceil(A_design / A_cov)</td>
+                          <td className="border border-border p-2 text-center font-bold">{calcResults.nSprink} Heads</td>
+                          <td className="border border-border p-2 text-center">heads</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">9</td>
+                          <td className="border border-border p-2 font-bold">Sprinkler System Flow Demand (Q_sprinkler)</td>
+                          <td className="border border-border p-2 text-muted-foreground">Q_sp = d &middot; A_design</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.totalSprinkFlow * 3.78541).toFixed(1) : calcResults.totalSprinkFlow.toFixed(1)}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "L/min" : "GPM"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">10</td>
+                          <td className="border border-border p-2 font-bold">Inside Hose Stream Allowance (Q_hose)</td>
+                          <td className="border border-border p-2 text-muted-foreground">NFPA 13 Table Allowance</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.hoseAllow * 3.78541).toFixed(1) : calcResults.hoseAllow.toFixed(1)}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "L/min" : "GPM"}</td>
+                        </tr>
+                        <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
+                          <td className="border border-border p-2 text-center">11</td>
+                          <td className="border border-border p-2">TOTAL DESIGN WATER DEMAND (Q_total)</td>
+                          <td className="border border-border p-2">Q_sp + Q_hose</td>
+                          <td className="border border-border p-2 text-center text-[13px]">{unitSystem === "si" ? (calcResults.systemTotal * 3.78541).toFixed(1) : calcResults.systemTotal.toFixed(1)}</td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "L/min" : "GPM"}</td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">12</td>
+                          <td className="border border-border p-2 font-bold">Water Supply Duration</td>
+                          <td className="border border-border p-2 text-muted-foreground">NFPA 13 Duration Requirement</td>
+                          <td className="border border-border p-2 text-center font-bold">{hazard.startsWith("0.10") ? 30 : (hazard.startsWith("0.30") || hazard.startsWith("0.40") ? 90 : 60)} Minutes</td>
+                          <td className="border border-border p-2 text-center">min</td>
+                        </tr>
+                        <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
+                          <td className="border border-border p-2 text-center">13</td>
+                          <td className="border border-border p-2">Required Fire Water Storage Capacity</td>
+                          <td className="border border-border p-2">V = Q_total &times; Duration</td>
+                          <td className="border border-border p-2 text-center text-[13px]">
+                            {(() => {
+                              const dur = hazard.startsWith("0.10") ? 30 : (hazard.startsWith("0.30") || hazard.startsWith("0.40") ? 90 : 60);
+                              const gal = calcResults.systemTotal * dur;
+                              return unitSystem === "si" ? `${(gal * 0.00378541).toFixed(1)} m³` : `${gal.toLocaleString()} Gallons`;
+                            })()}
+                          </td>
+                          <td className="border border-border p-2 text-center">{unitSystem === "si" ? "m³" : "gal"}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Table 2: NFPA 13 Code Audit & Engineering Compliance */}
+                  <div className="space-y-2">
+                    <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                      2. NFPA 13 Code Audit & Engineering Compliance
+                    </h3>
+                    <table className="w-full text-[12px] border-collapse border border-border">
+                      <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                        <tr>
+                          <th className="border border-border p-2 text-center w-10">Sr.</th>
+                          <th className="border border-border p-2 text-left w-56">NFPA 13 Code Audit Item</th>
+                          <th className="border border-border p-2 text-center w-36">Calculated Value</th>
+                          <th className="border border-border p-2 text-center w-44">Compliance Status</th>
+                          <th className="border border-border p-2 text-left">Engineering Recommendations / Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                          <td className="border border-border p-2 font-bold">Minimum Operating Pressure Check</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.pressReq * 0.0689476).toFixed(1) + " bar" : calcResults.pressReq.toFixed(1) + " psi"}</td>
+                          <td className={`border border-border p-2 text-center font-bold ${calcResults.pressReq >= 7.0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                            {calcResults.pressReq >= 7.0
+                              ? (unitSystem === "si" ? "COMPLIANT (>= 0.48 bar)" : "COMPLIANT (>= 7.0 psi)")
+                              : (unitSystem === "si" ? "NON-COMPLIANT (< 0.48 bar)" : "NON-COMPLIANT (< 7.0 psi)")}
+                          </td>
+                          <td className="border border-border p-2 text-muted-foreground">
+                            {calcResults.pressReq >= 7.0
+                              ? "Meets NFPA 13 standard minimum nozzle discharge pressure criterion."
+                              : `VIOLATION: Operating pressure is below minimum allowable ${unitSystem === "si" ? "0.48 bar (7.0 psi)" : "7.0 psi"}. Increase design density or decrease K-factor.`}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                          <td className="border border-border p-2 font-bold">Maximum Coverage Area Check</td>
+                          <td className="border border-border p-2 text-center font-bold">{coverage} {unitSystem === "si" ? "m²" : "ft²"}</td>
+                          <td className={`border border-border p-2 text-center font-bold ${calcResults.coverFt2 <= 225 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                            {calcResults.coverFt2 <= 225
+                              ? (unitSystem === "si" ? "COMPLIANT (<= 20.9 m²)" : "COMPLIANT (<= 225 ft²)")
+                              : (unitSystem === "si" ? "ATTENTION (> 20.9 m²)" : "ATTENTION (> 225 ft²)")}
+                          </td>
+                          <td className="border border-border p-2 text-muted-foreground">
+                            {calcResults.coverFt2 <= 225
+                              ? "Within standard maximum spacing limits for designated hazard classification."
+                              : `Coverage exceeds standard ${unitSystem === "si" ? "20.9 m² (225 ft²)" : "225 ft²"} limit. Confirm extended coverage listing with manufacturer.`}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                          <td className="border border-border p-2 font-bold">Water Supply Demand Summary</td>
+                          <td className="border border-border p-2 text-center font-bold">{unitSystem === "si" ? (calcResults.systemTotal * 3.78541).toFixed(1) + " L/min" : calcResults.systemTotal.toFixed(1) + " GPM"}</td>
+                          <td className="border border-border p-2 text-center font-bold text-emerald-600 dark:text-emerald-400">VERIFIED</td>
+                          <td className="border border-border p-2 text-muted-foreground">
+                            Combined flow demand includes {unitSystem === "si" ? (calcResults.totalSprinkFlow * 3.78541).toFixed(1) + " L/min" : calcResults.totalSprinkFlow.toFixed(1) + " GPM"} sprinkler demand and {unitSystem === "si" ? (calcResults.hoseAllow * 3.78541).toFixed(1) + " L/min" : calcResults.hoseAllow.toFixed(1) + " GPM"} hose stream allowance.
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Table 3: 3-Tier Dynamic Engineering Signature Block */}
+                  <div className="pt-2">
                     {(() => {
-                      const hasLowPressure = calcResults.pressReq < 7.0;
-                      const hasOverCoverage = calcResults.coverFt2 > 225;
-                      
-                      if (hasLowPressure) {
-                        return (
-                          <div className="border border-destructive/20 bg-destructive/5 rounded-3xl p-4 flex gap-3 shadow-xs">
-                            <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5 animate-pulse" />
-                            <div>
-                              <h4 className="text-[13px] font-bold text-destructive">NFPA 13 Code Warning</h4>
-                              <p className="text-[12px] text-muted-foreground mt-1 leading-normal">
-                                Required sprinkler pressure is {calcResults.pressReq.toFixed(1)} psi, which is below the NFPA 13 code minimum limit of 7.0 psi. System is non-compliant.
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      if (hasOverCoverage) {
-                        return (
-                          <div className="border border-warning/20 bg-warning/5 rounded-3xl p-4 flex gap-3 shadow-xs">
-                            <AlertTriangle className="size-5 text-warning shrink-0 mt-0.5" />
-                            <div>
-                              <h4 className="text-[13px] font-bold text-warning">Coverage Area Alert</h4>
-                              <p className="text-[12px] text-muted-foreground mt-1 leading-normal">
-                                Sprinkler coverage area ({calcResults.coverFt2.toFixed(0)} ft²) exceeds the standard maximum limit of 225 ft² per head. Check listings for extended coverage.
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      }
-
+                      const sig = getSignatureBlockDetails(project?.id || "default", "/plumbing-sprinkler-density", currentUserName, calcReviewState);
                       return (
-                        <div className="border border-success/20 bg-success/5 rounded-3xl p-4 flex gap-3 shadow-xs">
-                          <CheckCircle2 className="size-5 text-success shrink-0 mt-0.5" />
-                          <div>
-                            <h4 className="text-[13px] font-bold text-success">NFPA 13 Sizing Audit</h4>
-                            <p className="text-[12px] text-muted-foreground mt-1 leading-normal">
-                              System meets sizing code guidelines. Pressure and coverage requirements comply with general NFPA 13 design criteria.
-                            </p>
+                        <div className="border border-border rounded-xl overflow-hidden text-[12px] shadow-2xs">
+                          <div className="grid grid-cols-4 bg-[#FFE6CC] dark:bg-amber-950/40 text-amber-950 dark:text-amber-200 font-bold border-b border-border text-center">
+                            <div className="p-2 border-r border-border bg-muted/20">Designation</div>
+                            <div className="p-2 border-r border-border">Originator</div>
+                            <div className="p-2 border-r border-border">Reviewer</div>
+                            <div className="p-2">Approver</div>
+                          </div>
+                          <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
+                            <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Name:</div>
+                            <div className="p-2.5 font-medium text-foreground">{sig.originatedName || currentUserName || "Design Engineer"}</div>
+                            <div className="p-2.5 font-medium text-foreground">{sig.reviewerName || "-"}</div>
+                            <div className="p-2.5 font-medium text-foreground">{sig.approverName || "-"}</div>
+                          </div>
+                          <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
+                            <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Role:</div>
+                            <div className="p-2.5 text-muted-foreground">Design Engineer</div>
+                            <div className="p-2.5 text-muted-foreground">Sr. Design Engineer</div>
+                            <div className="p-2.5 text-muted-foreground">Discipline Coordinator</div>
+                          </div>
+                          <div className="grid grid-cols-4 divide-x divide-border text-center">
+                            <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Date:</div>
+                            <div className="p-2.5 text-muted-foreground">{sig.originatedDate || formatDateStr(new Date().toISOString())}</div>
+                            <div className="p-2.5 text-muted-foreground">{sig.reviewerDate || "-"}</div>
+                            <div className="p-2.5 text-muted-foreground">{sig.approverDate || "-"}</div>
                           </div>
                         </div>
                       );
                     })()}
-
-                    {/* Recommendation details card */}
-                    <div className="border border-border rounded-3xl bg-background p-5 shadow-sm flex flex-col gap-3.5">
-                      <p className="text-[13px] font-bold text-foreground leading-snug flex items-center gap-1.5">
-                        <Sparkles className="size-3.5 text-primary" /> Sizing Recommendations
-                      </p>
-                      <div className="text-[12px] text-muted-foreground leading-relaxed flex flex-col gap-2.5">
-                        {calcResults.pressReq > 35 && (
-                          <div className="p-2.5 rounded bg-muted/65 border border-border text-foreground">
-                            Operating pressure is very high ({calcResults.pressReq.toFixed(1)} psi). Changing to a larger sprinkler coefficient (e.g. K-8.0 or K-11.2) is recommended to decrease friction loss.
-                          </div>
-                        )}
-                        {calcResults.pressReq < 7 && (
-                          <div className="p-2.5 rounded bg-destructive/5 border border-destructive/10 text-foreground">
-                            Decrease sprinkler K-Factor (e.g. K-4.2) or increase design density to raise pressure above 7.0 psi.
-                          </div>
-                        )}
-                        {calcResults.pressReq >= 7 && calcResults.pressReq <= 35 && (
-                          <div className="p-2.5 rounded bg-success/5 border border-success/10 text-foreground">
-                            Operating pressure is optimal ({calcResults.pressReq.toFixed(1)} psi). No adjustments required.
-                          </div>
-                        )}
-                        <div className="text-[11px] text-muted-foreground mt-1 border-t border-border pt-2 leading-normal">
-                          Always check sprinkler manufacturer datasheets for exact listing criteria and k-factor coefficients.
-                        </div>
-                      </div>
-                    </div>
                   </div>
+
                 </div>
               </div>
             )}

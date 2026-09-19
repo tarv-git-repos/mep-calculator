@@ -35,6 +35,7 @@ export const exportSanityCheckPDF = async ({
 }: SanityCheckPdfOptions) => {
   try {
     const activeProj: any = workspaceStore.getState()?.project || {};
+    const activeProjectId = activeProj?.id || "default";
 
     const JsPDFClass = typeof jsPDF === "function" ? jsPDF : (jsPDF as any).default;
     // A4 Portrait Mode (210mm x 297mm)
@@ -52,91 +53,87 @@ export const exportSanityCheckPDF = async ({
       }
     };
 
-    const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-SNT-101-R01";
-    const today = meta.date || formatDateStr(new Date().toISOString()) || new Date().toLocaleDateString("en-GB");
-    const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
+    const calcNo = meta.calcNo || activeProj?.calcNo || `TRV-CAL-SNT-${(activeProjectId || "0000").slice(-4).toUpperCase()}`;
+    const today = meta.date || formatDateStr(new Date().toISOString());
+    const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || (activeProjectId !== "default" ? activeProjectId.slice(0, 8) : "P000");
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "MEP Project";
-    const clientName = meta.client || activeProj?.client || "Client Representative";
-    const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "Engineering Facility";
+    const clientName = meta.client || activeProj?.client || "-";
+    const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-    // 1. Header Title (Exact Ventilation Format)
-    doc.setFontSize(14);
+    // 1. Header Title (Matching Ventilation Standard)
+    doc.setFontSize(13);
     doc.setFont("helvetica", "bold");
-    doc.text("Engineering Sanity Check Report", 14, 14);
+    doc.setTextColor(20, 20, 20);
+    doc.text("Engineering Sanity Check Report", 14, 13);
 
-    // 2. Metadata Box (182mm width: left 14mm to right 196mm, height 18mm)
-    doc.setFontSize(9);
+    // Title underline
+    doc.setDrawColor(200, 200, 200);
     doc.setLineWidth(0.3);
-    doc.setDrawColor(100, 100, 100);
-    doc.rect(14, 18, 182, 18);
+    doc.line(14, 15.5, 196, 15.5);
 
-    // Vertical line to separate left/right metadata at x=105
-    doc.line(105, 18, 105, 36);
+    // 2. Metadata Table (Enclosed 3 rows x 2 cols grid)
+    const metaBody = [
+      [
+        { content: "Calculation No.:", styles: { fontStyle: "bold" as const, cellWidth: 30 } },
+        { content: calcNo, styles: { cellWidth: 62 } },
+        { content: "Date:", styles: { fontStyle: "bold" as const, cellWidth: 24 } },
+        { content: today, styles: { cellWidth: 66 } },
+      ],
+      [
+        { content: "Project No.:", styles: { fontStyle: "bold" as const } },
+        { content: projectNo },
+        { content: "Client:", styles: { fontStyle: "bold" as const } },
+        { content: clientName },
+      ],
+      [
+        { content: "Project Name:", styles: { fontStyle: "bold" as const } },
+        { content: projectName },
+        { content: "End User:", styles: { fontStyle: "bold" as const } },
+        { content: endUser },
+      ],
+    ];
 
-    // Horizontal grid lines inside metadata box
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
+    callAutoTable(doc, {
+      startY: 18,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: {
+        fontSize: 7.2,
+        textColor: [30, 30, 30],
+        cellPadding: 1.1,
+        lineColor: [210, 210, 210],
+        lineWidth: 0.2,
+      },
+      body: metaBody,
+    });
 
-    // Metadata Left Column
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(calcNo), 45, 22);
+    const metaFinalY = (doc as any).lastAutoTable?.finalY ?? 36;
 
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(projectNo), 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    const truncatedProjectName = projectName.length > 32 ? projectName.substring(0, 30) + "..." : projectName;
-    doc.text(truncatedProjectName, 42, 34);
-
-    // Metadata Right Column
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(today), 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    const truncatedClient = clientName.length > 32 ? clientName.substring(0, 30) + "..." : clientName;
-    doc.text(truncatedClient, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    const truncatedEndUser = endUser.length > 30 ? endUser.substring(0, 28) + "..." : endUser;
-    doc.text(truncatedEndUser, 125, 34);
-
-    // 3. Structured Summary & Audit Bar (Exact 182mm width matching margins)
+    // 3. Structured Summary & Audit Bar
     const passCount = checks.filter((c) => c.status === "pass").length;
     const warnCount = checks.length - passCount;
     const unitLabel = unitSystem === "ip" ? "Imperial (IP)" : "Metric (SI)";
 
     callAutoTable(doc, {
-      startY: 40,
+      startY: metaFinalY + 3,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
-        fontSize: 8.5,
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2.2, bottom: 2.2, left: 2, right: 2 },
-        valign: "middle"
+        fontSize: 7.5,
+        lineColor: [210, 210, 210],
+        lineWidth: 0.2,
+        cellPadding: { top: 1.5, bottom: 1.5, left: 2, right: 2 },
+        valign: "middle",
       },
       head: [
         [
           {
             content: "Standards: ASHRAE / SMACNA / Carrier",
-            styles: { halign: "left", fontStyle: "bold", cellWidth: 72 }
+            styles: { halign: "left", fontStyle: "bold", cellWidth: 72 },
           },
           {
             content: `Units: ${unitLabel}`,
-            styles: { halign: "center", fontStyle: "bold", cellWidth: 38 }
+            styles: { halign: "center", fontStyle: "bold", cellWidth: 38 },
           },
           {
             content: warnCount === 0
@@ -146,22 +143,20 @@ export const exportSanityCheckPDF = async ({
               halign: "right",
               fontStyle: "bold",
               cellWidth: 72,
-              textColor: warnCount === 0 ? [16, 120, 80] : [180, 83, 9]
-            }
-          }
-        ]
+              textColor: warnCount === 0 ? [16, 120, 80] : [180, 83, 9],
+            },
+          },
+        ],
       ],
       headStyles: {
         fillColor: [245, 247, 250],
-        textColor: [30, 41, 59]
-      }
+        textColor: [30, 41, 59],
+      },
     });
 
-    const summaryFinalY = (doc as any).lastAutoTable?.finalY ?? 48;
+    const summaryFinalY = (doc as any).lastAutoTable?.finalY ?? 45;
 
-    // 4. Main Table Data (Clean, uniform styling without excess background colors)
-    const primaryFill: [number, number, number] = [217, 217, 217]; // Standard Grey matching Ventilation
-
+    // 4. Main Table Data
     const tableBody = checks.map((c, idx) => {
       const isPass = c.status === "pass";
       return [
@@ -170,7 +165,7 @@ export const exportSanityCheckPDF = async ({
         c.value,
         c.range,
         isPass ? "IN RANGE" : "CHECK VALUE",
-        c.desc
+        c.desc,
       ];
     });
 
@@ -179,26 +174,28 @@ export const exportSanityCheckPDF = async ({
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
-        fontSize: 8,
+        fontSize: 7,
         halign: "center",
         valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2.5, bottom: 2.5, left: 1.5, right: 1.5 }
+        lineColor: [210, 210, 210],
+        lineWidth: 0.2,
+        textColor: [30, 30, 30],
+        cellPadding: 1.1,
+        minCellHeight: 4.2,
       },
       headStyles: {
-        fillColor: primaryFill,
-        textColor: 0,
+        fillColor: [217, 217, 217], // Standard #D9D9D9 grey
+        textColor: [0, 0, 0],
         fontStyle: "bold",
-        cellPadding: { top: 3, bottom: 3, left: 1, right: 1 }
+        halign: "center",
       },
       columnStyles: {
-        0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
+        0: { cellWidth: 10, halign: "center" },
         1: { cellWidth: 38, halign: "left", fontStyle: "bold" },
         2: { cellWidth: 26, halign: "center", fontStyle: "bold" },
         3: { cellWidth: 30, halign: "center" },
         4: { cellWidth: 26, halign: "center", fontStyle: "bold" },
-        5: { cellWidth: 50, halign: "left" }
+        5: { cellWidth: 52, halign: "left", fontSize: 6.5 },
       },
       head: [
         [
@@ -207,109 +204,90 @@ export const exportSanityCheckPDF = async ({
           { content: "Design Value" },
           { content: "Standard Range" },
           { content: "Compliance" },
-          { content: "Engineering Guideline / Reference" }
-        ]
+          { content: "Engineering Guideline / Reference" },
+        ],
       ],
       body: tableBody,
-      didParseCell: (data: any) => {
-        if (data.section === "body") {
-          // Status column (Col 4): subtle text color only, clean white background
-          if (data.column.index === 4) {
-            const val = data.cell.raw;
+      didParseCell: (dataCell: any) => {
+        if (dataCell.section === "body") {
+          // Status column (Col 4): subtle text color
+          if (dataCell.column.index === 4) {
+            const val = dataCell.cell.raw;
             if (val === "IN RANGE") {
-              data.cell.styles.textColor = [16, 120, 80];
+              dataCell.cell.styles.textColor = [16, 120, 80];
             } else {
-              data.cell.styles.textColor = [180, 83, 9];
+              dataCell.cell.styles.textColor = [180, 83, 9];
             }
           }
         }
-      }
+      },
     });
 
-    // 5. 3-Column Engineering Sign-off Block (Exact Ventilation Format)
-    const finalY = (doc as any).lastAutoTable?.finalY ?? 180;
-
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate
-    } = getSignatureBlockDetails(activeProj?.id || "default", "/sanity-check-tool", meta.userName || "");
+    // 5. 4-Column Engineering Sign-off Block (Exact Ventilation Standard)
+    const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
+    const sigDetails = getSignatureBlockDetails(activeProjectId, "/sanity-check-tool", meta.userName || "");
 
     callAutoTable(doc, {
-      startY: finalY + 8,
+      startY: finalY + 5,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
-        fontSize: 8,
+        fontSize: 7.2,
         halign: "center",
         valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 }
+        lineColor: [210, 210, 210],
+        lineWidth: 0.2,
+        textColor: [30, 30, 30],
+        cellPadding: 1.1,
+        minCellHeight: 4.2,
       },
       headStyles: {
-        fillColor: [255, 230, 204], // Standard peach/orange matching Ventilation
-        textColor: 0,
-        fontStyle: "bold"
+        fillColor: [255, 230, 204], // Standard #FFE6CC peach/orange
+        textColor: [0, 0, 0],
+        fontStyle: "bold",
       },
       head: [
         [
-          { content: "" },
+          { content: "Designation", styles: { halign: "left" } },
           { content: "Originator" },
           { content: "Reviewer" },
-          { content: "Approver" }
-        ]
+          { content: "Approver" },
+        ],
       ],
       body: [
         [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName, styles: { halign: "center" } },
-          { content: reviewerName, styles: { halign: "center" } },
-          { content: approverName, styles: { halign: "center" } }
+          { content: "Name:", styles: { fontStyle: "bold", halign: "left" } },
+          { content: sigDetails?.originator?.name || sigDetails?.originatedName || "-" },
+          { content: sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-" },
+          { content: sigDetails?.approver?.name || sigDetails?.approverName || "-" },
         ],
         [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate, styles: { halign: "center" } },
-          { content: reviewerDate, styles: { halign: "center" } },
-          { content: approverDate, styles: { halign: "center" } }
-        ]
+          { content: "Date:", styles: { fontStyle: "bold", halign: "left" } },
+          { content: sigDetails?.originator?.date || sigDetails?.originatedDate || "-" },
+          { content: sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-" },
+          { content: sigDetails?.approver?.date || sigDetails?.approverDate || "-" },
+        ],
+        [
+          { content: "Signature:", styles: { fontStyle: "bold", halign: "left" } },
+          { content: sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-") },
+          { content: sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-") },
+          { content: sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-") },
+        ],
       ],
       columnStyles: {
-        0: { cellWidth: 32 },
+        0: { cellWidth: 32, fontStyle: "bold", halign: "left" },
         1: { cellWidth: 50 },
         2: { cellWidth: 50 },
-        3: { cellWidth: 50 }
-      }
+        3: { cellWidth: 50 },
+      },
     });
 
-    // 6. Professional Footer
-    const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(7.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(130, 130, 130);
-      doc.text(
-        "TARV MEP Calculation Platform  |  Engineering Sanity Check  |  Confidential",
-        14,
-        290
-      );
-      doc.text(`Page ${i} of ${pageCount}`, 196, 290, { align: "right" });
-    }
-
-    // 7. Download PDF
-    const pdfBuffer = doc.output("arraybuffer");
-    const safeProjectCode = activeProj?.code || "P000";
-    await downloadFile(
-      new Uint8Array(pdfBuffer),
-      `Engineering_Sanity_Check_${safeProjectCode}.pdf`,
-      "PDF Document",
-      ["pdf"]
-    );
-    toast.success("Sanity Check PDF exported successfully!");
+    // 6. Download PDF with standardized filename
+    const pdfBlob = doc.output("blob");
+    const safeProjectCode = activeProj?.code || projectNo || "P000";
+    const fileName = `Sanity_Check_Report_${safeProjectCode}.pdf`;
+    await downloadFile(pdfBlob, fileName, "application/pdf");
+    toast.success("Engineering Sanity Check PDF report exported successfully!");
   } catch (error: any) {
     console.error("exportSanityCheckPDF error:", error);
     toast.error(`Export PDF failed: ${error?.message || String(error)}`);

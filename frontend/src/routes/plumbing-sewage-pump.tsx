@@ -16,7 +16,8 @@ import {
   Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, X, HelpCircle,
   MessageSquare, ShieldAlert, Check, Activity, Copy, Clipboard, RotateCcw,
   Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers,
-  ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight, ChevronDown, ChevronRight, Lightbulb
+  ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight, ChevronDown, ChevronRight, Lightbulb,
+  Home, Building2, Utensils, Factory, SlidersHorizontal, Building
 } from "lucide-react";
 import {
   ContextMenu,
@@ -156,6 +157,16 @@ export const SEWAGE_PRESETS: Record<SewagePresetKey, SewagePresetConfig> = {
     safetyFactor: 15,
     basinDia: 36,
   },
+};
+
+// Preset Icons Map
+const presetIcons: Record<SewagePresetKey, React.ComponentType<{ className?: string }>> = {
+  residential_basement: Home,
+  commercial_building: Building2,
+  restaurant_kitchen: Utensils,
+  high_rise_basement: Building,
+  heavy_duty_station: Factory,
+  custom: SlidersHorizontal,
 };
 
 // Standard Motor Ratings (HP)
@@ -1347,23 +1358,39 @@ function SewagePumpPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
                       {(Object.keys(SEWAGE_PRESETS) as SewagePresetKey[]).map((key) => {
                         const p = SEWAGE_PRESETS[key];
                         const isSelected = preset === key;
+                        const IconComp = presetIcons[key] || Droplets;
+
                         return (
                           <button
                             key={key}
                             onClick={() => handleApplyPreset(key)}
                             disabled={isEffectiveReadOnly}
-                            className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                            className={`text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2 min-h-[76px] ${
                               isSelected
-                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
-                                : "border-border/70 hover:border-border hover:bg-muted/40 text-muted-foreground"
+                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs ring-2 ring-primary/20"
+                                : "border-border/80 hover:border-border hover:bg-muted/40 text-foreground bg-card"
                             } ${isEffectiveReadOnly ? "opacity-60 cursor-not-allowed" : ""}`}
                           >
-                            <div className="text-[11.5px] font-bold truncate">{p.label}</div>
-                            <div className="text-[10px] text-muted-foreground truncate">{p.inflow} GPM ({p.lift} ft lift)</div>
+                            <div className="flex items-start gap-2">
+                              <div className={`p-1 rounded-md shrink-0 mt-0.5 ${isSelected ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                                <IconComp className="size-3.5" />
+                              </div>
+                              <div className="text-[12px] font-bold leading-tight whitespace-normal text-foreground">
+                                {p.label}
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-1 text-[10.5px] pt-1 border-t border-border/40">
+                              <span className="px-1.5 py-0.2 rounded bg-muted/70 text-[10px] font-semibold text-muted-foreground uppercase">
+                                {isSI ? `${(p.lift * FT_TO_M).toFixed(1)}m lift` : `${p.lift}ft lift`}
+                              </span>
+                              <span className="font-bold text-primary text-[11px]">
+                                {isSI ? `${(p.inflow * GPM_TO_LPS).toFixed(1)} L/s` : `${p.inflow} GPM`}
+                              </span>
+                            </div>
                           </button>
                         );
                       })}
@@ -2412,18 +2439,12 @@ function SewagePumpPage() {
                             </div>
 
                             {/* Export PDF Button */}
-                            <div className="pt-2 space-y-2">
+                            <div className="pt-2">
                               <button
                                 onClick={exportPdf}
                                 className="w-full flex items-center justify-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-3 px-4 text-[13px] font-bold transition-all shadow-sm cursor-pointer border-0"
                               >
                                 <Printer className="size-4" /> Export PDF
-                              </button>
-                              <button
-                                onClick={exportToExcel}
-                                className="w-full flex items-center justify-center gap-2 bg-surface-2 hover:bg-surface border border-border/80 text-foreground rounded-xl py-2.5 px-4 text-[12px] font-semibold transition-all cursor-pointer"
-                              >
-                                <Download className="size-3.5" /> Export Excel Sheet
                               </button>
                             </div>
 
@@ -2490,12 +2511,6 @@ function SewagePumpPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={exportToExcel}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-card hover:bg-surface-2 text-foreground text-[12px] font-semibold cursor-pointer shadow-2xs"
-                        >
-                          <Download className="size-3.5" /> Export Excel
-                        </button>
                         <button
                           onClick={exportPdf}
                           className="flex items-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-2 px-4 text-[12px] font-bold transition-all shadow-xs cursor-pointer border-0"

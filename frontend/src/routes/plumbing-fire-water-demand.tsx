@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -10,7 +10,8 @@ import autoTable from "jspdf-autotable";
 import {
   Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, X, HelpCircle,
   MessageSquare, Flame, ShieldAlert, Check, Activity, Copy, Clipboard, RotateCcw,
-  Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers, ArrowRight
+  Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers, ArrowRight,
+  Building2, Building, Factory, SlidersHorizontal
 } from "lucide-react";
 import {
   ContextMenu,
@@ -139,6 +140,15 @@ export const HAZARD_PRESETS: Record<HazardPresetKey, HazardPresetConfig> = {
   },
 };
 
+const presetIcons: Record<HazardPresetKey, React.ComponentType<{ className?: string }>> = {
+  light_hazard: Building2,
+  oh_1: Building,
+  oh_2: Factory,
+  extra_hazard: ShieldAlert,
+  high_rise_standpipe: Layers,
+  custom: SlidersHorizontal,
+};
+
 // Standard NFPA 20 rated pump sizes (GPM)
 const STANDARD_NFPA20_PUMP_SIZES = [250, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000];
 
@@ -157,6 +167,8 @@ function FireWaterDemandPage() {
   const isApprovedLocked = useCalculationLock("/plumbing-fire-water-demand", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole);
+
+  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
 
   // Tabs & drawer state
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -611,343 +623,373 @@ function FireWaterDemandPage() {
   const exportPdf = () => {
     try {
       const doc = new jsPDF("portrait", "mm", "a4");
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 14;
-      const contentWidth = pageWidth - margin * 2; // 182mm
 
-      // Primary colors matching Ventilation
+      const callAutoTable = (pdfDoc: any, options: any) => {
+        if (typeof autoTable === "function") {
+          autoTable(pdfDoc, options);
+        } else if (typeof (autoTable as any)?.default === "function") {
+          (autoTable as any).default(pdfDoc, options);
+        } else if (typeof pdfDoc.autoTable === "function") {
+          pdfDoc.autoTable(options);
+        } else {
+          console.error("autoTable function not available");
+        }
+      };
+
+      // Primary colors matching Ventilation standard
       const primaryFill: [number, number, number] = [217, 217, 217]; // #D9D9D9 standard header
       const blueFill: [number, number, number] = [218, 233, 248]; // #DAE9F8 key output highlight
       const signatureFill: [number, number, number] = [255, 230, 204]; // #FFE6CC signature header
       const gridBorderColor: [number, number, number] = [100, 100, 100];
 
-      // Title & Subtitle
-      doc.setFont("helvetica", "bold");
+      // Header Title (Ventilation standard: Left aligned at 14, 14)
       doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
       doc.setTextColor(0, 0, 0);
-      doc.text("FIRE WATER DEMAND & STORAGE TANK SIZING REPORT", pageWidth / 2, 9, { align: "center" });
+      doc.text("Fire Water Demand & Storage Tank Sizing Report", 14, 14);
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
-      doc.setTextColor(80, 80, 80);
-      doc.text("Design Standards: NFPA 13, NFPA 14, NFPA 20, NFPA 22 (Simultaneous Operation Method)", pageWidth / 2, 13, { align: "center" });
-
-      // 1. Project Metadata Enclosed Header Box (Matching Ventilation)
-      const boxY = 15;
-      const boxHeight = 24;
+      // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
+      doc.setFontSize(9);
+      doc.setLineWidth(0.3);
       doc.setDrawColor(...gridBorderColor);
-      doc.setLineWidth(0.1);
-      doc.rect(margin, boxY, contentWidth, boxHeight);
+      doc.rect(14, 18, 182, 18); // Outer box for metadata
 
-      // Vertical dividing line
-      const midX = margin + contentWidth / 2;
-      doc.line(midX, boxY, midX, boxY + boxHeight);
+      // Vertical line to separate left/right metadata
+      doc.line(105, 18, 105, 36);
 
       // Horizontal dividers
-      doc.line(margin, boxY + 8, margin + contentWidth, boxY + 8);
-      doc.line(margin, boxY + 16, margin + contentWidth, boxY + 16);
+      doc.line(14, 24, 196, 24);
+      doc.line(14, 30, 196, 30);
 
-      doc.setFontSize(8.5);
-      const pName = project?.name || "Fire Fighting Hydraulic System";
-      const pNum = project?.code || project?.id?.substring(0, 8) || "PRJ-FF-001";
       const calcNum = `CALC-FWD-${Date.now().toString().slice(-4)}`;
-      const dateStr = formatDateStr(new Date());
-      const clientStr = project?.client || "General Contracting Co.";
-      const endUserStr = project?.endUser || "Commercial Real Estate";
-
-      // Left Column Metadata
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(0, 0, 0);
-      doc.text("Calculation No.:", margin + 3, boxY + 5.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(calcNum, margin + 32, boxY + 5.5);
+      const today = formatDateStr(new Date());
+      const projectNo = project?.code || project?.id?.substring(0, 8) || "P000";
+      const projectName = project?.name || "Fire Fighting Hydraulic System";
+      const clientName = project?.client || "";
+      const endUser = project?.endUser || project?.location || "";
 
       doc.setFont("helvetica", "bold");
-      doc.text("Project No.:", margin + 3, boxY + 13.5);
+      doc.text("Calculation No.:", 16, 22);
       doc.setFont("helvetica", "normal");
-      doc.text(pNum, margin + 32, boxY + 13.5);
+      doc.text(calcNum, 45, 22);
 
       doc.setFont("helvetica", "bold");
-      doc.text("Project Name:", margin + 3, boxY + 21.5);
+      doc.text("Date:", 107, 22);
       doc.setFont("helvetica", "normal");
-      doc.text(pName.substring(0, 38), margin + 32, boxY + 21.5);
-
-      // Right Column Metadata
-      doc.setFont("helvetica", "bold");
-      doc.text("Date:", midX + 3, boxY + 5.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(dateStr, midX + 26, boxY + 5.5);
+      doc.text(today, 120, 22);
 
       doc.setFont("helvetica", "bold");
-      doc.text("Client:", midX + 3, boxY + 13.5);
+      doc.text("Project No.:", 16, 28);
       doc.setFont("helvetica", "normal");
-      doc.text(clientStr.substring(0, 38), midX + 26, boxY + 13.5);
+      doc.text(projectNo, 40, 28);
 
       doc.setFont("helvetica", "bold");
-      doc.text("End User:", midX + 3, boxY + 21.5);
+      doc.text("Client:", 107, 28);
       doc.setFont("helvetica", "normal");
-      doc.text(endUserStr.substring(0, 38), midX + 26, boxY + 21.5);
+      doc.text(clientName, 120, 28);
 
-      // Table 1: Design Parameters & Hazard Classification
+      doc.setFont("helvetica", "bold");
+      doc.text("Project Name:", 16, 34);
+      doc.setFont("helvetica", "normal");
+      doc.text(projectName.substring(0, 32), 42, 34);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("End User:", 107, 34);
+      doc.setFont("helvetica", "normal");
+      doc.text(endUser.substring(0, 32), 125, 34);
+
+      // Table 1: Design Parameters & Hazard Classification Basis
       const hazardCfg = HAZARD_PRESETS[preset] || HAZARD_PRESETS.custom;
       const isSI = unitSystem === "si";
 
       const paramTableBody = [
-        ["Hazard Classification / Preset", hazardCfg.label, hazardCfg.category],
-        ["Sprinkler System Design Flow", isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`, "NFPA 13 Hydraulic Demand Area/Density"],
-        ["Sprinkler Minimum Residual Pressure", isSI ? `${(calcResults.spP * PSI_TO_BAR).toFixed(2)} bar` : `${calcResults.spP.toFixed(0)} psi`, "At most hydraulically remote sprinkler"],
-        ["Simultaneous Hydrant Outlets", `${calcResults.hyC} Outlets @ ${isSI ? (calcResults.hyF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hyF.toFixed(0) + " GPM"} each`, "NFPA 14 / NFPA 24 Yard / Landing Outlets"],
-        ["Simultaneous First-Aid Hose Reels", `${calcResults.hrC} Reels @ ${isSI ? (calcResults.hrF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hrF.toFixed(0) + " GPM"} each`, "NFPA 14 Class II / BS 5306"],
-        ["Design Fire Duration", `${calcResults.duration} Minutes`, "Per Hazard Group / NFPA 13 Table 19.3.2"],
-        ["Tank Ullage & Silt Reserve Allowance", `+${calcResults.reservePct}% Safety Allowance`, "NFPA 22 Dead Storage & Vortex Allowance"],
-        ["Municipal Main Replenishment Flow", calcResults.mainsRefill > 0 ? (isSI ? `${(calcResults.mainsRefill * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.mainsRefill.toFixed(0)} GPM`) : "0 (Isolated Storage Tank)", "Continuous City Water Inflow Credit"],
+        ["1", "Hazard Classification / Preset", hazardCfg.label, hazardCfg.category],
+        ["2", "Sprinkler System Design Flow", isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`, "NFPA 13 Hydraulic Demand Area/Density"],
+        ["3", "Sprinkler Minimum Residual Pressure", isSI ? `${(calcResults.spP * PSI_TO_BAR).toFixed(2)} bar` : `${calcResults.spP.toFixed(0)} psi`, "At most hydraulically remote sprinkler"],
+        ["4", "Simultaneous Hydrant Outlets", `${calcResults.hyC} Outlets @ ${isSI ? (calcResults.hyF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hyF.toFixed(0) + " GPM"} each`, "NFPA 14 / NFPA 24 Yard / Landing Outlets"],
+        ["5", "Simultaneous First-Aid Hose Reels", `${calcResults.hrC} Reels @ ${isSI ? (calcResults.hrF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hrF.toFixed(0) + " GPM"} each`, "NFPA 14 Class II / BS 5306"],
+        ["6", "Design Fire Duration", `${calcResults.duration} Minutes`, "Per Hazard Group / NFPA 13 Table 19.3.2"],
+        ["7", "Tank Ullage & Silt Reserve Allowance", `+${calcResults.reservePct}% Safety Allowance`, "NFPA 22 Dead Storage & Vortex Allowance"],
+        ["8", "Municipal Main Replenishment Flow", calcResults.mainsRefill > 0 ? (isSI ? `${(calcResults.mainsRefill * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.mainsRefill.toFixed(0)} GPM`) : "0 (Isolated Storage Tank)", "Continuous City Water Inflow Credit"],
       ];
 
-      autoTable(doc, {
-        startY: 42,
-        margin: { left: margin, right: margin },
-        head: [["DESIGN PARAMETER", "VALUE / SPECIFICATION", "CODE REFERENCE / ENGINEERING BASIS"]],
+      callAutoTable(doc, {
+        startY: 40,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        pageBreak: "avoid",
+        styles: {
+          fontSize: 7,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 1.1, bottom: 1.1, left: 1, right: 1 },
+          minCellHeight: 4.4,
+        },
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: 0,
+          fontStyle: "bold",
+          cellPadding: { top: 1.4, bottom: 1.4, left: 1, right: 1 },
+        },
+        columnStyles: {
+          0: { cellWidth: 8 },
+          1: { halign: "left", cellWidth: 64, fontStyle: "bold" },
+          2: { cellWidth: 46, fontStyle: "bold" },
+          3: { halign: "left", cellWidth: 64 },
+        },
+        head: [
+          [
+            { content: "#", styles: { fillColor: primaryFill } },
+            { content: "Design Parameter Description", styles: { fillColor: primaryFill } },
+            { content: "Value / Specification", styles: { fillColor: primaryFill } },
+            { content: "Code Reference / Engineering Basis", styles: { fillColor: primaryFill } },
+          ],
+        ],
         body: paramTableBody,
-        theme: "plain",
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "left",
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: 30,
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-          cellPadding: 1.6,
-        },
-        columnStyles: {
-          0: { cellWidth: 62, fontStyle: "bold" },
-          1: { cellWidth: 55, halign: "left" },
-          2: { cellWidth: 65, halign: "left" },
-        },
       });
 
-      // Table 2: Simultaneous Fire Water Demand & Fire Pump Sizing
-      const table2Y = (doc as any).lastAutoTable.finalY + 4;
+      let nextY = (doc as any).lastAutoTable?.finalY ?? 85;
+
+      // Table 2: Simultaneous Fire Water Demand & Fire Pump Sizing (NFPA 20)
       const resultsTableBody = [
-        ["A", "Sprinkler System Demand (Q_sp)", isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`, `${(calcResults.spF * GPM_TO_M3H).toFixed(1)} m³/h`, "Primary automatic fire suppression"],
-        ["B", "External Hydrant Demand (Q_hy)", isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal.toFixed(0)} GPM`, `${(calcResults.hyTotal * GPM_TO_M3H).toFixed(1)} m³/h`, `${calcResults.hyC} × ${calcResults.hyF} GPM simultaneous hydrants`],
-        ["C", "First-Aid Hose Reel Demand (Q_hr)", isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal.toFixed(0)} GPM`, `${(calcResults.hrTotal * GPM_TO_M3H).toFixed(1)} m³/h`, `${calcResults.hrC} × ${calcResults.hrF} GPM first-aid hose reels`],
-        ["D", "TOTAL SIMULTANEOUS FIRE DEMAND (Q_total)", isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow.toFixed(0)} GPM`, `${(calcResults.totalFlow * GPM_TO_M3H).toFixed(1)} m³/h`, "Q_sp + Q_hy + Q_hr (Simultaneous Sum)"],
-        ["E", "Recommended NFPA 20 Fire Pump Capacity", isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM.toFixed(0)} GPM`, `${(calcResults.recommendedPumpGPM * GPM_TO_M3H).toFixed(1)} m³/h`, `Standard NFPA 20 Listed Fire Pump Rating`],
-        ["F", "Recommended Pump Discharge Header Size", `${calcResults.recommendedNps}" NPS (${calcResults.recommendedNps * 25} mm)`, "-", `Velocity <= 15 fps (4.57 m/s) at rated flow`],
+        ["A", "Sprinkler System Demand (Q_sp)", isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`, `${(calcResults.spF * GPM_TO_M3H).toFixed(1)} m3/h`, "Primary automatic fire suppression"],
+        ["B", "External Hydrant Demand (Q_hy)", isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal.toFixed(0)} GPM`, `${(calcResults.hyTotal * GPM_TO_M3H).toFixed(1)} m3/h`, `${calcResults.hyC} × ${calcResults.hyF} GPM simultaneous hydrants`],
+        ["C", "First-Aid Hose Reel Demand (Q_hr)", isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal.toFixed(0)} GPM`, `${(calcResults.hrTotal * GPM_TO_M3H).toFixed(1)} m3/h`, `${calcResults.hrC} × ${calcResults.hrF} GPM first-aid hose reels`],
+        ["D", "TOTAL SIMULTANEOUS FIRE DEMAND (Q_total)", isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow.toFixed(0)} GPM`, `${(calcResults.totalFlow * GPM_TO_M3H).toFixed(1)} m3/h`, "Q_sp + Q_hy + Q_hr (Simultaneous Sum)"],
+        ["E", "Recommended NFPA 20 Fire Pump Capacity", isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM.toFixed(0)} GPM`, `${(calcResults.recommendedPumpGPM * GPM_TO_M3H).toFixed(1)} m3/h`, "Standard NFPA 20 Listed Fire Pump Rating"],
+        ["F", "Recommended Pump Discharge Header Size", `${calcResults.recommendedNps}" NPS (${calcResults.recommendedNps * 25} mm DN)`, "-", "Velocity <= 15 fps (4.57 m/s) at rated flow"],
       ];
 
-      autoTable(doc, {
-        startY: table2Y,
-        margin: { left: margin, right: margin },
-        head: [["ITEM", "HYDRAULIC DEMAND COMPONENT", "FLOW RATE (PRIMARY)", "FLOW RATE (MÂ³/H)", "NOTES & NFPA 20 CRITERIA"]],
+      callAutoTable(doc, {
+        startY: nextY + 3,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        pageBreak: "avoid",
+        styles: {
+          fontSize: 7,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 1.1, bottom: 1.1, left: 1, right: 1 },
+          minCellHeight: 4.4,
+        },
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: 0,
+          fontStyle: "bold",
+          cellPadding: { top: 1.4, bottom: 1.4, left: 1, right: 1 },
+        },
+        columnStyles: {
+          0: { cellWidth: 8 },
+          1: { halign: "left", cellWidth: 64, fontStyle: "bold" },
+          2: { cellWidth: 35, fontStyle: "bold" },
+          3: { cellWidth: 25 },
+          4: { halign: "left", cellWidth: 50 },
+        },
+        head: [
+          [
+            { content: "Item", styles: { fillColor: primaryFill } },
+            { content: "Hydraulic Demand Component", styles: { fillColor: primaryFill } },
+            { content: "Flow Rate (Primary)", styles: { fillColor: primaryFill } },
+            { content: "Flow Rate (m3/h)", styles: { fillColor: primaryFill } },
+            { content: "Notes & NFPA 20 Criteria", styles: { fillColor: primaryFill } },
+          ],
+        ],
         body: resultsTableBody,
-        theme: "plain",
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "left",
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: 30,
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-          cellPadding: 1.6,
-        },
-        columnStyles: {
-          0: { cellWidth: 10, halign: "center", fontStyle: "bold" },
-          1: { cellWidth: 65, fontStyle: "bold" },
-          2: { cellWidth: 38, halign: "center", fontStyle: "bold" },
-          3: { cellWidth: 26, halign: "center" },
-          4: { cellWidth: 43, halign: "left" },
-        },
-        didParseCell: (data) => {
-          if (data.section === "body" && (data.row.index === 3 || data.row.index === 4)) {
-            data.cell.styles.fillColor = blueFill;
-            data.cell.styles.fontStyle = "bold";
+        didParseCell: function (data: any) {
+          if (data.section === "body") {
+            // Highlight Row D (Total Simultaneous Demand) and Row E (Pump Capacity) in blueFill
+            if (data.row.index === 3 || data.row.index === 4) {
+              data.cell.styles.fontStyle = "bold";
+              data.cell.styles.fillColor = blueFill;
+              if (data.column.index === 2) {
+                data.cell.styles.fontSize = 7.6;
+              }
+            }
           }
         },
       });
 
-      // Table 3: Dedicated Fire Water Storage Tank Capacity Breakdown
-      const table3Y = (doc as any).lastAutoTable.finalY + 4;
+      nextY = (doc as any).lastAutoTable?.finalY ?? 130;
+
+      // Table 3: Dedicated Fire Water Storage Tank Capacity Breakdown (NFPA 22)
       const tankTableBody = [
-        ["30 Minutes Duration (Light Hazard)", `${calcResults.tank30Effective.toLocaleString()} gal`, `${(calcResults.tank30Effective * GAL_TO_M3).toFixed(1)} m³ (${(calcResults.tank30Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Light Hazard minimum requirement"],
-        ["60 Minutes Duration (OH-1 Basis)", `${calcResults.tank60Effective.toLocaleString()} gal`, `${(calcResults.tank60Effective * GAL_TO_M3).toFixed(1)} m³ (${(calcResults.tank60Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Ordinary Hazard Group 1 standard"],
-        ["90 Minutes Duration (OH-2 / High-Rise)", `${calcResults.tank90Effective.toLocaleString()} gal`, `${(calcResults.tank90Effective * GAL_TO_M3).toFixed(1)} m³ (${(calcResults.tank90Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 OH-2 & NFPA 14 Standpipe baseline"],
-        ["120 Minutes Duration (Extra Hazard / Heavy)", `${calcResults.tank120Effective.toLocaleString()} gal`, `${(calcResults.tank120Effective * GAL_TO_M3).toFixed(1)} m³ (${(calcResults.tank120Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Extra Hazard / Industrial storage"],
-        [`DESIGN SELECTION: ${calcResults.duration} MIN NET CAPACITY`, `${calcResults.selectedDurationEffective.toLocaleString()} gal`, `${(calcResults.selectedDurationEffective * GAL_TO_M3).toFixed(1)} m³`, "Net Effective Fire Protection Storage (V_eff)"],
-        [`TOTAL GROSS TANK CAPACITY (+${calcResults.reservePct}% ULLAGE)`, `${calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal`, `${(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³ (${(calcResults.selectedDurationGross * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "Total Dedicated Fire Water Tank Construction Volume"],
+        ["30 Minutes Duration (Light Hazard)", `${calcResults.tank30Effective.toLocaleString()} gal`, `${(calcResults.tank30Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank30Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Light Hazard minimum requirement"],
+        ["60 Minutes Duration (OH-1 Basis)", `${calcResults.tank60Effective.toLocaleString()} gal`, `${(calcResults.tank60Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank60Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Ordinary Hazard Group 1 standard"],
+        ["90 Minutes Duration (OH-2 / High-Rise)", `${calcResults.tank90Effective.toLocaleString()} gal`, `${(calcResults.tank90Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank90Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 OH-2 & NFPA 14 Standpipe baseline"],
+        ["120 Minutes Duration (Extra Hazard / Heavy)", `${calcResults.tank120Effective.toLocaleString()} gal`, `${(calcResults.tank120Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank120Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Extra Hazard / Industrial storage"],
+        [`DESIGN SELECTION: ${calcResults.duration} MIN NET CAPACITY`, `${calcResults.selectedDurationEffective.toLocaleString()} gal`, `${(calcResults.selectedDurationEffective * GAL_TO_M3).toFixed(1)} m3`, "Net Effective Fire Protection Storage (V_eff)"],
+        [`TOTAL GROSS TANK CAPACITY (+${calcResults.reservePct}% ULLAGE)`, `${calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal`, `${(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.selectedDurationGross * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "Total Dedicated Fire Water Tank Construction Volume"],
       ];
 
-      autoTable(doc, {
-        startY: table3Y,
-        margin: { left: margin, right: margin },
-        head: [["STORAGE DURATION / BASIS", "NET VOLUME (GAL)", "VOLUME IN METRIC (MÂ³ / L)", "DESIGN STANDARD / APPLICABILITY"]],
-        body: tankTableBody,
-        theme: "plain",
+      callAutoTable(doc, {
+        startY: nextY + 3,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        pageBreak: "avoid",
+        styles: {
+          fontSize: 7,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 1.1, bottom: 1.1, left: 1, right: 1 },
+          minCellHeight: 4.4,
+        },
         headStyles: {
           fillColor: primaryFill,
           textColor: 0,
           fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "left",
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: 30,
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-          cellPadding: 1.6,
+          cellPadding: { top: 1.4, bottom: 1.4, left: 1, right: 1 },
         },
         columnStyles: {
-          0: { cellWidth: 62, fontStyle: "bold" },
-          1: { cellWidth: 32, halign: "center", fontStyle: "bold" },
-          2: { cellWidth: 46, halign: "center" },
-          3: { cellWidth: 42, halign: "left" },
+          0: { halign: "left", cellWidth: 62, fontStyle: "bold" },
+          1: { cellWidth: 32, fontStyle: "bold" },
+          2: { cellWidth: 46 },
+          3: { halign: "left", cellWidth: 42 },
         },
-        didParseCell: (data) => {
-          if (data.section === "body" && data.row.index === 5) {
-            data.cell.styles.fillColor = blueFill;
-            data.cell.styles.fontStyle = "bold";
+        head: [
+          [
+            { content: "Storage Duration / Basis", styles: { fillColor: primaryFill } },
+            { content: "Net Volume (gal)", styles: { fillColor: primaryFill } },
+            { content: "Volume in Metric (m3 / L)", styles: { fillColor: primaryFill } },
+            { content: "Design Standard / Applicability", styles: { fillColor: primaryFill } },
+          ],
+        ],
+        body: tankTableBody,
+        didParseCell: function (data: any) {
+          if (data.section === "body") {
+            // Highlight Row 4 (Design Net Selection) and Row 5 (Gross Tank Capacity) in blueFill
+            if (data.row.index === 4 || data.row.index === 5) {
+              data.cell.styles.fontStyle = "bold";
+              data.cell.styles.fillColor = blueFill;
+              if (data.column.index === 1 || data.column.index === 2) {
+                data.cell.styles.fontSize = 7.6;
+              }
+            }
           }
         },
       });
+
+      nextY = (doc as any).lastAutoTable?.finalY ?? 175;
 
       // Table 4: Mandatory NFPA Standards & Compliance Guidelines
-      const table4Y = (doc as any).lastAutoTable.finalY + 4;
       const guidelinesBody = [
-        ["NFPA 13 Section 19.3", "Inside & outside hose stream allowances must be added simultaneously to sprinkler demand for total demand."],
-        ["NFPA 20 Section 4.14", "Fire pump suction piping velocity must not exceed 15 fps (4.57 m/s) at 150% pump rated flow."],
-        ["NFPA 20 Section 6.2", "Fire pump must provide 150% of rated flow at >= 65% of rated pressure; shutoff head <= 140%."],
-        ["NFPA 22 Section 5.2", "Fire water storage tanks must be dedicated with low-level alarms, anti-vortex plate, and automatic makeup."],
-        ["NFPA 22 Refill Rule", calcResults.refillHours !== null ? `Replenishment at ${calcResults.mainsRefill} GPM refills tank in ${calcResults.refillHours.toFixed(1)} hrs (${calcResults.refillHours <= 8 ? "PASS: <= 8 hrs per NFPA 22" : "FAIL: Exceeds 8 hrs"})` : "Dedicated tank without city credit; replenishment rate must be verified with municipal authority."],
+        ["1", "NFPA 13 Section 19.3", "Inside & outside hose stream allowances must be added simultaneously to sprinkler demand for total demand."],
+        ["2", "NFPA 20 Section 4.14", "Fire pump suction piping velocity must not exceed 15 fps (4.57 m/s) at 150% pump rated flow."],
+        ["3", "NFPA 20 Section 6.2", "Fire pump must provide 150% of rated flow at >= 65% of rated pressure; shutoff head <= 140%."],
+        ["4", "NFPA 22 Section 5.2", "Fire water storage tanks must be dedicated with low-level alarms, anti-vortex plate, and automatic makeup."],
+        ["5", "NFPA 22 Refill Rule", calcResults.refillHours !== null ? `Replenishment at ${calcResults.mainsRefill} GPM refills tank in ${calcResults.refillHours.toFixed(1)} hrs (${calcResults.refillHours <= 8 ? "PASS: <= 8 hrs per NFPA 22" : "FAIL: Exceeds 8 hrs"})` : "Dedicated tank without city credit; replenishment rate must be verified with municipal authority."],
       ];
 
-      autoTable(doc, {
-        startY: table4Y,
-        margin: { left: margin, right: margin },
-        head: [["STANDARD / CLAUSE", "ENGINEERING COMPLIANCE REQUIREMENT & SYSTEM CRITERIA"]],
-        body: guidelinesBody,
-        theme: "plain",
+      callAutoTable(doc, {
+        startY: nextY + 3,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        pageBreak: "avoid",
+        styles: {
+          fontSize: 6.8,
+          halign: "left",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 1.1, bottom: 1.1, left: 1.2, right: 1.2 },
+          minCellHeight: 4.2,
+        },
         headStyles: {
           fillColor: primaryFill,
           textColor: 0,
           fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "left",
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-        },
-        bodyStyles: {
-          fontSize: 7.5,
-          textColor: 40,
-          lineColor: gridBorderColor,
-          lineWidth: 0.1,
-          cellPadding: 1.4,
+          cellPadding: { top: 1.3, bottom: 1.3, left: 1, right: 1 },
         },
         columnStyles: {
-          0: { cellWidth: 45, fontStyle: "bold" },
-          1: { cellWidth: 137 },
+          0: { halign: "center", cellWidth: 8 },
+          1: { cellWidth: 42, fontStyle: "bold" },
+          2: { cellWidth: 132 },
+        },
+        head: [
+          [
+            { content: "#", styles: { fillColor: primaryFill, halign: "center" } },
+            { content: "NFPA Clause / Standard", styles: { fillColor: primaryFill } },
+            { content: "Mandatory Engineering Compliance & System Criteria", styles: { fillColor: primaryFill } },
+          ],
+        ],
+        body: guidelinesBody,
+      });
+
+      const finalY = (doc as any).lastAutoTable?.finalY ?? 215;
+
+      // Table 5: 3-Tier Dynamic Signature Block (Originator, Reviewer, Approver)
+      const {
+        originatedName,
+        originatedDate,
+        reviewerName,
+        reviewerDate,
+        approverName,
+        approverDate,
+      } = getSignatureBlockDetails(project?.id || "default", "/plumbing-fire-water-demand", currentUserName, calcReviewState);
+
+      callAutoTable(doc, {
+        startY: finalY + 3,
+        margin: { left: 14, right: 14 },
+        theme: "grid",
+        pageBreak: "avoid",
+        styles: {
+          fontSize: 7.2,
+          halign: "center",
+          valign: "middle",
+          lineColor: [100, 100, 100],
+          lineWidth: 0.1,
+          cellPadding: { top: 1.5, bottom: 1.5, left: 1, right: 1 },
+          minCellHeight: 5,
+        },
+        headStyles: {
+          fillColor: signatureFill,
+          textColor: 0,
+          fontStyle: "bold",
+          cellPadding: { top: 1.5, bottom: 1.5, left: 1, right: 1 },
+        },
+        head: [
+          [
+            { content: "Designation" },
+            { content: "Originator" },
+            { content: "Reviewer" },
+            { content: "Approver" },
+          ],
+        ],
+        body: [
+          [
+            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedName || "Design Engineer", styles: { halign: "center" } },
+            { content: reviewerName || "-", styles: { halign: "center" } },
+            { content: approverName || "-", styles: { halign: "center" } },
+          ],
+          [
+            { content: "Role:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: "Design Engineer", styles: { halign: "center" } },
+            { content: "Sr. Design Engineer", styles: { halign: "center" } },
+            { content: "Discipline Coordinator", styles: { halign: "center" } },
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate || today, styles: { halign: "center" } },
+            { content: reviewerDate || "-", styles: { halign: "center" } },
+            { content: approverDate || "-", styles: { halign: "center" } },
+          ],
+        ],
+        columnStyles: {
+          0: { cellWidth: 28 },
+          1: { cellWidth: 51.3 },
+          2: { cellWidth: 51.3 },
+          3: { cellWidth: 51.3 },
         },
       });
 
-      // 3-Tier Dynamic Signature Block (Matching Ventilation & pdfHelpers)
-      const sigY = (doc as any).lastAutoTable.finalY + 4;
-      const sigData = getSignatureBlockDetails(project?.id || "default", "/plumbing-fire-water-demand", currentUserName);
-
-      const colWidth = contentWidth / 3;
-      const rowHeight = 6;
-      const sigBoxHeight = 26;
-
-      // Outer signature box
-      doc.setDrawColor(...gridBorderColor);
-      doc.setLineWidth(0.1);
-      doc.rect(margin, sigY, contentWidth, sigBoxHeight);
-
-      // Vertical dividers for 3 columns
-      doc.line(margin + colWidth, sigY, margin + colWidth, sigY + sigBoxHeight);
-      doc.line(margin + colWidth * 2, sigY, margin + colWidth * 2, sigY + sigBoxHeight);
-
-      // Header Fill
-      doc.setFillColor(...signatureFill);
-      doc.rect(margin, sigY, contentWidth, rowHeight, "F");
-
-      // Draw header bottom divider line
-      doc.line(margin, sigY + rowHeight, margin + contentWidth, sigY + rowHeight);
-
-      // Headers text
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(0, 0, 0);
-      doc.text("Originator", margin + colWidth * 0.5, sigY + 4.2, { align: "center" });
-      doc.text("Reviewer", margin + colWidth * 1.5, sigY + 4.2, { align: "center" });
-      doc.text("Approver", margin + colWidth * 2.5, sigY + 4.2, { align: "center" });
-
-      // Column 1: Originator
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.5);
-      doc.text("Name:", margin + 2.5, sigY + 10.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.originatedBy || currentUserName, margin + 14, sigY + 10.5);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Role:", margin + 2.5, sigY + 15.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.originatedRole || "Design Engineer", margin + 14, sigY + 15.5);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Date:", margin + 2.5, sigY + 20.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.originatedDate || dateStr, margin + 14, sigY + 20.5);
-
-      // Column 2: Reviewer
-      doc.setFont("helvetica", "bold");
-      doc.text("Name:", margin + colWidth + 2.5, sigY + 10.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.reviewedBy || "Pending Review", margin + colWidth + 14, sigY + 10.5);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Role:", margin + colWidth + 2.5, sigY + 15.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.reviewedRole || "Sr. Design Engineer", margin + colWidth + 14, sigY + 15.5);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Date:", margin + colWidth + 2.5, sigY + 20.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.reviewedDate || "-", margin + colWidth + 14, sigY + 20.5);
-
-      // Column 3: Approver
-      doc.setFont("helvetica", "bold");
-      doc.text("Name:", margin + colWidth * 2 + 2.5, sigY + 10.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.approvedBy || "Pending Approval", margin + colWidth * 2 + 15, sigY + 10.5);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Role:", margin + colWidth * 2 + 2.5, sigY + 15.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.approvedRole || "Discipline Coordinator", margin + colWidth * 2 + 15, sigY + 15.5);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Date:", margin + colWidth * 2 + 2.5, sigY + 20.5);
-      doc.setFont("helvetica", "normal");
-      doc.text(sigData.approvedDate || "-", margin + colWidth * 2 + 15, sigY + 20.5);
-
       // Save PDF
-      doc.save(`Fire_Water_Demand_Calculation_${pNum}_${Date.now()}.pdf`);
+      doc.save(`Fire_Water_Demand_Calculation_${projectNo}_${Date.now()}.pdf`);
       toast.success("PDF calculation report generated successfully!");
     } catch (e) {
       console.error("Failed to generate PDF", e);
@@ -988,7 +1030,12 @@ function FireWaterDemandPage() {
                 <Sparkles className="size-3.5" />
                 Intelligence
               </button>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-fire-water-demand" calculatorTitle="Fire Water Demand" />
+              <CalculationReviewBar
+                projectId={project?.id || "default"}
+                calculatorPath="/plumbing-fire-water-demand"
+                calculatorTitle="Fire Water Demand"
+                onReviewStateChange={setCalcReviewState}
+              />
               {commentsList.length > 0 && (
                 <div 
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
@@ -1001,9 +1048,67 @@ function FireWaterDemandPage() {
             </div>
           </div>
 
+          {/* Approved Lock Status Banner */}
+          {isApprovedLocked && (
+            <div className="flex items-center justify-between p-3.5 px-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 font-medium shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                  <Lock className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-emerald-900 dark:text-emerald-200">Calculation is APPROVED & LOCKED</span>
+                  <span className="text-emerald-700/80 dark:text-emerald-400/80 ml-1.5">
+                    This Fire Water Demand sheet is approved. Editing is disabled to ensure revision integrity.
+                  </span>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
+                Approved
+              </span>
+            </div>
+          )}
+
+          {calcReviewState?.status === "REVIEWED" && (
+            <div className="flex items-center justify-between p-3.5 px-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-xs text-blue-800 dark:text-blue-300 font-medium shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400">
+                  <CheckCircle2 className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-blue-900 dark:text-blue-200">Calculation has been REVIEWED</span>
+                  <span className="text-blue-700/80 dark:text-blue-400/80 ml-1.5">
+                    by {calcReviewState.reviewedBy || "Sr. Design Engineer"}. Awaiting final approval from Discipline Coordinator.
+                  </span>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[11px] font-bold uppercase tracking-wider">
+                Reviewed
+              </span>
+            </div>
+          )}
+
+          {calcReviewState?.status === "REJECTED" && (
+            <div className="flex items-center justify-between p-3.5 px-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-800 dark:text-rose-300 font-medium shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-400">
+                  <AlertTriangle className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-rose-900 dark:text-rose-200">Calculation REJECTED</span>
+                  <span className="text-rose-700/80 dark:text-rose-400/80 ml-1.5">
+                    by {calcReviewState.rejectedBy || "Discipline Coordinator"}: {calcReviewState.rejectionDescription || "Please revise parameters and resubmit."}
+                  </span>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-700 dark:text-rose-300 text-[11px] font-bold uppercase tracking-wider">
+                Rejected
+              </span>
+            </div>
+          )}
+
           {/* White Card Container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked
+            isApprovedLocked || calcReviewState?.status === "APPROVED"
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
@@ -1065,36 +1170,63 @@ function FireWaterDemandPage() {
                 <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
                   
                   {/* Presets Quick Picker Bar */}
-                  <div className="bg-muted/20 border border-border/70 rounded-2xl p-4 shadow-2xs">
+                  <div
+                    id="card-presets"
+                    data-field-id="card-presets"
+                    data-comment-target="card-presets"
+                    className={`rounded-2xl p-4 transition-all duration-300 ${
+                      highlightedTargetId === "card-presets"
+                        ? "field-highlight-pulse row-highlight-flash item-highlight-pulse border-2 border-sky-400 bg-sky-50 dark:bg-sky-950/40 ring-4 ring-sky-400/25"
+                        : "bg-muted/20 border border-border/70 shadow-2xs"
+                    }`}
+                  >
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <Flame className="size-4 text-orange-500" />
                         <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide">
                           Occupancy Hazard Class / NFPA Standard Preset
                         </span>
+                        {renderCommentBadge("card-presets", "Fire Demand Presets")}
                       </div>
                       <span className="text-[11px] font-medium text-muted-foreground">
                         Instant preset loading for sprinkler, hydrant, and duration
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
                       {(Object.keys(HAZARD_PRESETS) as HazardPresetKey[]).map((key) => {
                         const p = HAZARD_PRESETS[key];
                         const isSelected = preset === key;
+                        const IconComp = presetIcons[key] || Flame;
+                        const durationBadge = key === "custom" ? "Custom" : `${p.designDuration} min`;
+
                         return (
                           <button
                             key={key}
                             onClick={() => handleApplyPreset(key)}
                             disabled={isEffectiveReadOnly}
-                            className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                            className={`text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2 min-h-[76px] ${
                               isSelected
-                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs"
-                                : "border-border/70 hover:border-border hover:bg-muted/40 text-muted-foreground"
+                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs ring-2 ring-primary/20"
+                                : "border-border/80 hover:border-border hover:bg-muted/40 text-foreground bg-card"
                             } ${isEffectiveReadOnly ? "opacity-60 cursor-not-allowed" : ""}`}
                           >
-                            <div className="text-[11.5px] font-bold truncate">{p.label}</div>
-                            <div className="text-[10px] text-muted-foreground truncate">{p.category}</div>
+                            <div className="flex items-start gap-2">
+                              <div className={`p-1 rounded-md shrink-0 mt-0.5 ${isSelected ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                                <IconComp className="size-3.5" />
+                              </div>
+                              <div className="text-[12px] font-bold leading-tight whitespace-normal text-foreground">
+                                {p.label}
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-1 text-[10.5px] pt-1 border-t border-border/40">
+                              <span className="px-1.5 py-0.2 rounded bg-muted/70 text-[10px] font-semibold text-muted-foreground uppercase truncate max-w-[95px]" title={p.category}>
+                                {p.category.split("/")[0].trim()}
+                              </span>
+                              <span className="font-bold text-primary text-[11px] shrink-0">
+                                {durationBadge}
+                              </span>
+                            </div>
                           </button>
                         );
                       })}
@@ -2252,10 +2384,10 @@ function FireWaterDemandPage() {
                     <div className="flex justify-between items-start pb-4 border-b border-border">
                       <div>
                         <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                          Fire Water Demand & Storage Sizing Report
+                          Fire Water Demand & Storage Tank Sizing Report
                         </h2>
                         <p className="text-[12px] text-muted-foreground mt-0.5">
-                          NFPA 13, 14, 20 & 22 Simultaneous Hydraulic Calculations
+                          Design Standards: NFPA 13, NFPA 14, NFPA 20, NFPA 22 (Simultaneous Operation Method)
                         </p>
                       </div>
                       <button
@@ -2266,137 +2398,304 @@ function FireWaterDemandPage() {
                       </button>
                     </div>
 
-                    {/* Enclosed Project Metadata Grid */}
-                    <div className="border border-border rounded-xl p-4 bg-muted/10 grid grid-cols-2 gap-4 text-[12px]">
-                      <div>
-                        <span className="font-bold text-foreground">Project Name:</span> {project?.name || "Fire Fighting Hydraulic System"}
+                    {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
+                    <div className="border border-border rounded-xl overflow-hidden text-[12px]">
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Calculation No.:</span>
+                          <span className="text-muted-foreground font-mono">CALC-FWD-{(project?.id || "0000").slice(-4).toUpperCase()}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Date:</span>
+                          <span className="text-muted-foreground">{formatDateStr(new Date())}</span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="font-bold text-foreground">Date:</span> {formatDateStr(new Date())}
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project No.:</span>
+                          <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Client:</span>
+                          <span className="text-muted-foreground">{project?.client || "General Contracting Co."}</span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="font-bold text-foreground">Project Code:</span> {project?.code || project?.id?.substring(0, 8) || "PRJ-FF-001"}
-                      </div>
-                      <div>
-                        <span className="font-bold text-foreground">Client:</span> {project?.client || "General Contracting Co."}
-                      </div>
-                      <div>
-                        <span className="font-bold text-foreground">Hazard Class:</span> {HAZARD_PRESETS[preset]?.label || "Custom"}
-                      </div>
-                      <div>
-                        <span className="font-bold text-foreground">Author:</span> {currentUserName}
+                      <div className="grid grid-cols-2 divide-x divide-border bg-muted/10">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project Name:</span>
+                          <span className="text-muted-foreground font-semibold">{project?.name || "Fire Fighting Hydraulic System"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">End User:</span>
+                          <span className="text-muted-foreground">{project?.endUser || project?.location || "Standard Facility"}</span>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Hydraulic Breakdown Table */}
+                    {/* Table 1: Design Parameters & Hazard Classification */}
                     <div className="space-y-2">
                       <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        1. Simultaneous Demand Breakdown
+                        1. Design Parameters & Hazard Classification Basis
                       </h3>
                       <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-muted/60 font-bold">
+                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
                           <tr>
-                            <th className="border border-border p-2 text-left">Component</th>
-                            <th className="border border-border p-2 text-center">Design Flow</th>
-                            <th className="border border-border p-2 text-center">Metric (m³/h)</th>
-                            <th className="border border-border p-2 text-left">Code Standard</th>
+                            <th className="border border-border p-2 text-center w-10">#</th>
+                            <th className="border border-border p-2 text-left">Design Parameter Description</th>
+                            <th className="border border-border p-2 text-center w-48">Value / Specification</th>
+                            <th className="border border-border p-2 text-left">Code Reference / Engineering Basis</th>
                           </tr>
                         </thead>
                         <tbody>
                           <tr>
-                            <td className="border border-border p-2 font-medium">Sprinkler Demand (Q_sp)</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF} GPM`}</td>
+                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                            <td className="border border-border p-2 font-bold">Hazard Classification / Preset</td>
+                            <td className="border border-border p-2 text-center font-bold">{HAZARD_PRESETS[preset]?.label || "Custom"}</td>
+                            <td className="border border-border p-2 text-muted-foreground">{HAZARD_PRESETS[preset]?.category || "NFPA 13 / NFPA 14"}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                            <td className="border border-border p-2 font-bold">Sprinkler System Design Flow</td>
+                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`}</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Hydraulic Demand Area/Density</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                            <td className="border border-border p-2 font-bold">Sprinkler Minimum Residual Pressure</td>
+                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.spP * PSI_TO_BAR).toFixed(2)} bar` : `${calcResults.spP.toFixed(0)} psi`}</td>
+                            <td className="border border-border p-2 text-muted-foreground">At most hydraulically remote sprinkler</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                            <td className="border border-border p-2 font-bold">Simultaneous Hydrant Outlets</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.hyC} Outlets @ {isSI ? `${(calcResults.hyF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyF.toFixed(0)} GPM`} each</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 14 / NFPA 24 Yard / Landing Outlets</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">5</td>
+                            <td className="border border-border p-2 font-bold">Simultaneous First-Aid Hose Reels</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.hrC} Reels @ {isSI ? `${(calcResults.hrF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrF.toFixed(0)} GPM`} each</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 14 Class II / BS 5306</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">6</td>
+                            <td className="border border-border p-2 font-bold">Design Fire Duration</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.duration} Minutes</td>
+                            <td className="border border-border p-2 text-muted-foreground">Per Hazard Group / NFPA 13 Table 19.3.2</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">7</td>
+                            <td className="border border-border p-2 font-bold">Tank Ullage & Silt Reserve Allowance</td>
+                            <td className="border border-border p-2 text-center font-bold">+{calcResults.reservePct}% Safety Allowance</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 22 Dead Storage & Vortex Allowance</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">8</td>
+                            <td className="border border-border p-2 font-bold">Municipal Main Replenishment Flow</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.mainsRefill > 0 ? (isSI ? `${(calcResults.mainsRefill * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.mainsRefill.toFixed(0)} GPM`) : "0 (Isolated Storage Tank)"}</td>
+                            <td className="border border-border p-2 text-muted-foreground">Continuous City Water Inflow Credit</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Table 2: Simultaneous Demand Breakdown & Fire Pump Sizing */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        2. Simultaneous Fire Water Demand & Fire Pump Sizing (NFPA 20)
+                      </h3>
+                      <table className="w-full text-[12px] border-collapse border border-border">
+                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <tr>
+                            <th className="border border-border p-2 text-center w-10">Item</th>
+                            <th className="border border-border p-2 text-left">Hydraulic Demand Component</th>
+                            <th className="border border-border p-2 text-center w-36">Flow Rate (Primary)</th>
+                            <th className="border border-border p-2 text-center w-28">Flow Rate (m³/h)</th>
+                            <th className="border border-border p-2 text-left">Notes & NFPA 20 Criteria</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border border-border p-2 text-center font-bold">A</td>
+                            <td className="border border-border p-2 font-medium">Sprinkler System Demand (Q_sp)</td>
+                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`}</td>
                             <td className="border border-border p-2 text-center">{(calcResults.spF * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Density/Area</td>
+                            <td className="border border-border p-2 text-muted-foreground">Primary automatic fire suppression</td>
                           </tr>
                           <tr>
-                            <td className="border border-border p-2 font-medium">Hydrant Demand (Q_hy)</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal} GPM`}</td>
+                            <td className="border border-border p-2 text-center font-bold">B</td>
+                            <td className="border border-border p-2 font-medium">External Hydrant Demand (Q_hy)</td>
+                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal.toFixed(0)} GPM`}</td>
                             <td className="border border-border p-2 text-center">{(calcResults.hyTotal * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 14 / NFPA 24 ({calcResults.hyC} Outlets)</td>
+                            <td className="border border-border p-2 text-muted-foreground">{calcResults.hyC} &times; {calcResults.hyF} GPM simultaneous hydrants</td>
                           </tr>
                           <tr>
-                            <td className="border border-border p-2 font-medium">Hose Reel Demand (Q_hr)</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal} GPM`}</td>
+                            <td className="border border-border p-2 text-center font-bold">C</td>
+                            <td className="border border-border p-2 font-medium">First-Aid Hose Reel Demand (Q_hr)</td>
+                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal.toFixed(0)} GPM`}</td>
                             <td className="border border-border p-2 text-center">{(calcResults.hrTotal * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 14 Class II ({calcResults.hrC} Reels)</td>
+                            <td className="border border-border p-2 text-muted-foreground">{calcResults.hrC} &times; {calcResults.hrF} GPM first-aid hose reels</td>
                           </tr>
-                          <tr className="bg-primary/10 font-bold">
-                            <td className="border border-border p-2 text-primary">TOTAL SIMULTANEOUS DEMAND (Q_total)</td>
-                            <td className="border border-border p-2 text-center text-primary text-[13px]">{isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow} GPM`}</td>
-                            <td className="border border-border p-2 text-center text-primary">{(calcResults.totalFlow * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2 text-primary">Simultaneous Operating Basis</td>
+                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
+                            <td className="border border-border p-2 text-center">D</td>
+                            <td className="border border-border p-2">TOTAL SIMULTANEOUS FIRE DEMAND (Q_total)</td>
+                            <td className="border border-border p-2 text-center text-[13px]">{isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow.toFixed(0)} GPM`}</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.totalFlow * GPM_TO_M3H).toFixed(1)} m³/h</td>
+                            <td className="border border-border p-2">Q_sp + Q_hy + Q_hr (Simultaneous Sum)</td>
+                          </tr>
+                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
+                            <td className="border border-border p-2 text-center">E</td>
+                            <td className="border border-border p-2">Recommended NFPA 20 Fire Pump Capacity</td>
+                            <td className="border border-border p-2 text-center text-[13px]">{isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM.toFixed(0)} GPM`}</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.recommendedPumpGPM * GPM_TO_M3H).toFixed(1)} m³/h</td>
+                            <td className="border border-border p-2">Standard NFPA 20 Listed Fire Pump Rating</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center font-bold">F</td>
+                            <td className="border border-border p-2 font-medium">Recommended Pump Discharge Header Size</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.recommendedNps}&quot; NPS ({calcResults.recommendedNps * 25} mm DN)</td>
+                            <td className="border border-border p-2 text-center">-</td>
+                            <td className="border border-border p-2 text-muted-foreground">Velocity &le; 15 fps (4.57 m/s) at rated flow</td>
                           </tr>
                         </tbody>
                       </table>
                     </div>
 
-                    {/* Storage Tank Table */}
+                    {/* Table 3: Dedicated Storage Tank Capacity Breakdown */}
                     <div className="space-y-2">
                       <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        2. Fire Water Storage Capacity & Fire Pump Rating
+                        3. Dedicated Fire Water Storage Tank Capacity Breakdown (NFPA 22)
                       </h3>
                       <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-muted/60 font-bold">
+                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
                           <tr>
-                            <th className="border border-border p-2 text-left">Equipment / Tank Sizing Parameter</th>
-                            <th className="border border-border p-2 text-center">US Units</th>
-                            <th className="border border-border p-2 text-center">Metric (SI)</th>
-                            <th className="border border-border p-2 text-left">Criteria</th>
+                            <th className="border border-border p-2 text-left">Storage Duration / Basis</th>
+                            <th className="border border-border p-2 text-center w-36">Net Volume (gal)</th>
+                            <th className="border border-border p-2 text-center w-48">Volume in Metric (m³ / L)</th>
+                            <th className="border border-border p-2 text-left">Design Standard / Applicability</th>
                           </tr>
                         </thead>
                         <tbody>
                           <tr>
-                            <td className="border border-border p-2 font-medium">Recommended NFPA 20 Fire Pump Rating</td>
-                            <td className="border border-border p-2 text-center font-bold text-emerald-600 dark:text-emerald-400">{calcResults.recommendedPumpGPM} GPM</td>
-                            <td className="border border-border p-2 text-center font-bold text-emerald-600 dark:text-emerald-400">{(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min</td>
-                            <td className="border border-border p-2 text-muted-foreground">Standard Listed Rating &ge; Q_total</td>
+                            <td className="border border-border p-2 font-bold">30 Minutes Duration (Light Hazard)</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank30Effective.toLocaleString()} gal</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.tank30Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank30Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Light Hazard minimum requirement</td>
                           </tr>
                           <tr>
-                            <td className="border border-border p-2 font-medium">Design Duration Net Storage ({calcResults.duration} min)</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.selectedDurationEffective.toLocaleString()} gal</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.selectedDurationEffective * GAL_TO_M3).toFixed(1)} m³</td>
-                            <td className="border border-border p-2 text-muted-foreground">Net Effective Volume (V_eff)</td>
+                            <td className="border border-border p-2 font-bold">60 Minutes Duration (OH-1 Basis)</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank60Effective.toLocaleString()} gal</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.tank60Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank60Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Ordinary Hazard Group 1 standard</td>
                           </tr>
-                          <tr className="bg-primary/10 font-bold">
-                            <td className="border border-border p-2 text-primary">Total Dedicated Gross Tank Volume (+{calcResults.reservePct}% Ullage)</td>
-                            <td className="border border-border p-2 text-center text-primary text-[13px]">{calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal</td>
-                            <td className="border border-border p-2 text-center text-primary">{(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³</td>
-                            <td className="border border-border p-2 text-primary">NFPA 22 Dedicated Tank Dimensioning</td>
+                          <tr>
+                            <td className="border border-border p-2 font-bold">90 Minutes Duration (OH-2 / High-Rise)</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank90Effective.toLocaleString()} gal</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.tank90Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank90Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 OH-2 & NFPA 14 Standpipe baseline</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 font-bold">120 Minutes Duration (Extra Hazard / Heavy)</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank120Effective.toLocaleString()} gal</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.tank120Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank120Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
+                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Extra Hazard / Industrial storage</td>
+                          </tr>
+                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
+                            <td className="border border-border p-2">DESIGN SELECTION: {calcResults.duration} MIN NET CAPACITY</td>
+                            <td className="border border-border p-2 text-center text-[13px]">{calcResults.selectedDurationEffective.toLocaleString()} gal</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.selectedDurationEffective * GAL_TO_M3).toFixed(1)} m³</td>
+                            <td className="border border-border p-2">Net Effective Fire Protection Storage (V_eff)</td>
+                          </tr>
+                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
+                            <td className="border border-border p-2">TOTAL GROSS TANK CAPACITY (+{calcResults.reservePct}% ULLAGE)</td>
+                            <td className="border border-border p-2 text-center text-[13px]">{calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal</td>
+                            <td className="border border-border p-2 text-center">{(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.selectedDurationGross * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
+                            <td className="border border-border p-2">Total Dedicated Fire Water Tank Construction Volume</td>
                           </tr>
                         </tbody>
                       </table>
                     </div>
 
-                    {/* 3-Tier Signature Preview */}
-                    <div className="pt-4 border-t border-border">
-                      <div className="border border-border rounded-xl overflow-hidden grid grid-cols-3 text-center">
-                        <div className="bg-[#FFE6CC] dark:bg-amber-950/40 p-2 font-bold text-[11px] border-b border-border border-r">
-                          Originator
-                        </div>
-                        <div className="bg-[#FFE6CC] dark:bg-amber-950/40 p-2 font-bold text-[11px] border-b border-border border-r">
-                          Reviewer
-                        </div>
-                        <div className="bg-[#FFE6CC] dark:bg-amber-950/40 p-2 font-bold text-[11px] border-b border-border">
-                          Approver
-                        </div>
+                    {/* Table 4: Mandatory NFPA Standards & Compliance Guidelines */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        4. Mandatory NFPA Standards & Compliance Guidelines
+                      </h3>
+                      <table className="w-full text-[12px] border-collapse border border-border">
+                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <tr>
+                            <th className="border border-border p-2 text-center w-10">#</th>
+                            <th className="border border-border p-2 text-left w-52">NFPA Clause / Standard</th>
+                            <th className="border border-border p-2 text-left">Mandatory Engineering Compliance & System Criteria</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                            <td className="border border-border p-2 font-bold">NFPA 13 Section 19.3</td>
+                            <td className="border border-border p-2 text-muted-foreground">Inside & outside hose stream allowances must be added simultaneously to sprinkler demand for total demand.</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                            <td className="border border-border p-2 font-bold">NFPA 20 Section 4.14</td>
+                            <td className="border border-border p-2 text-muted-foreground">Fire pump suction piping velocity must not exceed 15 fps (4.57 m/s) at 150% pump rated flow.</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                            <td className="border border-border p-2 font-bold">NFPA 20 Section 6.2</td>
+                            <td className="border border-border p-2 text-muted-foreground">Fire pump must provide 150% of rated flow at &ge; 65% of rated pressure; shutoff head &le; 140%.</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                            <td className="border border-border p-2 font-bold">NFPA 22 Section 5.2</td>
+                            <td className="border border-border p-2 text-muted-foreground">Fire water storage tanks must be dedicated with low-level alarms, anti-vortex plate, and automatic makeup.</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">5</td>
+                            <td className="border border-border p-2 font-bold">NFPA 22 Refill Rule</td>
+                            <td className="border border-border p-2 text-muted-foreground">
+                              {calcResults.refillHours !== null 
+                                ? `Replenishment at ${calcResults.mainsRefill} GPM refills tank in ${calcResults.refillHours.toFixed(1)} hrs (${calcResults.refillHours <= 8 ? "PASS: <= 8 hrs per NFPA 22" : "FAIL: Exceeds 8 hrs"})`
+                                : "Dedicated tank without city credit; replenishment rate must be verified with municipal authority."}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
 
-                        <div className="p-3 text-[11px] border-r border-border space-y-1">
-                          <div className="font-bold text-foreground">{currentUserName}</div>
-                          <div className="text-muted-foreground">Design Engineer</div>
-                          <div className="text-[10px] text-muted-foreground">{formatDateStr(new Date())}</div>
-                        </div>
-                        <div className="p-3 text-[11px] border-r border-border space-y-1">
-                          <div className="font-bold text-foreground">Sr. Design Engineer</div>
-                          <div className="text-muted-foreground">Peer Review</div>
-                          <div className="text-[10px] text-muted-foreground">Status Dependent</div>
-                        </div>
-                        <div className="p-3 text-[11px] space-y-1">
-                          <div className="font-bold text-foreground">Discipline Coordinator</div>
-                          <div className="text-muted-foreground">Coordinator Approval</div>
-                          <div className="text-[10px] text-muted-foreground">Status Dependent</div>
-                        </div>
-                      </div>
+                    {/* Table 5: 3-Tier Dynamic Engineering Signature Block */}
+                    <div className="pt-2">
+                      {(() => {
+                        const sig = getSignatureBlockDetails(project?.id || "default", "/plumbing-fire-water-demand", currentUserName, calcReviewState);
+                        return (
+                          <div className="border border-border rounded-xl overflow-hidden text-[12px] shadow-2xs">
+                            <div className="grid grid-cols-4 bg-[#FFE6CC] dark:bg-amber-950/40 text-amber-950 dark:text-amber-200 font-bold border-b border-border text-center">
+                              <div className="p-2 border-r border-border bg-muted/20">Designation</div>
+                              <div className="p-2 border-r border-border">Originator</div>
+                              <div className="p-2 border-r border-border">Reviewer</div>
+                              <div className="p-2">Approver</div>
+                            </div>
+                            <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
+                              <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Name:</div>
+                              <div className="p-2.5 font-medium text-foreground">{sig.originatedName || currentUserName || "Design Engineer"}</div>
+                              <div className="p-2.5 font-medium text-foreground">{sig.reviewerName || "-"}</div>
+                              <div className="p-2.5 font-medium text-foreground">{sig.approverName || "-"}</div>
+                            </div>
+                            <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
+                              <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Role:</div>
+                              <div className="p-2.5 text-muted-foreground">Design Engineer</div>
+                              <div className="p-2.5 text-muted-foreground">Sr. Design Engineer</div>
+                              <div className="p-2.5 text-muted-foreground">Discipline Coordinator</div>
+                            </div>
+                            <div className="grid grid-cols-4 divide-x divide-border text-center">
+                              <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Date:</div>
+                              <div className="p-2.5 text-muted-foreground">{sig.originatedDate || formatDateStr(new Date().toISOString())}</div>
+                              <div className="p-2.5 text-muted-foreground">{sig.reviewerDate || "-"}</div>
+                              <div className="p-2.5 text-muted-foreground">{sig.approverDate || "-"}</div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                   </div>

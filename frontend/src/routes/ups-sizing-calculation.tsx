@@ -661,7 +661,7 @@ function UpsSizingCalculationPage() {
                     }}
                     onImport={handleImportExcelRows}
                   />
-                  <TBtn onClick={handleExportPDF}><Download className="size-3.5 mr-1 text-rose-600 dark:text-rose-400" /> Export PDF</TBtn>
+                  <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export PDF</TBtn>
                   <TBtn primary onClick={handleExportPDF}><Printer className="size-3.5" /> Print Report</TBtn>
                 </div>
               )}

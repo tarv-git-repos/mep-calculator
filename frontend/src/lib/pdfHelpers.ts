@@ -198,13 +198,38 @@ export function getSignatureBlockDetails(
     approverDate = formatDateStr((currentProj as any).approvedAt || new Date().toISOString());
   }
 
+  const origDisplay = originatedName || "-";
+  const origDateDisplay = originatedDate || formatDateStr(new Date().toISOString());
+  const revDisplay = reviewerName || "-";
+  const revDateDisplay = reviewerDate || "-";
+  const appDisplay = approverName || "-";
+  const appDateDisplay = approverDate || "-";
+
   return {
     originatedName,
     originatedDate,
     reviewerName,
     reviewerDate,
     approverName,
-    approverDate
+    approverDate,
+    originator: {
+      name: origDisplay,
+      role: "Design Engineer",
+      date: origDateDisplay,
+      status: originatedName ? "Signed" : "-"
+    },
+    reviewer: {
+      name: revDisplay,
+      role: "Sr. Design Engineer",
+      date: revDateDisplay,
+      status: reviewerName ? "Reviewed" : "-"
+    },
+    approver: {
+      name: appDisplay,
+      role: "Discipline Coordinator",
+      date: appDateDisplay,
+      status: approverName ? "Approved" : "-"
+    }
   };
 }
 

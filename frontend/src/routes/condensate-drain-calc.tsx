@@ -1,10 +1,11 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm } from "@/hooks/use-confirm";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { TBtn } from "@/components/workspace/Button";
 import {
   FileSpreadsheet,
   FileText,
@@ -20,6 +21,7 @@ import {
   Square,
   X,
   Droplets,
+  Droplet,
   Wind,
   Layers,
   Download,
@@ -34,8 +36,10 @@ import {
   ChevronRight,
   Scissors,
   Clipboard,
+  Printer,
+  TrendingUp,
+  Check,
 } from "lucide-react";
-import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
@@ -50,9 +54,9 @@ import {
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditCoilModal, type CoilRow } from "@/components/workspace/EditCoilModal";
 import { ImportCoilModal } from "@/components/workspace/ImportCoilModal";
-import { exportCondensateExcel } from "@/lib/exportCondensateExcel";
 import { exportCondensatePDF } from "@/lib/exportCondensatePDF";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 
 export const Route = createFileRoute("/condensate-drain-calc")({
   head: () => ({
@@ -139,6 +143,7 @@ function CondensateDrainCalcPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
   const isLocked = useCalculationLock("/condensate-drain-calc", project?.id);
+  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<CoilRow[]>([]);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
@@ -151,7 +156,7 @@ function CondensateDrainCalcPage() {
   const [clipboard, setClipboard] = useState<CoilRow[]>([]);
   const [editingCoil, setEditingCoil] = useState<CoilRow | null>(null);
   const [intelOpen, setIntelOpen] = useState(false);
-  const [tab, setTab] = useState<"coils" | "summary">("coils");
+  const [tab, setTab] = useState<"coils" | "summary" | "report">("coils");
   const [query, setQuery] = useState("");
   const [filterFlaggedOnly, setFilterFlaggedOnly] = useState(false);
   
@@ -241,8 +246,9 @@ function CondensateDrainCalcPage() {
       } else {
         // Defaults
         const defaultRows: CoilRow[] = [
-          { id: "coil-1", name: "AHU-01", dbIn: 24.0, wbIn: 18.0, dbOut: 13.0, wbOut: 12.0, flow: 1500 },
-          { id: "coil-2", name: "FCU-01", dbIn: 24.0, wbIn: 17.0, dbOut: 14.0, wbOut: 13.0, flow: 400 }
+          { id: "coil-1", name: "AHU-01", dbIn: 24.0, wbIn: 18.0, dbOut: 13.0, wbOut: 12.0, flow: 1500, comments: [] },
+          { id: "coil-2", name: "FCU-01", dbIn: 24.0, wbIn: 17.0, dbOut: 14.0, wbOut: 13.0, flow: 400, comments: [] },
+          { id: "coil-3", name: "Coil 3", dbIn: 24.0, wbIn: 17.0, dbOut: 14.0, wbOut: 13.0, flow: 500, comments: [] }
         ];
         setUnitSystem("si");
         setRows(defaultRows);
@@ -285,7 +291,6 @@ function CondensateDrainCalcPage() {
           setHistory([restoredRows]);
           setHistoryIndex(0);
           setSelected(new Set());
-          setLastSelectedId(null);
           dirtyStore.set(false);
           toast.success("Condensate calculation restored to selected version!");
         }
@@ -304,37 +309,6 @@ function CondensateDrainCalcPage() {
       localStorage.setItem(`mep_condensate_calc_${project.id}`, JSON.stringify(dataToSave));
     }
   }, [project?.id, loadedProjectId, unitSystem, rows]);
-
-  const handleSaveCurrent = () => {
-    try {
-      const dataToSave = {
-        unitSystem,
-        rows
-      };
-      localStorage.setItem(`mep_condensate_calc_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(false);
-      forceSaveToCloud();
-      toast.success("Condensate Calculation saved to project successfully!");
-    } catch (e) {
-      toast.error("Failed to save calculation.");
-    }
-  };
-
-  const [newCoil, setNewCoil] = useState<{
-    name: string;
-    dbIn: number | "";
-    wbIn: number | "";
-    dbOut: number | "";
-    wbOut: number | "";
-    flow: number | "";
-  }>({
-    name: "",
-    dbIn: "",
-    wbIn: "",
-    dbOut: "",
-    wbOut: "",
-    flow: ""
-  });
 
   const ip = unitSystem === "ip";
 
@@ -361,15 +335,6 @@ function CondensateDrainCalcPage() {
       }));
 
       updateRowsWithHistory(converted);
-
-      setNewCoil(prev => ({
-        ...prev,
-        dbIn: prev.dbIn !== "" ? Number(convT(Number(prev.dbIn)).toFixed(1)) : "",
-        wbIn: prev.wbIn !== "" ? Number(convT(Number(prev.wbIn)).toFixed(1)) : "",
-        dbOut: prev.dbOut !== "" ? Number(convT(Number(prev.dbOut)).toFixed(1)) : "",
-        wbOut: prev.wbOut !== "" ? Number(convT(Number(prev.wbOut)).toFixed(1)) : "",
-        flow: prev.flow !== "" ? Number(convF(Number(prev.flow)).toFixed(0)) : ""
-      }));
     }
     toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
@@ -389,7 +354,7 @@ function CondensateDrainCalcPage() {
       const dw = Math.max(0, wIn - wOut);
       // Flow conversion
       const flowLps = ip ? cfmToLps(r.flow) : r.flow;
-      const massAirFlow = (flowLps / 1000) * 1.2;
+      const massAirFlow = (flowLps / 1000) * 1.2; // kg/s
       const condFlow = massAirFlow * dw; // L/s
 
       const missingReasons = getCoilMissingReasons({
@@ -422,11 +387,24 @@ function CondensateDrainCalcPage() {
   const totals = useMemo(() => {
     const totalFlow = rows.reduce((a, b) => a + b.flow, 0);
     const totalCond = calculatedRows.reduce((a, b) => a + b.condFlow, 0);
+    const avgDw = calculatedRows.length > 0 
+      ? calculatedRows.reduce((a, b) => a + b.dw, 0) / calculatedRows.length 
+      : 0;
     return {
       totalFlow,
-      totalCond
+      totalCond,
+      avgDw
     };
   }, [calculatedRows, rows]);
+
+  // Total count of all comments across all coils
+  const totalCommentsCount = useMemo(() => {
+    return rows.reduce((acc, r) => acc + (Array.isArray(r.comments) ? r.comments.length : 0), 0);
+  }, [rows]);
+
+  const firstCommentedCoil = useMemo(() => {
+    return rows.find(r => Array.isArray(r.comments) && r.comments.length > 0);
+  }, [rows]);
 
   const filteredRows = useMemo(() => {
     return calculatedRows.filter((r) => {
@@ -472,105 +450,79 @@ function CondensateDrainCalcPage() {
     toast.success(`New Coil "${newCoilItem.name}" created! Edit details below.`);
   };
 
-  const handleAddCoil = () => {
+  const handleSaveEditedCoil = (updated: CoilRow) => {
     if (isLocked) {
       toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
       return;
     }
-    if (!newCoil.name.trim()) {
-      toast.error("Please enter a Unit Reference / Name");
-      return;
+    const editIds = getCoilEditIds(updated.id);
+    if (editIds.length > 1) {
+      const otherUpdates: Partial<CoilRow> = {
+        dbIn: updated.dbIn,
+        wbIn: updated.wbIn,
+        dbOut: updated.dbOut,
+        wbOut: updated.wbOut,
+        flow: updated.flow
+      };
+      bulkUpdateCoils(editIds, otherUpdates);
+      toast.success(`Updated ${editIds.length} coils simultaneously!`);
+    } else {
+      const newRows = rows.map(r => (r.id === updated.id ? updated : r));
+      updateRowsWithHistory(newRows);
+      toast.success(`Coil "${updated.name}" updated!`);
     }
-    const id = "coil-" + Date.now();
-    const dbIn = newCoil.dbIn !== "" ? Number(newCoil.dbIn) : (ip ? 75.2 : 24.0);
-    const wbIn = newCoil.wbIn !== "" ? Number(newCoil.wbIn) : (ip ? 62.6 : 17.0);
-    const dbOut = newCoil.dbOut !== "" ? Number(newCoil.dbOut) : (ip ? 57.2 : 14.0);
-    const wbOut = newCoil.wbOut !== "" ? Number(newCoil.wbOut) : (ip ? 55.4 : 13.0);
-    const flow = newCoil.flow !== "" ? Number(newCoil.flow) : (ip ? 1000 : 500);
-
-    const added: CoilRow = { id, name: newCoil.name.trim(), dbIn, wbIn, dbOut, wbOut, flow, comments: [] };
-    updateRowsWithHistory([...rows, added]);
-    toast.success(`Added coil "${added.name}"`);
-    setNewCoil({
-      name: "",
-      dbIn: "",
-      wbIn: "",
-      dbOut: "",
-      wbOut: "",
-      flow: ""
-    });
+    setEditingCoil(null);
   };
 
-  const handleDeleteCoil = (idOrIds: string | string[]) => {
+  const handleDeleteCoil = async (ids: string[]) => {
     if (isLocked) {
       toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
       return;
     }
-    const idsToDelete = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-    const newRows = rows.filter(r => !idsToDelete.includes(r.id));
+    const ok = await confirm(
+      `Are you sure you want to delete ${ids.length} selected coil(s)?`,
+      { title: "Delete Cooling Coil(s)", confirmText: "Delete", cancelText: "Cancel" }
+    );
+    if (!ok) return;
+    const delSet = new Set(ids);
+    const newRows = rows.filter(r => !delSet.has(r.id));
     updateRowsWithHistory(newRows);
-    setSelected(prev => {
-      const next = new Set(prev);
-      idsToDelete.forEach(id => next.delete(id));
-      return next;
-    });
-    toast.success(`Deleted ${idsToDelete.length} coil${idsToDelete.length > 1 ? "s" : ""}`);
+    setSelected(new Set());
+    toast.success(`Deleted ${ids.length} coil(s)`);
   };
 
-  const handleDuplicateCoil = (coilOrCoils: CoilRow | CoilRow[]) => {
+  const handleDuplicateCoil = (items: CoilRow[]) => {
     if (isLocked) {
       toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
       return;
     }
-    const coilsToDup = Array.isArray(coilOrCoils) ? coilOrCoils : [coilOrCoils];
-    const duplicates: CoilRow[] = coilsToDup.map((c, idx) => ({
-      ...c,
-      id: `coil-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-      name: `${c.name} (Copy)`,
+    const duplicated: CoilRow[] = items.map((x, idx) => ({
+      ...x,
+      id: `coil-${Date.now()}-${idx}`,
+      name: `${x.name} (Copy)`,
       comments: []
     }));
-
-    updateRowsWithHistory([...rows, ...duplicates]);
-    setSelected(new Set(duplicates.map(d => d.id)));
-    toast.success(`Duplicated ${duplicates.length} coil${duplicates.length > 1 ? "s" : ""}`);
+    updateRowsWithHistory([...rows, ...duplicated]);
+    toast.success(`Duplicated ${duplicated.length} coil(s)`);
   };
 
-  const handleCopyCoil = (coilOrCoils?: CoilRow | CoilRow[]) => {
-    let itemsToCopy: CoilRow[] = [];
-    if (coilOrCoils) {
-      itemsToCopy = Array.isArray(coilOrCoils) ? coilOrCoils : [coilOrCoils];
-    } else if (selected.size > 0) {
-      itemsToCopy = rows.filter(r => selected.has(r.id));
-    }
-    if (itemsToCopy.length === 0) {
-      toast.info("No coil selected to copy");
-      return;
-    }
-    setClipboard(itemsToCopy);
-    toast.info(`Copied ${itemsToCopy.length} coil${itemsToCopy.length > 1 ? "s" : ""} to clipboard`);
+  const handleCopyCoil = (items: CoilRow | CoilRow[]) => {
+    const arr = Array.isArray(items) ? items : [items];
+    setClipboard(arr);
+    toast.success(`Copied ${arr.length} coil(s) to clipboard`);
   };
 
-  const handleCutCoil = (coilOrCoils?: CoilRow | CoilRow[]) => {
+  const handleCutCoil = (items: CoilRow | CoilRow[]) => {
     if (isLocked) {
       toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
       return;
     }
-    let itemsToCut: CoilRow[] = [];
-    if (coilOrCoils) {
-      itemsToCut = Array.isArray(coilOrCoils) ? coilOrCoils : [coilOrCoils];
-    } else if (selected.size > 0) {
-      itemsToCut = rows.filter(r => selected.has(r.id));
-    }
-    if (itemsToCut.length === 0) {
-      toast.info("No coil selected to cut");
-      return;
-    }
-    setClipboard(itemsToCut);
-    const cutIds = new Set(itemsToCut.map(i => i.id));
-    const remaining = rows.filter(r => !cutIds.has(r.id));
-    updateRowsWithHistory(remaining);
+    const arr = Array.isArray(items) ? items : [items];
+    setClipboard(arr);
+    const cutIds = new Set(arr.map(x => x.id));
+    updateRowsWithHistory(rows.filter(x => !cutIds.has(x.id)));
     setSelected(new Set());
-    toast.info(`Cut ${itemsToCut.length} coil${itemsToCut.length > 1 ? "s" : ""} to clipboard`);
+    toast.success(`Cut ${arr.length} coil(s)`);
   };
 
   const handlePasteCoil = () => {
@@ -578,181 +530,36 @@ function CondensateDrainCalcPage() {
       toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
       return;
     }
-    if (clipboard.length === 0) {
-      toast.info("Clipboard is empty. Copy or cut a coil first.");
-      return;
-    }
-    const pastedRows: CoilRow[] = clipboard.map((c, idx) => ({
-      ...c,
-      id: `coil-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-      name: `${c.name} (Copy)`,
+    if (clipboard.length === 0) return;
+    const pasted: CoilRow[] = clipboard.map((x, idx) => ({
+      ...x,
+      id: `coil-${Date.now()}-${idx}`,
+      name: `${x.name} (Pasted)`,
       comments: []
     }));
-    updateRowsWithHistory([...rows, ...pastedRows]);
-    setSelected(new Set(pastedRows.map(p => p.id)));
-    toast.success(`Pasted ${pastedRows.length} coil${pastedRows.length > 1 ? "s" : ""}`);
+    updateRowsWithHistory([...rows, ...pasted]);
+    toast.success(`Pasted ${pasted.length} coil(s)`);
   };
 
-  const handleSaveEditedCoil = (updated: CoilRow) => {
+  const handleToggleFlag = (ids: string[]) => {
     if (isLocked) {
       toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
       return;
     }
-    const isMulti = selected.has(updated.id) && selected.size > 1;
-    const editIds = isMulti ? Array.from(selected) : [updated.id];
-
-    const newRows = rows.map((r) => {
-      if (editIds.includes(r.id)) {
-        if (editIds.length > 1) {
-          return {
-            ...r,
-            dbIn: updated.dbIn,
-            wbIn: updated.wbIn,
-            dbOut: updated.dbOut,
-            wbOut: updated.wbOut,
-            flow: updated.flow,
-          };
-        }
-        return updated;
-      }
-      return r;
-    });
-
-    updateRowsWithHistory(newRows);
-    setEditingCoil(null);
-    toast.success(isMulti ? `Updated ${editIds.length} coils` : `Updated coil "${updated.name}"`);
-  };
-
-  // Scroll and highlight notification target item (smoothly scroll and highlight ONLY that target coil)
-  useEffect(() => {
-    const handleScrollTarget = (targetId?: string, targetName?: string) => {
-      if (!targetId && !targetName) return;
-      const cleanId = (targetId || "").toLowerCase().trim();
-      const cleanName = (targetName || "").toLowerCase().trim();
-
-      const matched = rows.find(r => {
-        const rId = String(r.id || "").toLowerCase().trim();
-        const rName = String(r.name || "").toLowerCase().trim();
-        if (cleanId && (rId === cleanId || rId.includes(cleanId) || cleanId.includes(rId))) return true;
-        if (cleanName && (rName === cleanName || rName.includes(cleanName) || cleanName.includes(rName))) return true;
-        return false;
-      });
-
-      if (matched) {
-        // ONLY select and highlight this single target coil
-        setSelected(new Set([matched.id]));
-        setHighlightedRowId(matched.id);
-
-        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-        highlightTimeoutRef.current = setTimeout(() => {
-          setHighlightedRowId(null);
-          highlightTimeoutRef.current = null;
-        }, 4000);
-
-        setTimeout(() => {
-          const el = document.getElementById(`coil-row-${matched.id}`) || document.querySelector(`[data-row-id="${matched.id}"]`);
-          if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-        }, 150);
-      }
-    };
-
-    // 1. Check URL parameters on mount / search params change
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const targetId = params.get("commentTargetId");
-      const targetName = params.get("commentTargetName");
-      if (targetId || targetName) {
-        setTimeout(() => {
-          handleScrollTarget(targetId || undefined, targetName || undefined);
-        }, 300);
-      }
-    }
-
-    // 2. Listen to custom event from Notification Center navigation
-    const handleScrollEvent = (e: Event) => {
-      const detail = (e as CustomEvent)?.detail;
-      if (detail) {
-        handleScrollTarget(detail.id, detail.name);
-      }
-    };
-
-    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
-    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
-
-    return () => {
-      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
-      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-    };
-  }, [rows]);
-
-  // Manual Flag / Unflag toggle handler matching Ventilation logic
-  const handleToggleFlag = (idOrIds: string | string[]) => {
-    if (isLocked) {
-      toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
-      return;
-    }
-    const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-    if (ids.length === 0) return;
-
-    const targetCalcRow = calculatedRows.find(r => r.id === ids[0]);
-    const targetRawRow = rows.find(r => r.id === ids[0]);
-    const isCurrentlyFlagged = Boolean(targetCalcRow?.isEffectivelyFlagged ?? targetRawRow?.flagged);
-    const nextFlag = !isCurrentlyFlagged;
-
+    const flagSet = new Set(ids);
+    const targetRow = rows.find(r => flagSet.has(r.id));
+    const nextVal = targetRow ? !targetRow.flagged : true;
     const newRows = rows.map(r => {
-      if (ids.includes(r.id)) {
-        return { ...r, flagged: nextFlag };
-      }
-      return r;
+      if (!flagSet.has(r.id)) return r;
+      return { ...r, flagged: nextVal };
     });
-
     updateRowsWithHistory(newRows);
-    if (ids.length === 1) {
-      const name = targetRawRow?.name || "Coil";
-      toast.info(`${nextFlag ? "Flagged" : "Unflagged"} "${name}"`);
-    } else {
-      toast.info(`${nextFlag ? "Flagged" : "Unflagged"} ${ids.length} coils`);
-    }
+    toast.info(`${nextVal ? "Flagged" : "Unflagged"} ${ids.length} coil(s)`);
   };
 
-  // Open Comment logic exactly matching Preliminary Cooling Load
   const handleOpenComment = (coil: CoilRow) => {
     setCommentTargetItem(coil);
     setCommentModalOpen(true);
-  };
-
-  // Row selection handlers
-  const handleRowClick = (id: string, e: React.MouseEvent, index: number) => {
-    if (e.shiftKey && lastClickedIndex !== null) {
-      const start = Math.min(lastClickedIndex, index);
-      const end = Math.max(lastClickedIndex, index);
-      const rangeIds = calculatedRows.slice(start, end + 1).map(r => r.id);
-      setSelected(new Set(rangeIds));
-    } else if (e.ctrlKey || e.metaKey) {
-      setSelected(prev => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-      setLastClickedIndex(index);
-    } else {
-      setSelected(new Set([id]));
-      setLastClickedIndex(index);
-    }
-  };
-
-  const handleToggleSelectRow = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   };
 
   const handleSelectAll = () => {
@@ -763,210 +570,43 @@ function CondensateDrainCalcPage() {
     }
   };
 
-  const handleRowDoubleClick = (coil: CoilRow) => {
-    if (isLocked) {
-      toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
-      return;
-    }
-    setEditingCoil(coil);
+  const handleToggleSelectRow = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
   };
 
-  // Keyboard shortcuts listener (Full Parity with Ventilation: Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A, Delete, Backspace, Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, Ctrl+S, Ctrl+D, Escape, Arrow Up/Down, Enter/F2)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape: Deselect all selected coils
-      if (e.key === "Escape") {
-        if (selected.size > 0) {
-          e.preventDefault();
-          setSelected(new Set());
-          setLastClickedIndex(null);
-        }
-        return;
-      }
-
-      // Avoid intercepting when user is typing into text inputs, textareas, selects, or contenteditable
-      const activeEl = document.activeElement;
-      const isInput = activeEl && (
-        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
-        activeEl.tagName === "TEXTAREA" ||
-        (activeEl as HTMLElement).isContentEditable ||
-        activeEl.tagName === "SELECT"
-      );
-      if (isInput) return;
-
-      const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-      // 1. Ctrl+A (Select All)
-      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
-        e.preventDefault();
-        if (rows.length > 0) {
-          setSelected(new Set(rows.map((r) => r.id)));
-          toast.info(`Selected all ${rows.length} coil(s)`);
-        }
-        return;
-      }
-
-      // 2. Delete / Backspace (Shows confirmation popup)
-      if (e.key === "Delete" || e.key === "Backspace") {
-        if (isLocked) {
-          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
-          return;
-        }
-        if (selected.size > 0) {
-          e.preventDefault();
-          confirm(`Are you sure you want to delete the ${selected.size} selected coil(s)?`, {
-            title: "Delete Coils",
-            confirmText: "Delete",
-            cancelText: "Cancel",
-            variant: "destructive"
-          }).then((ok) => {
-            if (ok) {
-              const count = selected.size;
-              handleDeleteCoil(Array.from(selected));
-              setSelected(new Set());
-              setLastClickedIndex(null);
-            }
-          });
-        }
-        return;
-      }
-
-      // 3. Copy: Ctrl+C
-      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
-        if (selected.size > 0) {
-          e.preventDefault();
-          handleCopyCoil();
-        }
-        return;
-      }
-
-      // 4. Cut: Ctrl+X
-      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
-        if (isLocked) {
-          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
-          return;
-        }
-        if (selected.size > 0) {
-          e.preventDefault();
-          handleCutCoil();
-        }
-        return;
-      }
-
-      // 5. Paste: Ctrl+V
-      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
-        if (isLocked) {
-          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
-          return;
-        }
-        e.preventDefault();
-        handlePasteCoil();
-        return;
-      }
-
-      // 6. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
-      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        handleUndo();
-        return;
-      }
-      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
-        e.preventDefault();
-        handleRedo();
-        return;
-      }
-
-      // 7. Save: Ctrl+S
-      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        handleSaveCurrent();
-        return;
-      }
-
-      // 8. Duplicate: Ctrl+D
-      if (isCmdOrCtrl && e.key.toLowerCase() === "d" && selected.size > 0) {
-        if (isLocked) {
-          toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
-          return;
-        }
-        e.preventDefault();
-        handleDuplicateCoil(rows.filter(x => selected.has(x.id)));
-        return;
-      }
-
-      // 9. Edit: F2 / Enter (When single coil selected)
-      if ((e.key === "F2" || e.key === "Enter") && selected.size === 1) {
-        const singleId = Array.from(selected)[0];
-        const targetCoil = rows.find(r => r.id === singleId);
-        if (targetCoil) {
-          e.preventDefault();
-          handleRowDoubleClick(targetCoil);
-        }
-        return;
-      }
-
-      // 10. Arrow Up / Arrow Down Navigation
-      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && filteredRows.length > 0) {
-        e.preventDefault();
-        const currentIdx = lastClickedIndex !== null ? lastClickedIndex : 0;
-        let nextIdx = e.key === "ArrowDown" ? currentIdx + 1 : currentIdx - 1;
-        if (nextIdx < 0) nextIdx = 0;
-        if (nextIdx >= filteredRows.length) nextIdx = filteredRows.length - 1;
-        const nextCoil = filteredRows[nextIdx];
-        if (nextCoil) {
-          setSelected(new Set([nextCoil.id]));
-          setLastClickedIndex(nextIdx);
-          const el = document.getElementById(`coil-row-${nextCoil.id}`);
-          if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        }
-        return;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    rows,
-    filteredRows,
-    selected,
-    clipboard,
-    historyIndex,
-    history,
-    isLocked,
-    lastClickedIndex,
-    confirm
-  ]);
-
-  const handleExportExcel = async () => {
-    try {
-      toast.loading("Generating calculation sheet...", { id: "condensate-export" });
-      await exportCondensateExcel(calculatedRows, {
-        calcNo: (project as any)?.calcNo || "CEC-MED-PXXX-114",
-        revNo: "Rev.0",
-        projectName: project?.name || "MEP Project",
-        projectNo: project?.code || "P000",
-        client: project?.client || "",
-        endUser: (project as any)?.endUser || project?.location || "",
-        unitSystem,
-      });
-      toast.dismiss("condensate-export");
-      toast.success("Condensate calculation sheet exported successfully!");
-    } catch (e) {
-      console.error("Failed to export condensate excel", e);
-      toast.dismiss("condensate-export");
-      toast.error("Failed to export Excel calculation sheet.");
+  const handleRowClick = (id: string, e: React.MouseEvent, idx: number) => {
+    if (e.shiftKey && lastClickedIndex !== null) {
+      const start = Math.min(lastClickedIndex, idx);
+      const end = Math.max(lastClickedIndex, idx);
+      const rangeIds = filteredRows.slice(start, end + 1).map(r => r.id);
+      setSelected(new Set([...Array.from(selected), ...rangeIds]));
+    } else if (e.ctrlKey || e.metaKey) {
+      const next = new Set(selected);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      setSelected(next);
+    } else {
+      setSelected(new Set([id]));
     }
+    setLastClickedIndex(idx);
+  };
+
+  const handleRowDoubleClick = (coil: CoilRow) => {
+    setEditingCoil(coil);
   };
 
   const handleExportPDF = async () => {
     try {
       toast.loading("Generating calculation PDF sheet...", { id: "condensate-pdf-export" });
       await exportCondensatePDF(calculatedRows, {
-        calcNo: (project as any)?.calcNo || "CEC-MED-PXXX-114",
+        calcNo: (project as any)?.calcNo || `TRV-CAL-CCD-${(project?.id || "0000").slice(-4).toUpperCase()}`,
         revNo: "Rev.0",
         projectName: project?.name || "MEP Project",
-        projectNo: project?.code || "P000",
+        projectNo: project?.code || (project?.id ? project.id.slice(0, 8) : "P000"),
         client: project?.client || "",
         endUser: (project as any)?.endUser || project?.location || "",
         unitSystem,
@@ -981,6 +621,43 @@ function CondensateDrainCalcPage() {
 
   const uTemp = ip ? "°F" : "°C";
   const uFlow = ip ? "CFM" : "L/s";
+  const uCond = ip ? "GPM" : "L/s";
+
+  // Pipe sizing calculation according to IPC Table 307.2.2
+  const totalGpm = lpsToGpm(totals.totalCond);
+  const totalLhr = totals.totalCond * 3600;
+
+  const recommendedPipe = useMemo(() => {
+    if (totalGpm <= 0.05) return { sizeMm: "20 mm", sizeInch: '3/4"', metricDn: "DN20", capacityGpm: "0.05 GPM" };
+    if (totalGpm <= 0.20) return { sizeMm: "25 mm", sizeInch: '1"', metricDn: "DN25", capacityGpm: "0.20 GPM" };
+    if (totalGpm <= 0.50) return { sizeMm: "32 mm", sizeInch: '1-1/4"', metricDn: "DN32", capacityGpm: "0.50 GPM" };
+    if (totalGpm <= 1.20) return { sizeMm: "40 mm", sizeInch: '1-1/2"', metricDn: "DN40", capacityGpm: "1.20 GPM" };
+    if (totalGpm <= 3.00) return { sizeMm: "50 mm", sizeInch: '2"', metricDn: "DN50", capacityGpm: "3.00 GPM" };
+    if (totalGpm <= 6.00) return { sizeMm: "65 mm", sizeInch: '2-1/2"', metricDn: "DN65", capacityGpm: "6.00 GPM" };
+    return { sizeMm: "80 mm", sizeInch: '3"', metricDn: "DN80", capacityGpm: ">6.00 GPM" };
+  }, [totalGpm]);
+
+  // IPC Pipe Sizing Matrix Table Data
+  const ipcPipeTable = [
+    { sizeInch: '3/4"', dn: "DN20", maxGpm: 0.05, maxLps: 0.00315, tonnage: "< 20 Tons" },
+    { sizeInch: '1"', dn: "DN25", maxGpm: 0.20, maxLps: 0.0126, tonnage: "20 – 40 Tons" },
+    { sizeInch: '1-1/4"', dn: "DN32", maxGpm: 0.50, maxLps: 0.0315, tonnage: "40 – 90 Tons" },
+    { sizeInch: '1-1/2"', dn: "DN40", maxGpm: 1.20, maxLps: 0.0757, tonnage: "90 – 125 Tons" },
+    { sizeInch: '2"', dn: "DN50", maxGpm: 3.00, maxLps: 0.1893, tonnage: "125 – 250 Tons" },
+    { sizeInch: '2-1/2"', dn: "DN65", maxGpm: 6.00, maxLps: 0.3785, tonnage: "250 – 450 Tons" },
+    { sizeInch: '3"', dn: "DN80", maxGpm: 12.00, maxLps: 0.7571, tonnage: "> 450 Tons" },
+  ];
+
+  // Top contributing coils
+  const rankedCoils = useMemo(() => {
+    return [...calculatedRows]
+      .filter(c => (c.condFlow || 0) > 0)
+      .sort((a, b) => (b.condFlow || 0) - (a.condFlow || 0));
+  }, [calculatedRows]);
+
+  const sigDetails = useMemo(() => {
+    return getSignatureBlockDetails(project?.id || "default", "/condensate-drain-calc");
+  }, [project?.id, calcReviewState]);
 
   return (
     <AppShell 
@@ -994,7 +671,7 @@ function CondensateDrainCalcPage() {
           {/* Breadcrumbs & Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center gap-3 mt-0.5">
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Coil Condensate Calculator</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "coil" : "coils"}</span>
@@ -1014,7 +691,21 @@ function CondensateDrainCalcPage() {
                   projectId={project?.id}
                   calculatorPath="/condensate-drain-calc"
                   calculatorTitle="Coil Condensate Calculator"
+                  onReviewStateChange={setCalcReviewState}
                 />
+                {totalCommentsCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (firstCommentedCoil) handleOpenComment(firstCommentedCoil);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 font-bold text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+                    title={`${totalCommentsCount} total active comment(s)/task(s)`}
+                  >
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{totalCommentsCount} Active {totalCommentsCount === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
+                  </button>
+                )}
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Input entering and leaving air conditions for multiple cooling coils to formulate aggregate condensate drainage loads.
@@ -1047,7 +738,18 @@ function CondensateDrainCalcPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Summary & Totals
+                  Summary &amp; Totals
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Report
                 </button>
               </div>
 
@@ -1075,9 +777,8 @@ function CondensateDrainCalcPage() {
                       className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
                     />
 
-                    <div className="ml-auto flex items-center gap-1.5">
-                      <button
-                        type="button"
+                    <div className="ml-auto flex items-center gap-1">
+                      <TBtn
                         disabled={isLocked}
                         onClick={() => {
                           if (isLocked) {
@@ -1086,28 +787,21 @@ function CondensateDrainCalcPage() {
                           }
                           setIsImportModalOpen(true);
                         }}
-                        className="inline-flex items-center gap-1.5 px-3 h-7 text-xs font-semibold rounded-full border border-border hover:bg-surface-2 transition-colors cursor-pointer text-foreground disabled:opacity-50"
                       >
-                        <Download className="size-3.5 text-primary" />
-                        <span>Import</span>
-                      </button>
-                      <button
-                        type="button"
+                        <Download className="size-3.5" /> Import
+                      </TBtn>
+                      <TBtn
                         onClick={handleExportPDF}
-                        className="inline-flex items-center gap-1.5 px-3 h-7 text-xs font-semibold rounded-full border border-border hover:bg-surface-2 transition-colors cursor-pointer text-foreground"
                       >
-                        <FileText className="size-3.5 text-rose-600 dark:text-rose-400" />
-                        <span>Export PDF</span>
-                      </button>
-                      <button
-                        type="button"
+                        <FileText className="size-3.5" /> Export PDF
+                      </TBtn>
+                      <TBtn
+                        primary
                         disabled={isLocked}
                         onClick={handleNewCoil}
-                        className="inline-flex items-center gap-1.5 px-3 h-7 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/95 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
                       >
-                        <Plus className="size-3.5" />
-                        <span>New Coil</span>
-                      </button>
+                        <Plus className="size-3.5" /> New Coil
+                      </TBtn>
                     </div>
 
                     {/* Bulk actions bar overlay */}
@@ -1399,7 +1093,7 @@ function CondensateDrainCalcPage() {
                                       </ContextMenuItem>
 
                                       <ContextMenuItem
-                                        onClick={() => handleToggleFlag(isSelected && selected.size > 1 ? Array.from(selected) : r.id)}
+                                        onClick={() => handleToggleFlag(isSelected && selected.size > 1 ? Array.from(selected) : [r.id])}
                                         disabled={isLocked}
                                         className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
                                       >
@@ -1418,7 +1112,7 @@ function CondensateDrainCalcPage() {
                                       <ContextMenuSeparator className="h-px bg-border my-1" />
 
                                       <ContextMenuItem
-                                        onClick={() => handleDeleteCoil(isSelected && selected.size > 1 ? Array.from(selected) : r.id)}
+                                        onClick={() => handleDeleteCoil(isSelected && selected.size > 1 ? Array.from(selected) : [r.id])}
                                         disabled={isLocked}
                                         className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded-lg text-destructive cursor-pointer font-medium disabled:opacity-50"
                                       >
@@ -1455,58 +1149,448 @@ function CondensateDrainCalcPage() {
                   <div className="flex items-center justify-between pb-3 border-b border-border/60">
                     <div className="flex items-center gap-2">
                       <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-foreground font-sans">Condensate Summary & Totals</h3>
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-foreground font-sans">Condensate Summary &amp; Analytics</h3>
                     </div>
-                    <span className="text-xs text-muted-foreground">Aggregated across all scheduled cooling coils</span>
+                    <span className="text-xs text-muted-foreground">Aggregated psychrometrics &amp; IPC / ASHRAE drainage guidance</span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Active Coils */}
-                    <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between shadow-xs">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Active Coils</span>
-                        <div className="flex items-baseline gap-1.5 mt-1">
-                          <span className="text-3xl font-bold font-mono text-foreground">{rows.length}</span>
-                          <span className="text-xs text-muted-foreground font-sans">{rows.length === 1 ? "unit" : "units"}</span>
+                  {/* Top KPI Cards Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
+                    {/* 1. Active Coils */}
+                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Active Coils</span>
+                        <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-muted-foreground">
+                          <Layers className="size-4" />
                         </div>
                       </div>
-                      <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-muted-foreground">
-                        <Layers className="size-6" />
+                      <div className="flex items-baseline gap-1 mt-2">
+                        <span className="text-2xl font-bold font-mono text-foreground">{rows.length}</span>
+                        <span className="text-xs text-muted-foreground font-sans">{rows.length === 1 ? "unit" : "units"}</span>
                       </div>
                     </div>
 
-                    {/* Total Sized Airflow */}
-                    <div className="bg-card border border-border rounded-xl p-5 flex items-center justify-between shadow-xs">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Total Sized Airflow</span>
-                        <div className="flex items-baseline gap-1.5 mt-1">
-                          <span className="text-3xl font-bold font-mono text-foreground">{totals.totalFlow.toLocaleString()}</span>
-                          <span className="text-xs font-bold text-muted-foreground">{uFlow}</span>
+                    {/* 2. Total Airflow */}
+                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Total Airflow</span>
+                        <div className="p-2 rounded-xl bg-blue-500/10 text-[#0A7BC7]">
+                          <Wind className="size-4" />
                         </div>
                       </div>
-                      <div className="p-3 rounded-xl bg-blue-500/10 text-[#0A7BC7]">
-                        <Wind className="size-6" />
+                      <div className="flex items-baseline gap-1 mt-2">
+                        <span className="text-2xl font-bold font-mono text-foreground">{totals.totalFlow.toLocaleString()}</span>
+                        <span className="text-xs font-bold text-muted-foreground">{uFlow}</span>
                       </div>
                     </div>
 
-                    {/* Total Condensate Flow */}
-                    <div className="bg-primary/5 border border-primary/20 rounded-xl p-5 flex items-center justify-between shadow-xs">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-primary">Total Condensate Flow</span>
-                        <div className="flex items-baseline gap-1.5 mt-1">
-                          <span className="text-3xl font-bold font-mono text-primary">
-                            {ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)}
-                          </span>
-                          <span className="text-xs font-bold text-primary">{ip ? "GPM" : "L/s"}</span>
+                    {/* 3. Aggregate Condensate Flow */}
+                    <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 flex flex-col justify-between shadow-xs col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-primary">Total Condensate Flow</span>
+                        <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                          <Droplets className="size-4" />
                         </div>
-                        <span className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                          ({!ip ? `${lpsToGpm(totals.totalCond).toFixed(4)} GPM` : `${totals.totalCond.toFixed(4)} L/s`})
+                      </div>
+                      <div className="flex items-baseline gap-2 mt-2">
+                        <span className="text-2xl font-extrabold font-mono text-primary">
+                          {ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)}
+                        </span>
+                        <span className="text-xs font-bold text-primary">{ip ? "GPM" : "L/s"}</span>
+                        <span className="text-[11px] text-muted-foreground font-mono ml-auto">
+                          ({totalLhr.toFixed(2)} L/hr)
                         </span>
                       </div>
-                      <div className="p-3 rounded-xl bg-primary/10 text-primary">
-                        <Droplets className="size-6" />
+                    </div>
+
+                    {/* 4. Recommended Drain Main */}
+                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Drain Header Pipe</span>
+                        <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                          <Gauge className="size-4" />
+                        </div>
+                      </div>
+                      <div className="flex items-baseline gap-1 mt-2">
+                        <span className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                          {ip ? recommendedPipe.sizeInch : recommendedPipe.metricDn}
+                        </span>
+                        <span className="text-xs text-muted-foreground">({ip ? recommendedPipe.metricDn : recommendedPipe.sizeInch})</span>
                       </div>
                     </div>
+
+                    {/* 5. Trap Seal Depth */}
+                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Min Trap Depth</span>
+                        <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                          <Droplet className="size-4" />
+                        </div>
+                      </div>
+                      <div className="flex items-baseline gap-1 mt-2">
+                        <span className="text-xl font-bold font-mono text-foreground">
+                          {ip ? "3.0 in" : "75 mm"}
+                        </span>
+                        <span className="text-xs text-muted-foreground">P-Trap</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Two Column Analytical Cards */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Left: Ranked Coil Condensate Contributors */}
+                    <div className="border border-border rounded-2xl p-5 bg-card flex flex-col gap-4 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-[13px] font-bold text-foreground flex items-center gap-2">
+                          <TrendingUp className="size-4 text-primary" />
+                          Coil Condensate Contribution Breakdown
+                        </h4>
+                        <span className="text-[11px] text-muted-foreground font-mono">
+                          Total: {ip ? `${totalGpm.toFixed(4)} GPM` : `${totals.totalCond.toFixed(4)} L/s`}
+                        </span>
+                      </div>
+
+                      {rankedCoils.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-muted-foreground">
+                          No active moisture extraction detected in coils.
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          {rankedCoils.map((c, idx) => {
+                            const pct = totals.totalCond > 0 ? ((c.condFlow || 0) / totals.totalCond) * 100 : 0;
+                            return (
+                              <div key={c.id} className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-surface-2/40 border border-border/50">
+                                <div className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2 font-medium text-foreground">
+                                    <span className="size-5 rounded-full bg-primary/10 text-primary font-mono text-[10.5px] font-bold flex items-center justify-center">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="font-semibold">{c.name}</span>
+                                    <span className="text-muted-foreground font-mono text-[11px]">({c.flow.toLocaleString()} {uFlow})</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 font-mono">
+                                    <span className="font-bold text-primary">
+                                      {ip ? lpsToGpm(c.condFlow).toFixed(4) : (c.condFlow || 0).toFixed(4)} {uCond}
+                                    </span>
+                                    <span className="text-muted-foreground text-[11px]">({pct.toFixed(1)}%)</span>
+                                  </div>
+                                </div>
+                                <div className="h-1.5 w-full bg-border/60 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-[#0A7BC7] rounded-full transition-all duration-300"
+                                    style={{ width: `${Math.max(4, Math.min(100, pct))}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: IPC Condensate Drain Sizing Table */}
+                    <div className="border border-border rounded-2xl p-5 bg-card flex flex-col gap-4 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-[13px] font-bold text-foreground flex items-center gap-2">
+                          <Gauge className="size-4 text-emerald-600 dark:text-emerald-400" />
+                          IPC &amp; ASHRAE Condensate Drain Sizing Table
+                        </h4>
+                        <span className="text-[11px] text-muted-foreground font-medium">IPC Section 307</span>
+                      </div>
+
+                      <div className="overflow-x-auto border border-border rounded-xl">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-surface-2 text-muted-foreground font-semibold border-b border-border">
+                              <th className="py-2 px-3">Nominal Pipe Size</th>
+                              <th className="py-2 px-3 text-right">Max Flow ({uCond})</th>
+                              <th className="py-2 px-3 text-right">Cooling Capacity</th>
+                              <th className="py-2 px-2 text-center">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border font-mono">
+                            {ipcPipeTable.map((pipe) => {
+                              const isSelectedPipe = (ip ? pipe.sizeInch : pipe.dn) === (ip ? recommendedPipe.sizeInch : recommendedPipe.metricDn);
+                              return (
+                                <tr
+                                  key={pipe.sizeInch}
+                                  className={`transition-colors ${
+                                    isSelectedPipe
+                                      ? "bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold text-foreground"
+                                      : "hover:bg-surface-2/50 text-muted-foreground"
+                                  }`}
+                                >
+                                  <td className="py-2 px-3">
+                                    <span className="font-sans font-semibold text-foreground">{pipe.sizeInch}</span> ({pipe.dn})
+                                  </td>
+                                  <td className="py-2 px-3 text-right">
+                                    {ip ? `${pipe.maxGpm.toFixed(2)} GPM` : `${pipe.maxLps.toFixed(4)} L/s`}
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-sans text-[11px]">
+                                    {pipe.tonnage}
+                                  </td>
+                                  <td className="py-2 px-2 text-center">
+                                    {isSelectedPipe ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                        <Check className="size-3" /> Recommended
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground/50">-</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-normal">
+                        Pipe sizes based on gravity drainage slope of 1% (1/8 in/ft). Secondary emergency drains require equal or larger diameter.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Trap Seal Guidance & Engineering Principles */}
+                  <div className="border border-border rounded-2xl p-5 bg-card flex flex-col gap-3 shadow-xs">
+                    <h4 className="text-[13px] font-bold text-foreground flex items-center gap-2">
+                      <Droplets className="size-4 text-primary" />
+                      Condensate Trap Seal Depth &amp; Hydraulic Installation Rules
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-muted-foreground mt-1">
+                      <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/60 flex flex-col gap-1.5">
+                        <strong className="text-foreground font-semibold">1. Draw-Through Trap Sizing</strong>
+                        <p className="leading-relaxed text-[11.5px]">
+                          Fan creates negative static pressure in drain pan. Trap total height H must exceed fan static pressure + 1.0 inch (25 mm) to prevent air rushing into pan and holding back water.
+                        </p>
+                      </div>
+                      <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/60 flex flex-col gap-1.5">
+                        <strong className="text-foreground font-semibold">2. Blow-Through Trap Sizing</strong>
+                        <p className="leading-relaxed text-[11.5px]">
+                          Fan creates positive static pressure. Trap seal depth must exceed positive static pressure + 0.5 inch (13 mm) to avoid blowing conditioned air through the drain piping.
+                        </p>
+                      </div>
+                      <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/60 flex flex-col gap-1.5">
+                        <strong className="text-foreground font-semibold">3. Air Gap / Indirect Waste</strong>
+                        <p className="leading-relaxed text-[11.5px]">
+                          Condensate lines must terminate with a minimum 1.0 inch (25 mm) physical air gap above the rim of the floor drain or receptor to eliminate sewer gas back-siphonage.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* PRINTABLE REPORT PREVIEW TAB (MATCHING VENTILATION REPORT FORMAT) */}
+              {tab === "report" && (
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+                    
+                    <div className="flex justify-between items-start pb-4 border-b border-border">
+                      <div>
+                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                          Cooling Coil Condensate Calculation Report
+                        </h2>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          Design Standards: ASHRAE Psychrometric Principles &amp; IPC Section 307 Condensate Disposal
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <TBtn onClick={() => window.print()}>
+                          <Printer className="size-3.5" /> Print
+                        </TBtn>
+                        <TBtn primary onClick={handleExportPDF}>
+                          <FileText className="size-3.5" /> Export PDF
+                        </TBtn>
+                      </div>
+                    </div>
+
+                    {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
+                    <div className="border border-border rounded-xl overflow-hidden text-[12px]">
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Calculation No.:</span>
+                          <span className="text-muted-foreground font-mono">TRV-CAL-CCD-{(project?.id || "0000").slice(-4).toUpperCase()}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Date:</span>
+                          <span className="text-muted-foreground">{formatDateStr(new Date().toISOString())}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project No.:</span>
+                          <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Client:</span>
+                          <span className="text-muted-foreground">{project?.client || "-"}</span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-border">
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">Project Name:</span>
+                          <span className="text-muted-foreground">{project?.name || "MEP Project"}</span>
+                        </div>
+                        <div className="p-2.5 px-3 flex justify-between">
+                          <span className="font-bold text-foreground">End User:</span>
+                          <span className="text-muted-foreground">{(project as any)?.endUser || project?.location || "-"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Table 1: Coil Condensate Schedule & Psychrometric Data */}
+                    <div className="border border-border rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                              <th className="py-2 px-2.5 w-10">Sr.</th>
+                              <th className="py-2 px-3 text-left">Unit Ref</th>
+                              <th className="py-2 px-3 text-right">Air Flow ({uFlow})</th>
+                              <th className="py-2 px-3">On-Coil DB/WB ({uTemp})</th>
+                              <th className="py-2 px-3">Off-Coil DB/WB ({uTemp})</th>
+                              <th className="py-2 px-2.5 text-right">W_in (kg/kg)</th>
+                              <th className="py-2 px-2.5 text-right">W_out (kg/kg)</th>
+                              <th className="py-2 px-2.5 text-right">ΔW (kg/kg)</th>
+                              <th className="py-2 px-3 text-right">Condensate ({uCond})</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60 font-mono">
+                            {calculatedRows.map((r, idx) => {
+                              const condVal = ip ? lpsToGpm(r.condFlow).toFixed(4) : r.condFlow.toFixed(4);
+                              return (
+                                <tr key={r.id} className="hover:bg-muted/30">
+                                  <td className="py-2 px-2.5 text-center text-muted-foreground font-sans">{idx + 1}</td>
+                                  <td className="py-2 px-3 font-sans font-bold text-foreground">{r.name}</td>
+                                  <td className="py-2 px-3 text-right">{r.flow.toLocaleString()}</td>
+                                  <td className="py-2 px-3 text-center">{r.dbIn.toFixed(1)} / {r.wbIn.toFixed(1)}</td>
+                                  <td className="py-2 px-3 text-center">{r.dbOut.toFixed(1)} / {r.wbOut.toFixed(1)}</td>
+                                  <td className="py-2 px-2.5 text-right">{r.wIn.toFixed(5)}</td>
+                                  <td className="py-2 px-2.5 text-right">{r.wOut.toFixed(5)}</td>
+                                  <td className="py-2 px-2.5 text-right font-semibold">{r.dw.toFixed(5)}</td>
+                                  <td className="py-2 px-3 text-right font-bold text-primary">{condVal}</td>
+                                </tr>
+                              );
+                            })}
+                            {/* Summary Total Row */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold border-t-2 border-border text-foreground">
+                              <td className="py-2 px-2.5 text-center font-sans">TOTAL</td>
+                              <td className="py-2 px-3 font-sans">{rows.length} Units</td>
+                              <td className="py-2 px-3 text-right">{totals.totalFlow.toLocaleString()}</td>
+                              <td className="py-2 px-3 text-center">-</td>
+                              <td className="py-2 px-3 text-center">-</td>
+                              <td className="py-2 px-2.5 text-right">-</td>
+                              <td className="py-2 px-2.5 text-right">-</td>
+                              <td className="py-2 px-2.5 text-right">-</td>
+                              <td className="py-2 px-3 text-right text-primary font-mono text-[12px]">
+                                {ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Table 2: Aggregate Condensate Drainage Summary & Sizing Guidance */}
+                    <div className="border border-border rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px] border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                              <th className="py-2 px-2.5 w-10">Sr.</th>
+                              <th className="py-2 px-3 text-left">Drainage Sizing Parameter</th>
+                              <th className="py-2 px-3 text-left">Governing Rule / Standard</th>
+                              <th className="py-2 px-3 text-right">Calculated Value</th>
+                              <th className="py-2 px-2.5 text-center">Unit</th>
+                              <th className="py-2 px-3 text-left">Engineering Design Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60 font-sans">
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">1</td>
+                              <td className="py-2 px-3 font-medium">Total Active Cooling Coils</td>
+                              <td className="py-2 px-3 text-muted-foreground">Quantity</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{rows.length} Units</td>
+                              <td className="py-2 px-2.5 text-center text-muted-foreground">units</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Total scheduled cooling units contributing to drain header</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">2</td>
+                              <td className="py-2 px-3 font-medium">Aggregate Airflow Volume</td>
+                              <td className="py-2 px-3 text-muted-foreground">Sum(Airflow)</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{totals.totalFlow.toLocaleString()}</td>
+                              <td className="py-2 px-2.5 text-center text-muted-foreground">{uFlow}</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Total processed supply air across all cooling coils</td>
+                            </tr>
+                            {/* Key Highlighted Row: Total Aggregate Condensate Flow */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold text-foreground">
+                              <td className="py-2 px-2.5 text-center font-mono">3</td>
+                              <td className="py-2 px-3">TOTAL AGGREGATE CONDENSATE FLOW</td>
+                              <td className="py-2 px-3">Sum(m_dot_air · ΔW)</td>
+                              <td className="py-2 px-3 text-right font-mono text-primary text-[12px]">
+                                {ip ? `${totalGpm.toFixed(4)} GPM (${totals.totalCond.toFixed(4)} L/s)` : `${totals.totalCond.toFixed(4)} L/s (${totalGpm.toFixed(4)} GPM)`}
+                              </td>
+                              <td className="py-2 px-2.5 text-center font-mono">{ip ? "GPM" : "L/s"}</td>
+                              <td className="py-2 px-3 text-[10.5px]">Equivalent to {totalLhr.toFixed(2)} L/hr moisture removal rate</td>
+                            </tr>
+                            {/* Key Highlighted Row: Recommended Drain Main Size */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold text-foreground">
+                              <td className="py-2 px-2.5 text-center font-mono">4</td>
+                              <td className="py-2 px-3">Recommended Drain Header Pipe Size</td>
+                              <td className="py-2 px-3">IPC 307.2.2 / ASHRAE</td>
+                              <td className="py-2 px-3 text-right font-mono text-emerald-700 dark:text-emerald-300 text-[12px]">
+                                {ip ? `${recommendedPipe.sizeInch} (${recommendedPipe.metricDn})` : `${recommendedPipe.metricDn} (${recommendedPipe.sizeInch})`}
+                              </td>
+                              <td className="py-2 px-2.5 text-center font-mono">{ip ? "inch" : "mm"}</td>
+                              <td className="py-2 px-3 text-[10.5px]">Gravity drainage sloped at min 1% (1/8 in/ft) to floor drain</td>
+                            </tr>
+                            <tr className="hover:bg-muted/30">
+                              <td className="py-2 px-2.5 text-center font-mono">5</td>
+                              <td className="py-2 px-3 font-medium">Recommended Min P-Trap Seal Depth</td>
+                              <td className="py-2 px-3 text-muted-foreground">H = 1 in + Fan ESP</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold">{ip ? "3.0 in" : "75 mm"}</td>
+                              <td className="py-2 px-2.5 text-center text-muted-foreground">{ip ? "in" : "mm"}</td>
+                              <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Prevents air ingress/blowout and allows unhindered condensate drain</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Table 3: 4-Column Dynamic Signature Block */}
+                    <div className="border border-border rounded-xl overflow-hidden mt-6">
+                      <table className="w-full text-center text-[11px] border-collapse">
+                        <thead>
+                          <tr className="bg-[#FFE6CC] text-black font-bold border-b border-border">
+                            <th className="py-2 px-3 text-left w-1/4">Designation</th>
+                            <th className="py-2 px-3 w-1/4">Originator</th>
+                            <th className="py-2 px-3 w-1/4">Reviewer</th>
+                            <th className="py-2 px-3 w-1/4">Approver</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border font-sans">
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Name:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.name || sigDetails?.originatedName || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.name || sigDetails?.approverName || "-"}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Date:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.date || sigDetails?.originatedDate || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-"}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.date || sigDetails?.approverDate || "-"}</td>
+                          </tr>
+                          <tr>
+                            <td className="py-2 px-3 text-left font-bold text-foreground">Signature:</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-")}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-")}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-")}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
                   </div>
                 </div>
               )}
@@ -1606,7 +1690,7 @@ function CoilCondensateIntelligenceDrawer({
 }: {
   onClose: () => void;
   calculatedRows: any[];
-  totals: { totalFlow: number; totalCond: number };
+  totals: { totalFlow: number; totalCond: number; avgDw?: number };
   unitSystem: "si" | "ip";
   onSelectCoil: (id: string) => void;
   onEditCoil: (coil: any) => void;
@@ -1648,234 +1732,119 @@ function CoilCondensateIntelligenceDrawer({
 
   return (
     <div className="h-full w-[360px] flex flex-col font-sans select-none animate-in fade-in duration-200">
-      <header className="h-12 px-4 flex items-center justify-between border-b border-border/80 bg-slate-50/50 dark:bg-slate-900/40 shrink-0">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-            <Sparkles className="size-4" />
+          <div className="size-6 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+            <Sparkles className="size-3.5" />
           </div>
-          <span className="text-[13px] font-bold text-foreground tracking-tight">Psychrometric Intelligence</span>
+          <div>
+            <h3 className="text-xs font-bold text-foreground">Psychrometric Intelligence</h3>
+            <p className="text-[10px] text-muted-foreground">Automated audit &amp; sizing recommendations</p>
+          </div>
         </div>
         <button
           onClick={onClose}
-          className="size-7 grid place-items-center rounded-lg hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          className="size-7 rounded-lg hover:bg-surface-2 flex items-center justify-center text-muted-foreground hover:text-foreground transition cursor-pointer"
         >
-          <X className="size-3.5" />
+          <X className="size-4" />
         </button>
-      </header>
+      </div>
 
-      <div className="flex-1 overflow-y-auto divide-y divide-border/60">
-        {/* Compliance & Health */}
-        <section className="p-4 flex flex-col gap-2.5">
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-xs">
+        {/* Compliance Gauge */}
+        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <CheckCircle2 className="size-3.5 text-emerald-500" /> Psychrometric Health
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Schedule Health</span>
+            <span className={`font-mono font-bold text-xs ${compliancePct === 100 ? "text-emerald-600" : "text-amber-600"}`}>
+              {compliancePct}% Valid
             </span>
-            <span className="font-mono text-xs font-bold text-foreground">{compliancePct}% Valid</span>
           </div>
-          <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-2 w-full bg-border/60 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all duration-300 ${compliancePct === 100 ? "bg-emerald-500" : compliancePct >= 70 ? "bg-amber-500" : "bg-red-500"}`}
+              className={`h-full rounded-full transition-all duration-300 ${compliancePct === 100 ? "bg-emerald-500" : "bg-amber-500"}`}
               style={{ width: `${compliancePct}%` }}
             />
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            {totalCoils === 0
-              ? "Add cooling coils to verify thermodynamic states and calculate drainage loads."
-              : `${validCoilsCount} of ${totalCoils} cooling coils have verified thermodynamic psychrometric states.`}
-          </p>
-        </section>
-
-        {/* Aggregate Drainage Load */}
-        <section className="p-4 flex flex-col gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <Droplets className="size-3.5 text-primary" /> Total Drainage Load
-          </span>
-          <div className="grid grid-cols-2 gap-2 mt-1">
-            <div className="bg-slate-50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-border/60">
-              <span className="text-[10px] uppercase font-bold text-muted-foreground">Condensate</span>
-              <div className="font-mono font-bold text-sm text-primary mt-0.5">
-                {ip ? `${totalGpm.toFixed(4)} GPM` : `${totals.totalCond.toFixed(4)} L/s`}
-              </div>
-              <span className="text-[10px] text-muted-foreground font-mono">
-                ({!ip ? `${totalGpm.toFixed(4)} GPM` : `${totals.totalCond.toFixed(4)} L/s`})
-              </span>
-            </div>
-            <div className="bg-slate-50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-border/60">
-              <span className="text-[10px] uppercase font-bold text-muted-foreground">Airflow</span>
-              <div className="font-mono font-bold text-sm text-foreground mt-0.5">
-                {totals.totalFlow.toLocaleString()} {uFlow}
-              </div>
-              <span className="text-[10px] text-muted-foreground font-mono">
-                {totalCoils} active unit{totalCoils === 1 ? "" : "s"}
-              </span>
-            </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>{validCoilsCount} of {totalCoils} coils complete</span>
+            {flaggedCoils.length > 0 && <span className="text-red-500 font-semibold">{flaggedCoils.length} attention required</span>}
           </div>
-        </section>
+        </div>
 
-        {/* Recommended Pipe Sizing (ASHRAE / IPC) */}
-        <section className="p-4 flex flex-col gap-2">
-          <div
-            className="flex items-center justify-between cursor-pointer"
-            onClick={() => setOpenSections(prev => ({ ...prev, pipeSizing: !prev.pipeSizing }))}
-          >
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Gauge className="size-3.5 text-[#0A7BC7]" /> Pipe Sizing Guide
+        {/* Section 1: Pipe Sizing Recommendation */}
+        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+              <Gauge className="size-3.5 text-emerald-600" /> Drain Sizing Recommendation
             </span>
-            {openSections.pipeSizing ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
           </div>
+          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-foreground flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">Aggregate Drain Pipe:</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-lg font-bold font-mono text-emerald-700 dark:text-emerald-300">
+                {ip ? recommendedPipe.sizeInch : recommendedPipe.metricDn}
+              </span>
+              <span className="text-xs text-muted-foreground">({ip ? recommendedPipe.metricDn : recommendedPipe.sizeInch})</span>
+            </div>
+            <span className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">
+              Adequate for up to {recommendedPipe.capacityGpm} gravity drainage load at 1% slope.
+            </span>
+          </div>
+        </div>
 
-          {openSections.pipeSizing && (
-            <div className="flex flex-col gap-2 mt-1">
-              <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-primary">Main Header Size</span>
-                  <span className="font-mono font-bold text-sm text-primary">
-                    {recommendedPipe.metricDn} ({recommendedPipe.sizeInch})
+        {/* Section 2: Top Contributors */}
+        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2.5">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+            <TrendingUp className="size-3.5 text-primary" /> Top Condensate Contributors
+          </span>
+          {rankedCoils.length === 0 ? (
+            <span className="text-muted-foreground text-[11px]">No coils with positive condensate load.</span>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {rankedCoils.map((c, i) => (
+                <div
+                  key={c.id}
+                  onClick={() => onSelectCoil(c.id)}
+                  className="p-2 rounded-xl bg-surface-2/60 hover:bg-surface-2 flex items-center justify-between cursor-pointer transition"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="size-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] flex items-center justify-center">
+                      {i + 1}
+                    </span>
+                    <span className="font-semibold text-foreground">{c.name}</span>
+                  </div>
+                  <span className="font-mono font-bold text-primary">
+                    {ip ? `${lpsToGpm(c.condFlow).toFixed(4)} GPM` : `${(c.condFlow || 0).toFixed(4)} L/s`}
                   </span>
                 </div>
-                <div className="text-[11px] text-muted-foreground flex justify-between">
-                  <span>Rated flow capacity:</span>
-                  <span className="font-mono font-semibold text-foreground">{recommendedPipe.capacityGpm}</span>
-                </div>
-              </div>
-
-              <div className="text-[11.5px] text-muted-foreground space-y-1 bg-slate-50 dark:bg-slate-900/30 p-2.5 rounded-xl border border-border/60">
-                <div className="flex items-center justify-between">
-                  <span>Min. Gravity Slope:</span>
-                  <span className="font-mono font-bold text-foreground">1% (1:100 / 1/8" per ft)</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>P-Trap Water Seal:</span>
-                  <span className="font-mono font-bold text-foreground">≥ 50 mm (2.0")</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Insulation:</span>
-                  <span className="font-semibold text-foreground">13 mm Closed-Cell Elastomeric</span>
-                </div>
-              </div>
+              ))}
             </div>
           )}
-        </section>
+        </div>
 
-        {/* Calculation Issues & Flagged Coils */}
-        <section className="p-4 flex flex-col gap-2">
-          <div
-            className="flex items-center justify-between cursor-pointer"
-            onClick={() => setOpenSections(prev => ({ ...prev, issues: !prev.issues }))}
-          >
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <AlertTriangle className={`size-3.5 ${flaggedCoils.length > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
-              Diagnostics & Flags ({flaggedCoils.length})
+        {/* Section 3: Issues & Thermodynamic Warnings */}
+        {flaggedCoils.length > 0 && (
+          <div className="border border-destructive/30 bg-destructive/5 rounded-2xl p-4 shadow-xs flex flex-col gap-2.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-destructive flex items-center gap-1.5">
+              <AlertTriangle className="size-3.5" /> Thermodynamic / Input Issues ({flaggedCoils.length})
             </span>
-            {openSections.issues ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
-          </div>
-
-          {openSections.issues && (
-            <div className="flex flex-col gap-2 mt-1">
-              {flaggedCoils.length === 0 ? (
-                <div className="text-xs text-muted-foreground py-2 text-center bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-border/60">
-                  No psychrometric anomalies or flagged coils detected.
+            <div className="flex flex-col gap-2">
+              {flaggedCoils.map(c => (
+                <div
+                  key={c.id}
+                  onClick={() => onEditCoil(c)}
+                  className="p-2 rounded-xl bg-background/80 border border-destructive/20 flex flex-col gap-1 cursor-pointer hover:border-destructive transition"
+                >
+                  <span className="font-semibold text-foreground">{c.name}</span>
+                  <span className="text-[10.5px] text-destructive leading-tight">
+                    {c.missingReasons?.join(" • ") || "Flagged for engineer review"}
+                  </span>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
-                  {flaggedCoils.map((c) => {
-                    const reasons = c.missingReasons && c.missingReasons.length > 0
-                      ? c.missingReasons.join(", ")
-                      : "Manually flagged for review";
-                    return (
-                      <div
-                        key={c.id}
-                        onClick={() => onSelectCoil(c.id)}
-                        className="flex items-start justify-between p-2 rounded-xl bg-red-500/5 hover:bg-red-500/10 border border-red-500/20 cursor-pointer transition-colors"
-                      >
-                        <div className="flex flex-col gap-0.5 min-w-0 pr-2">
-                          <span className="text-xs font-bold text-foreground truncate">{c.name || "Unnamed Coil"}</span>
-                          <span className="text-[10.5px] text-red-600 dark:text-red-400 line-clamp-1">{reasons}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditCoil(c);
-                          }}
-                          className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
-                          title="Edit coil"
-                        >
-                          <Edit3 className="size-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              ))}
             </div>
-          )}
-        </section>
-
-        {/* Top Condensate Contributors */}
-        <section className="p-4 flex flex-col gap-2">
-          <div
-            className="flex items-center justify-between cursor-pointer"
-            onClick={() => setOpenSections(prev => ({ ...prev, topContributors: !prev.topContributors }))}
-          >
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Activity className="size-3.5 text-primary" /> Top Condensate Loads
-            </span>
-            {openSections.topContributors ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
           </div>
-
-          {openSections.topContributors && (
-            <div className="flex flex-col gap-1.5 mt-1">
-              {rankedCoils.length === 0 ? (
-                <div className="text-xs text-muted-foreground py-2 text-center bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-border/60">
-                  No condensate loads calculated yet.
-                </div>
-              ) : (
-                rankedCoils.map((c, i) => {
-                  const coilGpm = lpsToGpm(c.condFlow || 0);
-                  const pct = totals.totalCond > 0 ? Math.round(((c.condFlow || 0) / totals.totalCond) * 100) : 0;
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => onSelectCoil(c.id)}
-                      className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-900/30 hover:bg-accent border border-border/60 cursor-pointer transition-colors text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] text-muted-foreground w-4">{i + 1}.</span>
-                        <span className="font-semibold text-foreground">{c.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 font-mono">
-                        <span className="text-primary font-bold">{ip ? `${coilGpm.toFixed(4)} GPM` : `${(c.condFlow || 0).toFixed(4)} L/s`}</span>
-                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-bold">{pct}%</span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-        </section>
-
-        {/* Engineering Standard Notes */}
-        <section className="p-4 flex flex-col gap-2">
-          <div
-            className="flex items-center justify-between cursor-pointer"
-            onClick={() => setOpenSections(prev => ({ ...prev, engineeringNotes: !prev.engineeringNotes }))}
-          >
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Info className="size-3.5 text-muted-foreground" /> Standards & Psychrometrics
-            </span>
-            {openSections.engineeringNotes ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
-          </div>
-
-          {openSections.engineeringNotes && (
-            <div className="text-[11.5px] text-muted-foreground space-y-1.5 bg-slate-50 dark:bg-slate-900/30 p-3 rounded-xl border border-border/60 mt-1 leading-relaxed">
-              <p>• <strong>ASHRAE Saturation Pressure Model:</strong> Uses polynomial exponential saturation vapor pressure calculations calibrated at 101.325 kPa standard sea-level barometric pressure.</p>
-              <p>• <strong>Moisture Extraction Formula:</strong> Moisture extraction is computed via &m_dot;<sub>w</sub> = &m_dot;<sub>a</sub> &times; (W<sub>in</sub> &minus; W<sub>out</sub>), assuming standard dry air density &rho; = 1.20 kg/m&sup3;.</p>
-              <p>• <strong>Compliance Code:</strong> Sized in conformance with International Plumbing Code (IPC) Chapter 307 &amp; ASHRAE Handbook Fundamentals.</p>
-            </div>
-          )}
-        </section>
+        )}
       </div>
     </div>
   );

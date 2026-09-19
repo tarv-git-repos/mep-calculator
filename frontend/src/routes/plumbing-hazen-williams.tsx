@@ -13,6 +13,7 @@ import {
   Search, Activity, Droplet, Settings, Grid, Flame
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/plumbing-hazen-williams")({
@@ -471,18 +472,12 @@ function HazenWilliamsPage() {
                     <p className="text-[12.5px] text-muted-foreground mt-0.5">Summary of black steel/CPVC pipe hydraulics sizing.</p>
                   </div>
                   <div className="flex items-center gap-2 no-print print:hidden">
-                    <button
-                      onClick={exportPdf}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
-                    >
-                      <FileText className="size-3.5 text-destructive" /> Export PDF
-                    </button>
-                    <button
-                      onClick={() => window.print()}
-                      className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-[12.5px] font-semibold border border-border bg-background hover:bg-surface-2 text-foreground cursor-pointer"
-                    >
-                      <Printer className="size-3.5 text-muted-foreground" /> Print Report
-                    </button>
+                    <TBtn onClick={() => window.print()}>
+                      <Printer className="size-3.5" /> Print
+                    </TBtn>
+                    <TBtn primary onClick={exportPdf}>
+                      <FileText className="size-3.5" /> Export PDF
+                    </TBtn>
                   </div>
                 </div>
 

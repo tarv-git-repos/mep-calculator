@@ -1849,26 +1849,23 @@ function BasementSmokeCalcPage() {
                   )}
 
                   {/* Import Button */}
-                  <button
+                  <TBtn
                     onClick={() => setShowImportSourceModal(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-1 bg-background text-foreground border border-border rounded-full text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
                     title="Import basement floor levels from 3D Studio or Excel schedule"
                   >
-                    <Upload className="size-3.5 text-[#0A7BC7]" />
-                    Import
-                  </button>
+                    <Upload className="size-3.5" /> Import
+                  </TBtn>
 
                   {/* Export PDF */}
-                  <button
+                  <TBtn
                     onClick={handleExportPDF}
-                    className="flex items-center gap-1.5 px-3.5 py-1 bg-background text-foreground border border-border rounded-full text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
                   >
-                    <FileText className="size-3.5 text-red-600" />
-                    Export PDF
-                  </button>
+                    <FileText className="size-3.5" /> Export PDF
+                  </TBtn>
 
                   {/* Add Level (EXTREME RIGHT) */}
-                  <button
+                  <TBtn
+                    primary
                     onClick={() => {
                       if (!newFloor.name) {
                         const nextLevelNum = calculatedGroups.length + 1;
@@ -1876,11 +1873,9 @@ function BasementSmokeCalcPage() {
                       }
                       setShowAddLevelModal(true);
                     }}
-                    className="flex items-center gap-1.5 px-4 py-1 bg-[#0A7BC7] text-white rounded-full text-xs font-bold hover:bg-[#06456F] transition cursor-pointer shadow-xs"
                   >
-                    <Plus className="size-3.5 text-white" />
-                    Add Level
-                  </button>
+                    <Plus className="size-3.5" /> Add Level
+                  </TBtn>
                 </div>
               </div>
             )}

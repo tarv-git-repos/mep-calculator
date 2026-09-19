@@ -220,7 +220,7 @@ export function EditPsychrometricModal({
     const wbtF = cToF(wbtC);
     const dpF = cToF(dpC);
     const hBtuLb = hKjKg / 2.326;
-    const vFt3Lb = vM3Kg * 0.062428;
+    const vFt3Lb = vM3Kg * 16.0185;
     const densitySi = 1 / vM3Kg;
     const densityIp = 1 / vFt3Lb;
     const pwKpa = pwPa / 1000;

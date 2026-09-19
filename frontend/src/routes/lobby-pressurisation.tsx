@@ -1652,26 +1652,23 @@ function LobbyPressurisationPage() {
                   )}
 
                   {/* Import Button */}
-                  <button
+                  <TBtn
                     onClick={() => setShowImportSourceModal(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-1 bg-background text-foreground border border-border rounded-full text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
                     title="Import lobby floor levels from 3D Studio or Excel schedule"
                   >
-                    <Upload className="size-3.5 text-[#0A7BC7]" />
-                    Import
-                  </button>
+                    <Upload className="size-3.5" /> Import
+                  </TBtn>
 
                   {/* PDF Export Button */}
-                  <button
+                  <TBtn
                     onClick={handleExportPDF}
-                    className="flex items-center gap-1.5 px-3.5 py-1 bg-background text-foreground border border-border rounded-full text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
                   >
-                    <FileText className="size-3.5 text-red-600" />
-                    PDF
-                  </button>
+                    <FileText className="size-3.5" /> Export PDF
+                  </TBtn>
 
                   {/* Add Level / Zone (EXTREME RIGHT) */}
-                  <button
+                  <TBtn
+                    primary
                     onClick={() => {
                       setNewFloor({
                         name: `Level ${uniqueLevels.length + 1}`,
@@ -1682,11 +1679,9 @@ function LobbyPressurisationPage() {
                       });
                       setShowAddLevelModal(true);
                     }}
-                    className="flex items-center gap-1.5 px-4 py-1 bg-[#0A7BC7] text-white rounded-full text-xs font-bold hover:bg-[#06456F] transition cursor-pointer shadow-xs"
                   >
-                    <Plus className="size-3.5 text-white" />
-                    Add Level / Zone
-                  </button>
+                    <Plus className="size-3.5" /> Add Level / Zone
+                  </TBtn>
                 </div>
               </div>
             )}

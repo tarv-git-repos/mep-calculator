@@ -613,6 +613,15 @@ function PumpSizingPage() {
     }
   };
 
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const pumpTypeBtnClass = (t: string) => `flex-1 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer text-center ${
+    pumpType === t
+      ? "bg-background text-foreground shadow-sm font-bold"
+      : "text-muted-foreground hover:text-foreground"
+  }`;
+  const pumpTypeContainerClass = "flex bg-slate-100/80 dark:bg-zinc-800/80 p-1 rounded-full gap-1 border border-slate-200 dark:border-zinc-700/80";
+
   return (
     <AppShell title="Pump Sizing Calculator" subtitle="Transfer & Booster Pump Duty Sizing">
       <StandardCalculatorLayout
@@ -640,10 +649,51 @@ function PumpSizingPage() {
         previewData={framework.previewData}
         isPreviewOpen={framework.isPreviewOpen}
         onClosePreviewModal={framework.closePreviewModal}
+        commentTarget={commentTargetItem}
+        isCommentOpen={commentModalOpen}
+        onCloseCommentModal={() => setCommentModalOpen(false)}
+        onSaveComment={handleSaveComment}
         hideHeader={true}
         hideReviewBar={true}
         customToolbarActions={null}
       >
+        {/* Top Tabs Bar (Pump Application Type) */}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div 
+              id="field-pumpType" 
+              data-field-id="pumpType" 
+              data-comment-target="pumpType"
+              className={`flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50 transition-colors ${isFieldHighlighted("pumpType", "Pump Application Type")}`}
+            >
+              <div className="flex items-center gap-3">
+                <div className={pumpTypeContainerClass}>
+                  {(["booster", "transfer", "transfer-booster"] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setPumpType(t)}
+                      className={pumpTypeBtnClass(t)}
+                    >
+                      {t === "booster" ? "Booster" : t === "transfer" ? "Transfer" : "Both"}
+                    </button>
+                  ))}
+                </div>
+                {renderCommentBadge("pumpType", "Pump Application Type")}
+              </div>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-64 font-sans">
+            <ContextMenuItem onClick={() => setPumpType("booster")} className="text-xs cursor-pointer">
+              Reset to Booster
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => handleOpenComment("pumpType", "Pump Application Type")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+              <MessageSquare className="size-3.5" />
+              Add Comment / Assign Task
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+
         {/* Pump Sizing Parameter Inputs and Calculation Breakdown Grid */}
         <div
           ref={scrollContainerRef}
@@ -659,183 +709,275 @@ function PumpSizingPage() {
                   </span>
                 </div>
 
-                {/* PUMP TYPE SELECTOR */}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                    Pump Application Type
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(["booster", "transfer", "transfer-booster"] as const).map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setPumpType(t)}
-                        className={`py-2 px-1 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
-                          pumpType === t
-                            ? "bg-[#0A7BC7] text-white border-[#0A7BC7] shadow-xs"
-                            : "bg-slate-50 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:bg-slate-100"
-                        }`}
-                      >
-                        {t === "booster" ? "Booster" : t === "transfer" ? "Transfer" : "Both"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 {/* WSFU vs VOLUME INPUTS */}
-                {pumpType !== "transfer" ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                        Total Water Supply Fixture Units (WSFU)
-                      </label>
-                      <button
-                        onClick={handleImportWSFU}
-                        className="text-[10.5px] font-bold text-[#0A7BC7] hover:underline cursor-pointer"
-                      >
-                        Import WSFU
-                      </button>
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div 
+                      id="field-flowParams" 
+                      data-field-id="flowParams" 
+                      data-comment-target="flowParams"
+                      className={`p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("flowParams", "Flow Parameters")}`}
+                    >
+                      {pumpType !== "transfer" ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Total Water Supply Fixture Units (WSFU)
+                              </label>
+                              {renderCommentBadge("flowParams", "Flow Parameters")}
+                            </div>
+                            <button
+                              disabled={framework.isReadOnly}
+                              onClick={handleImportWSFU}
+                              className={`text-[10.5px] font-bold text-[#0A7BC7] hover:underline cursor-pointer ${framework.isReadOnly ? "hidden" : ""}`}
+                            >
+                              Import WSFU
+                            </button>
+                          </div>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={wsfuVal}
+                            onChange={(e) => setWsfuVal(e.target.value)}
+                            className={flowInputClass}
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="flex items-center">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Target Volume (Litres)
+                              </label>
+                              {renderCommentBadge("flowParams", "Flow Parameters")}
+                            </div>
+                            <input
+                              type="number"
+                              disabled={framework.isReadOnly}
+                              value={reqVolume}
+                              onChange={(e) => setReqVolume(e.target.value)}
+                              className={flowInputClass}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                              Fill Time (Hours)
+                            </label>
+                            <input
+                              type="number"
+                              disabled={framework.isReadOnly}
+                              value={fillTime}
+                              onChange={(e) => setFillTime(e.target.value)}
+                              className={flowInputClass}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <input
-                      type="number"
-                      value={wsfuVal}
-                      onChange={(e) => setWsfuVal(e.target.value)}
-                      className="w-full h-9 px-3 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7]"
-                    />
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                        Target Volume (Litres)
-                      </label>
-                      <input
-                        type="number"
-                        value={reqVolume}
-                        onChange={(e) => setReqVolume(e.target.value)}
-                        className="w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                        Fill Time (Hours)
-                      </label>
-                      <input
-                        type="number"
-                        value={fillTime}
-                        onChange={(e) => setFillTime(e.target.value)}
-                        className="w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7]"
-                      />
-                    </div>
-                  </div>
-                )}
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-64 font-sans">
+                    <ContextMenuItem onClick={() => { setWsfuVal("21.6"); setReqVolume("1000"); setFillTime("2"); }} className="text-xs cursor-pointer">
+                      Reset Flow Parameters
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => handleOpenComment("flowParams", "Flow Parameters")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                      <MessageSquare className="size-3.5" />
+                      Add Comment / Assign Task
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
 
                 {/* PIPING PARAMETERS */}
-                <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Piping & Friction
-                  </span>
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <label className="text-[11px] text-slate-500">Vertical (m)</label>
-                      <input
-                        type="number"
-                        value={pipeVert}
-                        onChange={(e) => setPipeVert(e.target.value)}
-                        className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono"
-                      />
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div 
+                      id="field-pipingParams" 
+                      data-field-id="pipingParams" 
+                      data-comment-target="pipingParams"
+                      className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("pipingParams", "Piping & Friction")}`}
+                    >
+                      <div className="flex items-center">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Piping & Friction
+                        </span>
+                        {renderCommentBadge("pipingParams", "Piping & Friction")}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <label className="text-[11px] text-slate-500">Vertical (m)</label>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={pipeVert}
+                            onChange={(e) => setPipeVert(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500">Horizontal (m)</label>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={pipeHoriz}
+                            onChange={(e) => setPipeHoriz(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500">Friction m/100m</label>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={fricFactor}
+                            onChange={(e) => setFricFactor(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[11px] text-slate-500">Horizontal (m)</label>
-                      <input
-                        type="number"
-                        value={pipeHoriz}
-                        onChange={(e) => setPipeHoriz(e.target.value)}
-                        className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[11px] text-slate-500">Friction m/100m</label>
-                      <input
-                        type="number"
-                        value={fricFactor}
-                        onChange={(e) => setFricFactor(e.target.value)}
-                        className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-64 font-sans">
+                    <ContextMenuItem onClick={() => { setPipeVert("20"); setPipeHoriz("50"); setFricFactor("0.4"); }} className="text-xs cursor-pointer">
+                      Reset Piping Parameters
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => handleOpenComment("pipingParams", "Piping & Friction")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                      <MessageSquare className="size-3.5" />
+                      Add Comment / Assign Task
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
 
                 {/* HEAD & PRESSURES */}
-                <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Head & Pressures (bar)
-                  </span>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <label className="text-[11px] text-slate-500">Static Head (bar)</label>
-                      <input
-                        type="number"
-                        value={staticHead}
-                        onChange={(e) => setStaticHead(e.target.value)}
-                        className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono"
-                      />
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div 
+                      id="field-headParams" 
+                      data-field-id="headParams" 
+                      data-comment-target="headParams"
+                      className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("headParams", "Head & Pressures")}`}
+                    >
+                      <div className="flex items-center">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Head & Pressures (bar)
+                        </span>
+                        {renderCommentBadge("headParams", "Head & Pressures")}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <label className="text-[11px] text-slate-500">Static Head (bar)</label>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={staticHead}
+                            onChange={(e) => setStaticHead(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500">Residual Outlet (bar)</label>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={presidHead}
+                            onChange={(e) => setPresidHead(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[11px] text-slate-500">Residual Outlet (bar)</label>
-                      <input
-                        type="number"
-                        value={presidHead}
-                        onChange={(e) => setPresidHead(e.target.value)}
-                        className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-64 font-sans">
+                    <ContextMenuItem onClick={() => { setStaticHead("5.0"); setPresidHead("1.0"); }} className="text-xs cursor-pointer">
+                      Reset Head & Pressures
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => handleOpenComment("headParams", "Head & Pressures")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                      <MessageSquare className="size-3.5" />
+                      Add Comment / Assign Task
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
 
                 {/* EFFICIENCY PARAMETERS */}
-                <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Efficiency Ratings (%)
-                  </span>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <label className="text-[11px] text-slate-500">Pump Efficiency (%)</label>
-                      <input
-                        type="number"
-                        value={effPump}
-                        onChange={(e) => setEffPump(e.target.value)}
-                        className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono"
-                      />
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div 
+                      id="field-efficiencyParams" 
+                      data-field-id="efficiencyParams" 
+                      data-comment-target="efficiencyParams"
+                      className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("efficiencyParams", "Efficiency Ratings")}`}
+                    >
+                      <div className="flex items-center">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Efficiency Ratings (%)
+                        </span>
+                        {renderCommentBadge("efficiencyParams", "Efficiency Ratings")}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <label className="text-[11px] text-slate-500">Pump Efficiency (%)</label>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={effPump}
+                            onChange={(e) => setEffPump(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500">Motor Efficiency (%)</label>
+                          <input
+                            type="number"
+                            disabled={framework.isReadOnly}
+                            value={effMotor}
+                            onChange={(e) => setEffMotor(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[11px] text-slate-500">Motor Efficiency (%)</label>
-                      <input
-                        type="number"
-                        value={effMotor}
-                        onChange={(e) => setEffMotor(e.target.value)}
-                        className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-64 font-sans">
+                    <ContextMenuItem onClick={() => { setEffPump("70"); setEffMotor("85"); }} className="text-xs cursor-pointer">
+                      Reset Efficiency Ratings
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => handleOpenComment("efficiencyParams", "Efficiency Ratings")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                      <MessageSquare className="size-3.5" />
+                      Add Comment / Assign Task
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               </div>
             </div>
 
             {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
             <div className="lg:col-span-7 space-y-5">
               {/* PRIMARY RESULTS CARD */}
-              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                  <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                    ⚡ Sizing Results Summary
-                  </span>
-                  <button
-                    onClick={() => framework.openPreviewModal(calculationPreviewData)}
-                    className="text-xs font-semibold text-[#0A7BC7] hover:underline flex items-center gap-1 cursor-pointer"
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <div 
+                    id="card-hero-results" 
+                    data-field-id="card-hero-results" 
+                    data-comment-target="card-hero-results"
+                    className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 transition-colors ${isFieldHighlighted("card-hero-results", "Sizing Results Summary")}`}
                   >
-                    <Eye className="size-3.5" /> Step-by-Step Breakdown
-                  </button>
-                </div>
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                      <div className="flex items-center">
+                        <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                          ⚡ Sizing Results Summary
+                        </span>
+                        {renderCommentBadge("card-hero-results", "Sizing Results Summary")}
+                      </div>
+                      <button
+                        onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                        className="text-xs font-semibold text-[#0A7BC7] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye className="size-3.5" /> Step-by-Step Breakdown
+                      </button>
+                    </div>
 
                 {/* DISPLAY STAT CARDS */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -887,7 +1029,15 @@ function PumpSizingPage() {
                     <span className="font-mono text-[#0A7BC7]">{results.motorPower.toFixed(2)} kW ({results.hp.toFixed(2)} HP)</span>
                   </div>
                 </div>
-              </div>
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-64 font-sans">
+                  <ContextMenuItem onClick={() => handleOpenComment("card-hero-results", "Sizing Results Summary")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                    <MessageSquare className="size-3.5" />
+                    Add Comment / Assign Task
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             </div>
           </div>
         </div>
