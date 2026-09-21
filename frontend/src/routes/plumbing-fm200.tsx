@@ -24,6 +24,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { VersionManager } from "@/components/workspace/VersionManager";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { TBtn } from "@/components/workspace/Button";
 
 export const Route = createFileRoute("/plumbing-fm200")({
   head: () => ({
@@ -379,6 +380,95 @@ function FM200SizerPage() {
         });
       }
     }
+  };
+
+  // Helper to render an input box matching CHW Pump Head structure
+  const renderInputBox = (
+    id: string,
+    label: string,
+    value: number | "",
+    onChange: (val: number | "") => void,
+    unit?: string,
+    step: string = "any",
+    min: number = 0,
+    placeholder: string = "0",
+    disabled: boolean = false
+  ) => {
+    const itemComments = getItemComments(id);
+    const hasComments = itemComments.length > 0;
+    const isHighlighted = highlightedTargetId === id ||
+                          highlightedTargetId === `field-${id}` ||
+                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
+                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+
+    const displayLabel = unit ? `${label} (${unit})` : label;
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`field-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex flex-col gap-1.5 group cursor-context-menu p-1.5 rounded-xl transition-all ${
+              isHighlighted
+                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
+                : ""
+            }`}
+          >
+            <label className="font-semibold text-foreground flex items-center justify-between gap-2 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span>{displayLabel}</span>
+                {hasComments && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenComment(id, label);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+                    title={`${itemComments.length} comment(s)/task(s) assigned`}
+                  >
+                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                    <span>{itemComments.length}</span>
+                  </button>
+                )}
+              </span>
+              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
+            </label>
+            <input
+              id={id}
+              type="number"
+              disabled={disabled || isEffectiveReadOnly}
+              min={min}
+              step={step}
+              placeholder={placeholder}
+              value={value === "" ? "" : value}
+              onChange={(e) => onChange(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50 disabled:opacity-60 disabled:cursor-not-allowed"
+            />
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(displayLabel, value)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
   };
 
   // Sizer math calculation
@@ -859,18 +949,25 @@ function FM200SizerPage() {
                 </button>
               </div>
 
-              {/* Sizing Unit system toggle */}
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitSystemChange}
-                disabled={isEffectiveReadOnly}
-                inputDescriptions="Floor Area, Enclosure Height, Minimum Temperature"
-                conversionExample={
-                  unitSystem === "si"
-                    ? "Convert 100 m² → 1,076.4 ft², 3 m → 9.84 ft, 20°C → 68°F"
-                    : "Convert 1,000 ft² → 92.9 m², 10 ft → 3.05 m, 68°F → 20°C"
-                }
-              />
+              {/* Right Side Controls: Export & Unit System Toggle */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={exportPdf}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+
+                {/* Sizing Unit system toggle */}
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  disabled={isEffectiveReadOnly}
+                  inputDescriptions="Floor Area, Enclosure Height, Minimum Temperature"
+                  conversionExample={
+                    unitSystem === "si"
+                      ? "Convert 100 m² → 1,076.4 ft², 3 m → 9.84 ft, 20°C → 68°F"
+                      : "Convert 1,000 ft² → 92.9 m², 10 ft → 3.05 m, 68°F → 20°C"
+                  }
+                />
+              </div>
             </div>
         {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -879,526 +976,135 @@ function FM200SizerPage() {
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
                     {/* Inputs & Parameters Section */}
                     <div className="lg:col-span-7 xl:col-span-7 flex flex-col gap-6 w-full">
-
                       {/* Room Enclosure Dimensions Card */}
-                      <div className="border border-border rounded-3xl bg-background shadow-xs overflow-hidden">
-                        <div className="bg-surface px-5 py-3 border-b border-border flex items-center justify-between">
-                          <h3 className="text-[12.5px] font-bold uppercase tracking-wider text-foreground">Enclosure Layout</h3>
-                          <span className="text-[11px] font-mono text-muted-foreground">Dimensions</span>
+                      <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
+                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                          <div className="flex items-center gap-2">
+                            <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
+                              1. Enclosure Layout
+                            </h3>
+                          </div>
+                          <span className="text-[10.5px] font-mono text-muted-foreground">Dimensions</span>
                         </div>
-                        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div 
-                                id="fm200-area"
-                                data-item-id="fm200-area"
-                                data-field-id="fm200-area"
-                                className={`flex flex-col gap-1.5 p-3 rounded-2xl transition-all cursor-context-menu hover:bg-surface-2/40 border border-transparent hover:border-border/60 ${
-                                  highlightedTargetId === "fm200-area" ? "ring-2 ring-primary bg-primary/10 animate-pulse" : ""
-                                }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-context-menu">
-                                    Floor Area ({unitSystem === "si" ? "m²" : "ft²"})
-                                  </label>
-                                  {renderCommentBadge("fm200-area", `Floor Area (${unitSystem === "si" ? "m²" : "ft²"})`)}
-                                </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={area}
-                                  onChange={(e) => setArea(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
-                                  className="h-10 rounded-xl border border-border px-3 text-[13px] bg-background text-foreground focus:border-primary focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed font-medium"
-                                  placeholder="e.g. 100"
-                                  step="any"
-                                />
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue(`Floor Area (${unitSystem === "si" ? "m²" : "ft²"})`, area)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Area</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue(`Floor Area`, setArea)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handleResetValue(`Floor Area`, setArea, unitSystem === "si" ? 100 : 1076.4)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default ({unitSystem === "si" ? "100 m²" : "1,076.4 ft²"})</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handleClearValue(`Floor Area`, setArea)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("fm200-area", `Floor Area (${unitSystem === "si" ? "m²" : "ft²"})`)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div 
-                                id="fm200-height"
-                                data-item-id="fm200-height"
-                                data-field-id="fm200-height"
-                                className={`flex flex-col gap-1.5 p-3 rounded-2xl transition-all cursor-context-menu hover:bg-surface-2/40 border border-transparent hover:border-border/60 ${
-                                  highlightedTargetId === "fm200-height" ? "ring-2 ring-primary bg-primary/10 animate-pulse" : ""
-                                }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-context-menu">
-                                    Enclosure Height ({unitSystem === "si" ? "m" : "ft"})
-                                  </label>
-                                  {renderCommentBadge("fm200-height", `Enclosure Height (${unitSystem === "si" ? "m" : "ft"})`)}
-                                </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={height}
-                                  onChange={(e) => setHeight(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
-                                  className="h-10 rounded-xl border border-border px-3 text-[13px] bg-background text-foreground focus:border-primary focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed font-medium"
-                                  placeholder="e.g. 3"
-                                  step="any"
-                                />
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue(`Enclosure Height (${unitSystem === "si" ? "m" : "ft"})`, height)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Height</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue(`Enclosure Height`, setHeight)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handleResetValue(`Enclosure Height`, setHeight, unitSystem === "si" ? 3 : 9.84)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default ({unitSystem === "si" ? "3 m" : "9.84 ft"})</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handleClearValue(`Enclosure Height`, setHeight)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("fm200-height", `Enclosure Height (${unitSystem === "si" ? "m" : "ft"})`)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {renderInputBox(
+                            "fm200-area",
+                            "Floor Area",
+                            area,
+                            setArea,
+                            unitSystem === "si" ? "m²" : "ft²",
+                            "any",
+                            0,
+                            unitSystem === "si" ? "100" : "1000"
+                          )}
+                          {renderInputBox(
+                            "fm200-height",
+                            "Enclosure Height",
+                            height,
+                            setHeight,
+                            unitSystem === "si" ? "m" : "ft",
+                            "any",
+                            0,
+                            unitSystem === "si" ? "3" : "10"
+                          )}
                         </div>
                       </div>
 
                       {/* NFPA 2001 Design Presets Card */}
-                      <div className="border border-border rounded-3xl bg-background shadow-xs overflow-hidden">
-                        <div className="bg-surface px-5 py-3 border-b border-border flex items-center justify-between">
-                          <h3 className="text-[12.5px] font-bold uppercase tracking-wider text-foreground">Design Parameters</h3>
-                          <span className="text-[11px] font-mono text-muted-foreground">NFPA 2001 Standard</span>
-                        </div>
-                        <div className="p-5 flex flex-col gap-5">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                            {/* Presets */}
-                            <ContextMenu>
-                              <ContextMenuTrigger asChild>
-                                <div 
-                                  id="fm200-preset"
-                                  data-item-id="fm200-preset"
-                                  data-field-id="fm200-preset"
-                                  className={`flex flex-col gap-1.5 p-3 rounded-2xl transition-all cursor-context-menu hover:bg-surface-2/40 border border-transparent hover:border-border/60 ${
-                                    highlightedTargetId === "fm200-preset" ? "ring-2 ring-primary bg-primary/10 animate-pulse" : ""
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-context-menu">
-                                      Hazard Classification
-                                    </label>
-                                    {renderCommentBadge("fm200-preset", "Hazard Classification")}
-                                  </div>
-                                  <select
-                                    disabled={isEffectiveReadOnly}
-                                    value={preset}
-                                    onChange={(e) => setPreset(e.target.value as PresetOption)}
-                                    className="h-10 rounded-xl border border-border px-3 text-[13px] bg-background text-foreground focus:border-primary focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed font-medium"
-                                  >
-                                    <option value="class_a">Class A - Surface Fire (6.857%)</option>
-                                    <option value="class_c">Class C - Electrical Hazards (7.00%)</option>
-                                    <option value="class_b">Class B - Flammable Liquid (8.70%)</option>
-                                    <option value="custom">Custom Concentration %</option>
-                                  </select>
-                                </div>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                                <ContextMenuItem
-                                  onClick={() => handleCopyValue("Hazard Classification", preset.toUpperCase())}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Copy className="size-3.5 text-muted-foreground" />
-                                  <span>Copy Hazard Class</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => {
-                                    if (isEffectiveReadOnly) return;
-                                    setPreset("class_a");
-                                  }}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <span>Set Class A (6.86%)</span>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => {
-                                    if (isEffectiveReadOnly) return;
-                                    setPreset("class_c");
-                                  }}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <span>Set Class C (7.00%)</span>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => {
-                                    if (isEffectiveReadOnly) return;
-                                    setPreset("class_b");
-                                  }}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <span>Set Class B (8.70%)</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenComment("fm200-preset", "Hazard Classification")}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                                >
-                                  <MessageSquare className="size-3.5" />
-                                  <span>Add Comment / Assign Task</span>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-
-                            {/* Custom Concentration (if custom) */}
-                            <ContextMenu>
-                              <ContextMenuTrigger asChild>
-                                <div 
-                                  id="fm200-concentration"
-                                  data-item-id="fm200-concentration"
-                                  data-field-id="fm200-concentration"
-                                  className={`flex flex-col gap-1.5 p-3 rounded-2xl transition-all cursor-context-menu hover:bg-surface-2/40 border border-transparent hover:border-border/60 ${
-                                    highlightedTargetId === "fm200-concentration" ? "ring-2 ring-primary bg-primary/10 animate-pulse" : ""
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-context-menu">
-                                      Design Concentration (C %)
-                                    </label>
-                                    {renderCommentBadge("fm200-concentration", "Design Concentration")}
-                                  </div>
-                                  <input
-                                    type="number"
-                                    disabled={isEffectiveReadOnly || preset !== "custom"}
-                                    value={preset === "custom" ? customConc : calcResults.C}
-                                    onChange={(e) => setCustomConc(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
-                                    className="h-10 rounded-xl border border-border px-3 text-[13px] bg-background text-foreground focus:border-primary focus:outline-none disabled:bg-surface-2 disabled:text-muted-foreground disabled:opacity-60 disabled:cursor-not-allowed font-medium"
-                                    placeholder="e.g. 7.0"
-                                    step="0.01"
-                                  />
-                                </div>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                                <ContextMenuItem
-                                  onClick={() => handleCopyValue("Design Concentration", `${calcResults.C}%`)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Copy className="size-3.5 text-muted-foreground" />
-                                  <span>Copy Concentration</span>
-                                  <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                                </ContextMenuItem>
-                                {preset === "custom" && (
-                                  <>
-                                    <ContextMenuItem
-                                      disabled={isEffectiveReadOnly}
-                                      onClick={() => handlePasteValue(`Design Concentration`, setCustomConc)}
-                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                    >
-                                      <Clipboard className="size-3.5 text-muted-foreground" />
-                                      <span>Paste Value</span>
-                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                                    </ContextMenuItem>
-                                    <ContextMenuSeparator className="h-px bg-border my-1" />
-                                    <ContextMenuItem
-                                      disabled={isEffectiveReadOnly}
-                                      onClick={() => handleResetValue(`Design Concentration`, setCustomConc, 7.0)}
-                                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                    >
-                                      <RotateCcw className="size-3.5 text-muted-foreground" />
-                                      <span>Reset to 7.0%</span>
-                                    </ContextMenuItem>
-                                  </>
-                                )}
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenComment("fm200-concentration", "Design Concentration")}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                                >
-                                  <MessageSquare className="size-3.5" />
-                                  <span>Add Comment / Assign Task</span>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
+                      <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
+                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                          <div className="flex items-center gap-2">
+                            <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
+                              2. Design Parameters
+                            </h3>
                           </div>
+                          <span className="text-[10.5px] font-mono text-muted-foreground">NFPA 2001 Standard</span>
+                        </div>
+                        <div className="flex flex-col gap-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {/* Presets */}
+                            <div className="flex flex-col gap-1.5 group p-1.5 rounded-xl">
+                              <label className="font-semibold text-foreground text-xs flex items-center justify-between">
+                                <span>Hazard Classification</span>
+                                {renderCommentBadge("fm200-preset", "Hazard Classification")}
+                              </label>
+                              <select
+                                disabled={isEffectiveReadOnly}
+                                value={preset}
+                                onChange={(e) => setPreset(e.target.value as PresetOption)}
+                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none transition hover:border-[#0A7BC7]/50 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                <option value="class_a">Class A - Surface Fire (6.857%)</option>
+                                <option value="class_c">Class C - Electrical Hazards (7.00%)</option>
+                                <option value="class_b">Class B - Flammable Liquid (8.70%)</option>
+                                <option value="custom">Custom Concentration %</option>
+                              </select>
+                            </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 border-t border-border pt-4">
+                            {/* Custom Concentration */}
+                            {renderInputBox(
+                              "fm200-concentration",
+                              "Design Concentration",
+                              preset === "custom" ? customConc : calcResults.C,
+                              setCustomConc,
+                              "%",
+                              "0.01",
+                              0,
+                              "7.0",
+                              preset !== "custom"
+                            )}
+
                             {/* Minimum Temperature */}
-                            <ContextMenu>
-                              <ContextMenuTrigger asChild>
-                                <div 
-                                  id="fm200-temperature"
-                                  data-item-id="fm200-temperature"
-                                  data-field-id="fm200-temperature"
-                                  className={`flex flex-col gap-1.5 p-3 rounded-2xl transition-all cursor-context-menu hover:bg-surface-2/40 border border-transparent hover:border-border/60 ${
-                                    highlightedTargetId === "fm200-temperature" ? "ring-2 ring-primary bg-primary/10 animate-pulse" : ""
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-context-menu">
-                                      Minimum Temperature ({unitSystem === "si" ? "°C" : "°F"})
-                                    </label>
-                                    {renderCommentBadge("fm200-temperature", `Minimum Temperature (${unitSystem === "si" ? "°C" : "°F"})`)}
-                                  </div>
-                                  <input
-                                    type="number"
-                                    disabled={isEffectiveReadOnly}
-                                    value={temp}
-                                    onChange={(e) => setTemp(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
-                                    className="h-10 rounded-xl border border-border px-3 text-[13px] bg-background text-foreground focus:border-primary focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed font-medium"
-                                    placeholder="e.g. 20"
-                                    step="any"
-                                  />
-                                </div>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                                <ContextMenuItem
-                                  onClick={() => handleCopyValue(`Minimum Temperature (${unitSystem === "si" ? "°C" : "°F"})`, temp)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Copy className="size-3.5 text-muted-foreground" />
-                                  <span>Copy Temperature</span>
-                                  <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => handlePasteValue(`Minimum Temperature`, setTemp)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <Clipboard className="size-3.5 text-muted-foreground" />
-                                  <span>Paste Value</span>
-                                  <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => handleResetValue(`Minimum Temperature`, setTemp, unitSystem === "si" ? 20 : 68)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <RotateCcw className="size-3.5 text-muted-foreground" />
-                                  <span>Reset to Default ({unitSystem === "si" ? "20°C" : "68°F"})</span>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => handleClearValue(`Minimum Temperature`, setTemp)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                  <span>Clear Field</span>
-                                  <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenComment("fm200-temperature", `Minimum Temperature (${unitSystem === "si" ? "°C" : "°F"})`)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                                >
-                                  <MessageSquare className="size-3.5" />
-                                  <span>Add Comment / Assign Task</span>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
+                            {renderInputBox(
+                              "fm200-temperature",
+                              "Minimum Temperature",
+                              temp,
+                              setTemp,
+                              unitSystem === "si" ? "°C" : "°F",
+                              "any",
+                              0,
+                              unitSystem === "si" ? "20" : "68"
+                            )}
 
                             {/* Safety Factor */}
-                            <ContextMenu>
-                              <ContextMenuTrigger asChild>
-                                <div 
-                                  id="fm200-safety-factor"
-                                  data-item-id="fm200-safety-factor"
-                                  data-field-id="fm200-safety-factor"
-                                  className={`flex flex-col gap-1.5 p-3 rounded-2xl transition-all cursor-context-menu hover:bg-surface-2/40 border border-transparent hover:border-border/60 ${
-                                    highlightedTargetId === "fm200-safety-factor" ? "ring-2 ring-primary bg-primary/10 animate-pulse" : ""
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-context-menu">
-                                      Safety Factor Multiplier
-                                    </label>
-                                    {renderCommentBadge("fm200-safety-factor", "Safety Factor Multiplier")}
-                                  </div>
-                                  <input
-                                    type="number"
-                                    disabled={isEffectiveReadOnly}
-                                    value={safetyFactor}
-                                    onChange={(e) => setSafetyFactor(e.target.value === "" ? "" : parseFloat(e.target.value) || 1.0)}
-                                    className="h-10 rounded-xl border border-border px-3 text-[13px] bg-background text-foreground focus:border-primary focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed font-medium"
-                                    placeholder="e.g. 1.0"
-                                    step="0.05"
-                                  />
-                                </div>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                                <ContextMenuItem
-                                  onClick={() => handleCopyValue("Safety Factor Multiplier", `${safetyFactorVal}x`)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Copy className="size-3.5 text-muted-foreground" />
-                                  <span>Copy Safety Factor</span>
-                                  <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => handlePasteValue(`Safety Factor Multiplier`, setSafetyFactor)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <Clipboard className="size-3.5 text-muted-foreground" />
-                                  <span>Paste Value</span>
-                                  <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => handleResetValue(`Safety Factor Multiplier`, setSafetyFactor, 1.0)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <RotateCcw className="size-3.5 text-muted-foreground" />
-                                  <span>Reset to Default (1.00x)</span>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  disabled={isEffectiveReadOnly}
-                                  onClick={() => {
-                                    if (isEffectiveReadOnly) return;
-                                    setSafetyFactor(1.15);
-                                  }}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                                >
-                                  <span>Set 1.15x (+15% Margin)</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenComment("fm200-safety-factor", "Safety Factor Multiplier")}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                                >
-                                  <MessageSquare className="size-3.5" />
-                                  <span>Add Comment / Assign Task</span>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
+                            {renderInputBox(
+                              "fm200-safety-factor",
+                              "Safety Factor Multiplier",
+                              safetyFactor,
+                              setSafetyFactor,
+                              "multiplier",
+                              "0.05",
+                              1.0,
+                              "1.0"
+                            )}
                           </div>
 
                           {/* Specific Volume Switcher */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div 
-                                id="fm200-lock-s"
-                                data-item-id="fm200-lock-s"
-                                data-field-id="fm200-lock-s"
-                                className={`flex items-center justify-between border-t border-border pt-4 p-3 rounded-2xl transition-all cursor-context-menu hover:bg-surface-2/40 border border-transparent hover:border-border/60 ${
-                                  highlightedTargetId === "fm200-lock-s" ? "ring-2 ring-primary bg-primary/10 animate-pulse" : ""
-                                }`}
-                              >
-                                <div className="flex flex-col cursor-context-menu">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[13px] font-semibold text-foreground">Lock S Value to Standard Default</span>
-                                    {renderCommentBadge("fm200-lock-s", "Specific Volume S Standard")}
-                                  </div>
-                                  <span className="text-[11.5px] text-muted-foreground mt-0.5">
-                                    Forces S to {unitSystem === "si" ? "0.1473 m³/kg" : "2.3595 ft³/lb"} (Baseline reference temperature)
-                                  </span>
-                                </div>
-                                <input
-                                  type="checkbox"
-                                  disabled={isEffectiveReadOnly}
-                                  checked={useStandardS}
-                                  onChange={(e) => setUseStandardS(e.target.checked)}
-                                  className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer accent-primary disabled:opacity-60 disabled:cursor-not-allowed"
-                                />
+                          <div 
+                            id="fm200-lock-s"
+                            data-item-id="fm200-lock-s"
+                            data-field-id="fm200-lock-s"
+                            className="flex items-center justify-between border-t border-border/60 pt-3 p-1.5 rounded-xl"
+                          >
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-foreground">Lock S Value to Standard Default</span>
+                                {renderCommentBadge("fm200-lock-s", "Specific Volume S Standard")}
                               </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  if (isEffectiveReadOnly) return;
-                                  setUseStandardS(!useStandardS);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <span>Toggle Lock S ({useStandardS ? "Unlock" : "Lock"})</span>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("fm200-lock-s", "Specific Volume S Standard")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
+                              <span className="text-[11px] text-muted-foreground mt-0.5">
+                                Forces S to {unitSystem === "si" ? "0.1473 m³/kg" : "2.3595 ft³/lb"} (Baseline reference temperature)
+                              </span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              disabled={isEffectiveReadOnly}
+                              checked={useStandardS}
+                              onChange={(e) => setUseStandardS(e.target.checked)}
+                              className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer accent-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1583,17 +1289,6 @@ function FM200SizerPage() {
                             </svg>
                           </div>
                         </div>
-
-                        {/* Export PDF Button */}
-                        <div>
-                          <button
-                            onClick={exportPdf}
-                            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-2xl bg-primary text-primary-foreground text-[13px] font-bold hover:bg-primary/90 transition-all cursor-pointer shadow-xs hover:shadow-md active:scale-[0.99]"
-                          >
-                            <FileText className="size-4" />
-                            <span>Export PDF Report</span>
-                          </button>
-                        </div>
                       </div>
                     </div>
                   </div>
@@ -1609,14 +1304,6 @@ function FM200SizerPage() {
                       <div>
                         <h2 className="text-[16px] font-bold text-foreground">Clean Agent Design Sizing Sheet</h2>
                         <p className="text-[12px] text-muted-foreground mt-0.5">Calculated parameters for room fire flooding protection</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={exportPdf}
-                          className="inline-flex items-center gap-1.5 h-8 px-4 rounded-xl bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/95 transition-colors cursor-pointer shadow-sm"
-                        >
-                          <Printer className="size-3.5" /> Export PDF
-                        </button>
                       </div>
                     </div>
 

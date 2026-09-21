@@ -47,24 +47,54 @@ export function NotificationCenterView({
   const [activeTab, setActiveTab] = useState<"received" | "completed" | "deleted">("received");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Helper to deduplicate notifications (merges identical texts/comments within same minute or same comment ID)
+  const deduplicateList = (list: any[]) => {
+    const map = new Map<string, any>();
+    (list || []).forEach((n) => {
+      if (!n) return;
+      const rawText = String(n.text || n.message || n.metadata?.text || "").trim();
+      const rawAuthor = String(n.authorName || n.metadata?.authorName || "").trim().toLowerCase();
+      const rawProject = String(n.projectName || n.metadata?.projectName || n.projectId || "").trim().toLowerCase();
+      const rawTarget = String(n.targetName || n.metadata?.targetName || n.targetId || "").trim().toLowerCase();
+      const rawDate = n.timestamp || n.createdAt || n.metadata?.createdAt || "";
+      const dateMinute = rawDate ? new Date(rawDate).toISOString().slice(0, 16) : "";
+      const commentId = n.commentId || n.metadata?.commentId || (n.id && String(n.id).startsWith("comment_") ? n.id : "");
+      
+      const key = commentId
+        ? `c_${commentId}`
+        : `${rawText}__${rawAuthor}__${rawProject}__${rawTarget}__${dateMinute}`;
+        
+      if (!map.has(key)) {
+        map.set(key, n);
+      } else {
+        const existing = map.get(key);
+        if (!existing.targetName && n.targetName) existing.targetName = n.targetName;
+        if (!existing.calculatorTitle && n.calculatorTitle) existing.calculatorTitle = n.calculatorTitle;
+      }
+    });
+    return Array.from(map.values());
+  };
+
   // 1. Received Notifications: active, not completed, not deleted
   const receivedNotifications = useMemo(() => {
-    return myNotifications.filter((n) => {
+    const active = myNotifications.filter((n) => {
       if (!n || !n.id) return false;
       const isDeleted = Boolean(n.deleted || deletedNotifIds.includes(n.id) || (n.text && deletedNotifIds.includes(n.text)));
       const isCompleted = Boolean(n.completed || completedNotifIds.includes(n.id) || (n.text && completedNotifIds.includes(n.text)));
       return !isDeleted && !isCompleted;
     });
+    return deduplicateList(active);
   }, [myNotifications, deletedNotifIds, completedNotifIds]);
 
   // 2. Completed Notifications: completed, not deleted
   const completedNotifications = useMemo(() => {
-    return myNotifications.filter((n) => {
+    const completed = myNotifications.filter((n) => {
       if (!n || !n.id) return false;
       const isDeleted = Boolean(n.deleted || deletedNotifIds.includes(n.id) || (n.text && deletedNotifIds.includes(n.text)));
       const isCompleted = Boolean(n.completed || completedNotifIds.includes(n.id) || (n.text && completedNotifIds.includes(n.text)));
       return !isDeleted && isCompleted;
     });
+    return deduplicateList(completed);
   }, [myNotifications, deletedNotifIds, completedNotifIds]);
 
   // 3. Deleted Notifications: merged list of deleted items
@@ -92,7 +122,7 @@ export function NotificationCenterView({
       }
     });
 
-    const list = Array.from(map.values());
+    const list = deduplicateList(Array.from(map.values()));
     list.sort((a, b) => {
       const timeA = new Date(a.deletedAt || a.timestamp || a.createdAt || 0).getTime();
       const timeB = new Date(b.deletedAt || b.timestamp || b.createdAt || 0).getTime();
@@ -379,8 +409,17 @@ export function NotificationCenterView({
 
               const rawText = extractDirectComment(notif);
               const rawAuthor = notif.authorName || notif.metadata?.authorName || "Design Engineer";
-              const rawTargetType = notif.targetType || notif.metadata?.targetType || "Location";
-              const rawTargetName = notif.targetName || notif.metadata?.targetName || notif.targetId || "";
+              
+              let resolvedTargetType = notif.targetType || notif.metadata?.targetType || "Space";
+              let resolvedTargetName = notif.targetName || notif.metadata?.targetName || notif.spaceName || notif.targetId || "";
+              if (!resolvedTargetName && notif.message) {
+                const match = notif.message.match(/commented\s+on\s+(\w+)\s+["“]([^"”]+)["”]/i);
+                if (match) {
+                  resolvedTargetType = match[1];
+                  resolvedTargetName = match[2];
+                }
+              }
+
               const rawProjectName = notif.projectName || notif.metadata?.projectName || "Active Project";
               const rawDate = notif.timestamp || notif.metadata?.createdAt || notif.createdAt || notif.deletedAt || "";
 
@@ -470,16 +509,25 @@ export function NotificationCenterView({
                           </span>
                         </div>
 
-                        {/* 2. MIDDLE: PROJECT NAME -> CALCULATOR NAME */}
-                        <div className="flex flex-wrap items-center gap-2.5 text-[12.5px] font-semibold text-muted-foreground mb-2">
+                        {/* 2. MIDDLE: PROJECT NAME -> CALCULATOR NAME -> TARGET BADGE */}
+                        <div className="flex flex-wrap items-center gap-2 text-[12.5px] font-semibold text-muted-foreground mb-2">
                           <span className="font-bold text-primary flex items-center gap-1.5 bg-primary/5 px-2.5 py-0.5 rounded-md border border-primary/15 shadow-2xs" title={rawProjectName}>
                             <FolderKanban className="size-3.5 text-primary/80" />
                             {rawProjectName}
                           </span>
-                          <MoveRight className="w-5.5 h-4 text-muted-foreground/80 stroke-[2.5] shrink-0" />
+                          <MoveRight className="w-4.5 h-3.5 text-muted-foreground/80 stroke-[2.5] shrink-0" />
                           <span className="font-bold text-foreground bg-surface-2 px-2.5 py-0.5 rounded-md border border-border/80 shadow-2xs">
                             {calcName}
                           </span>
+                          {resolvedTargetName && (
+                            <>
+                              <MoveRight className="w-4.5 h-3.5 text-muted-foreground/80 stroke-[2.5] shrink-0" />
+                              <span className="font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2.5 py-0.5 rounded-md border border-blue-500/20 shadow-2xs flex items-center gap-1.5" title={`Assigned to ${resolvedTargetType}: ${resolvedTargetName}`}>
+                                <MessageSquare className="size-3 text-blue-500" />
+                                <span>{resolvedTargetType ? `${resolvedTargetType}: ` : ""}{resolvedTargetName}</span>
+                              </span>
+                            </>
+                          )}
                         </div>
 
                         {/* 3. BOTTOM: ACTUAL COMMENT TEXT */}

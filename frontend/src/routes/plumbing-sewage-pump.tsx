@@ -31,6 +31,9 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { TBtn } from "@/components/workspace/Button";
+import { SewagePresetSelect } from "@/components/workspace/SewagePresetSelect";
+import { CustomSewagePumpConfigModal } from "@/components/workspace/CustomSewagePumpConfigModal";
 
 export const Route = createFileRoute("/plumbing-sewage-pump")({
   head: () => ({
@@ -219,6 +222,9 @@ function SewagePumpPage() {
 
   // Preset
   const [preset, setPreset] = useState<SewagePresetKey>("commercial_building");
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [customProfileName, setCustomProfileName] = useState("Commercial Office / Retail (Custom)");
+  const [customWorkflow, setCustomWorkflow] = useState<"dfu" | "direct">("direct");
 
   // Core Inputs (stored in IP units internally)
   const [inflow, setInflow] = useState<number | "">(50); // Peak Sewage Inflow (GPM)
@@ -506,24 +512,8 @@ function SewagePumpPage() {
     }
     saveComments(updated);
 
-    if (commentData.assignedTo && commentData.assignedTo.length > 0) {
-      notifyCommentAssigned(
-        commentData.assignedTo,
-        "Sewage Pump Sizing",
-        targetName,
-        commentData.text || "",
-        "/plumbing-sewage-pump",
-        targetId
-      );
-    } else {
-      dispatchGlobalCommentNotification(
-        "Sewage Pump Sizing",
-        targetName,
-        commentData.text || "",
-        "/plumbing-sewage-pump",
-        targetId
-      );
-    }
+    dispatchGlobalCommentNotification(commentWithMeta, { project });
+
     toast.success(`Comment / task assigned on "${targetName}"`);
     setCommentModalOpen(false);
   };
@@ -621,7 +611,15 @@ function SewagePumpPage() {
 
   // Preset switch handler
   const handleApplyPreset = (key: SewagePresetKey) => {
-    if (isEffectiveReadOnly) return;
+    if (isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
+      return;
+    }
+    if (key === "custom") {
+      setPreset("custom");
+      setCustomModalOpen(true);
+      return;
+    }
     const p = SEWAGE_PRESETS[key];
     setPreset(key);
     setInflow(p.inflow);
@@ -633,8 +631,47 @@ function SewagePumpPage() {
     setFittingsHead(p.fittingsHead);
     setSafetyFactor(p.safetyFactor);
     setBasinDia(p.basinDia);
+    setCustomProfileName(`${p.label} (Custom)`);
     dirtyStore.set(true);
     toast.success(`Preset applied: ${p.label}`);
+  };
+
+  const handleApplyCustomConfig = (updated: {
+    inflow: number;
+    flowMultiplier: number;
+    cycle: number;
+    starts: number;
+    lift: number;
+    pipeDia: number;
+    pipeLen: number;
+    fittingsHead: number;
+    safetyFactor: number;
+    basinDia: number;
+    pumpEfficiency: number;
+    motorEfficiency: number;
+    pumpCountMode: "1W_1S" | "2W_1S";
+    customProfileName: string;
+    customWorkflow: "dfu" | "direct";
+  }) => {
+    if (isEffectiveReadOnly) return;
+    setPreset("custom");
+    setCustomProfileName(updated.customProfileName);
+    setCustomWorkflow(updated.customWorkflow);
+    setInflow(updated.inflow);
+    setFlowMultiplier(updated.flowMultiplier);
+    setCycle(updated.cycle);
+    setStarts(updated.starts);
+    setLift(updated.lift);
+    setPipeDia(updated.pipeDia);
+    setPipeLen(updated.pipeLen);
+    setFittingsHead(updated.fittingsHead);
+    setSafetyFactor(updated.safetyFactor);
+    setBasinDia(updated.basinDia);
+    setPumpEfficiency(updated.pumpEfficiency);
+    setMotorEfficiency(updated.motorEfficiency);
+    setPumpCountMode(updated.pumpCountMode);
+    dirtyStore.set(true);
+    toast.success("Custom Sewage Pump configuration applied!");
   };
 
   // Unit toggle handler
@@ -1279,8 +1316,8 @@ function SewagePumpPage() {
           }`}>
             
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
                     onClick={() => setTab("solver")}
@@ -1313,20 +1350,39 @@ function SewagePumpPage() {
                   <Info className="size-3.5 text-primary" />
                   <span>Formula Breakdown</span>
                 </button>
+
+                <div className="h-4 w-px bg-border/80 mx-1 hidden sm:block" />
+
+                {/* Compact Sewage Application Preset Dropdown */}
+                <SewagePresetSelect
+                  value={preset}
+                  customProfileName={customProfileName}
+                  onChange={handleApplyPreset}
+                  onOpenCustomModal={() => setCustomModalOpen(true)}
+                  unitSystem={unitSystem}
+                  disabled={isEffectiveReadOnly}
+                />
               </div>
 
-              {/* Sizing Unit system toggle */}
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitSystemChange}
-                disabled={isEffectiveReadOnly}
-                inputDescriptions="Flow Rate (GPM / L/s), Head (ft / m), Sump Volume (Gal / m³), Motor Power (HP / kW)"
-                conversionExample={
-                  unitSystem === "ip"
-                    ? "Convert 50 GPM → 3.15 L/s, 25 ft → 7.62 m, 120 Gal → 0.45 m³"
-                    : "Convert 3.15 L/s → 50 GPM, 7.62 m → 25 ft, 0.45 m³ → 120 Gal"
-                }
-              />
+              {/* Right Side Controls: Export & Unit System Toggle */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={exportPdf}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+
+                {/* Sizing Unit system toggle */}
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  disabled={isEffectiveReadOnly}
+                  inputDescriptions="Flow Rate (GPM / L/s), Head (ft / m), Sump Volume (Gal / m³), Motor Power (HP / kW)"
+                  conversionExample={
+                    unitSystem === "ip"
+                      ? "Convert 50 GPM → 3.15 L/s, 25 ft → 7.62 m, 120 Gal → 0.45 m³"
+                      : "Convert 3.15 L/s → 50 GPM, 7.62 m → 25 ft, 0.45 m³ → 120 Gal"
+                  }
+                />
+              </div>
             </div>
 
             {/* Active Tab View */}
@@ -1334,69 +1390,6 @@ function SewagePumpPage() {
               {tab === "solver" ? (
                 <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
                   
-                  {/* Presets Quick Picker Bar */}
-                  <div
-                    id="card-presets"
-                    data-field-id="presets"
-                    data-comment-target="presets"
-                    className={`rounded-2xl p-4 transition-all duration-300 ${
-                      isFieldHighlighted("card-presets", "Sewage Sizing Presets")
-                        ? "field-highlight-pulse row-highlight-flash item-highlight-pulse border-2 border-sky-400 bg-sky-50 dark:bg-sky-950/40 ring-4 ring-sky-400/25"
-                        : "bg-muted/20 border border-border/70 shadow-2xs"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Layers className="size-4 text-primary" />
-                        <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide">
-                          Quick Design Presets & Application Profiles
-                        </span>
-                        {renderCommentBadge("card-presets", "Sewage Sizing Presets")}
-                      </div>
-                      <span className="text-[11px] font-medium text-muted-foreground">
-                        Instant configuration for sanitary lift applications per IPC/ASPE
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
-                      {(Object.keys(SEWAGE_PRESETS) as SewagePresetKey[]).map((key) => {
-                        const p = SEWAGE_PRESETS[key];
-                        const isSelected = preset === key;
-                        const IconComp = presetIcons[key] || Droplets;
-
-                        return (
-                          <button
-                            key={key}
-                            onClick={() => handleApplyPreset(key)}
-                            disabled={isEffectiveReadOnly}
-                            className={`text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2 min-h-[76px] ${
-                              isSelected
-                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs ring-2 ring-primary/20"
-                                : "border-border/80 hover:border-border hover:bg-muted/40 text-foreground bg-card"
-                            } ${isEffectiveReadOnly ? "opacity-60 cursor-not-allowed" : ""}`}
-                          >
-                            <div className="flex items-start gap-2">
-                              <div className={`p-1 rounded-md shrink-0 mt-0.5 ${isSelected ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
-                                <IconComp className="size-3.5" />
-                              </div>
-                              <div className="text-[12px] font-bold leading-tight whitespace-normal text-foreground">
-                                {p.label}
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between gap-1 text-[10.5px] pt-1 border-t border-border/40">
-                              <span className="px-1.5 py-0.2 rounded bg-muted/70 text-[10px] font-semibold text-muted-foreground uppercase">
-                                {isSI ? `${(p.lift * FT_TO_M).toFixed(1)}m lift` : `${p.lift}ft lift`}
-                              </span>
-                              <span className="font-bold text-primary text-[11px]">
-                                {isSI ? `${(p.inflow * GPM_TO_LPS).toFixed(1)} L/s` : `${p.inflow} GPM`}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
                   {/* Main Grid: Inputs (Left) & Results Summary (Right) */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
@@ -2438,16 +2431,6 @@ function SewagePumpPage() {
                               </div>
                             </div>
 
-                            {/* Export PDF Button */}
-                            <div className="pt-2">
-                              <button
-                                onClick={exportPdf}
-                                className="w-full flex items-center justify-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-3 px-4 text-[13px] font-bold transition-all shadow-sm cursor-pointer border-0"
-                              >
-                                <Printer className="size-4" /> Export PDF
-                              </button>
-                            </div>
-
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
@@ -2509,14 +2492,6 @@ function SewagePumpPage() {
                         <p className="text-[12px] text-muted-foreground mt-0.5">
                           IPC 712, ASPE Chapter 7 & Hydraulic Sizing Engineering Analysis
                         </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={exportPdf}
-                          className="flex items-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-2 px-4 text-[12px] font-bold transition-all shadow-xs cursor-pointer border-0"
-                        >
-                          <Printer className="size-3.5" /> Export PDF
-                        </button>
                       </div>
                     </div>
 
@@ -2876,6 +2851,33 @@ function SewagePumpPage() {
           )}
         </div>
       </div>
+
+      {/* Custom Sewage Pump Configuration Modal */}
+      {customModalOpen && (
+        <CustomSewagePumpConfigModal
+          isOpen={customModalOpen}
+          onClose={() => setCustomModalOpen(false)}
+          unitSystem={unitSystem}
+          currentValues={{
+            inflow,
+            flowMultiplier,
+            cycle,
+            starts,
+            lift,
+            pipeDia,
+            pipeLen,
+            fittingsHead,
+            safetyFactor,
+            basinDia,
+            pumpEfficiency,
+            motorEfficiency,
+            pumpCountMode,
+            customProfileName,
+            customWorkflow,
+          }}
+          onApply={handleApplyCustomConfig}
+        />
+      )}
 
       {/* Task Assignment Modal */}
       {commentModalOpen && commentTargetItem && (

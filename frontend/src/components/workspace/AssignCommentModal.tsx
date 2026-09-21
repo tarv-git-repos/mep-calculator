@@ -10,13 +10,17 @@ import { dispatchGlobalCommentNotification } from '@/utils/notificationHelpers';
 interface AssignCommentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  targetId: string;
-  targetName: string;
+  targetId?: string;
+  targetName?: string;
+  targetLabel?: string;
+  targetItem?: any;
   targetType?: string;
   calculatorTitle?: string;
   calculatorPath?: string;
-  onSave: (comment: TaskComment) => void | Promise<void>;
+  onSave?: (comment: TaskComment) => void | Promise<void>;
+  onCommentAdded?: (comment: TaskComment) => void | Promise<void>;
   existingComments?: TaskComment[];
+  comments?: TaskComment[];
 }
 
 export function AssignCommentModal({
@@ -24,12 +28,19 @@ export function AssignCommentModal({
   onClose,
   targetId,
   targetName,
+  targetLabel,
+  targetItem,
   targetType = 'space',
   calculatorTitle,
   calculatorPath,
   onSave,
-  existingComments = []
+  onCommentAdded,
+  existingComments = [],
+  comments = []
 }: AssignCommentModalProps) {
+  const effectiveTargetId = targetId || (typeof targetItem === 'object' ? targetItem?.id : '') || '';
+  const effectiveTargetName = targetName || targetLabel || (typeof targetItem === 'object' ? targetItem?.name || targetItem?.label : '') || 'Parameter';
+  const effectiveExistingComments = (existingComments && existingComments.length > 0) ? existingComments : (comments || []);
   const { userData, profile } = useAuth();
   const { project, isReadOnly } = useWorkspace();
   const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
@@ -192,16 +203,38 @@ export function AssignCommentModal({
     const finalDescription = commentText.trim() || "Assigned task for review";
 
     const allAssignedUserIds = new Set<string>();
+    const assignedDisplayNames: string[] = [];
+
     selectedUsers.forEach(uKey => {
       if (!uKey) return;
-      allAssignedUserIds.add(String(uKey).trim());
       const matchU = availableUsers.find(u => 
         String(u.id) === uKey || String(u.email) === uKey || String(u.name) === uKey || String(u.rawName) === uKey
       );
       if (matchU) {
         if (matchU.id) allAssignedUserIds.add(String(matchU.id).trim());
         if (matchU.email) allAssignedUserIds.add(String(matchU.email).trim());
+        if (matchU.name) allAssignedUserIds.add(String(matchU.name).trim());
         if (matchU.rawName) allAssignedUserIds.add(String(matchU.rawName).trim());
+        assignedDisplayNames.push(matchU.name || matchU.email || uKey);
+      } else {
+        allAssignedUserIds.add(String(uKey).trim());
+        assignedDisplayNames.push(String(uKey).trim());
+      }
+    });
+
+    selectedTeams.forEach(tKey => {
+      if (!tKey) return;
+      const matchT = availableTeams.find(t => 
+        String(t.id) === tKey || String(t.name) === tKey
+      );
+      if (matchT && Array.isArray(matchT.team_members)) {
+        matchT.team_members.forEach((m: any) => {
+          const mId = String(m.id || m.user_id || m.email || m).trim();
+          if (mId) allAssignedUserIds.add(mId);
+        });
+        assignedDisplayNames.push(`Team: ${matchT.name}`);
+      } else {
+        allAssignedUserIds.add(String(tKey).trim());
       }
     });
 
@@ -211,22 +244,29 @@ export function AssignCommentModal({
       assignedUsers: Array.from(allAssignedUserIds),
       assignedTeams: selectedTeams,
       authorId: profile?.id || userData?.id || 'unknown',
-      authorName: userData?.name || profile?.name || 'SystemAdmin',
+      authorName: userData?.name || profile?.name || 'Design Engineer',
       timestamp: new Date().toISOString(),
-      targetId: targetId || '',
-      targetName: targetName || '',
+      targetId: effectiveTargetId,
+      targetName: effectiveTargetName,
       targetType: targetType || 'parameter',
-      spaceId: targetId || '',
-      spaceName: targetName || '',
-      itemId: targetId || '',
+      spaceId: effectiveTargetId,
+      spaceName: effectiveTargetName,
+      itemId: effectiveTargetId,
       calculatorTitle: calculatorTitle || (typeof document !== 'undefined' ? document.title.split('—')[0].trim() : 'MEP Calculator'),
       calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/'),
       projectId: project?.id || 'default',
     };
 
+    const saveFn = onSave || onCommentAdded;
     try {
-      await onSave(newComment);
-      toast.success("Comment sent!");
+      if (saveFn) {
+        await saveFn(newComment);
+      }
+      if (assignedDisplayNames.length > 0) {
+        toast.success(`Comment & task assigned to ${assignedDisplayNames.join(', ')}`);
+      } else {
+        toast.success("Comment sent to project coordination");
+      }
     } catch(e) {
       console.error(e);
       toast.error("Failed to send comment");
@@ -235,14 +275,14 @@ export function AssignCommentModal({
     try {
       dispatchGlobalCommentNotification({
         ...newComment,
-        targetId,
-        targetName,
+        targetId: effectiveTargetId,
+        targetName: effectiveTargetName,
         targetType: targetType || 'space',
         calculatorTitle: calculatorTitle || (typeof document !== 'undefined' ? document.title.split('—')[0].trim() : 'MEP Calculator'),
         calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/')
       }, {
         project,
-        currentUserName: userData?.name || profile?.name || 'SystemAdmin',
+        currentUserName: userData?.name || profile?.name || 'Design Engineer',
         currentUserId: profile?.id || userData?.id || 'unknown'
       });
     } catch(e) {
@@ -335,7 +375,7 @@ export function AssignCommentModal({
             <div>
               <h2 className="text-[15px] font-bold leading-tight">Assign Task / Comment</h2>
               <p className="text-[11.5px] text-muted-foreground font-medium">
-                {targetType.toUpperCase()}: <span className="font-semibold text-foreground/80">{targetName}</span>
+                {targetType.toUpperCase()}: <span className="font-semibold text-foreground/80">{effectiveTargetName}</span>
               </p>
             </div>
           </div>
@@ -351,13 +391,13 @@ export function AssignCommentModal({
         <div className="p-5 overflow-y-auto flex-1 custom-scrollbar space-y-5">
           
           {/* Existing Comments History */}
-          {Array.isArray(existingComments) && existingComments.length > 0 && (
+          {Array.isArray(effectiveExistingComments) && effectiveExistingComments.length > 0 && (
             <div>
               <label className="block text-[11.5px] font-bold text-muted-foreground uppercase tracking-wide mb-2">
-                Existing Comments & History ({existingComments.length})
+                Existing Comments & History ({effectiveExistingComments.length})
               </label>
               <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                {existingComments.map((c, idx) => (
+                {effectiveExistingComments.map((c, idx) => (
                   <div key={c.id || idx} className="p-2.5 bg-surface-2 border border-border/60 rounded-lg text-xs">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="font-bold text-foreground">{c.authorName || 'Engineer'}</span>

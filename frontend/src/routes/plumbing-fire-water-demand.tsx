@@ -25,6 +25,9 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { TBtn } from "@/components/workspace/Button";
+import { HazardProfileSelect } from "@/components/workspace/HazardProfileSelect";
+import { CustomFireDemandConfigModal } from "@/components/workspace/CustomFireDemandConfigModal";
 
 export const Route = createFileRoute("/plumbing-fire-water-demand")({
   head: () => ({
@@ -180,6 +183,9 @@ function FireWaterDemandPage() {
 
   // Preset
   const [preset, setPreset] = useState<HazardPresetKey>("oh_2");
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [customProfileName, setCustomProfileName] = useState("Ordinary Hazard Group 2 (Custom)");
+  const [customWorkflow, setCustomWorkflow] = useState<"calculate" | "direct">("calculate");
 
   // Core Inputs (stored internally in IP units for consistent formulas)
   const [spFlow, setSpFlow] = useState<number | "">(500); // GPM
@@ -505,6 +511,11 @@ function FireWaterDemandPage() {
       toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
       return;
     }
+    if (key === "custom") {
+      setPreset("custom");
+      setCustomModalOpen(true);
+      return;
+    }
     setPreset(key);
     const p = HAZARD_PRESETS[key];
     if (p) {
@@ -516,8 +527,39 @@ function FireWaterDemandPage() {
       setHrFlow(p.hrFlow);
       setDesignDuration(p.designDuration);
       setTankReservePct(p.tankReservePct);
+      setCustomProfileName(`${p.label} (Custom)`);
+      dirtyStore.set(true);
       toast.success(`Applied preset: ${p.label}`);
     }
+  };
+
+  const handleApplyCustomConfig = (updated: {
+    spFlow: number;
+    spPress: number;
+    hyCount: number;
+    hyFlow: number;
+    hrCount: number;
+    hrFlow: number;
+    designDuration: number;
+    tankReservePct: number;
+    mainsReplenishFlow: number;
+    customProfileName: string;
+    customWorkflow: "calculate" | "direct";
+  }) => {
+    if (isEffectiveReadOnly) return;
+    setPreset("custom");
+    setCustomProfileName(updated.customProfileName);
+    setCustomWorkflow(updated.customWorkflow);
+    setSpFlow(updated.spFlow);
+    setSpPress(updated.spPress);
+    setHyCount(updated.hyCount);
+    setHyFlow(updated.hyFlow);
+    setHrCount(updated.hrCount);
+    setHrFlow(updated.hrFlow);
+    setDesignDuration(updated.designDuration);
+    setTankReservePct(updated.tankReservePct);
+    setMainsReplenishFlow(updated.mainsReplenishFlow);
+    dirtyStore.set(true);
   };
 
   // Calculations
@@ -700,10 +742,11 @@ function FireWaterDemandPage() {
 
       // Table 1: Design Parameters & Hazard Classification Basis
       const hazardCfg = HAZARD_PRESETS[preset] || HAZARD_PRESETS.custom;
+      const activeHazardLabel = preset === "custom" ? customProfileName : hazardCfg.label;
       const isSI = unitSystem === "si";
 
       const paramTableBody = [
-        ["1", "Hazard Classification / Preset", hazardCfg.label, hazardCfg.category],
+        ["1", "Hazard Classification / Preset", activeHazardLabel, hazardCfg.category],
         ["2", "Sprinkler System Design Flow", isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`, "NFPA 13 Hydraulic Demand Area/Density"],
         ["3", "Sprinkler Minimum Residual Pressure", isSI ? `${(calcResults.spP * PSI_TO_BAR).toFixed(2)} bar` : `${calcResults.spP.toFixed(0)} psi`, "At most hydraulically remote sprinkler"],
         ["4", "Simultaneous Hydrant Outlets", `${calcResults.hyC} Outlets @ ${isSI ? (calcResults.hyF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hyF.toFixed(0) + " GPM"} each`, "NFPA 14 / NFPA 24 Yard / Landing Outlets"],
@@ -1114,8 +1157,8 @@ function FireWaterDemandPage() {
           }`}>
             
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
                     onClick={() => setTab("solver")}
@@ -1148,20 +1191,39 @@ function FireWaterDemandPage() {
                   <Info className="size-3.5 text-primary" />
                   <span>Formula Breakdown</span>
                 </button>
+
+                <div className="h-4 w-px bg-border/80 mx-1 hidden sm:block" />
+
+                {/* Compact Hazard Profile & Presets Dropdown */}
+                <HazardProfileSelect
+                  value={preset}
+                  customProfileName={customProfileName}
+                  onChange={handleApplyPreset}
+                  onOpenCustomModal={() => setCustomModalOpen(true)}
+                  unitSystem={unitSystem}
+                  disabled={isEffectiveReadOnly}
+                />
               </div>
 
-              {/* Sizing Unit system toggle */}
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitSystemChange}
-                disabled={isEffectiveReadOnly}
-                inputDescriptions="Flow Rate (GPM / L/min), Pressure (psi / bar), Storage Tank Volume (gal / m³)"
-                conversionExample={
-                  unitSystem === "ip"
-                    ? "Convert 500 GPM â†’ 1,893 L/min, 65 psi â†’ 4.48 bar, 45,000 gal â†’ 170.3 m³"
-                    : "Convert 1,893 L/min â†’ 500 GPM, 4.48 bar â†’ 65 psi, 170.3 m³ â†’ 45,000 gal"
-                }
-              />
+              {/* Right Side Controls: Export & Unit System Toggle */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={exportPdf}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+
+                {/* Sizing Unit system toggle */}
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  disabled={isEffectiveReadOnly}
+                  inputDescriptions="Flow Rate (GPM / L/min), Pressure (psi / bar), Storage Tank Volume (gal / m³)"
+                  conversionExample={
+                    unitSystem === "ip"
+                      ? "Convert 500 GPM → 1,893 L/min, 65 psi → 4.48 bar, 45,000 gal → 170.3 m³"
+                      : "Convert 1,893 L/min → 500 GPM, 4.48 bar → 65 psi, 170.3 m³ → 45,000 gal"
+                  }
+                />
+              </div>
             </div>
 
             {/* Active Tab View */}
@@ -1169,70 +1231,6 @@ function FireWaterDemandPage() {
               {tab === "solver" ? (
                 <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
                   
-                  {/* Presets Quick Picker Bar */}
-                  <div
-                    id="card-presets"
-                    data-field-id="card-presets"
-                    data-comment-target="card-presets"
-                    className={`rounded-2xl p-4 transition-all duration-300 ${
-                      highlightedTargetId === "card-presets"
-                        ? "field-highlight-pulse row-highlight-flash item-highlight-pulse border-2 border-sky-400 bg-sky-50 dark:bg-sky-950/40 ring-4 ring-sky-400/25"
-                        : "bg-muted/20 border border-border/70 shadow-2xs"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Flame className="size-4 text-orange-500" />
-                        <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide">
-                          Occupancy Hazard Class / NFPA Standard Preset
-                        </span>
-                        {renderCommentBadge("card-presets", "Fire Demand Presets")}
-                      </div>
-                      <span className="text-[11px] font-medium text-muted-foreground">
-                        Instant preset loading for sprinkler, hydrant, and duration
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-                      {(Object.keys(HAZARD_PRESETS) as HazardPresetKey[]).map((key) => {
-                        const p = HAZARD_PRESETS[key];
-                        const isSelected = preset === key;
-                        const IconComp = presetIcons[key] || Flame;
-                        const durationBadge = key === "custom" ? "Custom" : `${p.designDuration} min`;
-
-                        return (
-                          <button
-                            key={key}
-                            onClick={() => handleApplyPreset(key)}
-                            disabled={isEffectiveReadOnly}
-                            className={`text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2 min-h-[76px] ${
-                              isSelected
-                                ? "border-primary bg-primary/10 text-primary font-bold shadow-xs ring-2 ring-primary/20"
-                                : "border-border/80 hover:border-border hover:bg-muted/40 text-foreground bg-card"
-                            } ${isEffectiveReadOnly ? "opacity-60 cursor-not-allowed" : ""}`}
-                          >
-                            <div className="flex items-start gap-2">
-                              <div className={`p-1 rounded-md shrink-0 mt-0.5 ${isSelected ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
-                                <IconComp className="size-3.5" />
-                              </div>
-                              <div className="text-[12px] font-bold leading-tight whitespace-normal text-foreground">
-                                {p.label}
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between gap-1 text-[10.5px] pt-1 border-t border-border/40">
-                              <span className="px-1.5 py-0.2 rounded bg-muted/70 text-[10px] font-semibold text-muted-foreground uppercase truncate max-w-[95px]" title={p.category}>
-                                {p.category.split("/")[0].trim()}
-                              </span>
-                              <span className="font-bold text-primary text-[11px] shrink-0">
-                                {durationBadge}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
                   {/* Main Grid: Inputs (Left) & Results (Right) */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     
@@ -2319,16 +2317,6 @@ function FireWaterDemandPage() {
                                 </div>
                               </div>
                             </div>
-
-                            {/* Export PDF Button */}
-                            <div className="pt-2">
-                              <button
-                                onClick={exportPdf}
-                                className="w-full flex items-center justify-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-3 px-4 text-[13px] font-bold transition-all shadow-sm cursor-pointer border-0"
-                              >
-                                <Printer className="size-4" /> Export PDF
-                              </button>
-                            </div>
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
@@ -2390,12 +2378,6 @@ function FireWaterDemandPage() {
                           Design Standards: NFPA 13, NFPA 14, NFPA 20, NFPA 22 (Simultaneous Operation Method)
                         </p>
                       </div>
-                      <button
-                        onClick={exportPdf}
-                        className="flex items-center gap-2 bg-[#0A7BC7] hover:bg-[#08629f] text-white rounded-xl py-2 px-4 text-[12px] font-bold transition-all shadow-xs cursor-pointer border-0"
-                      >
-                        <Printer className="size-3.5" /> Export PDF
-                      </button>
                     </div>
 
                     {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
@@ -2450,7 +2432,7 @@ function FireWaterDemandPage() {
                           <tr>
                             <td className="border border-border p-2 text-center text-muted-foreground">1</td>
                             <td className="border border-border p-2 font-bold">Hazard Classification / Preset</td>
-                            <td className="border border-border p-2 text-center font-bold">{HAZARD_PRESETS[preset]?.label || "Custom"}</td>
+                            <td className="border border-border p-2 text-center font-bold">{preset === "custom" ? customProfileName : (HAZARD_PRESETS[preset]?.label || "Custom")}</td>
                             <td className="border border-border p-2 text-muted-foreground">{HAZARD_PRESETS[preset]?.category || "NFPA 13 / NFPA 14"}</td>
                           </tr>
                           <tr>
@@ -2724,6 +2706,27 @@ function FireWaterDemandPage() {
           )}
         </div>
       </div>
+
+      {/* Custom Fire Demand & Tank Configuration Modal */}
+      <CustomFireDemandConfigModal
+        isOpen={customModalOpen}
+        onClose={() => setCustomModalOpen(false)}
+        unitSystem={unitSystem}
+        currentValues={{
+          spFlow,
+          spPress,
+          hyCount,
+          hyFlow,
+          hrCount,
+          hrFlow,
+          designDuration,
+          tankReservePct,
+          mainsReplenishFlow,
+          customProfileName,
+          customWorkflow,
+        }}
+        onApply={handleApplyCustomConfig}
+      />
 
       {/* Task Assignment Modal (Matching Preliminary Cooling Load & FM-200) */}
       {commentModalOpen && commentTargetItem && (

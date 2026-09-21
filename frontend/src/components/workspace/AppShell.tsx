@@ -646,29 +646,56 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return [];
   });
 
-  const [persistentNotifs, setPersistentNotifs] = useState<any[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const uId = userId || userData?.id;
-        const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
-        const saved = localStorage.getItem(key) || localStorage.getItem("mep_persistent_user_notifs");
-        return saved ? JSON.parse(saved) : [];
-      } catch (e) {}
+  const getAllStoredPersistentNotifs = () => {
+    if (typeof window === "undefined") return [];
+    try {
+      const uId = userId || userData?.id || profile?.id;
+      const uEmail = (userData?.email || profile?.email || "").toLowerCase().trim();
+      const uName = (userData?.name || profile?.name || "").toLowerCase().trim();
+
+      const notifMap = new Map<string, any>();
+      const addList = (raw: string | null) => {
+        if (!raw) return;
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((n: any) => {
+              if (n && (n.id || n.commentId)) {
+                const key = n.id || n.commentId;
+                if (!notifMap.has(key)) notifMap.set(key, n);
+              }
+            });
+          }
+        } catch (e) {}
+      };
+
+      addList(localStorage.getItem("mep_persistent_user_notifs"));
+      addList(localStorage.getItem("mep_calc_coord_notifs"));
+      if (uId) addList(localStorage.getItem(`mep_persistent_user_notifs_${uId}`));
+      if (uEmail) addList(localStorage.getItem(`mep_persistent_user_notifs_${uEmail}`));
+      if (uName) addList(localStorage.getItem(`mep_persistent_user_notifs_${uName}`));
+
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("mep_persistent_user_notifs_")) {
+          addList(localStorage.getItem(k));
+        }
+      }
+
+      return Array.from(notifMap.values());
+    } catch (e) {
+      return [];
     }
-    return [];
+  };
+
+  const [persistentNotifs, setPersistentNotifs] = useState<any[]>(() => {
+    return getAllStoredPersistentNotifs();
   });
 
   useEffect(() => {
     const handleNotifRefresh = () => {
       setNotifTick(t => t + 1);
-      if (typeof window !== "undefined") {
-        const uId = userId || userData?.id || profile?.id;
-        const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
-        const saved = localStorage.getItem(key) || localStorage.getItem("mep_persistent_user_notifs");
-        if (saved) {
-          try { setPersistentNotifs(JSON.parse(saved)); } catch(e) {}
-        }
-      }
+      setPersistentNotifs(getAllStoredPersistentNotifs());
     };
 
     if (typeof window !== "undefined") {
@@ -1263,6 +1290,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         if (panels) addNotifs(panels, "Capacitor Bank Panel", p.name, p.id, "/capacitor-bank-sizing");
       }
 
+      if (Array.isArray(wdata.drainage_calc_comments)) {
+        addNotifs(wdata.drainage_calc_comments, "Space", p.name, p.id, "/plumbing-drainage");
+      }
+
       // Scan wdata.notifications[] — where CalculationReviewBar stores review/rejection notifs
       if (Array.isArray(wdata.notifications)) {
         wdata.notifications.forEach((wn: any) => {
@@ -1358,6 +1389,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             key.startsWith("mep_lux_calc_") ||
             key.startsWith("mep_cable_tray_") ||
             key.startsWith("mep_calc_comments_") ||
+            key.startsWith("mep_conductor_rows_") ||
+            key.startsWith("mep_cbs_rows_") ||
+            key.startsWith("mep_transformer_rows_") ||
+            key.startsWith("mep_load_summary_") ||
+            key.startsWith("mep_condensate_rows_") ||
             key.startsWith("mep_gen_projects_")
           )) {
             const raw = localStorage.getItem(key);
@@ -1376,6 +1412,22 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   const projId = key.replace("mep_equipment_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
                   if (Array.isArray(data)) addNotifs(data, "Equipment", projObj?.name || "Active Project", projId, "/ventilation");
+                } else if (key.startsWith("mep_conductor_rows_")) {
+                  const projId = key.replace("mep_conductor_rows_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) addNotifs(data, "Conductor Circuit", projObj?.name || "Active Project", projId, "/conductor-sizing");
+                } else if (key.startsWith("mep_cbs_rows_")) {
+                  const projId = key.replace("mep_cbs_rows_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) addNotifs(data, "CBS Circuit", projObj?.name || "Active Project", projId, "/central-battery-sizing");
+                } else if (key.startsWith("mep_transformer_rows_")) {
+                  const projId = key.replace("mep_transformer_rows_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) addNotifs(data, "Transformer", projObj?.name || "Active Project", projId, "/transformer-sizing");
+                } else if (key.startsWith("mep_load_summary_")) {
+                  const projId = key.replace("mep_load_summary_", "");
+                  const projObj = projects.find((p: any) => p.id === projId);
+                  if (Array.isArray(data)) addNotifs(data, "Load Item", projObj?.name || "Active Project", projId, "/load-summary");
                 } else if (key.startsWith("mep_pcl_rows_")) {
                   const projId = key.replace("mep_pcl_rows_", "");
                   const projObj = projects.find((p: any) => p.id === projId);
@@ -1506,7 +1558,34 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return true;
     });
 
-    const mapped = filtered.map(n => {
+    // Deduplicate identical notifications (same text, author, project, target within same minute or same comment ID)
+    const dedupedMap = new Map<string, any>();
+    filtered.forEach(n => {
+      const rawText = String(n.text || n.message || n.metadata?.text || "").trim();
+      const rawAuthor = String(n.authorName || n.metadata?.authorName || "").trim().toLowerCase();
+      const rawProject = String(n.projectName || n.metadata?.projectName || n.projectId || "").trim().toLowerCase();
+      const rawTarget = String(n.targetName || n.metadata?.targetName || n.targetId || "").trim().toLowerCase();
+      const rawDate = n.timestamp || n.createdAt || n.metadata?.createdAt || "";
+      const dateMinute = rawDate ? new Date(rawDate).toISOString().slice(0, 16) : "";
+      
+      const commentId = n.commentId || n.metadata?.commentId || (n.id && String(n.id).startsWith("comment_") ? n.id : "");
+      
+      const dedupKey = commentId
+        ? `c_${commentId}`
+        : `${rawText}__${rawAuthor}__${rawProject}__${rawTarget}__${dateMinute}`;
+      
+      if (!dedupedMap.has(dedupKey)) {
+        dedupedMap.set(dedupKey, n);
+      } else {
+        const existing = dedupedMap.get(dedupKey);
+        if (!existing.targetName && n.targetName) existing.targetName = n.targetName;
+        if (!existing.calculatorTitle && n.calculatorTitle) existing.calculatorTitle = n.calculatorTitle;
+      }
+    });
+
+    const dedupedList = Array.from(dedupedMap.values());
+
+    const mapped = dedupedList.map(n => {
       const nId = String(n.id);
       const nText = String(n.text || n.message || n.metadata?.text || "").trim();
       const nMetaId = n.metadata?.id ? String(n.metadata.id) : "";

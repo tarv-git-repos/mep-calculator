@@ -610,7 +610,7 @@ export function DataGrid<T extends { id: string }>({
                           const isDoubleTap = lastTapRef.current.id === row.id && (now - lastTapRef.current.time) < 350;
                           lastTapRef.current = { id: row.id, time: now };
 
-                          if (isDoubleTap && !isTextInputTarget) {
+                          if (isDoubleTap) {
                             if (!selected.has(row.id)) {
                               onToggle(row.id, false, false);
                             }

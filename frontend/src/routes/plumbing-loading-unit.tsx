@@ -586,6 +586,52 @@ export function getRecommendedPipeSize(lu: number, flowLPS: number): { sizeMM: n
   return { sizeMM: 200, maxFlowLPS: 48.52 };
 }
 
+function FloorNameInput({
+  floor,
+  disabled,
+  onRename,
+}: {
+  floor: string;
+  disabled?: boolean;
+  onRename: (oldName: string, newName: string) => void;
+}) {
+  const [val, setVal] = useState(floor);
+
+  useEffect(() => {
+    setVal(floor);
+  }, [floor]);
+
+  const commitRename = () => {
+    const trimmed = val.trim();
+    if (trimmed && trimmed !== floor) {
+      onRename(floor, trimmed);
+    } else {
+      setVal(floor);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      value={val}
+      disabled={disabled}
+      onChange={e => setVal(e.target.value)}
+      onBlur={commitRename}
+      onFocus={e => e.target.select()}
+      onKeyDown={e => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+        } else if (e.key === "Escape") {
+          setVal(floor);
+          e.currentTarget.blur();
+        }
+      }}
+      className="bg-transparent border border-transparent hover:border-border/80 focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded font-extrabold text-[#0A7BC7] text-xs uppercase outline-none transition-all cursor-text min-w-[80px]"
+      title="Click to edit floor name (Press Enter or click outside to save)"
+    />
+  );
+}
+
 function LoadingUnitPage() {
   const { userData, profile } = useAuth();
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
@@ -2761,8 +2807,8 @@ function LoadingUnitPage() {
                     </thead>
 
                     {/* Floor Section Blocks */}
-                    {Object.keys(floorsGrouped).map(floor => (
-                      <tbody key={floor} className="border-b border-border/80">
+                    {Object.keys(floorsGrouped).map((floor, floorIndex) => (
+                      <tbody key={`floor-sec-${floorIndex}`} className="border-b border-border/80">
                         
                         {/* Floor Section Header (Matching Ventilation UI) */}
                         <tr className="bg-slate-50/90 dark:bg-slate-900/70 border-y border-border/70 text-foreground font-bold text-[12px] group select-none">
@@ -2770,12 +2816,10 @@ function LoadingUnitPage() {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <ChevronDown className="size-3.5 text-[#0A7BC7] shrink-0" />
-                                <input
-                                  type="text"
-                                  value={floor}
-                                  onChange={(e) => handleRenameFloorGroup(floor, e.target.value)}
-                                  className="bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-extrabold text-[#0A7BC7] text-xs uppercase"
-                                  placeholder="Floor Name"
+                                <FloorNameInput
+                                  floor={floor}
+                                  disabled={isApprovedLocked}
+                                  onRename={handleRenameFloorGroup}
                                 />
                                 <span className="text-[10px] text-muted-foreground font-normal">({floorsGrouped[floor].length} space types)</span>
                                 <span className="text-[10px] text-muted-foreground/60 font-normal hidden sm:inline">(Right-click or press Delete to remove)</span>

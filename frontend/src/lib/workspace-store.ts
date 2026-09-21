@@ -1686,9 +1686,20 @@ export function useWorkspace() {
     saveAsRevision: (name: string) => workspaceStore.saveAsRevision(name),
     deleteCommentFromWorkspace: (keys: string | string[]) => workspaceStore.deleteCommentFromWorkspace(keys),
     markCommentCompletedInWorkspace: (keys: string | string[]) => workspaceStore.markCommentCompletedInWorkspace(keys),
-    markCommentReadInWorkspace: (keys: string | string[]) => workspaceStore.markCommentReadInWorkspace(keys),
     clearAllCommentsFromWorkspace: () => workspaceStore.clearAllCommentsFromWorkspace(),
   };
 }
+
+useWorkspace.getState = () => ({
+  ...workspaceStore.getState(),
+  projects: workspaceStore.getState().projects,
+  project: workspaceStore.getState().project,
+  activeProjectId: workspaceStore.getState().activeProjectId,
+  updateProject: (project: Project) => workspaceStore.updateProject(project),
+  selectProject: (id: string) => workspaceStore.selectProject(id),
+  forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
+  syncFromCloud: () => workspaceStore.syncFromCloud(),
+  refreshProjects: () => workspaceStore.refreshProjects(),
+});
 
 export const workspace = currentWorkspaceState;

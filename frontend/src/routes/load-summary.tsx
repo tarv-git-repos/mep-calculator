@@ -9,7 +9,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
-import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare } from "lucide-react";
+import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare, Flag } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
@@ -17,6 +17,10 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import type { TaskComment } from "@/lib/ventilation-calc";
+import {
+  CalculationPreviewModal,
+  type CalculationPreviewData,
+} from "@/components/calculator-framework/CalculationPreviewModal";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/load-summary")({
@@ -40,6 +44,7 @@ interface LoadRow {
   other: number;
   totalLoad: number;
   remarks: string;
+  flagged?: boolean;
   comments?: TaskComment[];
 }
 
@@ -201,19 +206,22 @@ function LoadSummaryPage() {
   };
 
   // Toolbar state: search, filter, and sort
+  const [previewRow, setPreviewRow] = useState<LoadRow | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<"all" | "lighting" | "power" | "hvac" | "other">("all");
   const [filterNonZeroOnly, setFilterNonZeroOnly] = useState(false);
   const [filterWithRemarksOnly, setFilterWithRemarksOnly] = useState(false);
+  const [filterFlaggedOnly, setFilterFlaggedOnly] = useState(false);
   const [sortKey, setSortKey] = useState<"default" | "description" | "qty" | "area" | "lighting" | "power" | "hvac" | "other" | "totalLoad">("default");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
-  const activeFiltersCount = (filterType !== "all" ? 1 : 0) + (filterNonZeroOnly ? 1 : 0) + (filterWithRemarksOnly ? 1 : 0);
+  const activeFiltersCount = (filterType !== "all" ? 1 : 0) + (filterNonZeroOnly ? 1 : 0) + (filterWithRemarksOnly ? 1 : 0) + (filterFlaggedOnly ? 1 : 0);
 
   const handleResetFilters = () => {
     setFilterType("all");
     setFilterNonZeroOnly(false);
     setFilterWithRemarksOnly(false);
+    setFilterFlaggedOnly(false);
   };
 
   const handleResetSort = () => {
@@ -250,6 +258,10 @@ function LoadSummaryPage() {
       result = result.filter(r => !!r.remarks && r.remarks.trim() !== "");
     }
 
+    if (filterFlaggedOnly) {
+      result = result.filter(r => !!r.flagged);
+    }
+
     if (sortKey !== "default") {
       result.sort((a, b) => {
         let valA = a[sortKey as keyof LoadRow];
@@ -267,7 +279,7 @@ function LoadSummaryPage() {
     }
 
     return result;
-  }, [rows, searchQuery, filterType, filterNonZeroOnly, filterWithRemarksOnly, sortKey, sortDirection]);
+  }, [rows, searchQuery, filterType, filterNonZeroOnly, filterWithRemarksOnly, filterFlaggedOnly, sortKey, sortDirection]);
 
   const totalPower = rows.reduce((acc, row) => acc + row.totalLoad, 0);
   const totalPowerWithSafety = totalPower * 1.1;
@@ -336,7 +348,8 @@ function LoadSummaryPage() {
       hvac: 0,
       other: 0,
       totalLoad: 0,
-      remarks: ""
+      remarks: "",
+      flagged: false
     };
     pushToHistory(rows, history, setHistory, setRedoStack);
     setRows(prev => [...prev, computeRowOutputs(newRow)]);
@@ -346,10 +359,10 @@ function LoadSummaryPage() {
 
   const loadDummyData = () => {
     const dummy: LoadRow[] = [
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "First Floor Office", qty: 1, area: 150, lighting: 1.5, power: 3.0, hvac: 15.0, other: 0, totalLoad: 0, remarks: "" },
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Second Floor Meeting Rooms", qty: 2, area: 40, lighting: 0.5, power: 1.0, hvac: 4.0, other: 0, totalLoad: 0, remarks: "Dimmable" },
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Server Room", qty: 1, area: 20, lighting: 0.2, power: 20.0, hvac: 25.0, other: 0, totalLoad: 0, remarks: "Critical load" },
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Pantry", qty: 1, area: 15, lighting: 0.15, power: 5.0, hvac: 1.5, other: 0, totalLoad: 0, remarks: "" }
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "First Floor Office", qty: 1, area: 150, lighting: 1.5, power: 3.0, hvac: 15.0, other: 0, totalLoad: 0, remarks: "", flagged: false },
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Second Floor Meeting Rooms", qty: 2, area: 40, lighting: 0.5, power: 1.0, hvac: 4.0, other: 0, totalLoad: 0, remarks: "Dimmable", flagged: false },
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Server Room", qty: 1, area: 20, lighting: 0.2, power: 20.0, hvac: 25.0, other: 0, totalLoad: 0, remarks: "Critical load", flagged: true },
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Pantry", qty: 1, area: 15, lighting: 0.15, power: 5.0, hvac: 1.5, other: 0, totalLoad: 0, remarks: "", flagged: false }
     ];
     
     pushToHistory(rows, history, setHistory, setRedoStack);
@@ -378,12 +391,116 @@ function LoadSummaryPage() {
         duplicated.push({
           ...r,
           id: `ls_dup_${Math.random().toString(36).slice(2, 9)}`,
-          description: `${r.description} (Copy)`
+          description: `${r.description} (Copy)`,
+          flagged: r.flagged
         });
       }
     });
     setRows(prev => [...prev, ...duplicated]);
     toast.success(`Duplicated ${duplicated.length} row(s).`);
+  };
+
+  const handleToggleFlag = (id: string) => {
+    const isTargetSelected = selected.has(id);
+    const targetIds = isTargetSelected ? Array.from(selected) : [id];
+    const targetRow = rows.find(r => r.id === id);
+    const nextFlagged = !targetRow?.flagged;
+
+    pushToHistory(rows, history, setHistory, setRedoStack);
+    setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: nextFlagged } : r));
+    toast.info(nextFlagged ? `Flagged ${targetIds.length} load(s) for review` : `Unflagged ${targetIds.length} load(s)`);
+  };
+
+  const getCalculationPreview = (row: LoadRow): CalculationPreviewData => {
+    const qty = Number(row.qty) || 1;
+    const area = Number(row.area) || 0;
+    const lighting = Number(row.lighting) || 0;
+    const power = Number(row.power) || 0;
+    const hvac = Number(row.hvac) || 0;
+    const other = Number(row.other) || 0;
+    const unitLoad = lighting + power + hvac + other;
+    const totalLoad = row.totalLoad || (qty > 0 ? qty * unitLoad : unitLoad);
+    const areaUnit = unitSystem === "ip" ? "sq.ft" : "sq.m";
+    const densityUnit = unitSystem === "ip" ? "W/sq.ft" : "W/m²";
+    const powerDensity = area > 0 ? (totalLoad * 1000) / area : 0;
+    const projectShare = totalPower > 0 ? (totalLoad / totalPower) * 100 : 0;
+    const totalWithSafety = totalLoad * 1.1;
+
+    const steps = [
+      {
+        stepNumber: 1,
+        label: "Sub-Loads Summation (Unit Power Demand)",
+        formula: "P_unit = P_lighting + P_power + P_hvac + P_other",
+        substitution: `${lighting} kW + ${power} kW + ${hvac} kW + ${other} kW`,
+        result: `${unitLoad.toFixed(2)} kW`,
+        status: "pass" as const,
+        description: "Direct summation of all connected branch loads for a single unit of this space.",
+      },
+      {
+        stepNumber: 2,
+        label: "Total Connected Load (with Quantity Multiplier)",
+        formula: qty > 0 ? "P_total = Qty × P_unit" : "P_total = P_unit",
+        substitution: qty > 0 ? `${qty} × ${unitLoad.toFixed(2)} kW` : `${unitLoad.toFixed(2)} kW`,
+        result: `${totalLoad.toFixed(2)} kW`,
+        status: "pass" as const,
+        description: "Gross active power demand taking into account space multiplier quantity.",
+      },
+    ];
+
+    if (area > 0) {
+      steps.push({
+        stepNumber: steps.length + 1,
+        label: `Area Power Density (${densityUnit})`,
+        formula: "Power Density = (P_total × 1000) / Area",
+        substitution: `(${totalLoad.toFixed(2)} kW × 1000) / ${area} ${areaUnit}`,
+        result: `${powerDensity.toFixed(2)} ${densityUnit}`,
+        status: "pass" as const,
+        description: "Specific power demand per unit area for space benchmarking and thermal compliance.",
+      });
+    }
+
+    if (totalPower > 0) {
+      steps.push({
+        stepNumber: steps.length + 1,
+        label: "Share of Total Facility Connected Load",
+        formula: "Project Share = (P_total / P_project_total) × 100%",
+        substitution: `(${totalLoad.toFixed(2)} kW / ${totalPower.toFixed(2)} kW) × 100%`,
+        result: `${projectShare.toFixed(1)}%`,
+        status: "pass" as const,
+        description: "Contribution of this space to the entire facility's active connected power.",
+      });
+    }
+
+    steps.push({
+      stepNumber: steps.length + 1,
+      label: "Design Safety Margin (10% Additional Capacity)",
+      formula: "P_design = P_total × 1.10",
+      substitution: `${totalLoad.toFixed(2)} kW × 1.10`,
+      result: `${totalWithSafety.toFixed(2)} kW`,
+      status: "pass" as const,
+      description: "Standard 10% design safety margin allocated for feeder cable and transformer sizing.",
+    });
+
+    return {
+      title: "Electrical Load Calculation Breakdown",
+      itemName: row.description || "Unnamed Load Area",
+      standardReference: "IEC 60364-5-52 / ASHRAE 90.1 / NEC NFPA 70",
+      inputs: [
+        { label: "Space Description", value: row.description || "—" },
+        { label: "Quantity (Units)", value: qty },
+        { label: "Floor Area", value: area > 0 ? area : "N/A", unit: area > 0 ? areaUnit : undefined },
+        { label: "Lighting Load", value: lighting, unit: "kW" },
+        { label: "Power Load", value: power, unit: "kW" },
+        { label: "HVAC Load", value: hvac, unit: "kW" },
+        { label: "Other Load", value: other, unit: "kW" },
+        { label: "Remarks / Notes", value: row.remarks || "None" },
+      ],
+      steps,
+      finalResultLabel: "Total Design Load (+10% Safety)",
+      finalResultValue: totalWithSafety.toFixed(2),
+      finalResultUnit: "kW",
+      complianceNote: "Calculations follow standard electrical engineering practices for commercial and residential load estimation.",
+    };
   };
 
   useEffect(() => {
@@ -546,7 +663,8 @@ function LoadSummaryPage() {
         hvac: Number(mr.hvac) || 0,
         other: Number(mr.other) || 0,
         totalLoad: 0,
-        remarks: mr.remarks || ""
+        remarks: mr.remarks || "",
+        flagged: Boolean(mr.flagged)
       };
       return computeRowOutputs(row);
     });
@@ -1015,8 +1133,33 @@ function LoadSummaryPage() {
           />
         );
       }
+    },
+    {
+      key: "flagged",
+      header: "",
+      width: 38,
+      align: "center",
+      render: (row) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleFlag(row.id);
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+          title={row.flagged ? "Unflag load (Click to remove flag)" : "Flag load for review / attention"}
+        >
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${
+              row.flagged
+                ? "fill-red-500 text-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`}
+          />
+        </button>
+      )
     }
-  ], [filteredRows, commentsList, unitSystem]);
+  ], [filteredRows, commentsList, unitSystem, selected, rows]);
 
   return (
     <AppShell 
@@ -1086,6 +1229,18 @@ function LoadSummaryPage() {
                 </div>
 
                 <div className="flex flex-col gap-1.5 pt-1.5 border-t border-border/60">
+                  <label className="flex items-center gap-2 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={filterFlaggedOnly}
+                      onChange={(e) => setFilterFlaggedOnly(e.target.checked)}
+                      className="rounded border-gray-300 text-primary size-3.5 focus:ring-primary cursor-pointer"
+                    />
+                    <span className="flex items-center gap-1.5">
+                      <Flag className="size-3 text-red-500 fill-red-500" />
+                      Flagged Only
+                    </span>
+                  </label>
                   <label className="flex items-center gap-2 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -1216,7 +1371,17 @@ function LoadSummaryPage() {
             {selected.size > 0 && (
               <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                 <span className="font-semibold">{selected.size} selected</span>
-                <span className="text-primary/30">Â·</span>
+                <span className="text-primary/30">·</span>
+                <BulkBtn icon={Flag} onClick={() => {
+                  if (selected.size === 0) return;
+                  const allFlagged = Array.from(selected).every(id => rows.find(r => r.id === id)?.flagged);
+                  const nextState = !allFlagged;
+                  pushToHistory(rows, history, setHistory, setRedoStack);
+                  setRows(prev => prev.map(r => selected.has(r.id) ? { ...r, flagged: nextState } : r));
+                  toast.info(nextState ? `Flagged ${selected.size} load(s) for review` : `Unflagged ${selected.size} load(s)`);
+                }}>
+                  Flag
+                </BulkBtn>
                 <BulkBtn icon={MessageSquare} onClick={() => {
                   const firstSelectedId = Array.from(selected)[0];
                   const targetRow = rows.find(r => r.id === firstSelectedId);
@@ -1256,10 +1421,21 @@ function LoadSummaryPage() {
                         selected={selected}
                         onToggle={handleToggle}
                         onToggleAll={handleToggleAll}
+                        onRowDoubleClick={(row) => setPreviewRow(row)}
+                        rowClassName={(row) => (row.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : "")}
                         renderContextMenu={(row) => {
                           const rowComments = commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id);
                           return (
                             <ContextMenuContent className="w-56">
+                              <ContextMenuItem onClick={() => setPreviewRow(row)}>
+                                <Sparkles className="size-4 mr-2 text-amber-500" />
+                                <span>Calculation Preview</span>
+                              </ContextMenuItem>
+                              <ContextMenuItem onClick={() => handleToggleFlag(row.id)}>
+                                <Flag className="size-4 mr-2 text-red-500" />
+                                <span>{row.flagged ? "Unflag Load" : "Flag for Review"}</span>
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
                               <ContextMenuItem onClick={() => handleOpenComment(row.id, row.description || `Load ${row.id}`)}>
                                 <MessageSquare className="size-4 mr-2 text-blue-500" />
                                 <span>{rowComments.length > 0 ? `Comments (${rowComments.length})` : "Add Comment / Assign Task"}</span>
@@ -1394,6 +1570,13 @@ function LoadSummaryPage() {
           onSave={handleSaveComment}
         />
       )}
+
+      {/* Calculation Preview Modal on Double-click */}
+      <CalculationPreviewModal
+        isOpen={!!previewRow}
+        onClose={() => setPreviewRow(null)}
+        data={previewRow ? getCalculationPreview(previewRow) : null}
+      />
     </AppShell>
   );
 }

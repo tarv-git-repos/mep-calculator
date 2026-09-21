@@ -62,6 +62,7 @@ function SprinklerDensityPage() {
   const [kFactor, setKFactor] = useState(5.6);
   const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [showFormulaModal, setShowFormulaModal] = useState(false);
 
   const handleSaveSprinklerModal = (data: SprinklerFormData) => {
     setHazard(data.hazard);
@@ -1239,21 +1240,6 @@ function SprinklerDensityPage() {
                 Preliminary NFPA 13 sprinkler water density, design area, and water supply sizing schedule.
               </p>
             </div>
-            
-            {/* Unit Switcher */}
-            <div className="flex items-center gap-2 shrink-0">
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitToggle}
-                disabled={isApprovedLocked}
-                inputDescriptions="Coverage, Design Density, Design Area, K-Factor"
-                conversionExample={
-                  unitSystem === "si"
-                    ? "Convert 130 sq ft → 12.1 m², 0.20 gpm/ft² → 8.15 mm/min, K-5.6 → K-80"
-                    : "Convert 12.1 m² → 130 sq ft, 8.15 mm/min → 0.20 gpm/ft², K-80 → K-5.6"
-                }
-              />
-            </div>
           </div>
 
           {/* White card container for Tabs & Data Grid */}
@@ -1264,27 +1250,59 @@ function SprinklerDensityPage() {
           }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
-              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+              <div className="flex items-center gap-2">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    onClick={() => setTab("solver")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "solver"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Density Sizer
+                  </button>
+                  <button
+                    onClick={() => setTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "report"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Report
+                  </button>
+                </div>
+
                 <button
-                  onClick={() => setTab("solver")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "solver"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  type="button"
+                  onClick={() => setShowFormulaModal(true)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 shadow-2xs"
+                  title="View NFPA 13 Formulas"
                 >
-                  Calculator
+                  <Info className="size-3.5 text-primary" />
+                  <span>Formula Breakdown</span>
                 </button>
-                <button
-                  onClick={() => setTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "report"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Report
-                </button>
+              </div>
+
+              {/* Right Side Controls: Export & Unit System Toggle */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={exportPdf}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+
+                {/* Sizing Unit system toggle */}
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitToggle}
+                  disabled={isApprovedLocked}
+                  inputDescriptions="Coverage, Design Density, Design Area, K-Factor"
+                  conversionExample={
+                    unitSystem === "si"
+                      ? "Convert 130 sq ft → 12.1 m², 0.20 gpm/ft² → 8.15 mm/min, K-5.6 → K-80"
+                      : "Convert 12.1 m² → 130 sq ft, 8.15 mm/min → 0.20 gpm/ft², K-80 → K-5.6"
+                  }
+                />
               </div>
             </div>
 
@@ -1899,6 +1917,77 @@ function SprinklerDensityPage() {
           }}
           isApprovedLocked={isApprovedLocked}
         />
+      )}
+
+      {/* NFPA 13 Formula Breakdown Modal */}
+      {showFormulaModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-xl p-6 flex flex-col gap-4 shadow-2xl animate-scale-in">
+            <div className="flex justify-between items-center pb-3 border-b border-border">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="size-5 text-primary" />
+                <h3 className="text-lg font-bold text-foreground">NFPA 13 Sprinkler Density & Flow Equations</h3>
+              </div>
+              <button
+                onClick={() => setShowFormulaModal(false)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs leading-relaxed text-foreground">
+              <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
+                <div className="font-bold text-primary">1. Single Sprinkler Flow Rate (q)</div>
+                <p className="text-muted-foreground">
+                  Flow per sprinkler head based on hazard design density and head coverage area:
+                </p>
+                <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
+                  {"q = Density (d) × Coverage Area (A_cov)   [GPM or L/min]"}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
+                <div className="font-bold text-primary">2. Required Operating Pressure (P)</div>
+                <p className="text-muted-foreground">
+                  Minimum discharge pressure required at the sprinkler head orifice:
+                </p>
+                <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
+                  {"P = (q / K)²   [psi or bar, min 7.0 psi / 0.48 bar]"}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
+                <div className="font-bold text-primary">3. Total System Sprinkler Demand (Q_sprinkler)</div>
+                <p className="text-muted-foreground">
+                  Total simultaneous water demand over the designated remote hydraulic design area:
+                </p>
+                <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
+                  {"Q_sprinkler = Density (d) × Design Area (A_design)   [GPM or L/min]"}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
+                <div className="font-bold text-primary">4. Total Combined Water Supply Demand (Q_total)</div>
+                <p className="text-muted-foreground">
+                  Combined water supply including inside & outside hose stream allowance per NFPA 13:
+                </p>
+                <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
+                  {"Q_total = Q_sprinkler + Q_hose_allowance   [GPM or L/min]"}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-border">
+              <button
+                onClick={() => setShowFormulaModal(false)}
+                className="px-4 py-1.5 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </AppShell>
   );

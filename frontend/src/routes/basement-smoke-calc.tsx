@@ -550,6 +550,49 @@ function BasementSmokeCalcPage() {
     setFloors(newFloors);
   };
 
+  function LevelNameInput({
+    level,
+    onRename,
+  }: {
+    level: string;
+    onRename: (oldName: string, newName: string) => void;
+  }) {
+    const [val, setVal] = useState(level);
+
+    useEffect(() => {
+      setVal(level);
+    }, [level]);
+
+    const commitRename = () => {
+      const trimmed = val.trim();
+      if (trimmed && trimmed !== level) {
+        onRename(level, trimmed);
+      } else {
+        setVal(level);
+      }
+    };
+
+    return (
+      <input
+        type="text"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={commitRename}
+        onFocus={e => e.target.select()}
+        onKeyDown={e => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            setVal(level);
+            e.currentTarget.blur();
+          }
+        }}
+        className="bg-transparent hover:bg-slate-200/50 dark:hover:bg-slate-700/50 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded-md px-2 py-0.5 font-bold text-xs text-foreground outline-none transition-colors"
+        title="Click to rename level inline (Press Enter or click outside to save)"
+      />
+    );
+  }
+
   // Bulk edit handlers (Ventilation style)
   const handleOpenBulkEdit = (targetIds?: string[]) => {
     const idsToEdit = targetIds && targetIds.length > 0
@@ -1968,9 +2011,9 @@ function BasementSmokeCalcPage() {
                       </thead>
                       <tbody className="divide-y divide-border/40 font-mono">
                         {calculatedGroups.map((grp, grpIdx) => (
-                          <Fragment key={grp.basementLevel + "-group"}>
+                          <Fragment key={`lvl-grp-${grpIdx}`}>
                             {/* Basement Level Group Header */}
-                            <ContextMenu key={grp.basementLevel + "-level-ctx"}>
+                            <ContextMenu key={`lvl-ctx-${grpIdx}`}>
                               <ContextMenuTrigger asChild>
                                 <tr className={`font-sans group/header ${
                                   grpIdx > 0
@@ -1981,12 +2024,9 @@ function BasementSmokeCalcPage() {
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center gap-2">
                                         <div className="w-1 h-4 bg-[#0A7BC7] rounded-full shrink-0"></div>
-                                        <input
-                                          type="text"
-                                          value={grp.basementLevel}
-                                          onChange={e => handleRenameLevel(grp.basementLevel, e.target.value)}
-                                          className="bg-transparent hover:bg-slate-200/50 dark:hover:bg-slate-700/50 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded-md px-2 py-0.5 font-bold text-xs text-foreground outline-none transition-colors"
-                                          title="Click to rename level inline"
+                                        <LevelNameInput
+                                          level={grp.basementLevel}
+                                          onRename={handleRenameLevel}
                                         />
                                         <span className="text-[10.5px] px-2 py-0.5 bg-slate-200/60 dark:bg-slate-700/50 text-muted-foreground font-semibold rounded-full">
                                           {grp.rows.length} {grp.rows.length === 1 ? "Zone" : "Zones"}

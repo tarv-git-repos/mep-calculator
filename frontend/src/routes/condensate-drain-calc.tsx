@@ -36,7 +36,6 @@ import {
   ChevronRight,
   Scissors,
   Clipboard,
-  Printer,
   TrendingUp,
   Check,
 } from "lucide-react";
@@ -1395,9 +1394,6 @@ function CondensateDrainCalcPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <TBtn onClick={() => window.print()}>
-                          <Printer className="size-3.5" /> Print
-                        </TBtn>
                         <TBtn primary onClick={handleExportPDF}>
                           <FileText className="size-3.5" /> Export PDF
                         </TBtn>

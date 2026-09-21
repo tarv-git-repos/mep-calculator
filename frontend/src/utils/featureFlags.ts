@@ -66,7 +66,27 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'drainage-pipe-sizing',
   'plumbing-drainage-sizing',
   'plumbing-pump-sizing',
-  'pump-sizing'
+  'pump-sizing',
+  'plumbing-sump-pump',
+  'sump-pump',
+  'plumbing-hazen-williams',
+  'hazen-williams',
+  'hazen',
+  'hazenwilliams',
+  'plumbing-tank-sizing',
+  'tank-sizing',
+  'water-tank-sizing',
+  'tank',
+  'refrigerant-pipe-sizing',
+  'refrigerant-pipe',
+  'ref-pipe',
+  'refrigerant-sizing',
+  'refrigerant',
+  'plumbing-fire-tank-duration',
+  'fire-tank-duration',
+  'tank-duration',
+  'fire-tank',
+  'plumbing-tank-duration'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -107,7 +127,7 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     return features[routeKey] === false;
   }
 
-  // Keep Cable Tray Sizing, Water Demand, Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density, Condensate Drain, Smoke Extract & Psychrometric Calculators unlocked for everyone by default
+  // Keep Cable Tray Sizing, Water Demand, Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density, Condensate Drain, Smoke Extract, Psychrometric & Refrigerant Calculators unlocked for everyone by default
   if (
     routeKey === 'fresh-air-cooling-load' ||
     routeKey === 'fresh-air-cooling' ||
@@ -170,7 +190,27 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'drainage-pipe-sizing' ||
     routeKey === 'plumbing-drainage-sizing' ||
     routeKey === 'plumbing-pump-sizing' ||
-    routeKey === 'pump-sizing'
+    routeKey === 'pump-sizing' ||
+    routeKey === 'plumbing-sump-pump' ||
+    routeKey === 'sump-pump' ||
+    routeKey === 'plumbing-hazen-williams' ||
+    routeKey === 'hazen-williams' ||
+    routeKey === 'hazen' ||
+    routeKey === 'hazenwilliams' ||
+    routeKey === 'plumbing-tank-sizing' ||
+    routeKey === 'tank-sizing' ||
+    routeKey === 'water-tank-sizing' ||
+    routeKey === 'tank' ||
+    routeKey === 'refrigerant-pipe-sizing' ||
+    routeKey === 'refrigerant-pipe' ||
+    routeKey === 'ref-pipe' ||
+    routeKey === 'refrigerant-sizing' ||
+    routeKey === 'refrigerant' ||
+    routeKey === 'plumbing-fire-tank-duration' ||
+    routeKey === 'fire-tank-duration' ||
+    routeKey === 'tank-duration' ||
+    routeKey === 'fire-tank' ||
+    routeKey === 'plumbing-tank-duration'
   ) {
     return false;
   }

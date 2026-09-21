@@ -1,15 +1,19 @@
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
+import { DataGrid, type Column } from "@/components/workspace/DataGrid";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import {
-  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw
+  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw, Filter, ArrowUpDown, Flag, Info, Calculator, Zap, Layers, Copy, MessageSquare, Edit
 } from "lucide-react";
 import { useConfirm } from "@/hooks/use-confirm";
 import ExcelJS from "exceljs";
@@ -31,6 +35,7 @@ export const Route = createFileRoute("/transformer-sizing")({
 interface LoadRow {
   id: string;
   selected?: boolean;
+  flagged?: boolean;
   description: string;
   lightingHeatingKw: number | "";
   inductiveMotorKw: number | "";
@@ -108,7 +113,84 @@ function TransformerSizingPage() {
   const confirm = useConfirm();
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
-  const [showSummary, setShowSummary] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [previewRowId, setPreviewRowId] = useState<string | null>(null);
+  
+  const [assignCommentOpen, setAssignCommentOpen] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: string } | null>(null);
+
+  const renderRowContextMenu = (r: LoadRow) => (
+    <ContextMenuContent className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg p-1 text-[13px] text-slate-800 dark:text-slate-200 z-50">
+      <ContextMenuItem
+        onClick={() => setPreviewRowId(r.id)}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white rounded cursor-pointer transition-colors"
+      >
+        <Edit className="size-3.5" />
+        <span>Edit Parameters</span>
+      </ContextMenuItem>
+      
+      <ContextMenuItem
+        onClick={() => handleUpdateRow(r.id, "flagged", !r.flagged)}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white rounded cursor-pointer transition-colors"
+      >
+        <Flag className={`size-3.5 ${r.flagged ? "fill-red-500 text-red-500" : ""}`} />
+        <span>{r.flagged ? "Unflag Load" : "Flag for Review"}</span>
+      </ContextMenuItem>
+
+      <ContextMenuItem
+        onClick={() => {
+          setCommentTarget({ id: r.id, name: r.description || "Unnamed Load", type: 'load' });
+          setAssignCommentOpen(true);
+        }}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium transition-colors"
+      >
+        <MessageSquare className="size-3.5" />
+        <span>Add Comment / Assign Task</span>
+      </ContextMenuItem>
+
+      <ContextMenuSeparator className="h-px bg-slate-200 dark:bg-slate-800 my-1" />
+      
+      <ContextMenuItem
+        onClick={() => {
+          const newId = `load-${Date.now()}`;
+          const newRow = { ...r, id: newId };
+          setLoadRows(prev => [...prev, newRow]);
+        }}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white rounded cursor-pointer transition-colors"
+      >
+        <Copy className="size-3.5" />
+        <span>Duplicate Row</span>
+      </ContextMenuItem>
+
+      <ContextMenuItem
+        onClick={() => {
+          setLoadRows(prev => prev.filter(row => row.id !== r.id));
+        }}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400 rounded cursor-pointer text-red-600 dark:text-red-500 transition-colors"
+      >
+        <Trash2 className="size-3.5" />
+        <span>Delete Row</span>
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
+    if (newSystem === unitSystem) return;
+    setUnitSystem(newSystem);
+    
+    if (shouldConvert) {
+      setLoadRows(prev => prev.map(r => {
+        const lh = Number(r.lightingHeatingKw);
+        const im = Number(r.inductiveMotorKw);
+        return {
+          ...r,
+          lightingHeatingKw: r.lightingHeatingKw === "" ? "" : (newSystem === "ip" ? Number((lh / 0.746).toFixed(2)) : Number((lh * 0.746).toFixed(2))),
+          inductiveMotorKw: r.inductiveMotorKw === "" ? "" : (newSystem === "ip" ? Number((im / 0.746).toFixed(2)) : Number((im * 0.746).toFixed(2))),
+        };
+      }));
+    }
+  };
 
   // Global inputs matching the screenshot
   const [designParams, setDesignParams] = useState({
@@ -359,117 +441,252 @@ function TransformerSizingPage() {
   };
 
   const handlePrintPDF = () => {
-    const doc = new jsPDF("l", "pt", "a4");
+    const doc = new jsPDF("p", "mm", "a4");
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.text("POWER TRANSFORMER SIZING REPORT", 40, 50);
+    const callAutoTable = (pdfDoc: any, options: any) => {
+      if (typeof autoTable === "function") {
+        autoTable(pdfDoc, options);
+      } else if (typeof (autoTable as any)?.default === "function") {
+        (autoTable as any).default(pdfDoc, options);
+      } else if (typeof pdfDoc.autoTable === "function") {
+        pdfDoc.autoTable(options);
+      }
+    };
 
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 40, 68);
-
-    doc.setDrawColor(200);
-    doc.line(40, 75, 780, 75);
-
-    // Parameters
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(0);
-    doc.text("1. Sizing Parameters", 40, 95);
-
-    const paramData = [
-      ["Spare Capacity", `${designParams.spareCapacity} %`, "Power Factor", `${designParams.powerFactor}`],
-      ["Derating Factor 1", `${designParams.deratingFactor1}`, "Derating Factor 2", `${designParams.deratingFactor2}`],
-    ];
-
-    autoTable(doc, {
-      startY: 105,
-      head: [],
-      body: paramData,
-      theme: "plain",
-      styles: { fontSize: 9.5, cellPadding: 4 },
-      columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 120 },
-        1: { cellWidth: 170 },
-        2: { fontStyle: "bold", cellWidth: 120 },
-        3: { cellWidth: 170 },
-      },
+    let currentY = addPdfHeader(doc, "POWER TRANSFORMER SIZING REPORT", {
+      calcNo: (project as any)?.calcNo || "TRV-CAL-101-R01",
+      projectNo: project?.code || (project as any)?.projectNo || "P000",
+      projectName: project?.name || (project as any)?.projectName || "",
+      client: (project as any)?.client || "",
+      endUser: (project as any)?.endUser || (project as any)?.location || "",
+      date: new Date().toLocaleDateString("en-GB"),
     });
 
-    // Load Schedule
+    // 2. Design Criteria Parameters
+    doc.setFontSize(8.5);
     doc.setFont("helvetica", "bold");
-    doc.text("2. Connected Load Schedule", 40, (doc as any).lastAutoTable.finalY + 25);
+    doc.text("Design Criteria:", 14, currentY + 5);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Spare Capacity: ${designParams.spareCapacity}%   |   Power Factor: ${designParams.powerFactor}   |   Derating Factor 1: ${designParams.deratingFactor1}   |   Derating Factor 2: ${designParams.deratingFactor2}`, 38, currentY + 5);
 
-    const loadHead = [["Description", "Light/Heat kW", "Induct/Motor kW", "Total kW", "Diversity", "Demand F.", "Max Demand kW"]];
-    const loadBody = calculatedData.rowDetails.map(r => [
+    // Colors
+    const primaryFill = [217, 217, 217] as [number, number, number];
+    const blueFill = [218, 233, 248] as [number, number, number];
+
+    // 3. Grid Table
+    const headers = [
+      [
+        { content: "Sr.\nNo.", rowSpan: 2, styles: { fillColor: primaryFill } },
+        { content: "Load Details", rowSpan: 2, styles: { fillColor: primaryFill } },
+        { content: "Connected Load", colSpan: 3, styles: { fillColor: primaryFill } },
+        { content: "Demand Parameters", colSpan: 3, styles: { fillColor: blueFill } },
+        { content: "Remarks", rowSpan: 2, styles: { fillColor: primaryFill } }
+      ],
+      [
+        { content: "Light/Heat\n(kW)" },
+        { content: "Induct/Motor\n(kW)" },
+        { content: "Total\n(kW)" },
+        { content: "Diversity\nFactor", styles: { fillColor: blueFill } },
+        { content: "Demand\nFactor", styles: { fillColor: blueFill } },
+        { content: "Max Demand\n(kW)", styles: { fillColor: blueFill } }
+      ]
+    ];
+
+    const data: any[] = calculatedData.rowDetails.map((r, idx) => [
+      idx + 1,
       r.description,
       r.lightingHeatingKw,
       r.inductiveMotorKw,
       r.connectedLoad.toFixed(2),
       r.diversityFactor,
       r.demandFactor,
-      r.maxDemand.toFixed(2)
+      r.maxDemand.toFixed(2),
+      r.remarks || "-"
     ]);
 
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 35,
-      head: loadHead,
-      body: loadBody,
+    // Total / Summary Row at the bottom of data grid
+    const grandTotalRow = [
+      { content: "TOTAL", colSpan: 2, styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill } },
+      { content: "-", styles: { halign: "center" } },
+      { content: "-", styles: { halign: "center" } },
+      { content: calculatedData.totalConnectedKw.toFixed(2), styles: { fontStyle: "bold", halign: "center" } },
+      { content: "-", styles: { halign: "center" } },
+      { content: "-", styles: { halign: "center" } },
+      { content: calculatedData.totalMaxDemandKw.toFixed(2), styles: { fontStyle: "bold", halign: "center", fillColor: blueFill } },
+      { content: "-", styles: { halign: "center" } }
+    ];
+    data.push(grandTotalRow);
+
+    callAutoTable(doc, {
+      startY: currentY + 10,
+      margin: { left: 14, right: 14 },
       theme: "grid",
-      styles: { fontSize: 8.5, cellPadding: 4 },
-      headStyles: { fillColor: [51, 63, 72] },
+      styles: {
+        fontSize: 7,
+        halign: "center",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
+        minCellHeight: 6
+      },
+      headStyles: {
+        fillColor: primaryFill,
+        textColor: 0,
+        fontStyle: "bold",
+        cellPadding: { top: 2, bottom: 2, left: 0.5, right: 0.5 }
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 40, halign: "left" },
+        2: { cellWidth: 18, halign: "center" },
+        3: { cellWidth: 18, halign: "center" },
+        4: { cellWidth: 18, halign: "center" },
+        5: { cellWidth: 15, halign: "center", fillColor: [240, 247, 252] },
+        6: { cellWidth: 15, halign: "center", fillColor: [240, 247, 252] },
+        7: { cellWidth: 20, halign: "center", fillColor: [240, 247, 252] },
+        8: { cellWidth: 28, halign: "left" }
+      },
+      head: headers,
+      body: data,
     });
 
-    // Summary calculations
-    doc.setFont("helvetica", "bold");
-    doc.text("3. Calculations Summary", 40, (doc as any).lastAutoTable.finalY + 25);
+    currentY = (doc as any).lastAutoTable.finalY + 10;
 
+    // Summary calculations
+    const summaryHead = [["Calculation Summary", "Value"]];
     const summaryData = [
       ["Total Connected Load", `${calculatedData.totalConnectedKw.toFixed(1)} kW`],
       ["Total Maximum Demand", `${calculatedData.totalMaxDemandKw.toFixed(1)} kW`],
       ["Spare Load Capacity Added", `${calculatedData.totalSpareKw.toFixed(1)} kW (${designParams.spareCapacity}%)`],
-      ["Required Transformer capacity", `${calculatedData.requiredKva.toFixed(1)} kVA`],
+      ["Required Transformer Capacity", `${calculatedData.requiredKva.toFixed(1)} kVA`],
       ["Recommended Transformer Size", `${calculatedData.recommendedKva} kVA`],
-      ["Transformer Load utilization", `${calculatedData.utilization.toFixed(1)}%`],
+      ["Transformer Load Utilization", `${calculatedData.utilization.toFixed(1)}%`],
     ];
 
-    autoTable(doc, {
-      startY: (doc as any).lastAutoTable.finalY + 35,
-      head: [],
+    callAutoTable(doc, {
+      startY: currentY,
+      margin: { left: 14, right: 14 },
+      head: summaryHead,
       body: summaryData,
-      theme: "striped",
-      styles: { fontSize: 9.5, cellPadding: 4 },
+      theme: "grid",
+      styles: {
+        fontSize: 8,
+        halign: "left",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 3, bottom: 3, left: 2, right: 2 }
+      },
+      headStyles: { fillColor: primaryFill, textColor: 0, fontStyle: "bold" },
       columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 220 },
-        1: { cellWidth: 280 },
+        0: { fontStyle: "bold", cellWidth: 142 },
+        1: { cellWidth: 40, fontStyle: "bold", textColor: [0, 51, 153], halign: "center" },
       },
     });
 
+    currentY = (doc as any).lastAutoTable.finalY;
     
-    const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-    addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "transformer-sizing");
+    // Signature block
+    addPdfSignatureBlock(doc, currentY, currentUserName, project?.id || "default", "transformer-sizing");
+    
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `transformer_sizing_report.pdf`, "PDF Document", ["pdf"]);
   };
 
+  const columns: Column<any>[] = [
+    { key: "index", header: "SR. NO.", width: 60, align: "center", render: (r, idx) => <span className="font-mono text-slate-400">{loadRows.findIndex(row => row.id === r.id) + 1}</span> },
+    { key: "description", header: "DESCRIPTION", width: 180, editable: true, render: (r) => (
+        <InlineInput 
+          value={r.description} 
+          onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="e.g. Area 1"
+          className="font-medium text-slate-900 dark:text-slate-100 min-w-0"
+        />
+    )},
+    { key: "lightingHeatingKw", header: `LIGHTING / HEATING LOAD (${unitSystem === "ip" ? "HP" : "kW"})`, width: 220, align: "right", editable: true, render: (r) => (
+        <InlineInput 
+          type="number" 
+          value={r.lightingHeatingKw} 
+          onCommit={(val) => handleUpdateRow(r.id, "lightingHeatingKw", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="eg: 20"
+          className="text-slate-900 dark:text-slate-100 tabular text-right min-w-0 flex-1"
+        />
+    )},
+    { key: "inductiveMotorKw", header: `INDUCTIVE / MOTOR LOAD (${unitSystem === "ip" ? "HP" : "kW"})`, width: 220, align: "right", editable: true, render: (r) => (
+        <InlineInput 
+          type="number" 
+          value={r.inductiveMotorKw} 
+          onCommit={(val) => handleUpdateRow(r.id, "inductiveMotorKw", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="eg: 10"
+          className="text-slate-900 dark:text-slate-100 tabular text-right min-w-0 flex-1"
+        />
+    )},
+    { key: "connectedLoad", header: `TOTAL CONNECTED LOAD (${unitSystem === "ip" ? "HP" : "kW"})`, width: 220, align: "right", mono: true, render: (r) => (
+        <div className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-slate-800/30 w-full h-full flex items-center justify-end px-3">
+          {r.connectedLoad.toFixed(2)}
+        </div>
+    )},
+    { key: "diversityFactor", header: "DIVERSITY FACTOR", width: 150, align: "right", editable: true, render: (r) => (
+        <InlineInput 
+          type="number" step="0.01"
+          value={r.diversityFactor} 
+          onCommit={(val) => handleUpdateRow(r.id, "diversityFactor", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="eg: 1"
+          className="text-slate-900 dark:text-slate-100 tabular text-right min-w-0 flex-1"
+        />
+    )},
+    { key: "demandFactor", header: "DEMAND FACTOR", width: 150, align: "right", editable: true, render: (r) => (
+        <InlineInput 
+          type="number" step="0.01"
+          value={r.demandFactor} 
+          onCommit={(val) => handleUpdateRow(r.id, "demandFactor", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="eg: 0.85"
+          className="text-slate-900 dark:text-slate-100 tabular text-right min-w-0 flex-1"
+        />
+    )},
+    { key: "maxDemand", header: `MAXIMUM DEMAND (${unitSystem === "ip" ? "HP" : "kW"})`, width: 180, align: "right", mono: true, render: (r) => (
+        <div className="font-bold text-blue-700 dark:text-blue-400 bg-slate-100/50 dark:bg-slate-800/30 w-full h-full flex items-center justify-end px-3">
+          {r.maxDemand.toFixed(2)}
+        </div>
+    )},
+    { key: "remarks", header: "REMARKS", width: 250, editable: true, render: (r) => (
+        <InlineInput 
+          value={r.remarks} 
+          onCommit={(v) => handleUpdateRow(r.id, "remarks", v)}
+          onFocus={() => {}}
+          placeholder="Notes..."
+          className="text-slate-500 min-w-0"
+        />
+    )},
+    { 
+      key: "flagged", 
+      header: "", 
+      width: 40, 
+      align: "center", 
+      render: (r: any) => (
+        <button 
+          onClick={(e) => { e.stopPropagation(); handleUpdateRow(r.id, "flagged", !r.flagged); }}
+          className="flex items-center justify-center w-full h-full cursor-pointer outline-none"
+          title={r.flagged ? "Unflag load" : "Flag load"}
+        >
+          <Flag className={`size-3.5 transition-all ${r.flagged ? "fill-red-500 text-red-500" : "text-slate-300 hover:text-slate-500"}`} />
+        </button>
+      )
+    }
+  ];
+
   return (
     <AppShell title="Transformer Sizing" subtitle="Calculate transformer rating based on connected and maximum demand loads">
-      <div className="p-6 h-full flex flex-col bg-slate-50 dark:bg-slate-950 font-sans overflow-y-auto">
+      <div className="h-full flex flex-col bg-background font-sans">
         
-        {/* Header & Title */}
-        <div className="flex flex-col mb-4">
-          <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">Electrical &gt; Transformer Sizing</div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            Transformer Sizing <span className="text-sm font-normal text-slate-400">({loadRows.length} loads)</span>
-          </h1>
-              <CalculationReviewBar calculatorPath="/transformer-sizing" calculatorTitle="Transformer Sizing" />
-          <p className="text-xs text-muted-foreground mt-1">Preliminary transformer capacity (kVA) sizing based on connected loads, diversity, and ambient deratings.</p>
-        </div>
-
         {/* Tabs */}
-        <div className="flex items-center gap-2 mb-6 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2 bg-surface-2">
           <button 
             onClick={() => setActiveTab('calculator')}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeTab === 'calculator' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
@@ -483,219 +700,132 @@ function TransformerSizingPage() {
         </div>
 
         {activeTab === 'calculator' ? (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col flex-1 min-h-0 bg-background">
             
-            {/* Toolbar / Global Inputs */}
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-3 flex flex-wrap gap-4 items-center justify-between">
-              
-              <div className="flex flex-wrap items-center gap-4 lg:gap-6">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">SPARE CAPACITY:</span>
-                  <div className="relative">
-                    <input 
-                      type="number"
-                      value={designParams.spareCapacity}
-                      onChange={(e) => setDesignParams({...designParams, spareCapacity: Number(e.target.value)})}
-                      className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-transparent rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                    />
-                    <span className="absolute right-[-14px] top-1.5 text-[10px] text-slate-500">%</span>
-                  </div>
-                </div>
+            <div className="flex flex-col flex-1 overflow-hidden">
+              {/* Toolbar */}
+              <div className="relative flex items-center gap-1.5 px-4 h-12 shrink-0 flex-wrap no-print border-b border-border">
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter loads..."
+                  className="h-7 w-56 px-3 bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-slate-300 dark:focus:border-slate-700 rounded-full text-[12px] outline-none transition-all"
+                />
                 
-                <div className="flex items-center gap-2 ml-4">
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">DERATING FACTOR 1:</span>
-                  <input 
-                    type="number" step="0.01"
-                    value={designParams.deratingFactor1}
-                    onChange={(e) => setDesignParams({...designParams, deratingFactor1: Number(e.target.value)})}
-                    className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-transparent rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                  />
-                </div>
+                <UnitToggle 
+                  unitSystem={unitSystem} 
+                  onChange={handleUnitToggle} 
+                />
 
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">DERATING FACTOR 2:</span>
-                  <input 
-                    type="number" step="0.01"
-                    value={designParams.deratingFactor2}
-                    onChange={(e) => setDesignParams({...designParams, deratingFactor2: Number(e.target.value)})}
-                    className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-transparent rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                  />
-                </div>
+                <button className="flex items-center justify-center h-7 w-7 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                  <Filter className="size-3.5" />
+                </button>
+                <button className="flex items-center justify-center h-7 w-7 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                  <ArrowUpDown className="size-3.5" />
+                </button>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">POWER FACTOR:</span>
-                  <input 
-                    type="number" step="0.01"
-                    value={designParams.powerFactor}
-                    onChange={(e) => setDesignParams({...designParams, powerFactor: Number(e.target.value)})}
-                    className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-transparent rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                  />
+
+                <div className="ml-auto flex items-center gap-2">
+
+                  <label className="relative flex items-center justify-center h-7 px-3 rounded-md border border-slate-200 dark:border-slate-700 text-[12px] font-medium bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-all duration-150 shadow-sm gap-1.5 group select-none outline-none">
+                    <Download className="size-3.5 text-muted-foreground group-hover:text-foreground transition-colors" /> Import
+                    <input type="file" onChange={handleImportJSON} accept=".json" className="hidden" />
+                  </label>
+                  
+                  <TBtn onClick={handlePrintPDF}>
+                    <Printer className="size-3.5" /> Export PDF
+                  </TBtn>
+                  <TBtn primary onClick={handleAddRow}>
+                    <Plus className="size-3.5" /> Add Row
+                  </TBtn>
+                  {loadRows.some(r => r.selected) && (
+                    <TBtn onClick={handleDeleteSelected} className="border-rose-500/30 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:border-rose-500/50">
+                      <Trash2 className="size-3.5" /> Delete
+                    </TBtn>
+                  )}
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button onClick={handleReset} className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-2 py-1 transition-colors">
-                  <RotateCcw className="size-3.5" /> Reset
-                </button>
-                <label className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-2 py-1 cursor-pointer transition-colors">
-                  <Download className="size-3.5" /> Import
-                  <input type="file" onChange={handleImportJSON} accept=".json" className="hidden" />
-                </label>
-                <button onClick={handleExportJSON} className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-2 py-1 transition-colors">
-                  <Upload className="size-3.5" /> Export
-                </button>
-                <button onClick={handleAddRow} className="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-3 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 ml-2 shadow-sm">
-                  <Plus className="size-3.5" /> Add Row
-                </button>
-                {loadRows.some(r => r.selected) && (
-                  <button onClick={handleDeleteSelected} className="bg-rose-600 hover:bg-rose-700 text-white rounded-md px-3 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
-                    <Trash2 className="size-3.5" /> Delete
-                  </button>
-                )}
-                <button onClick={() => setShowSummary(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-1.5 text-xs font-semibold transition-colors ml-1 shadow-sm">
-                  Calculate
-                </button>
-              </div>
+              {/* Global Inputs */}
+              <div className="bg-surface-2/50 border-b border-border px-4 py-2.5 flex flex-wrap gap-4 items-center">
+                <div className="flex flex-wrap items-center gap-4 lg:gap-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">SPARE CAPACITY:</span>
+                    <div className="relative">
+                      <input 
+                        type="number"
+                        value={designParams.spareCapacity}
+                        onChange={(e) => setDesignParams({...designParams, spareCapacity: Number(e.target.value)})}
+                        className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
+                      />
+                      <span className="absolute right-[-14px] top-1.5 text-[10px] text-slate-500">%</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 ml-4">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">DERATING FACTOR 1:</span>
+                    <input 
+                      type="number" step="0.01"
+                      value={designParams.deratingFactor1}
+                      onChange={(e) => setDesignParams({...designParams, deratingFactor1: Number(e.target.value)})}
+                      className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
+                    />
+                  </div>
 
-            </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">DERATING FACTOR 2:</span>
+                    <input 
+                      type="number" step="0.01"
+                      value={designParams.deratingFactor2}
+                      onChange={(e) => setDesignParams({...designParams, deratingFactor2: Number(e.target.value)})}
+                      className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
+                    />
+                  </div>
 
-            {/* Table */}
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap min-w-[900px]">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase text-slate-500 font-bold">
-                    <th className="p-3 w-10 text-center"><input type="checkbox" onChange={handleSelectAll} checked={loadRows.length > 0 && loadRows.every(r => r.selected)} className="cursor-pointer" /></th>
-                    <th className="p-3 w-16 text-center">Sr. No.</th>
-                    <th className="p-3">Description</th>
-                    <th className="p-3 w-32">Lighting / Heating Load (kW)</th>
-                    <th className="p-3 w-32">Inductive / Motor Load (kW)</th>
-                    <th className="p-3 w-32 bg-slate-100/50 dark:bg-slate-800/50">Total Connected Load (kW)</th>
-                    <th className="p-3 w-28">Diversity Factor</th>
-                    <th className="p-3 w-28">Demand Factor</th>
-                    <th className="p-3 w-32 bg-slate-100/50 dark:bg-slate-800/50">Maximum Demand (kW)</th>
-                    <th className="p-3 w-40">Remarks</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                  {calculatedData.rowDetails.map((row, idx) => (
-                    <tr 
-                      key={row.id} 
-                      onClick={() => handleUpdateRow(row.id, "selected", !row.selected)}
-                      className={`cursor-pointer ${row.selected ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'}`}
-                    >
-                      <td className="p-3 text-center border-r border-transparent">
-                        <input type="checkbox" checked={!!row.selected} onChange={(e) => handleUpdateRow(row.id, 'selected', e.target.checked)} onClick={(e) => e.stopPropagation()} className="cursor-pointer" />
-                      </td>
-                      <td className="p-3 font-mono text-slate-400 text-center">{idx + 1}</td>
-                      <td className="p-2">
-                        <InlineInput 
-                          value={row.description} 
-                          onCommit={(val) => handleUpdateRow(row.id, "description", val)}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="e.g. Area 1"
-                          className="font-medium text-slate-900 dark:text-slate-100"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <InlineInput 
-                          type="number" 
-                          value={row.lightingHeatingKw} 
-                          onCommit={(val) => handleUpdateRow(row.id, "lightingHeatingKw", val === "" ? "" : Number(val))}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="eg: 20"
-                          className="text-slate-900 dark:text-slate-100"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <InlineInput 
-                          type="number" 
-                          value={row.inductiveMotorKw} 
-                          onCommit={(val) => handleUpdateRow(row.id, "inductiveMotorKw", val === "" ? "" : Number(val))}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="eg: 10"
-                          className="text-slate-900 dark:text-slate-100"
-                        />
-                      </td>
-                      <td className="p-3 font-bold text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-slate-800/30">
-                        {row.connectedLoad.toFixed(2)}
-                      </td>
-                      <td className="p-2">
-                        <InlineInput 
-                          type="number" step="0.01"
-                          value={row.diversityFactor} 
-                          onCommit={(val) => handleUpdateRow(row.id, "diversityFactor", val === "" ? "" : Number(val))}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="eg: 1"
-                          className="text-slate-900 dark:text-slate-100"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <InlineInput 
-                          type="number" step="0.01"
-                          value={row.demandFactor} 
-                          onCommit={(val) => handleUpdateRow(row.id, "demandFactor", val === "" ? "" : Number(val))}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="eg: 0.85"
-                          className="text-slate-900 dark:text-slate-100"
-                        />
-                      </td>
-                      <td className="p-3 font-bold text-blue-700 dark:text-blue-400 bg-slate-100/50 dark:bg-slate-800/30">
-                        {row.maxDemand.toFixed(2)}
-                      </td>
-                      <td className="p-2">
-                        <InlineInput 
-                          value={row.remarks} 
-                          onCommit={(val) => handleUpdateRow(row.id, "remarks", val)}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="Notes..."
-                          className="text-slate-500"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {loadRows.length === 0 && (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  No loads added. Click "Add Row" to begin sizing.
-                </div>
-              )}
-            </div>
-
-            {/* Results Summary */}
-            {showSummary && (
-              <div className="mt-2 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-bottom-4 fade-in duration-300">
-                <div className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <div className="absolute right-3 top-3 text-blue-500/20"><Sparkles className="size-8" /></div>
-                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Recommended Rating</span>
-                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.recommendedKva} <span className="text-sm text-slate-500 font-sans">kVA</span></strong>
-                  <span className="text-[11px] text-slate-500 mt-2 block">Min. sizing required: {calculatedData.requiredKva.toFixed(1)} kVA</span>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <div className="absolute right-3 top-3 text-slate-500/10"><Gauge className="size-8" /></div>
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Total Max Demand</span>
-                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.totalMaxDemandKw.toFixed(1)} <span className="text-sm text-slate-500 font-sans">kW</span></strong>
-                  <span className="text-[11px] text-slate-500 mt-2 block">Connected Load: {calculatedData.totalConnectedKw.toFixed(1)} kW</span>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <div className="absolute right-3 top-3 text-slate-500/10"><FileText className="size-8" /></div>
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Demand With Spare</span>
-                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.totalDemandWithSpareKw.toFixed(1)} <span className="text-sm text-slate-500 font-sans">kW</span></strong>
-                  <span className="text-[11px] text-slate-500 mt-2 block">Spare added: {calculatedData.totalSpareKw.toFixed(1)} kW</span>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Utilization</span>
-                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.utilization.toFixed(1)} <span className="text-sm text-slate-500 font-sans">%</span></strong>
-                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 mt-3 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${calculatedData.utilization > 90 ? 'bg-rose-500' : calculatedData.utilization < 35 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(calculatedData.utilization, 100)}%` }}></div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">POWER FACTOR:</span>
+                    <input 
+                      type="number" step="0.01"
+                      value={designParams.powerFactor}
+                      onChange={(e) => setDesignParams({...designParams, powerFactor: Number(e.target.value)})}
+                      className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
+                    />
                   </div>
                 </div>
               </div>
-            )}
 
+              {/* Table */}
+              <div className="flex-1 min-h-0 flex flex-col">
+                {loadRows.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
+                    <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center">
+                      <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
+                        <Plus className="size-6" />
+                      </div>
+                      <h3 className="text-[15px] font-semibold tracking-tight">No Loads Added</h3>
+                      <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                        Click "Add Row" to begin sizing the transformer.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <DataGrid 
+                    rows={calculatedData.rowDetails.filter(row => row.description.toLowerCase().includes(searchQuery.toLowerCase()) || row.remarks.toLowerCase().includes(searchQuery.toLowerCase()))}
+                    columns={columns}
+                    selected={new Set(loadRows.filter(r => r.selected).map(r => r.id))}
+                    onToggle={(id) => {
+                      const row = loadRows.find(r => r.id === id);
+                      if (row) handleUpdateRow(id, "selected", !row.selected);
+                    }}
+                    onToggleAll={() => {
+                      const allSelected = loadRows.length > 0 && loadRows.every(r => r.selected);
+                      setLoadRows(loadRows.map(r => ({ ...r, selected: !allSelected })));
+                    }}
+                    onRowDoubleClick={(row) => setPreviewRowId(row.id)}
+                  />
+                )}
+              </div>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto py-6">
@@ -731,12 +861,12 @@ function TransformerSizingPage() {
                     <thead>
                       <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-b border-slate-200 dark:border-slate-700">
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700">Description</th>
-                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">L/H kW</th>
-                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Ind/M kW</th>
-                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Total kW</th>
+                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">L/H {unitSystem === "ip" ? "HP" : "kW"}</th>
+                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Ind/M {unitSystem === "ip" ? "HP" : "kW"}</th>
+                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Total {unitSystem === "ip" ? "HP" : "kW"}</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Div F.</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Dem F.</th>
-                        <th className="p-2 text-right">Max kW</th>
+                        <th className="p-2 text-right">Max {unitSystem === "ip" ? "HP" : "kW"}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-mono">
@@ -757,20 +887,229 @@ function TransformerSizingPage() {
               </div>
 
               <div className="mb-6">
-                <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1 mb-3">3. Calculation Summary</h3>
-                <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-slate-50 dark:bg-slate-800/50 text-xs">
-                  <div className="grid grid-cols-2 gap-4 pb-2 border-b border-slate-200 dark:border-slate-700">
-                    <div><span className="text-slate-500">Total Connected Load:</span><strong className="block font-mono mt-0.5">{calculatedData.totalConnectedKw.toFixed(1)} kW</strong></div>
-                    <div><span className="text-slate-500">Total Maximum Demand:</span><strong className="block font-mono mt-0.5">{calculatedData.totalMaxDemandKw.toFixed(1)} kW</strong></div>
+                <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-2 mb-4">3. Calculation Summary</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900 rounded-xl p-4 shadow-sm relative overflow-hidden">
+                    <div className="absolute right-3 top-3 text-blue-500/20"><Sparkles className="size-8" /></div>
+                    <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Recommended Rating</span>
+                    <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.recommendedKva} <span className="text-sm text-slate-500 font-sans">kVA</span></strong>
+                    <span className="text-[11px] text-slate-500 mt-2 block">Min. sizing required: {calculatedData.requiredKva.toFixed(1)} kVA</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-4 pt-2">
-                    <div><span className="text-slate-500">Required capacity:</span><strong className="block font-mono mt-0.5 text-blue-600">{calculatedData.requiredKva.toFixed(1)} kVA</strong></div>
-                    <div><span className="text-slate-500">Recommended rating:</span><strong className="block font-mono mt-0.5 text-blue-600">{calculatedData.recommendedKva} kVA</strong></div>
-                    <div><span className="text-slate-500">Utilization:</span><strong className="block font-mono mt-0.5">{calculatedData.utilization.toFixed(1)}%</strong></div>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
+                    <div className="absolute right-3 top-3 text-slate-500/10"><Gauge className="size-8" /></div>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Total Max Demand</span>
+                    <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.totalMaxDemandKw.toFixed(1)} <span className="text-sm text-slate-500 font-sans">{unitSystem === "ip" ? "HP" : "kW"}</span></strong>
+                    <span className="text-[11px] text-slate-500 mt-2 block">Connected Load: {calculatedData.totalConnectedKw.toFixed(1)} {unitSystem === "ip" ? "HP" : "kW"}</span>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
+                    <div className="absolute right-3 top-3 text-slate-500/10"><FileText className="size-8" /></div>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Demand With Spare</span>
+                    <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.totalDemandWithSpareKw.toFixed(1)} <span className="text-sm text-slate-500 font-sans">{unitSystem === "ip" ? "HP" : "kW"}</span></strong>
+                    <span className="text-[11px] text-slate-500 mt-2 block">Spare added: {calculatedData.totalSpareKw.toFixed(1)} {unitSystem === "ip" ? "HP" : "kW"}</span>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Utilization</span>
+                    <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.utilization.toFixed(1)} <span className="text-sm text-slate-500 font-sans">%</span></strong>
+                    <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 mt-3 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${calculatedData.utilization > 90 ? 'bg-rose-500' : calculatedData.utilization < 35 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(calculatedData.utilization, 100)}%` }}></div>
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
 
+        {/* Edit Row / Calculation Preview Modal */}
+        {previewRowId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col h-[85vh]">
+              {(() => {
+                const row = loadRows.find(r => r.id === previewRowId);
+                const calcRow = calculatedData.rowDetails.find(r => r.id === previewRowId);
+                if (!row || !calcRow) return null;
+                const unit = unitSystem === "ip" ? "HP" : "kW";
+                const rowIdx = loadRows.findIndex(r => r.id === previewRowId) + 1;
+
+                return (
+                  <>
+                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 shrink-0">
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                          Edit Transformer Load Parameters
+                        </h2>
+                        <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                          Row #{rowIdx}: {row.description || "Unnamed"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleUpdateRow(row.id, "flagged", !row.flagged)}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-sm font-medium transition-colors ${
+                            row.flagged
+                              ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                          }`}
+                        >
+                          <Flag className={`size-4 ${row.flagged ? "fill-red-500" : ""}`} />
+                          {row.flagged ? "Flagged" : "Flag"}
+                        </button>
+                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1"></div>
+                        <button onClick={() => setPreviewRowId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" className="size-5"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-white dark:bg-slate-900">
+                      {/* Left Side: Parameters */}
+                      <div className="flex-1 border-r border-slate-200 dark:border-slate-800 p-6 overflow-y-auto">
+                        <div className="space-y-6">
+                          <div>
+                            <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider flex items-center gap-2 mb-4 uppercase">
+                              <FileText className="size-4" /> General Parameters
+                            </h3>
+                            <div className="space-y-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Load Description</label>
+                                <input
+                                  type="text"
+                                  value={row.description}
+                                  onChange={(e) => handleUpdateRow(row.id, "description", e.target.value)}
+                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider flex items-center gap-2 mb-4 uppercase mt-6">
+                              <Gauge className="size-4" /> Electrical Parameters
+                            </h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Lighting / Heating ({unit})</label>
+                                <input
+                                  type="number"
+                                  value={row.lightingHeatingKw}
+                                  onChange={(e) => handleUpdateRow(row.id, "lightingHeatingKw", e.target.value === "" ? "" : Number(e.target.value))}
+                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Inductive / Motor ({unit})</label>
+                                <input
+                                  type="number"
+                                  value={row.inductiveMotorKw}
+                                  onChange={(e) => handleUpdateRow(row.id, "inductiveMotorKw", e.target.value === "" ? "" : Number(e.target.value))}
+                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Diversity Factor</label>
+                                <input
+                                  type="number"
+                                  value={row.diversityFactor}
+                                  onChange={(e) => handleUpdateRow(row.id, "diversityFactor", e.target.value === "" ? "" : Number(e.target.value))}
+                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Demand Factor</label>
+                                <input
+                                  type="number"
+                                  value={row.demandFactor}
+                                  onChange={(e) => handleUpdateRow(row.id, "demandFactor", e.target.value === "" ? "" : Number(e.target.value))}
+                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider flex items-center gap-2 mb-4 uppercase mt-6">
+                              <FileSpreadsheet className="size-4" /> Computed Load Summary
+                            </h3>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-100 dark:border-slate-800">
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-1"><Layers className="size-3" /> Total Connected</span>
+                                <strong className="text-lg font-black text-blue-600 dark:text-blue-400 block">{calcRow.connectedLoad.toFixed(2)} {unit}</strong>
+                              </div>
+                              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-100 dark:border-slate-800">
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-1"><Zap className="size-3" /> Max Demand</span>
+                                <strong className="text-lg font-black text-blue-600 dark:text-blue-400 block">{calcRow.maxDemand.toFixed(2)} {unit}</strong>
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+
+                      {/* Right Side: Live Formula Breakdown */}
+                      <div className="w-[420px] bg-slate-50 dark:bg-slate-800/50 flex flex-col">
+                        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2 shrink-0">
+                          <Calculator className="size-4 text-blue-500" />
+                          <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider uppercase">Live Formula Breakdown</h3>
+                        </div>
+                        <div className="p-4 overflow-y-auto flex-1 space-y-4">
+                          
+                          {/* Step 1 */}
+                          <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">1. Total Connected Load (TCL)</h4>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3 font-mono">
+                              TCL = L/H Load + Inductive Load
+                            </p>
+                            <div className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs font-mono text-slate-700 dark:text-slate-300">
+                              {Number(row.lightingHeatingKw || 0).toFixed(2)} {unit} + {Number(row.inductiveMotorKw || 0).toFixed(2)} {unit}
+                            </div>
+                            <div className="mt-3 text-sm font-bold text-blue-600 dark:text-blue-400 font-mono">
+                              TCL = {calcRow.connectedLoad.toFixed(2)} {unit}
+                            </div>
+                          </div>
+
+                          {/* Step 2 */}
+                          <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">2. Sub-Total (After Diversity)</h4>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3 font-mono">
+                              Sub-Total = TCL &times; Diversity Factor
+                            </p>
+                            <div className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs font-mono text-slate-700 dark:text-slate-300">
+                              {calcRow.connectedLoad.toFixed(2)} {unit} &times; {row.diversityFactor || 1}
+                            </div>
+                            <div className="mt-3 text-sm font-bold text-rose-600 dark:text-rose-400 font-mono">
+                              Sub-Total = {(calcRow.connectedLoad * Number(row.diversityFactor || 1)).toFixed(2)} {unit}
+                            </div>
+                          </div>
+
+                          {/* Step 3 */}
+                          <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">3. Maximum Demand (MD)</h4>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3 font-mono">
+                              MD = Sub-Total &times; Demand Factor
+                            </p>
+                            <div className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs font-mono text-slate-700 dark:text-slate-300">
+                              {(calcRow.connectedLoad * Number(row.diversityFactor || 1)).toFixed(2)} {unit} &times; {row.demandFactor || 1}
+                            </div>
+                            <div className="mt-3 text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                              MD = {calcRow.maxDemand.toFixed(2)} {unit}
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Footer */}
+                    <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-end shrink-0">
+                      <button onClick={() => setPreviewRowId(null)} className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors">
+                        Save Changes
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}

@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, m3sToCfm, cfmToM3s } from "@/utils/conversions";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -12,6 +12,13 @@ import {
   Wrench, MessageSquare, Wind, Droplets, Thermometer, Activity, RefreshCw,
   Copy, X
 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -103,6 +110,84 @@ function FreshAirCoolingLoadPage() {
   const [calcReviewState, setCalcReviewState] = useState<any>(null);
   const isApprovedLocked = calcReviewState?.status === "APPROVED";
   const isEffectiveReadOnly = isApprovedLocked;
+
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleScrollTarget = (targetId: string, targetName?: string) => {
+    if (!targetId) return;
+    const cleanId = (targetId || "").toLowerCase().trim();
+    const cleanRaw = cleanId.replace(/^(field-|card-|res-)/, "");
+    const cleanName = (targetName || "").toLowerCase().trim();
+
+    const el = document.getElementById(targetId || "") ||
+               document.getElementById(`field-${cleanRaw}`) ||
+               document.getElementById(`card-${cleanRaw}`) ||
+               document.querySelector(`[data-field-id="${cleanRaw}"]`) ||
+               document.querySelector(`[data-comment-target="${cleanRaw}"]`);
+
+    setHighlightedTargetId(cleanRaw || cleanId || targetId || null);
+
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedTargetId(null);
+      highlightTimeoutRef.current = null;
+    }, 4500);
+
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
+  useEffect(() => {
+    const handleScrollEvent = (e: any) => {
+      if (e.detail?.targetId) handleScrollTarget(e.detail.targetId, e.detail.targetName);
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlTargetId = searchParams.get("targetId") || searchParams.get("itemId") || searchParams.get("spaceId");
+      if (urlTargetId) {
+        setTimeout(() => handleScrollTarget(urlTargetId, searchParams.get("targetName") || ""), 800);
+      }
+    }
+    return () => window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+  }, []);
+
+  const isFieldHighlighted = (fieldId: string, title?: string) => {
+    if (!highlightedTargetId) return "";
+    const cleanHigh = highlightedTargetId.toLowerCase().trim().replace(/^(field-|card-|res-)/, "");
+    const cleanField = fieldId.toLowerCase().trim().replace(/^(field-|card-|res-)/, "");
+    const cleanTitle = title ? title.toLowerCase().trim() : "";
+    
+    if (cleanHigh === cleanField || (cleanTitle && cleanHigh === cleanTitle)) {
+      return "ring-2 ring-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] bg-blue-50/20 dark:bg-blue-900/10";
+    }
+    return "";
+  };
+
+  const renderCommentBadge = (fieldId: string, title: string) => {
+    const targetComments = commentsList.filter(c => 
+      (c.targetId && c.targetId.toLowerCase().replace(/^(field-|card-|res-)/, "") === fieldId.toLowerCase().replace(/^(field-|card-|res-)/, "")) ||
+      (c.targetName && c.targetName.toLowerCase() === title.toLowerCase())
+    );
+    const unresolved = targetComments.filter(c => c.status !== "resolved").length;
+    if (unresolved === 0) return null;
+    return (
+      <button 
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenComment(fieldId, title); }}
+        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
+      >
+        {unresolved}
+      </button>
+    );
+  };
 
   const unlockCalculator = useCallback(() => {
     try {
@@ -564,162 +649,222 @@ function FreshAirCoolingLoadPage() {
               <div className="lg:col-span-5 flex flex-col gap-5">
 
                 {/* Entering Coil Air Properties */}
-                <div className="bg-card border border-border rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-xs">
-                  <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-4 bg-[#0A7BC7] rounded-full" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Entering Coil Air (Outdoor Air)
-                      </h3>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-semibold">
-                      RH: <strong className="text-primary font-mono">{calc.rhIn.toFixed(1)}%</strong>
-                    </span>
-                  </div>
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div 
+                      id="card-entering-air" 
+                      data-field-id="card-entering-air" 
+                      data-comment-target="card-entering-air"
+                      className={`bg-card border border-border rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-xs transition-colors ${isFieldHighlighted("card-entering-air", "Entering Coil Air")}`}
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1.5 h-4 bg-primary rounded-full" />
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center">
+                            Entering Coil Air (Outdoor Air)
+                            {renderCommentBadge("card-entering-air", "Entering Coil Air")}
+                          </h3>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-semibold">
+                          RH: <strong className="text-primary font-mono">{calc.rhIn.toFixed(1)}%</strong>
+                        </span>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-foreground flex justify-between">
-                        <span>Dry Bulb (DB)</span>
-                        <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        disabled={isEffectiveReadOnly}
-                        value={dbIn}
-                        onChange={(e) => setDbIn(e.target.value === "" ? "" : Number(e.target.value))}
-                        placeholder={ip ? "95" : "35.0"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-foreground flex justify-between">
-                        <span>Wet Bulb (WB)</span>
-                        <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        disabled={isEffectiveReadOnly}
-                        value={wbIn}
-                        onChange={(e) => setWbIn(e.target.value === "" ? "" : Number(e.target.value))}
-                        placeholder={ip ? "78" : "25.5"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                  </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-semibold text-foreground flex justify-between">
+                            <span>Dry Bulb (DB)</span>
+                            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            disabled={isEffectiveReadOnly}
+                            value={dbIn}
+                            onChange={(e) => setDbIn(e.target.value === "" ? "" : Number(e.target.value))}
+                            placeholder={ip ? "95" : "35.0"}
+                            className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-semibold text-foreground flex justify-between">
+                            <span>Wet Bulb (WB)</span>
+                            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            disabled={isEffectiveReadOnly}
+                            value={wbIn}
+                            onChange={(e) => setWbIn(e.target.value === "" ? "" : Number(e.target.value))}
+                            placeholder={ip ? "78" : "25.5"}
+                            className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                        </div>
+                      </div>
 
-                  <div className="flex items-center justify-between text-[11.5px] bg-slate-50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-border/40 font-medium">
-                    <span className="text-muted-foreground">Entering Moisture Ratio (W_in):</span>
-                    <strong className="text-primary font-mono text-xs">{calc.wIn.toFixed(ip ? 2 : 5)} {uW}</strong>
-                  </div>
-                </div>
+                      <div className="flex items-center justify-between text-[11.5px] bg-slate-50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-border/40 font-medium">
+                        <span className="text-muted-foreground">Entering Moisture Ratio (W_in):</span>
+                        <strong className="text-primary font-mono text-xs">{calc.wIn.toFixed(ip ? 2 : 5)} {uW}</strong>
+                      </div>
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-64 font-sans">
+                    <ContextMenuItem disabled={isEffectiveReadOnly} onClick={() => { setDbIn(ip ? 95 : 35); setWbIn(ip ? 78 : 25.5); dirtyStore.set(true); }} className="text-xs cursor-pointer">
+                      Reset Entering Air
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => handleOpenComment("card-entering-air", "Entering Coil Air")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                      <MessageSquare className="size-3.5" />
+                      Add Comment / Assign Task
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
 
                 {/* Leaving Coil Air Properties */}
-                <div className="bg-card border border-border rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-xs">
-                  <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-4 bg-[#7C3AED] rounded-full" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Leaving Coil Air (Supply Off-Coil)
-                      </h3>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-semibold">
-                      RH: <strong className="text-purple-600 dark:text-purple-400 font-mono">{calc.rhOut.toFixed(1)}%</strong>
-                    </span>
-                  </div>
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div 
+                      id="card-leaving-air" 
+                      data-field-id="card-leaving-air" 
+                      data-comment-target="card-leaving-air"
+                      className={`bg-card border border-border rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-xs transition-colors ${isFieldHighlighted("card-leaving-air", "Leaving Coil Air")}`}
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                        <div className="flex items-center gap-2">
+                          <div className="w-1.5 h-4 bg-primary rounded-full" />
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center">
+                            Leaving Coil Air (Supply Off-Coil)
+                            {renderCommentBadge("card-leaving-air", "Leaving Coil Air")}
+                          </h3>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-semibold">
+                          RH: <strong className="text-primary font-mono">{calc.rhOut.toFixed(1)}%</strong>
+                        </span>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-foreground flex justify-between">
-                        <span>Dry Bulb (DB)</span>
-                        <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        disabled={isEffectiveReadOnly}
-                        value={dbOut}
-                        onChange={(e) => setDbOut(e.target.value === "" ? "" : Number(e.target.value))}
-                        placeholder={ip ? "55" : "12.8"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-foreground flex justify-between">
-                        <span>Wet Bulb (WB)</span>
-                        <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        disabled={isEffectiveReadOnly}
-                        value={wbOut}
-                        onChange={(e) => setWbOut(e.target.value === "" ? "" : Number(e.target.value))}
-                        placeholder={ip ? "54" : "12.2"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                  </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-semibold text-foreground flex justify-between">
+                            <span>Dry Bulb (DB)</span>
+                            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            disabled={isEffectiveReadOnly}
+                            value={dbOut}
+                            onChange={(e) => setDbOut(e.target.value === "" ? "" : Number(e.target.value))}
+                            placeholder={ip ? "55" : "12.8"}
+                            className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-semibold text-foreground flex justify-between">
+                            <span>Wet Bulb (WB)</span>
+                            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{uT}</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            disabled={isEffectiveReadOnly}
+                            value={wbOut}
+                            onChange={(e) => setWbOut(e.target.value === "" ? "" : Number(e.target.value))}
+                            placeholder={ip ? "54" : "12.2"}
+                            className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                        </div>
+                      </div>
 
-                  <div className="flex items-center justify-between text-[11.5px] bg-slate-50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-border/40 font-medium">
-                    <span className="text-muted-foreground">Leaving Moisture Ratio (W_out):</span>
-                    <strong className="text-purple-600 dark:text-purple-400 font-mono text-xs">{calc.wOut.toFixed(ip ? 2 : 5)} {uW}</strong>
-                  </div>
-                </div>
+                      <div className="flex items-center justify-between text-[11.5px] bg-slate-50 dark:bg-slate-900/40 p-2.5 rounded-xl border border-border/40 font-medium">
+                        <span className="text-muted-foreground">Leaving Moisture Ratio (W_out):</span>
+                        <strong className="text-primary font-mono text-xs">{calc.wOut.toFixed(ip ? 2 : 5)} {uW}</strong>
+                      </div>
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-64 font-sans">
+                    <ContextMenuItem disabled={isEffectiveReadOnly} onClick={() => { setDbOut(ip ? 55 : 12.8); setWbOut(ip ? 54 : 12.2); dirtyStore.set(true); }} className="text-xs cursor-pointer">
+                      Reset Leaving Air
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => handleOpenComment("card-leaving-air", "Leaving Coil Air")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                      <MessageSquare className="size-3.5" />
+                      Add Comment / Assign Task
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
 
                 {/* Airflow & Safety Margin */}
-                <div className="bg-card border border-border rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-xs">
-                  <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                    <div className="w-1.5 h-4 bg-emerald-500 rounded-full" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Airflow &amp; Safety Factor
-                    </h3>
-                  </div>
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div 
+                      id="card-airflow" 
+                      data-field-id="card-airflow" 
+                      data-comment-target="card-airflow"
+                      className={`bg-card border border-border rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-xs transition-colors ${isFieldHighlighted("card-airflow", "Airflow & Safety Factor")}`}
+                    >
+                      <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                        <div className="w-1.5 h-4 bg-primary rounded-full" />
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center">
+                          Airflow &amp; Safety Factor
+                          {renderCommentBadge("card-airflow", "Airflow & Safety Factor")}
+                        </h3>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-foreground flex justify-between">
-                        <span>Airflow Rate</span>
-                        <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">
-                          {ip ? "CFM" : "m³/s"}
-                        </span>
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        disabled={isEffectiveReadOnly}
-                        value={flowRate}
-                        onChange={(e) => setFlowRate(e.target.value === "" ? "" : Number(e.target.value))}
-                        placeholder={ip ? "1000" : "0.472"}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-semibold text-foreground flex justify-between">
+                            <span>Airflow Rate</span>
+                            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">
+                              {ip ? "CFM" : "m³/s"}
+                            </span>
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            disabled={isEffectiveReadOnly}
+                            value={flowRate}
+                            onChange={(e) => setFlowRate(e.target.value === "" ? "" : Number(e.target.value))}
+                            placeholder={ip ? "1000" : "0.472"}
+                            className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/45 disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="font-semibold text-foreground flex justify-between">
+                            <span>Safety Margin</span>
+                            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">%</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="1"
+                            min="0"
+                            max="30"
+                            disabled={isEffectiveReadOnly}
+                            value={safetyFactor}
+                            onChange={(e) => setSafetyFactor(Number(e.target.value) || 0)}
+                            className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-muted-foreground flex justify-between pt-1">
+                        <span>Equivalent Flow: <strong className="text-foreground font-mono">{calc.flowLps.toFixed(1)} L/s</strong></span>
+                        <span>Mass Flow (ṁ): <strong className="text-foreground font-mono">{calc.mDot.toFixed(2)} kg/s</strong></span>
+                      </div>
                     </div>
-
-                    <div className="flex flex-col gap-1.5">
-                      <label className="font-semibold text-foreground flex justify-between">
-                        <span>Safety Margin</span>
-                        <span className="text-[10px] text-emerald-600 bg-emerald-500/10 px-1.5 py-0.2 rounded font-bold">%</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        max="30"
-                        disabled={isEffectiveReadOnly}
-                        value={safetyFactor}
-                        onChange={(e) => setSafetyFactor(Number(e.target.value) || 0)}
-                        className="w-full bg-slate-100/60 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-primary text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="text-[11px] text-muted-foreground flex justify-between pt-1">
-                    <span>Equivalent Flow: <strong className="text-foreground font-mono">{calc.flowLps.toFixed(1)} L/s</strong></span>
-                    <span>Mass Flow (ṁ): <strong className="text-foreground font-mono">{calc.mDot.toFixed(2)} kg/s</strong></span>
-                  </div>
-                </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-64 font-sans">
+                    <ContextMenuItem disabled={isEffectiveReadOnly} onClick={() => { setFlowRate(ip ? 1000 : 0.472); setSafetyFactor(5); dirtyStore.set(true); }} className="text-xs cursor-pointer">
+                      Reset Airflow
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => handleOpenComment("card-airflow", "Airflow & Safety Factor")} className="text-xs cursor-pointer text-blue-600 dark:text-blue-400 font-medium flex items-center gap-2">
+                      <MessageSquare className="size-3.5" />
+                      Add Comment / Assign Task
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               </div>
 
               {/* Right Column: Sizing Results & Visuals */}
@@ -782,10 +927,10 @@ function FreshAirCoolingLoadPage() {
                   <div className="bg-card border border-border rounded-2xl p-4.5 flex flex-col justify-between shadow-2xs">
                     <div className="flex items-center justify-between pb-2 border-b border-border/60">
                       <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <Droplets className="size-3.5 text-blue-500" />
+                        <Droplets className="size-3.5 text-primary" />
                         Condensate Generation
                       </span>
-                      <span className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                         Dehumidification
                       </span>
                     </div>
@@ -902,7 +1047,7 @@ function FreshAirCoolingLoadPage() {
                 </div>
                 <div className="bg-slate-100/60 dark:bg-slate-900/60 border border-border rounded-xl p-3 flex flex-col">
                   <span className="text-[10px] text-muted-foreground font-semibold uppercase">Condensate Rate</span>
-                  <strong className="text-base font-bold text-blue-600 dark:text-blue-400 font-mono mt-0.5">{calc.condensateKgH.toFixed(1)} L/h</strong>
+                  <strong className="text-base font-bold text-primary font-mono mt-0.5">{calc.condensateKgH.toFixed(1)} L/h</strong>
                   <span className="text-[10px] text-muted-foreground font-mono">{calc.condensateGph.toFixed(2)} GPH</span>
                 </div>
               </div>

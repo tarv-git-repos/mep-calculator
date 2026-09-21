@@ -12,7 +12,7 @@ import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
   Plus, Trash2, Download, Upload, X, AlertTriangle, CheckCircle2,
   Gauge, FileText, Printer, FileSpreadsheet, Copy, RefreshCw,
-  Filter, ArrowUpDown, Search, SlidersHorizontal
+  Filter, ArrowUpDown, Search, SlidersHorizontal, Flag, Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -30,6 +30,10 @@ import {
 } from "@/components/ui/context-menu";
 import { useHistory, useSelection, useClipboard, useShortcuts } from "@/core/gridEngine";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import {
+  CalculationPreviewModal,
+  type CalculationPreviewData
+} from "@/components/calculator-framework/CalculationPreviewModal";
 
 export const Route = createFileRoute("/central-battery-sizing")({
   head: () => ({
@@ -49,6 +53,7 @@ interface CBSRow {
   exitLightQty: number;
   exitLightW: number;
   remarks: string;
+  flagged?: boolean;
 }
 
 interface InlineInputProps {
@@ -58,9 +63,10 @@ interface InlineInputProps {
   type?: "text" | "number";
   step?: string;
   min?: number;
+  onDoubleClick?: (e: React.MouseEvent<HTMLInputElement>) => void;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min }: InlineInputProps) {
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, onDoubleClick }: InlineInputProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" || e.key === "Escape") {
       e.currentTarget.blur();
@@ -76,7 +82,11 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onChange={(e) => onCommit(e.target.value)}
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        if (onDoubleClick) {
+          onDoubleClick(e);
+        }
+      }}
       className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text ${className}`}
     />
   );
@@ -102,7 +112,9 @@ function CentralBatterySizingPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"none" | "load-desc" | "load-asc">("none");
   const [filterLoad, setFilterLoad] = useState<"all" | "high" | "low">("all");
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
+  const [previewRow, setPreviewRow] = useState<CBSRow | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleUnitSystemChange = (targetUnit: "ip" | "si", shouldConvert: boolean) => {
@@ -282,6 +294,109 @@ function CentralBatterySizingPage() {
     setRows(rows.map(r => 
       (r.id === id || (isBulkEdit && selected.has(r.id))) ? { ...r, [field]: val } : r
     ));
+  };
+
+  const handleToggleFlag = (id: string) => {
+    const isTargetSelected = selected.has(id);
+    const targetIds = isTargetSelected ? Array.from(selected) : [id];
+    const targetRow = rows.find(r => r.id === id);
+    const nextFlagged = !targetRow?.flagged;
+
+    setRows(rows.map(r => targetIds.includes(r.id) ? { ...r, flagged: nextFlagged } : r));
+    toast.info(nextFlagged ? `Flagged ${targetIds.length} load(s) for review` : `Unflagged ${targetIds.length} load(s)`);
+  };
+
+  const getCalculationPreview = (row: CBSRow): CalculationPreviewData => {
+    const emQty = Number(row.emLightQty) || 0;
+    const emW = Number(row.emLightW) || 0;
+    const exitQty = Number(row.exitLightQty) || 0;
+    const exitW = Number(row.exitLightW) || 0;
+    const emTotal = emQty * emW;
+    const exitTotal = exitQty * exitW;
+    const rowConnectedW = emTotal + exitTotal;
+    const safeLF = loadingFactor <= 0 ? 0.9 : loadingFactor;
+    const rowDemandW = rowConnectedW / safeLF;
+    const rowDemandKw = rowDemandW / 1000;
+    const safePF = powerFactor <= 0 ? 0.8 : powerFactor;
+    const rowKva = rowDemandKw / safePF;
+    const rowWithSpareKva = rowKva * (1 + (spareCapacity || 0) / 100);
+
+    const unitLbl = unitSystem === "ip" ? "VA" : "W";
+
+    return {
+      title: "Central Battery Sizing Calculation Preview",
+      itemName: row.description || "Unnamed Load",
+      standardReference: "BS EN 50171 / NFPA 101 / IEC 60598-2-22",
+      inputs: [
+        { label: "Emergency Lighting Qty", value: emQty, unit: "luminaires" },
+        { label: "Emergency Light Wattage", value: emW, unit: unitLbl },
+        { label: "Exit Signage Qty", value: exitQty, unit: "fixtures" },
+        { label: "Exit Light Wattage", value: exitW, unit: unitLbl },
+        { label: "Loading Factor (LF)", value: `${(safeLF * 100).toFixed(0)}% (${safeLF})` },
+        { label: "Power Factor (cos φ)", value: safePF.toFixed(2) },
+        { label: "Spare Capacity", value: `${spareCapacity}%` },
+      ],
+      steps: [
+        {
+          stepNumber: 1,
+          label: "Emergency Lighting Active Load",
+          formula: "P_em = N_em × P_luminaire",
+          substitution: `${emQty} × ${emW} ${unitLbl}`,
+          result: `${emTotal.toLocaleString()} ${unitLbl}`,
+          status: "pass",
+          description: "Connected emergency illumination demand along normal egress paths.",
+        },
+        {
+          stepNumber: 2,
+          label: "Exit Signage Active Load",
+          formula: "P_exit = N_exit × P_exit_fixture",
+          substitution: `${exitQty} × ${exitW} ${unitLbl}`,
+          result: `${exitTotal.toLocaleString()} ${unitLbl}`,
+          status: "pass",
+          description: "Internally illuminated directional exit sign power demand.",
+        },
+        {
+          stepNumber: 3,
+          label: "Total Connected Zone Load",
+          formula: "P_connected = P_em + P_exit",
+          substitution: `${emTotal.toLocaleString()} + ${exitTotal.toLocaleString()}`,
+          result: `${rowConnectedW.toLocaleString()} ${unitLbl} (${(rowConnectedW / 1000).toFixed(3)} k${unitLbl})`,
+          status: "pass",
+          description: "Gross connected active load for this emergency branch circuit.",
+        },
+        {
+          stepNumber: 4,
+          label: "Design Operating Demand (Loading Factor)",
+          formula: "P_demand = P_connected / LoadingFactor",
+          substitution: `${(rowConnectedW / 1000).toFixed(3)} kW / ${safeLF}`,
+          result: `${rowDemandKw.toFixed(3)} kW`,
+          status: "pass",
+          description: `Continuous operating load using design loading factor (${safeLF}).`,
+        },
+        {
+          stepNumber: 5,
+          label: "Inverter Rating Contribution (kVA)",
+          formula: "S_demand = P_demand(kW) / PowerFactor",
+          substitution: `${rowDemandKw.toFixed(3)} kW / ${safePF}`,
+          result: `${rowKva.toFixed(3)} kVA`,
+          status: "pass",
+          description: `Apparent inverter power demand taking into account circuit power factor (${safePF}).`,
+        },
+        {
+          stepNumber: 6,
+          label: "Final Sized Contribution with Spare (+Spare%)",
+          formula: "S_final = S_demand × (1 + Spare / 100)",
+          substitution: `${rowKva.toFixed(3)} × ${(1 + spareCapacity / 100).toFixed(2)}`,
+          result: `${rowWithSpareKva.toFixed(3)} kVA`,
+          status: "pass",
+          description: `Allocated battery inverter capacity with ${spareCapacity}% future expansion margin.`,
+        },
+      ],
+      finalResultLabel: "Zone Battery Capacity Sized",
+      finalResultValue: rowWithSpareKva.toFixed(3),
+      finalResultUnit: "kVA",
+      complianceNote: "Meets autonomous emergency battery system sizing guidelines under BS 5266-1 and EN 50171 for central power supply systems (CPSS).",
+    };
   };
 
   const handleReset = async () => {
@@ -511,7 +626,15 @@ function CentralBatterySizingPage() {
       align: "center",
       render: (r) => {
         const idx = rows.findIndex((row) => row.id === r.id);
-        return <span className="text-muted-foreground font-mono">{idx + 1}</span>;
+        return (
+          <span
+            onDoubleClick={() => setPreviewRow(r)}
+            className="text-muted-foreground font-mono cursor-pointer select-none"
+            title="Double-click to open calculation preview"
+          >
+            {idx + 1}
+          </span>
+        );
       }
     },
     {
@@ -523,6 +646,7 @@ function CentralBatterySizingPage() {
         <InlineInput
           value={r.description}
           onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-medium text-[13px]"
         />
       )
@@ -538,6 +662,7 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.emLightQty}
           onCommit={(val) => handleUpdateRow(r.id, "emLightQty", Number(val) || 0)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
@@ -553,6 +678,7 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.emLightW}
           onCommit={(val) => handleUpdateRow(r.id, "emLightW", Number(val) || 0)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
@@ -568,6 +694,7 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.exitLightQty}
           onCommit={(val) => handleUpdateRow(r.id, "exitLightQty", Number(val) || 0)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
@@ -583,6 +710,7 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.exitLightW}
           onCommit={(val) => handleUpdateRow(r.id, "exitLightW", Number(val) || 0)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
@@ -594,7 +722,15 @@ function CentralBatterySizingPage() {
       align: "right",
       render: (r) => {
         const tot = (r.emLightQty * r.emLightW) + (r.exitLightQty * r.exitLightW);
-        return <span className="font-mono font-bold text-foreground text-[12.5px]">{tot.toFixed(0)}</span>;
+        return (
+          <span
+            onDoubleClick={() => setPreviewRow(r)}
+            className="font-mono font-bold text-foreground text-[12.5px] cursor-pointer"
+            title="Double-click to open calculation preview"
+          >
+            {tot.toFixed(0)}
+          </span>
+        );
       }
     },
     {
@@ -606,8 +742,34 @@ function CentralBatterySizingPage() {
         <InlineInput
           value={r.remarks}
           onCommit={(val) => handleUpdateRow(r.id, "remarks", val)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="text-muted-foreground text-[12px]"
         />
+      )
+    },
+    {
+      key: "flagged",
+      header: "",
+      width: 44,
+      align: "center",
+      render: (r) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleFlag(r.id);
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Flag load for review"}
+        >
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${
+              r.flagged
+                ? "fill-red-500 text-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`}
+          />
+        </button>
       )
     }
   ], [rows, selected, unitSystem]);
@@ -619,7 +781,22 @@ function CentralBatterySizingPage() {
     const targetsCount = selectedIds.length;
 
     return (
-      <ContextMenuContent className="w-48 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => setPreviewRow(row)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-primary font-medium"
+        >
+          <Sparkles className="size-3.5" />
+          <span>Calculation Preview</span>
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => handleToggleFlag(row.id)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{targetsCount > 1 ? (row.flagged ? "Unflag Selected" : "Flag Selected") : (row.flagged ? "Unflag Load" : "Flag for Review")}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="my-1 border-t border-border" />
         {targetsCount > 1 ? (
           <ContextMenuItem
             onClick={async () => {
@@ -649,7 +826,7 @@ function CentralBatterySizingPage() {
                   handleDeleteRow(row.id);
                 }
               }}
-              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-red-500 font-semibold"
+              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-red-500"
             >
               <Trash2 className="size-3.5" /> Delete Row
             </ContextMenuItem>
@@ -789,7 +966,12 @@ function CentralBatterySizingPage() {
                         matchesFilter = ((row.emLightQty * row.emLightW) + (row.exitLightQty * row.exitLightW)) <= 1000;
                       }
 
-                      return matchesSearch && matchesFilter;
+                      let matchesFlag = true;
+                      if (showFlaggedOnly) {
+                        matchesFlag = Boolean(row.flagged);
+                      }
+
+                      return matchesSearch && matchesFilter && matchesFlag;
                     });
                     
                     if (sortOrder === "load-desc") {
@@ -797,11 +979,56 @@ function CentralBatterySizingPage() {
                     } else if (sortOrder === "load-asc") {
                       renderedRows.sort((a, b) => ((a.emLightQty * a.emLightW) + (a.exitLightQty * a.exitLightW)) - ((b.emLightQty * b.emLightW) + (b.exitLightQty * b.exitLightW)));
                     }
+
+                    const activeFiltersCount = (filterLoad !== "all" ? 1 : 0) + (showFlaggedOnly ? 1 : 0);
                     
                     return (
                       <>
                         {/* Toolbar */}
                         <div className="relative flex items-center gap-1.5 px-4 h-12 shrink-0 flex-wrap no-print border-b border-border bg-background">
+                          {/* Bulk Actions Banner Overlay when rows are selected */}
+                          {selected.size > 0 && (
+                            <div className="absolute inset-0 flex items-center justify-between px-4 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold">{selected.size} load(s) selected</span>
+                                <button
+                                  onClick={clearSelection}
+                                  className="text-[11px] underline hover:opacity-80 cursor-pointer ml-1"
+                                >
+                                  Clear selection
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    const targetIds = Array.from(selected);
+                                    const anyUnflagged = targetIds.some(id => !rows.find(r => r.id === id)?.flagged);
+                                    setRows(rows.map(r => targetIds.includes(r.id) ? { ...r, flagged: anyUnflagged } : r));
+                                    toast.info(anyUnflagged ? `Flagged ${targetIds.length} load(s)` : `Unflagged ${targetIds.length} load(s)`);
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold rounded-md border border-[#0A7BC7]/30 bg-white dark:bg-slate-900 text-[#06456F] dark:text-[#0A7BC7] hover:bg-[#0A7BC7]/10 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                >
+                                  <Flag className="size-3.5 text-red-500 fill-red-500" />
+                                  <span>Flag / Unflag ({selected.size})</span>
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    const targetIds = Array.from(selected);
+                                    const ok = await confirm(`Are you sure you want to delete ${targetIds.length} selected loads?`);
+                                    if (ok) {
+                                      setRows(rows.filter(r => !targetIds.includes(r.id)));
+                                      clearSelection();
+                                    }
+                                  }}
+                                  className="px-2.5 py-1 text-xs font-semibold rounded-md bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                  <span>Delete ({selected.size})</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
                           <div className="relative flex items-center">
                             <Search className="absolute left-2.5 size-3.5 text-muted-foreground" />
                             <input
@@ -816,7 +1043,7 @@ function CentralBatterySizingPage() {
                             <PopoverTrigger asChild>
                               <button
                                 className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                                  filterLoad !== "all"
+                                  activeFiltersCount > 0
                                     ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
                                     : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                                 }`}
@@ -825,11 +1052,27 @@ function CentralBatterySizingPage() {
                                 <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
                                   Filter Loads
                                 </span>
+                                {activeFiltersCount > 0 && (
+                                  <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                                    {activeFiltersCount}
+                                  </span>
+                                )}
                               </button>
                             </PopoverTrigger>
-                            <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
-                              <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
-                                Filter Loads
+                            <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                              <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                                <span className="text-xs font-bold text-foreground">Filter Loads</span>
+                                {activeFiltersCount > 0 && (
+                                  <button
+                                    onClick={() => {
+                                      setFilterLoad("all");
+                                      setShowFlaggedOnly(false);
+                                    }}
+                                    className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                                  >
+                                    Reset All
+                                  </button>
+                                )}
                               </div>
                               <div className="flex flex-col gap-1">
                                 <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Range</span>
@@ -842,6 +1085,20 @@ function CentralBatterySizingPage() {
                                   <option value="high">High Load (&gt; 1000 W)</option>
                                   <option value="low">Low Load (≤ 1000 W)</option>
                                 </select>
+                              </div>
+
+                              <div className="flex items-center justify-between pt-1.5 border-t border-border">
+                                <label htmlFor="filter-cbs-flagged" className="text-[11.5px] font-semibold text-foreground flex items-center gap-1.5 cursor-pointer">
+                                  <Flag className="size-3.5 text-red-500 fill-red-500" />
+                                  <span>Flagged Only</span>
+                                </label>
+                                <input
+                                  id="filter-cbs-flagged"
+                                  type="checkbox"
+                                  checked={showFlaggedOnly}
+                                  onChange={(e) => setShowFlaggedOnly(e.target.checked)}
+                                  className="size-4 rounded accent-primary cursor-pointer"
+                                />
                               </div>
                             </PopoverContent>
                           </Popover>
@@ -987,17 +1244,34 @@ function CentralBatterySizingPage() {
                       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
                         <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center">
                           <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
-                            {searchQuery ? <Search className="size-6" /> : <Plus className="size-6" />}
+                            {showFlaggedOnly ? (
+                              <Flag className="size-6 text-red-500 fill-red-500" />
+                            ) : searchQuery ? (
+                              <Search className="size-6" />
+                            ) : (
+                              <Plus className="size-6" />
+                            )}
                           </div>
                           <h3 className="text-[15px] font-semibold tracking-tight">
-                            {searchQuery ? "No Results Found" : "No Loads Added"}
+                            {showFlaggedOnly
+                              ? "No Flagged Loads Found"
+                              : searchQuery
+                              ? "No Results Found"
+                              : "No Loads Added"}
                           </h3>
                           <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
-                            {searchQuery 
+                            {showFlaggedOnly
+                              ? "No loads are currently flagged for engineering review."
+                              : searchQuery 
                               ? `No items match the filter "${searchQuery}". Try adjusting your search.` 
                               : 'Click "Add Row" to begin sizing your central battery system.'}
                           </p>
-                          {searchQuery && (
+                          {showFlaggedOnly && (
+                            <TBtn onClick={() => setShowFlaggedOnly(false)}>
+                              Show All Loads
+                            </TBtn>
+                          )}
+                          {!showFlaggedOnly && searchQuery && (
                             <TBtn onClick={() => { setSearchQuery(""); searchInputRef.current?.focus(); }}>
                               Clear Search
                             </TBtn>
@@ -1011,8 +1285,9 @@ function CentralBatterySizingPage() {
                         selected={selected}
                         onToggle={handleToggle}
                         onToggleAll={handleToggleAll}
+                        onRowDoubleClick={(row) => setPreviewRow(row)}
                         renderContextMenu={renderRowContextMenu}
-                        rowClassName={() => rowDensity === "compact" ? "h-[26px] text-[11px]" : ""}
+                        rowClassName={(r) => `${r.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : ""} ${rowDensity === "compact" ? "h-[26px] text-[11px]" : ""}`}
                       />
                     )}
                   </div>
@@ -1266,6 +1541,13 @@ function CentralBatterySizingPage() {
 
         </div>
       </div>
+
+      {/* Calculation Preview Modal on Double-click */}
+      <CalculationPreviewModal
+        isOpen={!!previewRow}
+        onClose={() => setPreviewRow(null)}
+        data={previewRow ? getCalculationPreview(previewRow) : null}
+      />
     </AppShell>
   );
 }

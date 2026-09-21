@@ -29,19 +29,33 @@ export function dispatchGlobalCommentNotification(commentWithMeta: any, options?
 
       const recipients: string[] = Array.isArray(enrichedComment.assignedUsers) ? enrichedComment.assignedUsers.filter(Boolean) : [];
       
-      // Only save to global queue if unassigned (so other project members see it, but exclude author when reading)
-      if (recipients.length === 0) {
-        const globalKey = "mep_persistent_user_notifs";
-        const existingGlobal = JSON.parse(localStorage.getItem(globalKey) || '[]');
-        if (!existingGlobal.some((n: any) => n.id === enrichedComment.id)) {
-          localStorage.setItem(globalKey, JSON.stringify([enrichedComment, ...existingGlobal]));
+      // 1. Save to global persistent user notifications queue
+      const globalKey = "mep_persistent_user_notifs";
+      const existingGlobal = JSON.parse(localStorage.getItem(globalKey) || '[]');
+      if (!existingGlobal.some((n: any) => n.id === enrichedComment.id)) {
+        localStorage.setItem(globalKey, JSON.stringify([enrichedComment, ...existingGlobal]));
+      }
+
+      // 2. Save to coordination notifications queue
+      const coordKey = "mep_calc_coord_notifs";
+      const existingCoord = JSON.parse(localStorage.getItem(coordKey) || '[]');
+      if (!existingCoord.some((n: any) => n.id === enrichedComment.id)) {
+        localStorage.setItem(coordKey, JSON.stringify([enrichedComment, ...existingCoord]));
+      }
+
+      // 3. Save to calculator-specific comments storage key for cross-module discovery
+      if (enrichedComment.calculatorPath) {
+        const calcCommentsKey = `mep_calc_comments_${projId}_${enrichedComment.calculatorPath}`;
+        const existingCalcComments = JSON.parse(localStorage.getItem(calcCommentsKey) || '[]');
+        if (!existingCalcComments.some((n: any) => n.id === enrichedComment.id)) {
+          localStorage.setItem(calcCommentsKey, JSON.stringify([enrichedComment, ...existingCalcComments]));
         }
       }
 
+      // 4. Save to recipient-specific persistent queues
       recipients.forEach(r => {
         const clean = String(r).trim();
         const cleanLower = clean.toLowerCase();
-        // Never store in the author's personal queue
         if (cleanLower && (cleanLower === currentAuthorId || cleanLower === currentAuthorName)) return;
         if (clean) {
           const uKey = `mep_persistent_user_notifs_${clean}`;
@@ -51,6 +65,20 @@ export function dispatchGlobalCommentNotification(commentWithMeta: any, options?
           }
         }
       });
+
+      // 5. Fire immediate event notifications
+      window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: enrichedComment }));
+      window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: enrichedComment }));
+      window.dispatchEvent(new CustomEvent("mep_notif_tick"));
+      window.dispatchEvent(new Event("storage"));
+
+      if ('BroadcastChannel' in window) {
+        try {
+          const bc = new BroadcastChannel("mep_notifications_channel");
+          bc.postMessage({ type: "NEW_NOTIFICATION", comment: enrichedComment });
+          bc.close();
+        } catch (e) {}
+      }
     } catch (e) {}
   }
 
@@ -132,6 +160,9 @@ export async function notifyCommentAssigned(options: {
     const authorNameStr = String(currentUserName).toLowerCase().trim();
     recipients = recipients.filter(r => String(r).toLowerCase().trim() !== authorNameStr);
   }
+
+  // Ensure unique recipients list to avoid duplicate notifications
+  recipients = Array.from(new Set(recipients.map(r => String(r).trim()))).filter(Boolean);
 
   // 1. Instant local window event broadcast (< 1ms)
   if (typeof window !== 'undefined') {
@@ -291,18 +322,23 @@ export function executeHighlightAndScroll(detail: {
   // 3. If element found, scroll into center and apply flashing pulse highlight
   if (targetEl) {
     targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-    targetEl.classList.add('field-highlight-pulse', 'row-highlight-flash', 'item-highlight-pulse', 'ring-2', 'ring-primary', 'bg-primary/20');
     
-    // Also highlight child tds or cells if present
-    const childTds = targetEl.querySelectorAll('td, th, input, select');
-    childTds.forEach(td => td.classList.add('item-highlight-pulse'));
-
-    setTimeout(() => {
-      if (targetEl) {
-        targetEl.classList.remove('field-highlight-pulse', 'row-highlight-flash', 'item-highlight-pulse', 'ring-2', 'ring-primary', 'bg-primary/20');
-      }
-      childTds.forEach(td => td.classList.remove('item-highlight-pulse'));
-    }, 4500);
+    const isRow = targetEl.tagName === 'TR' || targetEl.getAttribute('role') === 'row' || !!targetEl.getAttribute('data-row-id');
+    if (isRow) {
+      targetEl.classList.add('row-highlight-flash');
+      setTimeout(() => {
+        if (targetEl) {
+          targetEl.classList.remove('row-highlight-flash');
+        }
+      }, 4500);
+    } else {
+      targetEl.classList.add('field-highlight-pulse');
+      setTimeout(() => {
+        if (targetEl) {
+          targetEl.classList.remove('field-highlight-pulse');
+        }
+      }, 4500);
+    }
 
     return true;
   }

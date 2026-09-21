@@ -116,6 +116,7 @@ function ChwPumpHeadPage() {
   // Expandable sections & Detailed Calculations Dialog
   const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [intelOpen, setIntelOpen] = useState(false);
 
   // Preliminary Cooling Load Import Modal & Thermodynamic State
   const [showPclModal, setShowPclModal] = useState<boolean>(false);
@@ -895,41 +896,59 @@ function ChwPumpHeadPage() {
   };
 
   return (
-    <AppShell title="CHW Pump Head" hideSubHeader={true}>
+    <AppShell 
+      title="CHW Pump Head" 
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen((v) => !v)}
+      intelOpen={intelOpen}
+      intelLabel="Intelligence"
+    >
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Header Section matching screenshot */}
-          <div className="flex flex-col gap-1 select-none">
-            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
-              <div className="flex items-center gap-3 flex-wrap">
+          {/* Header Section matching FM-200 Gas Sizing */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">CHW Pump Head</h1>
-                <CalculationReviewBar projectId={project?.id} calculatorPath="/chw-pump-head" calculatorTitle="CHW Pump Head" />
-                {commentsList.length > 0 && (
-                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
-                    <MessageSquare className="size-3.5 fill-blue-500/20" />
-                    <span>{commentsList.length} Active Task(s) / Comment(s)</span>
-                  </div>
-                )}
+                <span className="text-[15px] font-semibold text-muted-foreground">Dynamic Piping Friction & TDH Sizing (ASHRAE)</span>
               </div>
-
-              {/* Unit System Toggle & Action Buttons */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  inputDescriptions="Vertical/Horizontal Lengths, Friction Factor, Pressures"
-                  conversionExample={unitSystem === "si" ? "Convert 30 m → 98.4 ft, 0.4 bar/100m → 1.77 psi/100ft" : "Convert 100 ft → 30.5 m, 1.77 psi/100ft → 0.4 bar/100m"}
-                />
-
-                <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
-                  <Printer className="size-3.5 text-blue-600" /> PDF Report
-                </TBtn>
-              </div>
+              <button 
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/chw-pump-head" calculatorTitle="CHW Pump Head" />
+              {commentsList.length > 0 && (
+                <div 
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
+                  title={`${commentsList.length} active comment(s)/task(s) in CHW Pump Head`}
+                >
+                  <MessageSquare className="size-3.5 fill-blue-500/20" />
+                  <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
+                </div>
+              )}
             </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              Calculate chilled water pump dynamic piping friction losses, fittings equivalent lengths, static lift, and motor power requirements.
-            </p>
+
+            {/* Unit System Toggle & Action Buttons */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitSystemChange}
+                inputDescriptions="Vertical/Horizontal Lengths, Friction Factor, Pressures"
+                conversionExample={unitSystem === "si" ? "Convert 30 m → 98.4 ft, 0.4 bar/100m → 1.77 psi/100ft" : "Convert 100 ft → 30.5 m, 1.77 psi/100ft → 0.4 bar/100m"}
+              />
+
+              <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
+                <Printer className="size-3.5 text-blue-600" /> Export
+              </TBtn>
+            </div>
           </div>
 
           {/* Core Calculator Layout (Balanced 6-6 Column Grid - No Scrolling Needed) */}
