@@ -794,32 +794,27 @@ function StaircasePressurizationPage() {
         [
           "1",
           "REQUIRED FAN AIRFLOW (Q_fan)",
-          `${calc.totalFanCapacityM3s} m³/s\n(${calc.totalFanCapacityLs.toLocaleString()} L/s / ${calc.totalFanCapacityM3h.toLocaleString()} m³/h)`,
-          "Total Airflow × 1.10 (10% System Fan Safety)"
+          `${calc.totalFanCapacityM3s} m³/s\n(${calc.totalFanCapacityLs.toLocaleString()} L/s / ${calc.totalFanCapacityM3h.toLocaleString()} m³/h)`
         ],
         [
           "2",
           "Airflow Thro' Open Doors (Q_open)",
-          `${calc.openFlowM3s} m³/s (${calc.openFlowLs.toLocaleString()} L/s)`,
-          `Area (${calc.doorAreaM2} m²) × Velocity (${calc.egressVelocityMps} m/s) × ${sizingParams.openDoorsCount} Doors`
+          `${calc.openFlowM3s} m³/s (${calc.openFlowLs.toLocaleString()} L/s)`
         ],
         [
           "3",
           "Closed Door Leakage Flow (Q_closed)",
-          `${calc.closedFlowM3s} m³/s (${calc.closedFlowLs.toLocaleString()} L/s)`,
-          `Perimeter Leakage × ${sizingParams.closedDoorsCount} Closed Doors × 1.25 Safety`
+          `${calc.closedFlowM3s} m³/s (${calc.closedFlowLs.toLocaleString()} L/s)`
         ],
         [
           "4",
           "Design Total Pressure Drop (ΔP_total)",
-          `${calc.designPressureDropPa} Pa`,
-          "Duct Loss (85 Pa) + ΔP (12.5 Pa) + 25% Safety Factor"
+          `${calc.designPressureDropPa} Pa`
         ],
         [
           "5",
           "Pressure Relief Louver Area (A_v)",
-          `${calc.reliefAreaM2} m²`,
-          `Q_fan / (0.827 × √ΔP) — Outlets @ ${calc.airVolumePerOutletLs} L/s each`
+          `${calc.reliefAreaM2} m²`
         ]
       ];
 
@@ -842,16 +837,14 @@ function StaircasePressurizationPage() {
         },
         columnStyles: {
           0: { cellWidth: 10 },
-          1: { halign: "left", cellWidth: 66, fontStyle: "bold" },
-          2: { cellWidth: 52, fontStyle: "bold" },
-          3: { halign: "left", cellWidth: 54 }
+          1: { halign: "left", cellWidth: 86, fontStyle: "bold" },
+          2: { cellWidth: 86, fontStyle: "bold" }
         },
         head: [
           [
             { content: "#" },
             { content: "Hydraulic Output Parameter" },
-            { content: "Calculated Value" },
-            { content: "Engineering Basis & Notes" }
+            { content: "Calculated Value" }
           ]
         ],
         body: resultsBody,
@@ -912,7 +905,6 @@ function StaircasePressurizationPage() {
         ],
         body: [
           ["Name", originatedName || currentUserName, reviewerName || "-", approverName || "-"],
-          ["Designation", "Fire & Life Safety Engineer", "Senior Mechanical Reviewer", "Lead MEP Approver"],
           ["Date", formatDateStr(originatedDate) || new Date().toLocaleDateString('en-GB'), formatDateStr(reviewerDate) || "-", formatDateStr(approverDate) || "-"]
         ]
       });
