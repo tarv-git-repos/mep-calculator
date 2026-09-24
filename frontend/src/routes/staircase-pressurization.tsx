@@ -605,7 +605,7 @@ function StaircasePressurizationPage() {
               isHighlighted ? "ring-2 ring-primary bg-primary/20 z-10" : ""
             } ${rowClassName}`}
           >
-            <span className={`font-sans flex items-center gap-1.5 ${labelClassName || "text-muted-foreground text-xs sm:text-sm"}`}>
+            <span className={`font-sans flex items-center gap-1.5 ${labelClassName || "text-muted-foreground text-xs"}`}>
               <span>{label}</span>
               {modalKey && (
                 <button
@@ -622,7 +622,7 @@ function StaircasePressurizationPage() {
               )}
               {renderCommentBadge(id, label)}
             </span>
-            <span className={`font-bold font-mono ${valueClassName || "text-foreground text-xs sm:text-sm"}`}>
+            <span className={`font-bold font-mono ${valueClassName || "text-foreground text-xs"}`}>
               {value}
             </span>
           </div>
@@ -1526,7 +1526,7 @@ function StaircasePressurizationPage() {
                     </ContextMenu>
 
                     {/* Step-by-Step Clean Summary Rows */}
-                    <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-border/70 text-xs sm:text-sm font-mono">
+                    <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-border/70 text-xs font-mono">
                       {renderResultRowWithContext("door-area", "Door Area:", `${calc.doorAreaM2} m²`, { rowClassName: "border-b border-border/50" })}
                       {renderResultRowWithContext("egress-velocity", "Egress Velocity:", `${calc.egressVelocityMps.toFixed(2)} m/s`, { rowClassName: "border-b border-border/50" })}
                       {renderResultRowWithContext("open-doors", "Open Doors:", `${calc.openDoorsCount}`, { rowClassName: "border-b border-border/50" })}
@@ -1534,8 +1534,8 @@ function StaircasePressurizationPage() {
                       {renderResultRowWithContext("open-flow", "Open Door Airflow:", `${calc.openFlowM3s.toFixed(2)} m³/s`, {
                         modalKey: "open_doors",
                         rowClassName: "bg-blue-50/60 dark:bg-blue-950/40 px-2 py-1.5 rounded-lg border-b border-border/50",
-                        labelClassName: "text-[#0A7BC7] font-semibold text-xs sm:text-sm",
-                        valueClassName: "text-[#0A7BC7] text-xs sm:text-sm font-bold",
+                        labelClassName: "text-[#0A7BC7] font-semibold text-xs",
+                        valueClassName: "text-[#0A7BC7] text-xs font-bold",
                       })}
                       {renderResultRowWithContext("leakage-rate", "Leakage Airflow per Closed Door:", `${calc.leakageRateM3s.toFixed(2)} m³/s`, {
                         modalKey: "table_a3",
@@ -1548,30 +1548,30 @@ function StaircasePressurizationPage() {
                       {renderResultRowWithContext("closed-flow", "Closed Door Leakage + 25% Safety:", `${calc.closedFlowM3s.toFixed(2)} m³/s`, {
                         modalKey: "closed_doors",
                         rowClassName: "bg-sky-50/60 dark:bg-sky-950/40 px-2 py-1.5 rounded-lg border-b border-border/50",
-                        labelClassName: "text-sky-700 dark:text-sky-300 font-semibold text-xs sm:text-sm",
-                        valueClassName: "text-sky-700 dark:text-sky-400 text-xs sm:text-sm font-bold",
+                        labelClassName: "text-sky-700 dark:text-sky-300 font-semibold text-xs",
+                        valueClassName: "text-sky-700 dark:text-sky-400 text-xs font-bold",
                       })}
                       {renderResultRowWithContext("total-flow", "Total Airflow:", `${calc.subtotalM3s.toFixed(2)} m³/s`, {
                         modalKey: "total_fan",
                         rowClassName: "border-b border-border/50 font-bold",
-                        labelClassName: "text-foreground font-semibold text-xs sm:text-sm",
-                        valueClassName: "text-foreground text-xs sm:text-sm font-bold",
+                        labelClassName: "text-foreground font-semibold text-xs",
+                        valueClassName: "text-foreground text-xs font-bold",
                       })}
                       {renderResultRowWithContext("fan-safety", "Final 10% Safety Allowance:", `${calc.fanSafetyM3s.toFixed(2)} m³/s`, {
-                        valueClassName: "text-[#0A7BC7] font-bold text-xs sm:text-sm",
+                        valueClassName: "text-[#0A7BC7] font-bold text-xs",
                       })}
                     </div>
 
                     {/* Additional Derived Engineering Results (Pressure Drop & Relief Louver Area) */}
-                    <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-slate-50/60 dark:bg-slate-900/40 border border-border/70 text-xs sm:text-sm">
+                    <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-slate-50/60 dark:bg-slate-900/40 border border-border/70 text-xs">
                       {renderResultRowWithContext("pressure-drop", "Design Pressure Drop:", `${calc.designPressureDropPa} Pa`, {
                         modalKey: "pressure_drop",
-                        valueClassName: "text-foreground font-bold text-xs sm:text-sm font-mono",
+                        valueClassName: "text-foreground font-bold text-xs font-mono",
                       })}
                       {renderResultRowWithContext("relief-area", "Pressure Relief Area:", `${calc.reliefAreaM2} m² (${calc.reliefAreaSqFt} sq ft)`, {
                         modalKey: "relief_area",
                         rowClassName: "border-t border-border/50 pt-1.5",
-                        valueClassName: "text-[#0A7BC7] font-bold text-xs sm:text-sm font-mono",
+                        valueClassName: "text-[#0A7BC7] font-bold text-xs font-mono",
                       })}
                     </div>
 
