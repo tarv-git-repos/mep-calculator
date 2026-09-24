@@ -304,7 +304,7 @@ export function VentilationModule() {
         {/* Intelligence drawer */}
         <div
           className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
           }`}
         >
           {intelOpen && <IntelligenceDrawer onClose={() => setIntelOpen(false)} setTab={setTab} />}

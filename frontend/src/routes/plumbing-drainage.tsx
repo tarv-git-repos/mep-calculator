@@ -11,7 +11,7 @@ import {
   Info, CheckCircle2, FileText, X, HelpCircle,
   MessageSquare, Check, Activity, Copy, RotateCcw,
   Trash2, Edit3, Droplets, Waves, Gauge, ShieldCheck, ShieldAlert, Layers,
-  Download, Cylinder, ChevronDown, ChevronRight, Search,
+  Download, Cylinder, ChevronDown, ChevronUp, ChevronRight, Search,
   Plus, Minus, SlidersHorizontal, Maximize2, Sparkles, AlertTriangle,
   Zap, ArrowRight, BookOpen, Scissors, ClipboardPaste
 } from "lucide-react";
@@ -800,9 +800,17 @@ function DrainagePage() {
 
       const dedupMap = new Map<string, any>();
       allComments.forEach(c => {
-        if (c && (c.id || c.text)) {
-          const k = c.id || `${c.targetId}_${c.text}_${c.timestamp}`;
-          if (!dedupMap.has(k)) dedupMap.set(k, c);
+        if (c && typeof c === 'object') {
+          const text = String(c.text || c.metadata?.text || "").trim();
+          if (!text) return; // Discard dummy / empty comments
+          const k = c.id || `${c.targetId}_${text}_${c.timestamp}`;
+          if (!dedupMap.has(k)) {
+            dedupMap.set(k, {
+              ...c,
+              text,
+              authorName: c.authorName || c.metadata?.authorName || "Design Engineer"
+            });
+          }
         }
       });
       const mergedComments = Array.from(dedupMap.values());
@@ -811,10 +819,21 @@ function DrainagePage() {
         setCommentsList(mergedComments);
         setDrainageSpaces(prev =>
           prev.map(s => {
+            const sId = String(s.id || "").trim().toLowerCase();
+            const sDesc = String(s.desc || "").trim().toLowerCase();
             const spaceComments = mergedComments.filter(
-              (c: any) => c.targetId === s.id || c.targetName === s.desc || c.spaceId === s.id
+              (c: any) => {
+                const cTargetId = String(c.targetId || c.spaceId || "").trim().toLowerCase();
+                const cTargetName = String(c.targetName || "").trim().toLowerCase();
+                return (cTargetId && (cTargetId === sId || cTargetId === `space-${sId}`)) || (cTargetName && cTargetName === sDesc);
+              }
             );
-            return { ...s, comments: spaceComments.length > 0 ? spaceComments : s.comments || [] };
+            return {
+              ...s,
+              comments: spaceComments.length > 0
+                ? spaceComments
+                : (s.comments || []).filter((sc: any) => sc && sc.text && String(sc.text).trim())
+            };
           })
         );
       } else {
@@ -827,26 +846,26 @@ function DrainagePage() {
 
   const getSpaceComments = (space: { id?: string; desc?: string; comments?: any[] }): any[] => {
     if (!space) return [];
-    const directComments = Array.isArray(space.comments) ? space.comments : [];
+    const directComments = Array.isArray(space.comments)
+      ? space.comments.filter((c: any) => c && typeof c === 'object' && Boolean(c.text && String(c.text).trim().length > 0))
+      : [];
     const sDescLow = String(space.desc || "").trim().toLowerCase();
-    const sId = String(space.id || "").trim();
+    const sId = String(space.id || "").trim().toLowerCase();
 
     const fromList = commentsList.filter((c: any) => {
-      if (!c) return false;
-      const cTargetId = String(c.targetId || c.metadata?.targetId || "").trim();
+      if (!c || !c.text || !String(c.text).trim()) return false;
+      const cTargetId = String(c.targetId || c.metadata?.targetId || c.spaceId || "").trim().toLowerCase();
       const cTargetName = String(c.targetName || c.metadata?.targetName || "").trim().toLowerCase();
-      const cSpaceId = String(c.spaceId || "").trim();
 
-      if (cTargetId && (cTargetId === sId || cTargetId === `space-${sId}` || cTargetId === `space-row-${sId}`)) return true;
-      if (cSpaceId && cSpaceId === sId) return true;
-      if (cTargetName && (cTargetName === sDescLow || sDescLow.includes(cTargetName) || cTargetName.includes(sDescLow))) return true;
+      if (cTargetId && (cTargetId === sId || cTargetId === `space-${sId}` || cTargetId === `space-row-${sId}` || `space-${cTargetId}` === sId)) return true;
+      if (cTargetName && sDescLow && cTargetName === sDescLow) return true;
       return false;
     });
 
     const merged = [...directComments, ...fromList];
     const seen = new Set<string>();
     return merged.filter((c: any) => {
-      if (!c) return false;
+      if (!c || !c.text || !String(c.text).trim()) return false;
       const key = c.id || `${c.targetId}_${c.text}_${c.timestamp}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -2873,7 +2892,7 @@ function DrainagePage() {
 
         {/* Intelligence drawer */}
         <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg flex flex-col" : "w-0"
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg flex flex-col" : "w-0"
             }`}
         >
           {intelOpen && (
@@ -3481,17 +3500,10 @@ function DrainageIntelligenceDrawer({
   const isSI = unitSystem === "si";
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    compliance: true,
-    floors: true,
-    fixtures: false,
-    diagnostics: true,
-    actions: false,
-    standards: false,
+    unassignedSpaces: false,
+    floorsList: false,
+    fixturesList: false,
   });
-
-  const toggleSection = (sec: string) => {
-    setOpenSections(prev => ({ ...prev, [sec]: !prev[sec] }));
-  };
 
   // Compliance calculations
   const isVelocityOk = Boolean(calcResults?.isScourVelocityOk);
@@ -3505,446 +3517,235 @@ function DrainageIntelligenceDrawer({
 
   // Missing data and diagnostics
   const zeroFixtureSpaces = useMemo(() => {
-    return (drainageSpaces || []).filter(s => {
-      const sum = Object.values(s.fixtures || {}).reduce((a, b) => a + (Number(b) || 0), 0);
-      return sum === 0;
+    return (drainageSpaces || [])
+      .filter((s) => {
+        const sum = Object.values(s.fixtures || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+        return sum === 0;
+      })
+      .map((s) => ({
+        id: s.id,
+        name: s.desc || "Untitled Space",
+        detail: s.floor || "L01",
+      }));
+  }, [drainageSpaces]);
+
+  const floorItems = useMemo(() => {
+    return (floorSections || []).map((floor) => {
+      const sizing = floorSizing?.[floor];
+      const fDfu = sizing?.designDfu || 0;
+      return {
+        id: floor,
+        name: floor,
+        detail: `${fDfu} DFU · ${sizing ? (isSI ? `${sizing.sizedDn} mm DN` : `${sizing.sizedNps}" NPS`) : ""}`,
+      };
     });
-  }, [drainageSpaces]);
+  }, [floorSections, floorSizing, isSI]);
 
-  const highMultiplierSpaces = useMemo(() => {
-    return (drainageSpaces || []).filter(s => (s.spaceQty || 1) * (s.floorsQty || 1) >= 10);
-  }, [drainageSpaces]);
-
-  // Active fixtures sorted by DFU
   const activeFixturesSorted = useMemo(() => {
     return [...(calcResults?.aggregatedFixtures || [])]
       .filter((f: any) => f && f.val > 0)
-      .sort((a: any, b: any) => (b.dfu * b.val) - (a.dfu * a.val));
+      .sort((a: any, b: any) => b.dfu * b.val - a.dfu * a.val)
+      .map((f: any) => ({
+        id: f.id || f.name,
+        name: f.name,
+        detail: `${f.val} units × ${f.dfu} DFU (${f.dfu * f.val} DFU total)`,
+      }));
   }, [calcResults?.aggregatedFixtures]);
 
   return (
-    <div className="h-full flex flex-col bg-card select-none text-xs w-[360px]">
-      {/* Header */}
-      <div className="p-3.5 border-b border-border flex items-center justify-between bg-primary/5 shrink-0">
+    <div className="h-full w-[360px] flex flex-col animate-fade-in select-none">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-            <Sparkles className="size-4" />
-          </div>
-          <div>
-            <h3 className="font-bold text-foreground text-[13.5px] leading-tight">Drainage Intelligence</h3>
-            <p className="text-[10px] text-muted-foreground">IPC / UPC & ASPE Compliance Engine</p>
-          </div>
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
         </div>
         <button
           onClick={onClose}
-          className="size-7 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-          title="Close Intelligence"
+          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          <X className="size-4" />
+          <X className="size-3.5" />
         </button>
+      </header>
+
+      <div className="flex-1 overflow-auto">
+        <IntelSection icon={CheckCircle2} tone={complianceScore === 100 ? "success" : "warning"} title="Compliance Status">
+          <div className="text-[12px] text-muted-foreground">
+            IPC / UPC sanitary drainage validation across {(drainageSpaces || []).length} space(s).
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${complianceScore === 100 ? "bg-success" : "bg-warning"}`}
+                style={{ width: `${complianceScore}%` }}
+              />
+            </div>
+            <span className="font-mono tabular text-[11.5px]">{complianceScore}%</span>
+          </div>
+        </IntelSection>
+
+        <IntelSection icon={Gauge} tone={isVelocityOk ? "success" : "warning"} title="Hydraulic & Pipe Sizing">
+          <KV k="Design Load" v={`${calcResults?.designDfu ?? 0} DFU`} />
+          <KV
+            k="Governing Main Drain"
+            v={isSI ? `${calcResults?.sizedDn ?? 40} mm DN` : `${calcResults?.sizedNps ?? 1.5}" NPS`}
+          />
+          <KV
+            k="Scour Velocity"
+            v={isSI ? `${(calcResults?.velocityMps ?? 0).toFixed(2)} m/s` : `${(calcResults?.velocityFps ?? 0).toFixed(2)} ft/s`}
+          />
+          <KV k="Pipe Capacity" v={`${(calcResults?.capacityUtilization ?? 0).toFixed(1)}%`} />
+          <KV
+            k="Vent Stack Sized"
+            v={isSI ? `${calcResults?.ventDn ?? 0} mm DN` : `${calcResults?.ventNps ?? 0}" NPS`}
+          />
+        </IntelSection>
+
+        <IntelSection
+          icon={AlertTriangle}
+          tone={!isVelocityOk || !isUtilizationOk || !isWcOk ? "warning" : "muted"}
+          title="Code Warnings"
+        >
+          <KV
+            k="Self-Cleansing Velocity"
+            v={isVelocityOk ? 'Passed (≥ 2.0 ft/s)' : 'Warning (< 2.0 ft/s)'}
+          />
+          <KV
+            k={'Water Closet 3" Rule'}
+            v={isWcOk ? 'Passed (≥ 3" NPS)' : 'Warning (< 3" NPS)'}
+          />
+          <KV
+            k="Slope Standard"
+            v={`${slope}"/ft (${(slope * 8.33).toFixed(1)}%)`}
+          />
+        </IntelSection>
+
+        <IntelSection icon={Layers} tone="primary" title="Floor Hierarchy">
+          <CollapsibleMissingSection
+            label="Floor Segments"
+            count={floorSections.length}
+            itemsList={floorItems}
+            isOpen={openSections.floorsList}
+            onToggle={() => setOpenSections((prev) => ({ ...prev, floorsList: !prev.floorsList }))}
+            onItemClick={(floor) => onScrollToFloor(floor)}
+          />
+        </IntelSection>
+
+        <IntelSection icon={Droplets} tone="primary" title="Active Fixtures">
+          <CollapsibleMissingSection
+            label="Connected Fixture Types"
+            count={activeFixturesSorted.length}
+            itemsList={activeFixturesSorted}
+            isOpen={openSections.fixturesList}
+            onToggle={() => setOpenSections((prev) => ({ ...prev, fixturesList: !prev.fixturesList }))}
+            onItemClick={() => {}}
+          />
+        </IntelSection>
+
+        <IntelSection icon={Info} tone="muted" title="Missing Data">
+          <CollapsibleMissingSection
+            label="Spaces with 0 Fixtures"
+            count={zeroFixtureSpaces.length}
+            itemsList={zeroFixtureSpaces}
+            isOpen={openSections.unassignedSpaces}
+            onToggle={() => setOpenSections((prev) => ({ ...prev, unassignedSpaces: !prev.unassignedSpaces }))}
+            onItemClick={(id) => onScrollToSpace(id)}
+          />
+        </IntelSection>
+
+        <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
+            <li>Increase branch slope to 1/4" (2%) if scour velocity is below 2.0 ft/s (0.6 m/s).</li>
+            <li>Verify stack size transitions at floor base and building drain entry.</li>
+            <li>Maintain minimum 3" NPS for any discharge pipe receiving WC flush volumes.</li>
+          </ul>
+        </IntelSection>
+
+        <IntelSection icon={Info} tone="muted" title="Engineering Notes">
+          <div className="text-[12px] text-muted-foreground">
+            Drainage &amp; vent sizing computed per IPC Table 710.1 &amp; Table 906.1 with Manning equation hydraulics.
+          </div>
+        </IntelSection>
       </div>
+    </div>
+  );
+}
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
-        {/* Overall Health & Score Card */}
-        <div className="p-3 rounded-xl bg-surface-2 border border-border/80 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              Code Compliance Status
-            </span>
-            <span
-              className={`px-2 py-0.5 rounded-full text-[10.5px] font-black ${complianceScore === 100
-                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                }`}
+function IntelSection({ icon: Icon, title, tone, children }: { icon: any; title: string; tone: "success" | "warning" | "primary" | "muted"; children: React.ReactNode }) {
+  const color =
+    tone === "success" ? "text-success" :
+    tone === "warning" ? "text-warning" :
+    tone === "primary" ? "text-primary" : "text-muted-foreground";
+  return (
+    <section className="px-3 py-3 border-b border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`size-3.5 ${color}`} />
+        <h4 className="text-[11px] uppercase tracking-wider font-semibold">{title}</h4>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function KV({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between text-[12px] py-0.5">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-mono tabular font-medium">{v}</span>
+    </div>
+  );
+}
+
+function CollapsibleMissingSection({
+  label,
+  count,
+  itemsList,
+  isOpen,
+  onToggle,
+  onItemClick,
+}: {
+  label: string;
+  count: number;
+  itemsList: { id: string; name: string; detail?: string }[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onItemClick: (id: string) => void;
+}) {
+  return (
+    <div className="py-0.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-[12px] hover:text-foreground py-0.5 transition-colors cursor-pointer select-none text-left"
+      >
+        <span className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
+          <span>{label}</span>
+          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+        </span>
+        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
+      </button>
+
+      {isOpen && count > 0 && (
+        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
+          {itemsList.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onItemClick(item.id)}
+              className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
             >
-              {complianceScore}% Compliant
-            </span>
-          </div>
-
-          <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 rounded-full ${complianceScore === 100 ? "bg-emerald-500" : "bg-amber-500"
-                }`}
-              style={{ width: `${complianceScore}%` }}
-            />
-          </div>
-
-          <div className="grid grid-cols-3 gap-1.5 pt-1 text-center">
-            <div className="p-1.5 rounded-lg bg-card border border-border/50">
-              <div className="text-[10px] text-muted-foreground">Spaces</div>
-              <div className="font-bold text-foreground text-xs">{(drainageSpaces || []).length}</div>
-            </div>
-            <div className="p-1.5 rounded-lg bg-card border border-border/50">
-              <div className="text-[10px] text-muted-foreground">Fixtures</div>
-              <div className="font-bold text-foreground text-xs">{calcResults?.totalCount ?? 0}</div>
-            </div>
-            <div className="p-1.5 rounded-lg bg-card border border-border/50">
-              <div className="text-[10px] text-muted-foreground">Design DFU</div>
-              <div className="font-bold text-primary text-xs">{calcResults?.designDfu ?? 0}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 1: Live Code & Hydraulic Checks */}
-        <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs">
-          <button
-            onClick={() => toggleSection("compliance")}
-            className="w-full p-2.5 bg-muted/30 hover:bg-muted/50 flex items-center justify-between font-bold text-foreground transition-colors cursor-pointer text-xs"
-          >
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="size-3.5 text-emerald-500" />
-              <span>Hydraulic & Code Audit</span>
-            </div>
-            {openSections.compliance ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </button>
-          {openSections.compliance && (
-            <div className="p-2.5 space-y-2 bg-background border-t border-border/40">
-              {/* Check 1: Scouring Velocity */}
-              <div className="p-2 rounded-lg bg-muted/20 border border-border/40 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11.5px] text-foreground flex items-center gap-1.5">
-                    {isVelocityOk ? (
-                      <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="size-3.5 text-amber-500 shrink-0" />
-                    )}
-                    Self-Cleansing Scour Velocity
+              <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
+                <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
+                  {item.name}
+                </span>
+                {item.detail && (
+                  <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
+                    ({item.detail})
                   </span>
-                  <span className={`font-mono font-bold text-[11px] ${isVelocityOk ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
-                    {isSI ? `${(calcResults?.velocityMps ?? 0).toFixed(2)} m/s` : `${(calcResults?.velocityFps ?? 0).toFixed(2)} ft/s`}
-                  </span>
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-relaxed">
-                  IPC 704.1 requires min 2.0 ft/s (0.60 m/s) to prevent sanitary solids sedimentation.
-                </p>
-                {!isVelocityOk && (
-                  <button
-                    onClick={() => {
-                      onSetSlope(0.25);
-                      toast.success("Slope updated to 1/4 in/ft (2.08%) to achieve scouring velocity.");
-                    }}
-                    className="mt-1 w-full py-1 px-2 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10.5px] font-bold transition-colors cursor-pointer text-center"
-                  >
-                    Auto-Fix: Increase Slope to 1/4" (2%)
-                  </button>
                 )}
               </div>
-
-              {/* Check 2: Pipe Capacity Utilization */}
-              <div className="p-2 rounded-lg bg-muted/20 border border-border/40 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11.5px] text-foreground flex items-center gap-1.5">
-                    {isUtilizationOk ? (
-                      <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <ShieldAlert className="size-3.5 text-destructive shrink-0" />
-                    )}
-                    Pipe Capacity Utilization
-                  </span>
-                  <span className="font-mono font-bold text-[11px] text-primary">
-                    {(calcResults?.capacityUtilization ?? 0).toFixed(1)}%
-                  </span>
-                </div>
-                <div className="text-[10px] text-muted-foreground flex justify-between">
-                  <span>Sized: <strong>{isSI ? `${calcResults?.sizedDn ?? 40} mm DN` : `${calcResults?.sizedNps ?? 1.5}" NPS`}</strong></span>
-                  <span>Limit: <strong>{calcResults?.maxAllowedDfu ?? 0} DFU max</strong></span>
-                </div>
-              </div>
-
-              {/* Check 3: Water Closet 3" NPS Rule */}
-              <div className="p-2 rounded-lg bg-muted/20 border border-border/40 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11.5px] text-foreground flex items-center gap-1.5">
-                    {isWcOk ? (
-                      <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="size-3.5 text-amber-500 shrink-0" />
-                    )}
-                    Water Closet Clearance
-                  </span>
-                  <span className="text-[10.5px] font-bold text-muted-foreground">
-                    {calcResults?.hasWc ? `${calcResults?.wcCount ?? 0} WCs` : "None"}
-                  </span>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  IPC 709.2 requires minimum 3" NPS (75/80 mm DN) for drainage lines receiving water closet discharge.
-                </p>
-              </div>
-
-              {/* Check 4: Vent Stack Sizing */}
-              <div className="p-2 rounded-lg bg-muted/20 border border-border/40 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[11.5px] text-foreground flex items-center gap-1.5">
-                    {isVentOk ? (
-                      <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="size-3.5 text-amber-500 shrink-0" />
-                    )}
-                    Vent Pipe Sizing
-                  </span>
-                  <span className="font-mono font-bold text-[11px] text-primary">
-                    {isSI ? `${calcResults?.ventDn ?? 0} mm DN` : `${calcResults?.ventNps ?? 0}" NPS`}
-                  </span>
-                </div>
-                <div className="text-[10px] text-muted-foreground flex justify-between">
-                  <span>Dev. Length: <strong>{isSI ? `${(ventLength * 0.3048).toFixed(1)} m` : `${ventLength} ft`}</strong></span>
-                  <span>IPC Table 906.1</span>
-                </div>
-              </div>
-            </div>
-          )}
+            </button>
+          ))}
         </div>
-
-        {/* Section 2: Floor Hierarchy & Contribution */}
-        <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs">
-          <button
-            onClick={() => toggleSection("floors")}
-            className="w-full p-2.5 bg-muted/30 hover:bg-muted/50 flex items-center justify-between font-bold text-foreground transition-colors cursor-pointer text-xs"
-          >
-            <div className="flex items-center gap-2">
-              <Layers className="size-3.5 text-blue-500" />
-              <span>Floor Hierarchy ({(floorSections || []).length})</span>
-            </div>
-            {openSections.floors ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </button>
-          {openSections.floors && (
-            <div className="p-2 space-y-1.5 bg-background border-t border-border/40">
-              {(floorSections || []).map((floor) => {
-                const sizing = floorSizing?.[floor];
-                const fDfu = sizing?.designDfu || 0;
-                const totalDesignDfu = calcResults?.designDfu || 0;
-                const share = totalDesignDfu > 0 ? Math.round((fDfu / totalDesignDfu) * 100) : 0;
-                const segType = floorSystemTypes?.[floor] || systemType || "branch";
-                const segLabel = segType === "branch" ? "Branch" : segType === "stack_short" ? "Stack ≤3 Fl" : segType === "stack_tall" ? "Stack >3 Fl" : "Building Drain";
-                const capUtil = sizing?.capacityUtilization ?? (sizing?.maxAllowedDfu ? (sizing.designDfu / sizing.maxAllowedDfu) * 100 : 0);
-
-                return (
-                  <div
-                    key={floor}
-                    onClick={() => onScrollToFloor(floor)}
-                    className="p-2 rounded-lg bg-surface-2 hover:bg-muted/60 transition-colors border border-border/50 cursor-pointer flex items-center justify-between text-[11px]"
-                  >
-                    <div className="space-y-0.5 min-w-0 flex-1 pr-2">
-                      <div className="font-bold text-foreground truncate flex items-center gap-1.5">
-                        <span className="truncate">{floor}</span>
-                        <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-primary/10 text-primary shrink-0">
-                          {segLabel}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {fDfu} DFU ({share}% total load)
-                      </div>
-                    </div>
-                    {sizing && (
-                      <div className="text-right shrink-0">
-                        <div className="font-mono font-bold text-primary text-[11px]">
-                          {isSI ? `${sizing.sizedDn} mm` : `${sizing.sizedNps}"`}
-                        </div>
-                        <div className="text-[9px] text-muted-foreground font-mono">
-                          {(capUtil || 0).toFixed(0)}% cap
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Section 3: Fixture Distribution */}
-        <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs">
-          <button
-            onClick={() => toggleSection("fixtures")}
-            className="w-full p-2.5 bg-muted/30 hover:bg-muted/50 flex items-center justify-between font-bold text-foreground transition-colors cursor-pointer text-xs"
-          >
-            <div className="flex items-center gap-2">
-              <Droplets className="size-3.5 text-cyan-500" />
-              <span>Active Fixtures ({activeFixturesSorted.length})</span>
-            </div>
-            {openSections.fixtures ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </button>
-          {openSections.fixtures && (
-            <div className="p-2 space-y-1.5 bg-background border-t border-border/40">
-              {activeFixturesSorted.length === 0 ? (
-                <div className="text-[11px] text-muted-foreground p-2 text-center">No fixtures connected yet.</div>
-              ) : (
-                activeFixturesSorted.map((f: any) => {
-                  const totalDfu = f.dfu * f.val;
-                  const totalRawDfu = calcResults?.rawDfu || 0;
-                  const share = totalRawDfu > 0 ? Math.round((totalDfu / totalRawDfu) * 100) : 0;
-                  return (
-                    <div key={f.id} className="p-2 rounded-lg bg-surface-2 border border-border/50 text-[11px] space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-foreground truncate pr-2">{f.name}</span>
-                        <span className="font-mono font-bold text-primary shrink-0">{totalDfu} DFU</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                        <span>{f.val} units × {f.dfu} dfu</span>
-                        <span>{share}% load (Trap: {f.minTrapSizeInches}")</span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Section 4: Diagnostics & Missing Data */}
-        <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs">
-          <button
-            onClick={() => toggleSection("diagnostics")}
-            className="w-full p-2.5 bg-muted/30 hover:bg-muted/50 flex items-center justify-between font-bold text-foreground transition-colors cursor-pointer text-xs"
-          >
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="size-3.5 text-amber-500" />
-              <span>Diagnostics & Alerts ({zeroFixtureSpaces.length + (slope < 0.125 ? 1 : 0)})</span>
-            </div>
-            {openSections.diagnostics ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </button>
-          {openSections.diagnostics && (
-            <div className="p-2 space-y-1.5 bg-background border-t border-border/40">
-              {zeroFixtureSpaces.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                    <Info className="size-3" />
-                    <span>{zeroFixtureSpaces.length} Space(s) with 0 Fixtures:</span>
-                  </div>
-                  <div className="space-y-1 max-h-28 overflow-y-auto custom-scrollbar">
-                    {zeroFixtureSpaces.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => onScrollToSpace(s.id)}
-                        className="w-full text-left p-1.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-foreground text-[10.5px] transition-colors cursor-pointer flex items-center justify-between"
-                      >
-                        <span className="truncate pr-1">{s.desc} ({s.floor})</span>
-                        <span className="text-[9px] font-bold text-primary shrink-0">Click to Edit →</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {highMultiplierSpaces.length > 0 && (
-                <div className="p-1.5 rounded bg-muted/30 border border-border/50 text-[10.5px] text-muted-foreground">
-                  <strong className="text-foreground">{highMultiplierSpaces.length} space(s)</strong> have a high total multiplier (≥ 10×).
-                </div>
-              )}
-
-              {slope < 0.125 && (
-                <div className="p-1.5 rounded bg-amber-500/10 border border-amber-500/30 text-[10.5px] text-amber-700 dark:text-amber-300">
-                  <strong>Low Slope Alert:</strong> Slope is set to {slope} in/ft (&lt; 1%). Standard IPC mandates min 1/8" (1%) or 1/4" (2%) for small pipes.
-                </div>
-              )}
-
-              {zeroFixtureSpaces.length === 0 && slope >= 0.125 && highMultiplierSpaces.length === 0 && (
-                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 p-2 text-center font-medium flex items-center justify-center gap-1.5">
-                  <CheckCircle2 className="size-3.5" /> All spaces configured cleanly.
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Section 5: Quick Optimization Actions */}
-        <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs">
-          <button
-            onClick={() => toggleSection("actions")}
-            className="w-full p-2.5 bg-muted/30 hover:bg-muted/50 flex items-center justify-between font-bold text-foreground transition-colors cursor-pointer text-xs"
-          >
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="size-3.5 text-primary" />
-              <span>Smart Actions & Tools</span>
-            </div>
-            {openSections.actions ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </button>
-          {openSections.actions && (
-            <div className="p-2.5 space-y-2 bg-background border-t border-border/40">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-muted-foreground uppercase">Slope Preset</label>
-                <div className="grid grid-cols-3 gap-1">
-                  {[
-                    { label: "1/8\" (1%)", val: 0.125 },
-                    { label: "1/4\" (2%)", val: 0.25 },
-                    { label: "1/2\" (4%)", val: 0.5 },
-                  ].map((sl) => (
-                    <button
-                      key={sl.val}
-                      type="button"
-                      onClick={() => {
-                        onSetSlope(sl.val);
-                        toast.success(`Slope set to ${sl.label}`);
-                      }}
-                      className={`py-1 text-[10.5px] font-bold rounded border cursor-pointer transition-colors ${slope === sl.val
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-surface-2 text-foreground border-border/60 hover:bg-muted"
-                        }`}
-                    >
-                      {sl.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-1 flex flex-col gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => onSetFormulaModal(true)}
-                  className="w-full py-1.5 px-2.5 rounded-lg border border-border bg-card hover:bg-surface-2 text-foreground font-semibold text-[11px] flex items-center justify-between cursor-pointer transition-colors"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <BookOpen className="size-3.5 text-primary" /> View Formulas & Manning Math
-                  </span>
-                  <ChevronRight className="size-3 text-muted-foreground" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onSetInspectorModal(true)}
-                  className="w-full py-1.5 px-2.5 rounded-lg border border-border bg-card hover:bg-surface-2 text-foreground font-semibold text-[11px] flex items-center justify-between cursor-pointer transition-colors"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Maximize2 className="size-3.5 text-primary" /> System Inspector Modal
-                  </span>
-                  <ChevronRight className="size-3 text-muted-foreground" />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Section 6: Standard Citations & Code Basis */}
-        <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs">
-          <button
-            onClick={() => toggleSection("standards")}
-            className="w-full p-2.5 bg-muted/30 hover:bg-muted/50 flex items-center justify-between font-bold text-foreground transition-colors cursor-pointer text-xs"
-          >
-            <div className="flex items-center gap-2">
-              <FileText className="size-3.5 text-muted-foreground" />
-              <span>Standards & Code Citations</span>
-            </div>
-            {openSections.standards ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </button>
-          {openSections.standards && (
-            <div className="p-2.5 space-y-2 bg-background border-t border-border/40 text-[10.5px] text-muted-foreground leading-relaxed">
-              <div className="p-2 rounded bg-muted/20 border border-border/40 space-y-1">
-                <strong className="text-foreground">IPC Table 710.1(1) & (2)</strong>
-                <p>Governs max allowable DFUs for horizontal fixture branches, vertical sanitary stacks, and building drains.</p>
-              </div>
-              <div className="p-2 rounded bg-muted/20 border border-border/40 space-y-1">
-                <strong className="text-foreground">IPC Table 709.1 & 709.2</strong>
-                <p>Prescribes Fixture Unit values and minimum trap diameters for residential and commercial plumbing appliances.</p>
-              </div>
-              <div className="p-2 rounded bg-muted/20 border border-border/40 space-y-1">
-                <strong className="text-foreground">IPC Table 906.1</strong>
-                <p>Determines minimum vent stack diameters based on connected DFU load and total developed length.</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }

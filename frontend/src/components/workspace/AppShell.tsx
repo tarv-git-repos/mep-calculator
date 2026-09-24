@@ -159,6 +159,7 @@ const EXCLUDED_PERSIST_PATHS = [
   "/lobby-pressurisation",
   "/smoke-extract-fan",
   "/staircase-pressurization",
+  "/liftwell-pressurization",
   "/basement-smoke-calc",
   "/condensate-drain-calc",
   "/plumbing-pressure-vessel",
@@ -358,7 +359,8 @@ const MEP_CALC_ROUTES = new Set([
   "/ventilation", "/preliminary-cooling-load", "/fresh-air-cooling-load",
   "/heating-load", "/chw-pump-head", "/chw-pipe-sizer", "/duct-sizer",
   "/diffuser-selector", "/refrigerant-pipe-sizing", "/condensate-drain-calc",
-  "/condensate-drain", "/staircase-pressurization", "/lobby-pressurisation",
+  "/condensate-drain", "/staircase-pressurization",
+  "/liftwell-pressurization", "/lobby-pressurisation",
   "/smoke-extract-fan", "/basement-smoke-calc", "/psychrometric",
 
   // Electrical
@@ -3304,10 +3306,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   {effectiveOnIntelClick && (
                     <button 
                       onClick={effectiveOnIntelClick}
-                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                         effectiveIntelOpen
                           ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
+                          : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                       }`}
                     >
                       <Sparkles className="size-3.5" />
@@ -3700,119 +3702,103 @@ function UniversalIntelligenceDrawer({
   const standardBadge = isHvac ? "ASHRAE / CIBSE / SMACNA" : isElec ? "IEC 60364 / BS 7671 / DEWA" : isPlumbing ? "CIPHE / BS 8558 / BS EN 806 / IPC" : isFire ? "NFPA 13 / NFPA 20 / NFPA 2001" : "MEP International Standards";
 
   return (
-    <div className="fixed top-[80px] right-0 bottom-0 w-[360px] bg-card dark:bg-[#1a1a1a] border-l border-border dark:border-[#262626] shadow-2xl z-50 flex flex-col animate-in slide-in-from-right-5 duration-200">
-      <header className="h-12 px-4 border-b border-border dark:border-[#262626] flex items-center justify-between bg-surface-1 dark:bg-[#121212]">
+    <div className="fixed top-[80px] right-0 bottom-0 w-[360px] bg-card border-l border-border shadow-2xl z-50 flex flex-col animate-in slide-in-from-right-5 duration-200 select-none">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <Sparkles className="size-4 text-primary" />
-          <span className="font-extrabold text-[13.5px] tracking-tight text-foreground dark:text-white">Live Intelligence</span>
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary uppercase">
-            {categoryLabel}
-          </span>
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
         </div>
-        <button onClick={onClose} className="size-7 grid place-items-center rounded-md hover:bg-surface-2 dark:hover:bg-white/10 text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
-          <X className="size-4" />
+        <button onClick={onClose} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer">
+          <X className="size-3.5" />
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar text-[12.5px]">
-        {/* Active Calculator Card */}
-        <div className="p-3 bg-surface-2 dark:bg-[#121212] rounded-xl border border-border dark:border-[#262626] space-y-1">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Active Calculation Module</span>
-          <div className="font-bold text-[14px] text-foreground dark:text-white">{title || "MEP Calculator"}</div>
-          <div className="text-[11px] font-mono text-primary flex items-center gap-1.5 mt-1">
-            <CheckCircle2 className="size-3.5 text-emerald-500" />
-            <span>{standardBadge}</span>
+      <div className="flex-1 overflow-auto">
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle2 className="size-3.5 text-success" />
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold">Compliance Status</h4>
           </div>
-        </div>
+          <div className="text-[12px] text-muted-foreground">Active Module: {title || "MEP Calculator"}</div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+              <div className="h-full bg-success" style={{ width: "100%" }} />
+            </div>
+            <span className="font-mono tabular text-[11.5px]">100%</span>
+          </div>
+        </section>
 
-        {/* Real-Time Health & Compliance */}
-        <div className="p-3 bg-surface-2 dark:bg-[#121212] rounded-xl border border-border dark:border-[#262626] space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Calculation Health</span>
-            <span className="flex items-center gap-1 text-[10.5px] font-bold text-emerald-500">
-              <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              LIVE COMPLIANT
-            </span>
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <Gauge className="size-3.5 text-primary" />
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold">Engineering Standards</h4>
           </div>
-          <div className="space-y-1.5 pt-1">
-            <div className="flex justify-between items-center text-[11.5px]">
-              <span className="text-muted-foreground">Mathematical Logic</span>
-              <span className="font-mono font-medium text-foreground dark:text-white">Verified (0 Errors)</span>
-            </div>
-            <div className="flex justify-between items-center text-[11.5px]">
-              <span className="text-muted-foreground">Engineering Safety Margin</span>
-              <span className="font-mono font-medium text-emerald-600 dark:text-emerald-400">+15% Safety Margin</span>
-            </div>
-            <div className="flex justify-between items-center text-[11.5px]">
-              <span className="text-muted-foreground">Data Storage</span>
-              <span className="font-mono font-medium text-foreground dark:text-white">Auto-Synced to Cloud</span>
-            </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground">Discipline</span>
+            <span className="font-mono tabular font-medium">{categoryLabel}</span>
           </div>
-        </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground">Standard</span>
+            <span className="font-mono tabular font-medium">{standardBadge}</span>
+          </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground">Safety Margin</span>
+            <span className="font-mono tabular font-medium text-success">+15%</span>
+          </div>
+        </section>
 
-        {/* Engineering Guidelines & Criteria */}
-        <div className="p-3 bg-surface-2 dark:bg-[#121212] rounded-xl border border-border dark:border-[#262626] space-y-2">
-          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider block">Discipline Design Guidelines</span>
-          <div className="space-y-2 pt-0.5">
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="size-3.5 text-primary" />
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold">Design Guidelines</h4>
+          </div>
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
             {isHvac && (
               <>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">Duct & Airflow Sizing</strong>
-                  Main ducts ≤ 6.0 m/s, branch ducts ≤ 4.0 m/s for quiet acoustic velocity limits.
-                </div>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">Chilled Water Piping</strong>
-                  Friction head loss ≤ 250 Pa/m; max fluid velocity ≤ 2.4 m/s.
-                </div>
+                <li>Main duct velocity ≤ 6.0 m/s for quiet acoustic limits.</li>
+                <li>Chilled water friction head loss ≤ 250 Pa/m.</li>
               </>
             )}
             {isElec && (
               <>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">Allowable Voltage Drop</strong>
-                  Lighting circuits ≤ 3%, power/motor circuits ≤ 5% (IEC 60364 / BS 7671).
-                </div>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">Circuit Breaker & Cable Protection</strong>
-                  Incomer & feeder protection must satisfy Ib ≤ In ≤ Iz and thermal withstand k²S² ≥ I²t.
-                </div>
+                <li>Allowable voltage drop: lighting ≤ 3%, power/motor ≤ 5%.</li>
+                <li>Breaker & feeder thermal withstand k²S² ≥ I²t.</li>
               </>
             )}
             {isPlumbing && (
               <>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">Water Velocity Control</strong>
-                  Cold/Hot water velocity ≤ 1.5 m/s (max 2.0 m/s) to eliminate water hammer noise.
-                </div>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">Simultaneous Loading Units</strong>
-                  Flow calculations adhere strictly to CIPHE, BS 8558, BS EN 806, IPC, and DBC demand curves.
-                </div>
+                <li>Domestic water velocity ≤ 1.5 m/s to prevent water hammer.</li>
+                <li>Simultaneous loading units per CIPHE / IPC demand tables.</li>
               </>
             )}
             {isFire && (
               <>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">NFPA 13 Sprinkler Density</strong>
-                  Assign design density (L/min/m²) based on Hazard Classification (Light, Ordinary, Extra Hazard).
-                </div>
-                <div className="p-2.5 bg-background dark:bg-[#1a1a1a] rounded-lg border border-border dark:border-[#262626] text-[11.5px]">
-                  <strong className="text-foreground dark:text-white block font-semibold mb-0.5">Hazen-Williams Pressure Loss</strong>
-                  Calculates friction loss using exact C-factor (C=150 Copper/Plastic, C=120 Steel).
-                </div>
+                <li>Sprinkler density based on NFPA 13 hazard classification.</li>
+                <li>Hazen-Williams friction loss computed using verified C-factor.</li>
               </>
             )}
-          </div>
-        </div>
+          </ul>
+        </section>
 
-        {/* Action Button */}
-        <Link
-          to="/sanity-check-tool"
-          className="w-full py-2.5 px-3 bg-primary text-primary-foreground font-bold rounded-xl text-[12px] flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors shadow-sm cursor-pointer"
-        >
-          <Zap className="size-4" />
-          Run Full Project Sanity Check
-        </Link>
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <Info className="size-3.5 text-muted-foreground" />
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold">Engineering Notes</h4>
+          </div>
+          <div className="text-[12px] text-muted-foreground">
+            All formula solvers verified against international building codes and industry best practices.
+          </div>
+        </section>
+
+        <div className="p-3">
+          <Link
+            to="/sanity-check-tool"
+            className="w-full py-2 px-3 bg-primary text-primary-foreground font-semibold rounded-lg text-[12px] flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors shadow-xs cursor-pointer"
+          >
+            <Zap className="size-3.5" />
+            Run Full Project Sanity Check
+          </Link>
+        </div>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { exportDischargeUnitPDF } from "@/lib/exportDischargeUnitPDF";
 
 export const Route = createFileRoute("/plumbing-discharge-unit")({
   head: () => ({
@@ -27,6 +28,22 @@ interface FUSpace {
   std: string;
   fixtures: Record<string, number>;
   isFlagged?: boolean;
+  isManualFloor?: boolean;
+}
+
+export function getFUSpaceValidation(s?: Partial<FUSpace>) {
+  const warnings: string[] = [];
+  if (!s) return { isFlagged: false, warnings: [], isAutoFlagged: false, isManualFlagged: false };
+
+  const descEmpty = !s.desc || s.desc.trim() === "";
+  
+  if (descEmpty) warnings.push("Description is missing");
+
+  const isAutoFlagged = warnings.length > 0;
+  const isManualFlagged = s.isFlagged === true;
+  const isFlagged = isManualFlagged || isAutoFlagged;
+
+  return { isFlagged, warnings, isAutoFlagged, isManualFlagged };
 }
 
 export const IP_DISCHARGE_UNITS: Record<string, Record<string, number>> = {
@@ -138,7 +155,8 @@ function DischargeUnitPage() {
 
   // Selection states for batch update
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [bulkStd, setBulkStd] = useState("total-du");
+  const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
+  const [bulkFloor, setBulkFloor] = useState("");
 
   // Load state from localStorage on project change
   useEffect(() => {
@@ -458,10 +476,19 @@ function DischargeUnitPage() {
     setFuSpaces(fuSpaces.map(s => {
       if (s.id !== spaceId) return s;
       const updated = { ...s, [field]: val };
-      if (field === "desc") {
+      if (field === "desc" && !s.isManualFloor) {
         updated.floor = extractFloorFU(val);
       }
       return updated;
+    }));
+  };
+
+  const handleFloorRename = (oldFloor: string, newFloor: string) => {
+    setFuSpaces(fuSpaces.map(s => {
+      if ((s.floor || 'G') === oldFloor) {
+        return { ...s, floor: newFloor, isManualFloor: true };
+      }
+      return s;
     }));
   };
 
@@ -474,159 +501,221 @@ function DischargeUnitPage() {
     }
   };
 
-  const handleToggleSelect = (id: number, checked: boolean) => {
+  const handleToggleSelect = (id: number, checked: boolean, shiftKey?: boolean) => {
+    if (shiftKey && lastSelectedId !== null) {
+      const lastIndex = sortedSpaces.findIndex(s => s.id === lastSelectedId);
+      const currentIndex = sortedSpaces.findIndex(s => s.id === id);
+      
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const idsInRange = sortedSpaces.slice(start, end + 1).map(s => s.id);
+        
+        if (checked) {
+          setSelectedIds(prev => Array.from(new Set([...prev, ...idsInRange])));
+        } else {
+          setSelectedIds(prev => prev.filter(x => !idsInRange.includes(x)));
+        }
+        setLastSelectedId(id);
+        return;
+      }
+    }
+
     if (checked) {
       setSelectedIds([...selectedIds, id]);
     } else {
       setSelectedIds(selectedIds.filter(x => x !== id));
     }
+    setLastSelectedId(id);
   };
 
-  const handleApplyBulkStd = () => {
-    if (selectedIds.length === 0) return;
+  const handleApplyBulkFloor = () => {
+    if (selectedIds.length === 0 || !bulkFloor.trim()) return;
+    pushToUndo(fuSpaces);
     setFuSpaces(fuSpaces.map(s => {
       if (selectedIds.includes(s.id)) {
-        return { ...s, std: bulkStd };
+        return { ...s, floor: bulkFloor.trim(), isManualFloor: true };
       }
       return s;
     }));
     setSelectedIds([]);
+    setBulkFloor("");
+    toast.success(`Floor updated for ${selectedIds.length} space(s)`);
   };
 
-  // Excel Export
-  const handleExportExcel = () => {
-    const wb = XLSX.utils.book_new();
-    const rowsData = [
-      ["Discharge Unit Sizing Report"],
-      ["S.No", "Description", ...DU_FIXTURES_META.map(f => f.short), "Black D.U.", "Grey D.U."],
-      ...fuSpaces.map((s, idx) => {
-        const row = [
-          idx + 1,
-          s.desc,
-          s.std.replace("ipc-", "").toUpperCase(),
-        ];
-        DU_FIXTURES_META.forEach(f => {
-          row.push(s.fixtures[f.id] || 0);
-        });
-        row.push(calculations.spaceTotals[s.id] || 0);
-        return row;
-      }),
-      ["TOTALS", "", ...DU_FIXTURES_META.map(() => ""), calculations.blackTotalDU, calculations.greyTotalDU]
-    ];
-
-    const summaryData = [
-      ["Sizing Summary"],
-      ["Total D.U.", calculations.totalDU.toFixed(1)],
-      ["Probable Peak Flow", calculations.displayFlow],
-      ["Applied Standard", "Curve Fit Polynomial Method (Hunter's Curve)"],
-      [],
-      ["Assumptions & Basis"],
-      ["-", "Sizing is based on the Water Supply Discharge Units (D.U.) methodology."],
-      ["-", "Standards options support Black Water, Grey Water, or Total D.U. loadings."],
-      ["-", "Probable peak flow rate conversion is derived from the Curve Fit Polynomial matching the Hunter's curve chart data up to 5,000 D.U.s."]
-    ];
-
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-    XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
-
-    const wsRows = XLSX.utils.aoa_to_sheet(rowsData);
-    XLSX.utils.book_append_sheet(wb, wsRows, "Fixture Schedule");
-
-    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    downloadFile(new Uint8Array(xlsxBuffer), "Fixture_Unit_Calculation_Report.xlsx", "Excel Document", ["xlsx"]);
+  // PDF Export
+  const handleExportPDF = async () => {
+    if (fuSpaces.length === 0) {
+      toast.info("No spaces to export.");
+      return;
+    }
+    try {
+      await exportDischargeUnitPDF(fuSpaces, calculations);
+      toast.success("PDF report exported successfully!");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to export PDF report.");
+    }
   };
 
-  // Group by floor for listing
-  const floorsGrouped = useMemo(() => {
-    const grouped: Record<string, FUSpace[]> = {};
-    fuSpaces.forEach(s => {
-      const fl = s.floor || "G";
-      if (!grouped[fl]) grouped[fl] = [];
-      grouped[fl].push(s);
+  const [calcReviewState, setCalcReviewState] = useState<any>(null);
+
+  // Sort spaces by floor first (ascending), then by description (ascending)
+  const sortedSpaces = useMemo(() => {
+    return [...fuSpaces].sort((a, b) => {
+      const floorA = (a.floor || "").trim();
+      const floorB = (b.floor || "").trim();
+      const floorCompare = floorA.localeCompare(floorB, undefined, { numeric: true, sensitivity: "base" });
+      if (floorCompare !== 0) return floorCompare;
+      return (a.desc || "").localeCompare(b.desc || "", undefined, { numeric: true, sensitivity: "base" });
     });
-    return grouped;
   }, [fuSpaces]);
 
   return (
     <AppShell title="Discharge Unit Calculator" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-baseline gap-2">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Discharge Unit</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{fuSpaces.length} spaces</span>
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full relative">
+          {/* Page Header Area */}
+          <div className="flex flex-col gap-3 shrink-0 select-none no-print">
+            <div className="flex justify-between items-start">
+              <div className="flex flex-col">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Discharge Unit Calculator</h1>
+                  <CalculationReviewBar 
+                    projectId={project?.id}
+                    calculatorPath="/plumbing-discharge-unit" 
+                    calculatorTitle="Plumbing Discharge Unit" 
+                    onReviewStateChange={setCalcReviewState}
+                  />
+                </div>
+                <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
+                  Calculate Discharge Units (DU), peak demand flow rates, and drainage sizing.
+                </p>
               </div>
-              <CalculationReviewBar
-                calculatorPath="/plumbing-discharge-unit"
-                calculatorTitle="Plumbing Discharge Unit"
-              />
             </div>
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 <button
-                  onClick={() => setActiveTab("calculator")}
+                  type="button"
+                  onClick={() => setActiveTab("spaces")}
                   className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "calculator"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
+                    activeTab === "spaces" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Spaces
                 </button>
                 <button
+                  type="button"
                   onClick={() => setActiveTab("report")}
                   className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "report"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
+                    activeTab === "report" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Report
-                </button>
-              </div>
-
-              {/* Toolbar */}
-              <div className="flex items-center gap-2">
-                <button onClick={() => setFuSpaces([])} className="text-red-500 hover:text-red-700 text-[11px] font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1.5 rounded transition-colors cursor-pointer border border-transparent hover:border-red-200">
-                  <Trash2 className="size-3.5" /> Clear All Spaces
-                </button>
-                <button type="button" onClick={handleExportExcel} className="flex items-center gap-1.5 bg-background border border-border hover:bg-surface-2 text-foreground px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer">
-                  <Download className="size-3.5" /> Export Excel
-                </button>
-                <button onClick={handleAddSpace} className="flex items-center gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer">
-                  <Plus className="size-3.5" /> New Space
+                  Sizing &amp; Report
                 </button>
               </div>
             </div>
 
             {/* Active Tab View */}
-            <div className="flex-1 min-h-0 animate-fade-in flex flex-col">
-              {activeTab === "calculator" ? (
-                <div className="flex flex-col h-full bg-background relative">
-          {/* Bulk toolbar */}
-          {selectedIds.length > 0 && (
-            <div className="flex items-center gap-3 bg-[#0A7BC7]/10 border border-[#0A7BC7]/20 rounded-xl p-3.5 animate-in fade-in slide-in-from-top-2 duration-150">
-              <div className="text-xs font-bold text-[#06456F] dark:text-sky-400">
-                <span className="bg-[#0A7BC7] text-white size-5.5 rounded-full inline-flex items-center justify-center font-mono mr-1.5 text-[10.5px]">{selectedIds.length}</span>
-                Zones Selected
+            <div className="flex-1 min-h-0 animate-fade-in flex flex-col bg-background">
+              {activeTab === "spaces" && (
+                <div className="flex-1 flex flex-col min-h-0">
+              {/* Workspace Header Toolbar Strip */}
+              <div className="relative flex flex-wrap items-center justify-between px-3.5 py-2 bg-slate-50/60 dark:bg-slate-900/40 border-b border-border/60 shrink-0 select-none gap-2">
+                
+                {/* Left Controls: Search, Filter, Sort */}
+                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <input
+                      placeholder="Filter spaces..."
+                      className="h-7 w-44 sm:w-52 pl-8 pr-3 bg-background border border-border/80 focus:border-[#0A7BC7] rounded-full text-[12px] outline-none transition-all"
+                    />
+                  </div>
+                  
+                  <button className="relative inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-all duration-150 outline-none cursor-pointer">
+                    <Filter className="size-3.5" />
+                  </button>
+                  
+                  <button className="relative inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-all duration-150 outline-none cursor-pointer">
+                    <SlidersHorizontal className="size-3.5" />
+                  </button>
+                </div>
+
+                {/* Right Controls */}
+                <div className="flex items-center justify-end gap-2 w-full lg:w-auto overflow-x-auto pb-1 lg:pb-0 hide-scrollbar">
+                  <button onClick={() => setFuSpaces([])} className="text-red-500 hover:text-red-700 text-[11px] font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-1.5 rounded transition-colors cursor-pointer border border-transparent hover:border-red-200">
+                    <Trash2 className="size-3.5" /> Clear All Spaces
+                  </button>
+                  <button onClick={handleExportPDF} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs">
+                    <FileText className="size-3.5" /> Export
+                  </button>
+                  <button onClick={handleAddSpace} className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer">
+                    <Plus className="size-3.5" /> New Space
+                  </button>
+                </div>
+
+                {/* Bulk actions bar overlay */}
+                {selectedIds.length > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-between px-3.5 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{selectedIds.length} selected</span>
+                      <span className="text-[#0A7BC7]/40 px-1 font-bold">·</span>
+                      <button type="button" onClick={() => setSelectedIds([])} className="text-[#0A7BC7] font-semibold hover:underline cursor-pointer flex items-center gap-1.5">
+                        <X className="size-3.5" />
+                        Deselect All
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold">Move to Floor:</span>
+                        <input
+                          type="text"
+                          value={bulkFloor}
+                          onChange={(e) => setBulkFloor(e.target.value)}
+                          placeholder="e.g. Ground Floor"
+                          className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded px-2 py-0.5 w-32 outline-none focus:border-blue-400"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleApplyBulkFloor();
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleApplyBulkFloor}
+                          disabled={!bulkFloor.trim()}
+                          className="px-2 py-0.5 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-300 rounded font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                      
+                      <button 
+                        type="button" 
+                        onClick={() => {
+                          pushToUndo(fuSpaces);
+                          setFuSpaces(prev => prev.filter(s => !selectedIds.includes(s.id)));
+                          setSelectedIds([]);
+                          toast.success(`${selectedIds.length} row(s) deleted`);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-900/60 rounded font-semibold transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="w-px h-5 bg-border"></div>
-              
-              <button type="button" onClick={() => setSelectedIds([])} className="ml-auto text-xs text-muted-foreground hover:text-foreground font-semibold hover:underline">Deselect All</button>
-            </div>
-          )}
 
-          <div className="flex-1 flex flex-col min-h-0 bg-background">
-
-
-                {/* Table for Adding/Editing spaces */}
+              <div className="flex-1 flex flex-col min-h-0 bg-background relative">
                 <div className="flex-1 overflow-auto">
                   <table className="w-full text-[12.5px]">
                     <thead>
@@ -634,7 +723,8 @@ function DischargeUnitPage() {
                         <th rowSpan={2} className="p-2 text-center w-8 border-r border-border/50">
                           <input type="checkbox" checked={selectedIds.length === fuSpaces.length && fuSpaces.length > 0} onChange={e => handleToggleSelectAll(e.target.checked)} className="size-3.5 accent-orange-500 cursor-pointer" />
                         </th>
-                        <th rowSpan={2} className="p-2 text-left w-[20%] border-r border-border/50">Description</th>
+                        <th rowSpan={2} className="p-2 text-center w-[20%] border-r border-border/50">Description</th>
+                        <th rowSpan={2} className="p-2 text-center w-[12%] border-r border-border/50">Floor</th>
                         {DU_FIXTURES_META.map(f => (
                           <th key={f.id} className="p-2 text-center w-[7%] text-[11px] font-bold border-r border-border/50">{f.short}</th>
                         ))}
@@ -666,26 +756,32 @@ function DischargeUnitPage() {
                     </thead>
                     
                     {/* Sizing Rows */}
-                    {fuSpaces.length === 0 ? (
-                      <tbody>
+                    <tbody>
+                      {sortedSpaces.length === 0 ? (
                         <tr>
-                          <td colSpan={DU_FIXTURES_META.length + 4} className="p-8 text-center text-muted-foreground italic">No spaces added. Add one above.</td>
+                          <td colSpan={DU_FIXTURES_META.length + 5} className="p-8 text-center text-muted-foreground italic">No spaces added. Add one above.</td>
                         </tr>
-                      </tbody>
-                    ) : (
-                      Object.keys(floorsGrouped).map(floor => (
-                        <tbody key={floor}>
-                          {/* Floor Header row */}
-                          <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border text-foreground font-bold select-none text-[11px]">
-                            <td colSpan={DU_FIXTURES_META.length + 4} className="p-1.5 px-3">📍 Floor: {floor}</td>
-                          </tr>
-                          {floorsGrouped[floor].map(s => (
-                            <tr key={s.id} onDoubleClick={() => setPreviewSpace(s)} className={`border-b border-border/40 hover:bg-slate-50/30 dark:hover:bg-slate-900/20 cursor-pointer ${s.isFlagged ? "bg-amber-50/50 dark:bg-amber-950/20" : ""}`}>
+                      ) : (
+                        sortedSpaces.map(s => {
+                          const validation = getFUSpaceValidation(s);
+                          return (
+                            <tr key={s.id} onDoubleClick={() => setPreviewSpace(s)} className="border-b border-border/40 hover:bg-slate-50/30 dark:hover:bg-slate-900/20 cursor-pointer">
                               <td className="p-2 text-center border-r border-border/50">
-                                <input type="checkbox" checked={selectedIds.includes(s.id)} onChange={e => handleToggleSelect(s.id, e.target.checked)} className="size-3.5 accent-orange-500 cursor-pointer" />
+                                <input type="checkbox" checked={selectedIds.includes(s.id)} onChange={e => handleToggleSelect(s.id, e.target.checked, (e.nativeEvent as PointerEvent).shiftKey || (e.nativeEvent as KeyboardEvent).shiftKey)} className="size-3.5 accent-orange-500 cursor-pointer" />
                               </td>
                               <td className="p-1.5 border-r border-border/50">
                                 <input type="text" value={s.desc} onChange={e => handleSpaceChange(s.id, "desc", e.target.value)} className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded" />
+                              </td>
+                              <td className="p-1.5 border-r border-border/50">
+                                <input 
+                                  type="text" 
+                                  value={s.floor ?? ""} 
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setFuSpaces(fuSpaces.map(x => x.id === s.id ? { ...x, floor: val, isManualFloor: true } : x));
+                                  }} 
+                                  className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-semibold text-muted-foreground text-center" 
+                                />
                               </td>
                               {DU_FIXTURES_META.map(f => (
                                 <td key={f.id} className="p-1 border-r border-border/50">
@@ -699,26 +795,27 @@ function DischargeUnitPage() {
                                 {(calculations.spaceGreyTotals[s.id] || 0).toFixed(1)}
                               </td>
                               <td className="p-2 text-center border-r border-border/50">
-                                <button onClick={() => setFuSpaces(fuSpaces.map(x => x.id === s.id ? { ...x, isFlagged: !x.isFlagged } : x))} className={`p-1 rounded cursor-pointer transition-colors border-0 bg-transparent ${s.isFlagged ? "text-amber-500 hover:text-amber-600 bg-amber-50 dark:bg-amber-950/20" : "text-slate-300 hover:text-amber-500"}`}>
-                                  <Flag className={`size-3.5 ${s.isFlagged ? "fill-current" : ""}`} />
+                                <button 
+                                  title={validation.warnings.length > 0 ? validation.warnings.join("\n") : (validation.isManualFlagged ? "Flagged manually" : "Flag space")}
+                                  onClick={() => setFuSpaces(fuSpaces.map(x => x.id === s.id ? { ...x, isFlagged: !x.isFlagged } : x))} 
+                                  className={`p-1 rounded cursor-pointer transition-colors border-0 bg-transparent ${validation.isFlagged ? "text-red-500 hover:text-red-600 bg-red-50 dark:bg-red-950/20" : "text-slate-300 hover:text-red-500"}`}>
+                                  <Flag className={`size-3.5 ${validation.isFlagged ? "fill-current" : ""}`} />
                                 </button>
                               </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      ))
-                    )}
+                          );
+                        })
+                      )}
+                    </tbody>
                   </table>
                 </div>
               </div>
-
-
             </div>
+          )}
 
-              ) : (
-
-                <div className="flex-1 flex justify-center bg-slate-50/30 dark:bg-black/10 overflow-y-auto p-8">
-                  <div className="flex flex-col gap-6 w-full max-w-4xl">
+          {activeTab === "report" && (
+            <div className="flex-1 flex justify-center bg-slate-50/30 dark:bg-black/10 overflow-y-auto p-8">
+                <div className="flex flex-col gap-6 w-full max-w-4xl">
                     <div className="bg-card border border-border rounded-2xl p-6 flex flex-col gap-5 shadow-xs">
                       <div className="flex items-center gap-2 pb-3 border-b border-border/60">
                         <div className="w-1.5 h-4 bg-[#0A7BC7] rounded-full"></div>

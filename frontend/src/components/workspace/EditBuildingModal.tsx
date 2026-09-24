@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { X, Building2, ShieldCheck, Check, Layers, ShieldAlert, Droplets, Gauge } from "lucide-react";
+import { X, Building2, ShieldCheck, Check, Layers, ShieldAlert, Droplets, Gauge, Info } from "lucide-react";
 import {
   type CivilDefenseBuilding,
   type CivilDefenseOccupancy,
@@ -26,6 +26,7 @@ export function EditBuildingModal({
   unitSystem = "si",
 }: EditBuildingModalProps) {
   const [formData, setFormData] = useState<CivilDefenseBuilding>({ ...building });
+  const [showPreview, setShowPreview] = useState(false);
 
   // Reset form when building changes or modal opens
   useEffect(() => {
@@ -60,7 +61,9 @@ export function EditBuildingModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div
-        className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
+        className={`w-full bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150 transition-all ${
+          showPreview ? "max-w-5xl" : "max-w-2xl"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -80,6 +83,17 @@ export function EditBuildingModal({
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowPreview((prev) => !prev)}
+              className={`flex items-center gap-1.5 h-9 px-4 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-sm ${
+                showPreview
+                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95 shadow-md shadow-primary/15"
+                  : "bg-surface-2 border-border text-foreground hover:bg-surface-3"
+              }`}
+            >
+              <Info className="size-3.5" />
+              Calculations Preview
+            </button>
+            <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
             >
@@ -88,8 +102,10 @@ export function EditBuildingModal({
           </div>
         </div>
 
-        {/* Modal Body - Form Fields (Matching Screenshot 2) */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+        {/* Content body split into Form inputs and Calculations preview */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          {/* Form inputs (Left side) */}
+          <div className="flex-1 min-w-0 p-6 space-y-4 text-xs overflow-y-auto">
           
           {/* Building / Block Name */}
           <div>
@@ -271,29 +287,123 @@ export function EditBuildingModal({
             </label>
           </div>
 
-          {/* Live Preview Card */}
-          {previewEvaluation && (
-            <div className="p-3.5 rounded-xl bg-surface-2 border border-border/80 flex items-center justify-between">
-              <div className="space-y-0.5">
-                <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-                  Evaluated Civil Defense Duty:
+          </div>
+
+          {/* Calculations preview (Right side) */}
+          <div
+            className={`shrink-0 bg-surface-2/30 backdrop-blur-md border-l border-border overflow-hidden transition-[width,opacity] duration-300 ease-in-out flex flex-col ${
+              showPreview ? "w-[400px] opacity-100 p-6 border-l-border" : "w-0 opacity-0 p-0 border-l-transparent"
+            }`}
+          >
+            <div className="w-[352px] space-y-5 flex flex-col h-full overflow-y-auto">
+              <h3 className="text-[11px] uppercase font-bold text-muted-foreground tracking-wider pb-1.5 border-b border-border/80 shrink-0">
+                Calculations Preview
+              </h3>
+
+              {previewEvaluation && (
+                <div className="space-y-4">
+                  {/* Category & Status */}
+                  <div className="p-4 bg-surface-1 border border-border rounded-2xl space-y-3 shrink-0 shadow-sm">
+                    <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                      Statutory Evaluation
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-[12px] font-semibold text-foreground leading-relaxed">
+                        {previewEvaluation.tableTitle}
+                      </p>
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+                          {previewEvaluation.categoryCode}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                          {previewEvaluation.buildingClass}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Systems Required */}
+                  <div className="p-4 bg-surface-1 border border-border rounded-2xl space-y-3 shrink-0 shadow-sm">
+                    <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                      Mandated Systems
+                    </div>
+                    <div className="space-y-3 text-xs">
+                      <div>
+                        <div className="font-semibold text-foreground mb-0.5">Sprinklers</div>
+                        <div className="text-muted-foreground font-mono">{previewEvaluation.sprinklerRequirement}</div>
+                      </div>
+                      <div className="pt-2 border-t border-border/60">
+                        <div className="font-semibold text-foreground mb-0.5">Standpipe Risers</div>
+                        <div className="text-muted-foreground font-mono">{previewEvaluation.riserRequirement}</div>
+                      </div>
+                      <div className="pt-2 border-t border-border/60">
+                        <div className="font-semibold text-foreground mb-0.5">Hose Reels</div>
+                        <div className="text-muted-foreground font-mono">{previewEvaluation.hoseReelRequirement}</div>
+                      </div>
+                      <div className="pt-2 border-t border-border/60">
+                        <div className="font-semibold text-foreground mb-0.5">Yard Hydrants</div>
+                        <div className="text-muted-foreground font-mono">{previewEvaluation.yardHydrantRequirement}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pump Capacities */}
+                  <div className="p-4 bg-surface-1 border border-border rounded-2xl space-y-3 shrink-0 shadow-sm">
+                    <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                      Pump Capacities
+                    </div>
+                    <div className="space-y-3 text-xs">
+                      <div>
+                        <div className="font-semibold text-foreground mb-0.5">Base Fire Pump Duty</div>
+                        <div className="text-lg font-bold font-mono text-primary">
+                          {unitSystem === "si" ? `${previewEvaluation.lowestFirePumpFlowLpm} LPM` : `${previewEvaluation.lowestFirePumpFlowGpm} GPM`}
+                          <span className="text-[11px] font-normal text-muted-foreground ml-1">@ {unitSystem === "si" ? `${previewEvaluation.lowestFirePumpPressureBar} bar` : `${previewEvaluation.lowestFirePumpPressurePsi} psi`}</span>
+                        </div>
+                        <div className="text-[10px] text-muted-foreground mt-1 bg-surface-2 p-1.5 rounded border border-border/50">{previewEvaluation.lowestPumpRemarks}</div>
+                      </div>
+                      {previewEvaluation.requiresStagingPumps && (
+                        <div className="pt-2 border-t border-border/60">
+                          <div className="font-semibold text-foreground mb-0.5">Intermediate Staging Pumps</div>
+                          <div className="text-lg font-bold font-mono text-purple-600 dark:text-purple-400">
+                            {unitSystem === "si" ? `${previewEvaluation.stagingPumpFlowLpm} LPM` : `${previewEvaluation.stagingPumpFlowGpm} GPM`}
+                            <span className="text-[11px] font-normal text-muted-foreground ml-1">@ {unitSystem === "si" ? `${previewEvaluation.stagingPumpPressureBar} bar` : `${previewEvaluation.stagingPumpPressurePsi} psi`}</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground mt-1 bg-surface-2 p-1.5 rounded border border-border/50">{previewEvaluation.stagingRemarks}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Tank Sizing */}
+                  <div className="p-4 bg-surface-1 border border-border rounded-2xl space-y-3 shrink-0 shadow-sm">
+                    <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                      Tank Sizing
+                    </div>
+                    <div className="space-y-2 text-[11px]">
+                      <div className="flex justify-between items-center pb-2 border-b border-border/60">
+                        <span className="font-semibold text-foreground">Duration Required</span>
+                        <span className="font-mono font-bold text-primary">{previewEvaluation.mainTankDurationMin} min</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2 border-b border-border/60">
+                        <span className="font-semibold text-foreground">Net Volume (Effective)</span>
+                        <span className="font-mono font-bold">{unitSystem === "si" ? `${previewEvaluation.mainTankNetVolumeM3} m³` : `${previewEvaluation.mainTankNetVolumeGal} Gal`}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2 border-b border-border/60">
+                        <span className="font-semibold text-foreground">Gross Volume (+10%)</span>
+                        <span className="font-mono font-bold">{unitSystem === "si" ? `${previewEvaluation.mainTankGrossVolumeM3} m³` : `${previewEvaluation.mainTankGrossVolumeGal} Gal`}</span>
+                      </div>
+                      {previewEvaluation.requiresStagingPumps && (
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-purple-600 dark:text-purple-400">Transfer Tank (Level {previewEvaluation.stagingIntervalMeters}m)</span>
+                          <span className="font-mono font-bold text-purple-600 dark:text-purple-400">{previewEvaluation.stagingTankDurationMin} min</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-sm font-bold text-foreground font-mono">
-                  {unitSystem === "si"
-                    ? `${previewEvaluation.lowestFirePumpFlowLpm} LPM @ ${previewEvaluation.lowestFirePumpPressureBar} bar`
-                    : `${previewEvaluation.lowestFirePumpFlowGpm} GPM @ ${previewEvaluation.lowestFirePumpPressurePsi} psi`}
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  Tank: {previewEvaluation.mainTankDurationMin} min ({previewEvaluation.mainTankNetVolumeM3} m³)
-                </div>
-              </div>
-              <div className="text-right">
-                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-primary/10 text-primary border border-primary/20">
-                  {previewEvaluation.categoryCode.replace(/^Table\s+[\d\.]+[a-z]?[\–\-e]*\s*/i, "")}
-                </span>
-              </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         {/* Modal Footer */}

@@ -33,6 +33,7 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'basement-smoke',
   'lobby-pressurisation',
   'staircase-pressurization',
+  'liftwell-pressurization',
   'psychrometric',
   'psychrometric-calculator',
   'psychrometric-calc',
@@ -180,6 +181,7 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'basement-smoke' ||
     routeKey === 'lobby-pressurisation' ||
     routeKey === 'staircase-pressurization' ||
+    routeKey === 'liftwell-pressurization' ||
     routeKey === 'psychrometric' ||
     routeKey === 'psychrometric-calc' ||
     routeKey === 'psychrometric-calculator' ||

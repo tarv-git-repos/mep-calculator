@@ -54,6 +54,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LobbyPressurisationRouteImport } from './routes/lobby-pressurisation'
 import { Route as LoadSummaryRouteImport } from './routes/load-summary'
 import { Route as LightingLuxCalculationRouteImport } from './routes/lighting-lux-calculation'
+import { Route as LiftwellPressurizationRouteImport } from './routes/liftwell-pressurization'
 import { Route as HeatingLoadRouteImport } from './routes/heating-load'
 import { Route as GeneratorSizingRouteImport } from './routes/generator-sizing'
 import { Route as FreshAirCoolingLoadRouteImport } from './routes/fresh-air-cooling-load'
@@ -311,6 +312,11 @@ const LightingLuxCalculationRoute = LightingLuxCalculationRouteImport.update({
   path: '/lighting-lux-calculation',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LiftwellPressurizationRoute = LiftwellPressurizationRouteImport.update({
+  id: '/liftwell-pressurization',
+  path: '/liftwell-pressurization',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HeatingLoadRoute = HeatingLoadRouteImport.update({
   id: '/heating-load',
   path: '/heating-load',
@@ -469,6 +475,7 @@ export interface FileRoutesByFullPath {
   '/fresh-air-cooling-load': typeof FreshAirCoolingLoadRoute
   '/generator-sizing': typeof GeneratorSizingRoute
   '/heating-load': typeof HeatingLoadRoute
+  '/liftwell-pressurization': typeof LiftwellPressurizationRoute
   '/lighting-lux-calculation': typeof LightingLuxCalculationRoute
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
@@ -542,6 +549,7 @@ export interface FileRoutesByTo {
   '/fresh-air-cooling-load': typeof FreshAirCoolingLoadRoute
   '/generator-sizing': typeof GeneratorSizingRoute
   '/heating-load': typeof HeatingLoadRoute
+  '/liftwell-pressurization': typeof LiftwellPressurizationRoute
   '/lighting-lux-calculation': typeof LightingLuxCalculationRoute
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
@@ -616,6 +624,7 @@ export interface FileRoutesById {
   '/fresh-air-cooling-load': typeof FreshAirCoolingLoadRoute
   '/generator-sizing': typeof GeneratorSizingRoute
   '/heating-load': typeof HeatingLoadRoute
+  '/liftwell-pressurization': typeof LiftwellPressurizationRoute
   '/lighting-lux-calculation': typeof LightingLuxCalculationRoute
   '/load-summary': typeof LoadSummaryRoute
   '/lobby-pressurisation': typeof LobbyPressurisationRoute
@@ -691,6 +700,7 @@ export interface FileRouteTypes {
     | '/fresh-air-cooling-load'
     | '/generator-sizing'
     | '/heating-load'
+    | '/liftwell-pressurization'
     | '/lighting-lux-calculation'
     | '/load-summary'
     | '/lobby-pressurisation'
@@ -764,6 +774,7 @@ export interface FileRouteTypes {
     | '/fresh-air-cooling-load'
     | '/generator-sizing'
     | '/heating-load'
+    | '/liftwell-pressurization'
     | '/lighting-lux-calculation'
     | '/load-summary'
     | '/lobby-pressurisation'
@@ -837,6 +848,7 @@ export interface FileRouteTypes {
     | '/fresh-air-cooling-load'
     | '/generator-sizing'
     | '/heating-load'
+    | '/liftwell-pressurization'
     | '/lighting-lux-calculation'
     | '/load-summary'
     | '/lobby-pressurisation'
@@ -911,6 +923,7 @@ export interface RootRouteChildren {
   FreshAirCoolingLoadRoute: typeof FreshAirCoolingLoadRoute
   GeneratorSizingRoute: typeof GeneratorSizingRoute
   HeatingLoadRoute: typeof HeatingLoadRoute
+  LiftwellPressurizationRoute: typeof LiftwellPressurizationRoute
   LightingLuxCalculationRoute: typeof LightingLuxCalculationRoute
   LoadSummaryRoute: typeof LoadSummaryRoute
   LobbyPressurisationRoute: typeof LobbyPressurisationRoute
@@ -1275,6 +1288,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LightingLuxCalculationRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/liftwell-pressurization': {
+      id: '/liftwell-pressurization'
+      path: '/liftwell-pressurization'
+      fullPath: '/liftwell-pressurization'
+      preLoaderRoute: typeof LiftwellPressurizationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/heating-load': {
       id: '/heating-load'
       path: '/heating-load'
@@ -1487,6 +1507,7 @@ const rootRouteChildren: RootRouteChildren = {
   FreshAirCoolingLoadRoute: FreshAirCoolingLoadRoute,
   GeneratorSizingRoute: GeneratorSizingRoute,
   HeatingLoadRoute: HeatingLoadRoute,
+  LiftwellPressurizationRoute: LiftwellPressurizationRoute,
   LightingLuxCalculationRoute: LightingLuxCalculationRoute,
   LoadSummaryRoute: LoadSummaryRoute,
   LobbyPressurisationRoute: LobbyPressurisationRoute,

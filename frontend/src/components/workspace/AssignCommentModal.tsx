@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Users, User as UserIcon, MessageSquare } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -54,11 +54,15 @@ export function AssignCommentModal({
   const effectiveTargetId = targetId || spaceId || (typeof targetItem === 'object' ? targetItem?.id : '') || '';
   const effectiveTargetName = targetName || spaceName || targetLabel || (typeof targetItem === 'object' ? targetItem?.name || targetItem?.label : '') || 'Parameter';
   const effectiveTargetType = targetType || category || 'space';
-  const effectiveExistingComments = (existingComments && existingComments.length > 0)
-    ? existingComments
-    : (initialComments && initialComments.length > 0)
-    ? initialComments
-    : (comments || []);
+  const validExistingComments = useMemo(() => {
+    const raw = (existingComments && existingComments.length > 0)
+      ? existingComments
+      : (initialComments && initialComments.length > 0)
+      ? initialComments
+      : (comments || []);
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((c: any) => c && typeof c === 'object' && Boolean(c.text && String(c.text).trim().length > 0));
+  }, [existingComments, initialComments, comments]);
   const { userData, profile } = useAuth();
   const { project, isReadOnly } = useWorkspace();
   const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
@@ -229,10 +233,11 @@ export function AssignCommentModal({
         String(u.id) === uKey || String(u.email) === uKey || String(u.name) === uKey || String(u.rawName) === uKey
       );
       if (matchU) {
+        // Store canonical user ID/email
         if (matchU.id) allAssignedUserIds.add(String(matchU.id).trim());
-        if (matchU.email) allAssignedUserIds.add(String(matchU.email).trim());
-        if (matchU.name) allAssignedUserIds.add(String(matchU.name).trim());
-        if (matchU.rawName) allAssignedUserIds.add(String(matchU.rawName).trim());
+        else if (matchU.email) allAssignedUserIds.add(String(matchU.email).trim());
+        else allAssignedUserIds.add(String(uKey).trim());
+
         assignedDisplayNames.push(matchU.name || matchU.email || uKey);
       } else {
         allAssignedUserIds.add(String(uKey).trim());
@@ -280,8 +285,9 @@ export function AssignCommentModal({
       if (saveFn) {
         await saveFn(newComment);
       }
-      if (assignedDisplayNames.length > 0) {
-        toast.success(`Comment & task assigned to ${assignedDisplayNames.join(', ')}`);
+      const uniqueDisplay = Array.from(new Set(assignedDisplayNames));
+      if (uniqueDisplay.length > 0) {
+        toast.success(`Comment & task assigned to ${uniqueDisplay.join(', ')}`);
       } else {
         toast.success("Comment sent to project coordination");
       }
@@ -322,14 +328,14 @@ export function AssignCommentModal({
         const uEmail = String(u.email || '').trim().toLowerCase();
         const uName = String(u.name || '').trim().toLowerCase();
         const uRawName = String(u.rawName || '').trim().toLowerCase();
-        return uId === cleanKey || uEmail === cleanKey || uName === cleanKey || uRawName === cleanKey;
+        return (uId && uId === cleanKey) || (uEmail && uEmail === cleanKey) || (uName && uName === cleanKey) || (uRawName && uRawName === cleanKey);
       });
       if (matchedUser) return matchedUser.name;
 
       const matchedTeam = availableTeams.find((t: any) => {
         const tId = String(t.id || '').trim().toLowerCase();
         const tName = String(t.name || '').trim().toLowerCase();
-        return tId === cleanKey || tName === cleanKey;
+        return (tId && tId === cleanKey) || (tName && tName === cleanKey);
       });
       if (matchedTeam) return matchedTeam.name;
 
@@ -363,7 +369,9 @@ export function AssignCommentModal({
       return uKey;
     }).filter(Boolean);
 
-    return resolvedNames.join(', ');
+    // Deduplicate so each unique user / team appears exactly once
+    const uniqueResolvedNames = Array.from(new Set(resolvedNames));
+    return uniqueResolvedNames.join(', ');
   };
 
   const toggleUser = (uId: any) => {
@@ -409,13 +417,13 @@ export function AssignCommentModal({
         <div className="p-5 overflow-y-auto flex-1 custom-scrollbar space-y-5">
           
           {/* Existing Comments History */}
-          {Array.isArray(effectiveExistingComments) && effectiveExistingComments.length > 0 && (
+          {validExistingComments.length > 0 && (
             <div>
               <label className="block text-[11.5px] font-bold text-muted-foreground uppercase tracking-wide mb-2">
-                Existing Comments & History ({effectiveExistingComments.length})
+                Existing Comments & History ({validExistingComments.length})
               </label>
               <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                {effectiveExistingComments.map((c, idx) => (
+                {validExistingComments.map((c, idx) => (
                   <div key={c.id || idx} className="p-2.5 bg-surface-2 border border-border/60 rounded-lg text-xs">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="font-bold text-foreground">{c.authorName || 'Engineer'}</span>
