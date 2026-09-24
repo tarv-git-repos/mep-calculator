@@ -808,7 +808,7 @@ function StaircasePressurizationPage() {
         ],
         [
           "4",
-          "Design Total Pressure Drop (ΔP_total)",
+          "Design Total Pressure Drop (dP_total)",
           `${calc.designPressureDropPa} Pa`
         ],
         [
